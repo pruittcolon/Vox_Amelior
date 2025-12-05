@@ -142,12 +142,6 @@ kubectl port-forward svc/api-gateway 8000:8000 -n nemo
 
 ---
 
-## 🗺️ Roadmap
-
-*   **Q1 2026**: Multi-Node Kubernetes Operator for distributed inference.
-*   **Q2 2026**: Federated Learning protocol for privacy-preserving model updates.
-*   **Q3 2026**: Hardware-agnostic NPU support (Apple Silicon / Intel NPU).
-
 ## 📱 Ecosystem
 
 *   **Nemo Mobile:** Flutter-based companion app for Edge AI input (Voice/Vision).
@@ -173,8 +167,8 @@ nemo test all
 ## 👨‍💻 Author
 
 **Pruitt Colon**
-*Senior AI Engineer & Architect*
+*Masters in Engineering, AI Specialization*
 
-[📄 View Resume](Pruitt_Colons_AI_Resume.pdf) | [🌐 Portfolio](https://github.com/pruittcolon)
+[🌐 Portfolio](https://whyhirepruitt.dev)
 
 *Built to demonstrate advanced orchestration of local AI workloads.*
