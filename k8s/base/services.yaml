@@ -1,0 +1,137 @@
+# =============================================================================
+# Nemo Platform - Kubernetes Services
+# =============================================================================
+# ClusterIP services for internal communication between pods.
+#
+# Port Mapping:
+#   - redis:                 6379 (cache, semaphore locks)
+#   - postgres:              5432 (persistent storage)
+#   - gpu-coordinator:       8002 (GPU scheduling)
+#   - gemma-service:         8001 (LLM inference)
+#   - transcription-service: 8003 (ASR + diarization)
+#   - rag-service:           8004 (vector DB)
+#   - emotion-service:       8005 (sentiment analysis)
+#   - ml-service:            8006 (AutoML)
+#   - insights-service:      8010 (analytics)
+#   - api-gateway:           8000 (entry point)
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: nemo
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+  selector:
+    app: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: nemo
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gpu-coordinator
+  namespace: nemo
+spec:
+  ports:
+    - port: 8002
+      targetPort: 8002
+  selector:
+    app: gpu-coordinator
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gemma-service
+  namespace: nemo
+spec:
+  ports:
+    - port: 8001
+      targetPort: 8001
+  selector:
+    app: gemma-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transcription-service
+  namespace: nemo
+spec:
+  ports:
+    - port: 8003
+      targetPort: 8003
+  selector:
+    app: transcription-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-service
+  namespace: nemo
+spec:
+  ports:
+    - port: 8004
+      targetPort: 8004
+  selector:
+    app: rag-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emotion-service
+  namespace: nemo
+spec:
+  ports:
+    - port: 8005
+      targetPort: 8005
+  selector:
+    app: emotion-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: insights-service
+  namespace: nemo
+spec:
+  ports:
+    - port: 8010
+      targetPort: 8010
+  selector:
+    app: insights-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: nemo
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+  selector:
+    app: api-gateway
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-service
+  namespace: nemo
+spec:
+  ports:
+    - port: 8006
+      targetPort: 8006
+  selector:
+    app: ml-service

@@ -251,6 +251,10 @@
       return `${API_BASE}${normalized}`;
     };
 
+    // Token storage for iframe contexts (VS Code Simple Browser)
+    const TOKEN_STORAGE_KEY = 'nemo_session_token';
+    const CSRF_STORAGE_KEY = 'nemo_csrf_token';
+
     const form = document.getElementById('login-form');
     const errorMessage = document.getElementById('error-message');
     const loginButton = document.getElementById('login-button');
@@ -284,6 +288,21 @@
         const serverDetail = data.detail || data.message;
 
         if (response.ok && data.success) {
+          // Store session token in localStorage for iframe contexts
+          if (data.session_token) {
+            try {
+              localStorage.setItem(TOKEN_STORAGE_KEY, data.session_token);
+              console.log('[AUTH] Token stored in localStorage');
+            } catch (e) {
+              console.warn('[AUTH] localStorage not available');
+            }
+          }
+          // Store CSRF token if provided
+          if (data.csrf_token) {
+            try {
+              localStorage.setItem(CSRF_STORAGE_KEY, data.csrf_token);
+            } catch (e) {}
+          }
           // Success! Redirect to dashboard
           window.location.href = 'index.html';
         } else {

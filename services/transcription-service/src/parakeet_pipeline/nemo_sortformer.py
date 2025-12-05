@@ -41,6 +41,24 @@ class NemoSortformerDiarizer:
         self.model.freeze()
         logger.info("Sortformer diarizer ready")
 
+    def to(self, device: str) -> None:
+        """Move the model to the specified device."""
+        target = device
+        if target == "cuda" and not torch.cuda.is_available():
+            target = "cpu"
+        
+        if target == self.device:
+            return
+
+        try:
+            logger.info("Moving Sortformer to %s", target)
+            self.model = self.model.to(target)
+            self.device = target
+            if target == "cpu":
+                torch.cuda.empty_cache()
+        except Exception as exc:
+            logger.error("Failed to move Sortformer to %s: %s", target, exc)
+
     def diarize(self, audio_path: str) -> List[SpeakerSegment]:
         if not audio_path or not os.path.exists(audio_path):
             logger.error("Audio file missing for diarization: %s", audio_path)

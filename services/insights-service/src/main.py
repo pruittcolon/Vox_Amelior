@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from shared.analytics import AnalyticsEngine
 from shared.security.secrets import get_secret
+from src.automl import AutoMLService
 
 logger = logging.getLogger("insights-service")
 
@@ -23,6 +24,8 @@ except Exception as exc:
     logger.error("[Insights] Failed to load rag_db_key secret: %s", exc)
 
 engine = AnalyticsEngine(DB_PATH, encryption_key=DB_KEY)
+automl = AutoMLService(DB_PATH, db_key=DB_KEY)
+
 logger.info("[Insights] Starting in %s mode using DB %s", APP_ENV, DB_PATH)
 if not engine.db_path.exists():
     logger.warning("[Insights] DB path %s does not exist", engine.db_path)
@@ -48,6 +51,26 @@ def healthcheck():
         "db_exists": engine.db_path.exists(),
     }
 
+@app.get("/automl/hypotheses", tags=["automl"])
+def get_automl_hypotheses():
+    """Generate AutoML hypotheses"""
+    try:
+        # Ensure data is loaded
+        automl.load_data()
+        return {"hypotheses": automl.generate_hypotheses()}
+    except Exception as e:
+        logger.error(f"AutoML error: {e}")
+        return {"error": str(e), "hypotheses": []}
+
+@app.post("/automl/run", tags=["automl"])
+def run_automl_experiment(payload: dict):
+    """Run an AutoML experiment"""
+    try:
+        experiment_id = payload.get("experiment_id")
+        return automl.run_experiment(experiment_id)
+    except Exception as e:
+        logger.error(f"AutoML run error: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.get("/analytics/signals", tags=["analytics"])
 def analytics_signals(

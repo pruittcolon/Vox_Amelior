@@ -1,0 +1,298 @@
+/* Predictions Page - Forecast Results Display */
+
+/* ========== Forecast Accuracy Hero Styles ========== */
+.forecast-hero {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(139, 92, 246, 0.15));
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 20px;
+  padding: 28px;
+  margin-bottom: 24px;
+  display: none;
+  animation: slideIn 0.5s ease;
+}
+
+.forecast-hero.visible {
+  display: block;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.forecast-hero-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.accuracy-ring {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+}
+
+.accuracy-ring svg {
+  transform: rotate(-90deg);
+  width: 100%;
+  height: 100%;
+}
+
+.accuracy-ring .bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 10;
+}
+
+.accuracy-ring .progress {
+  fill: none;
+  stroke: url(#accuracyGradient);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 314;
+  stroke-dashoffset: 314;
+  transition: stroke-dashoffset 1.5s ease-out;
+}
+
+.accuracy-ring .center-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.accuracy-ring .percent {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #10b981;
+  line-height: 1;
+}
+
+.accuracy-ring .label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.forecast-hero-content {
+  flex: 1;
+  min-width: 280px;
+}
+
+.forecast-hero-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.forecast-hero-title .rating-badge {
+  font-size: 1.2rem;
+  padding: 4px 12px;
+  border-radius: 20px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.rating-excellent {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.rating-good {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.rating-fair {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.forecast-hero-subtitle {
+  color: #cbd5e1;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.forecast-hero-stats {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.forecast-mini-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
+.forecast-mini-stat .icon {
+  font-size: 1rem;
+}
+
+.forecast-mini-stat .value {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.forecast-mini-stat .unit {
+  color: #94a3b8;
+}
+
+/* Forecast Summary in Overview */
+.forecast-overview-card {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.1));
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 16px;
+  padding: 20px;
+  margin-top: 16px;
+  display: none;
+}
+
+.forecast-overview-card.visible {
+  display: block;
+  animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.forecast-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.forecast-overview-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #a78bfa;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.forecast-overview-accuracy {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.forecast-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.forecast-overview-stat {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+}
+
+.forecast-overview-stat .value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #a78bfa;
+}
+
+.forecast-overview-stat .label {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* Gemma Explanation Card */
+.gemma-explanation-card {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.08), rgba(139, 92, 246, 0.08));
+  border: 1px solid rgba(236, 72, 153, 0.25);
+  border-radius: 16px;
+  padding: 20px;
+  margin-top: 20px;
+  display: none;
+}
+
+.gemma-explanation-card.visible {
+  display: block;
+  animation: fadeIn 0.5s ease;
+}
+
+.gemma-explanation-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.gemma-explanation-header .icon {
+  font-size: 1.5rem;
+}
+
+.gemma-explanation-header .title {
+  font-weight: 600;
+  color: #f472b6;
+  font-size: 1.1rem;
+}
+
+.gemma-explanation-header .status {
+  margin-left: auto;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(236, 72, 153, 0.2);
+  color: #f9a8d4;
+}
+
+.gemma-explanation-text {
+  color: #e2e8f0;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.gemma-explanation-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #f472b6;
+}
+
+.gemma-explanation-loading .spinner {
+  border-color: rgba(236, 72, 153, 0.3);
+  border-top-color: #f472b6;
+}

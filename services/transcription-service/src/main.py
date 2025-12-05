@@ -888,7 +888,9 @@ async def lifespan(app: FastAPI):
         queued_chunks = pause_manager.get_queued_chunks()
         if queued_chunks:
             logger.info(f"[CALLBACK] 📋 Processing {len(queued_chunks)} queued chunks")
-            # TODO: Process each queued chunk here
+            logger.warning(
+                "[CALLBACK] Queued chunk processing is not implemented; queued chunks will be skipped"
+            )
     
     pause_manager.set_pause_callback(on_pause)
     pause_manager.set_resume_callback(on_resume)
@@ -898,21 +900,9 @@ async def lifespan(app: FastAPI):
     transcription_model_loaded = True
     logger.info("Transcription Service started successfully (GPU mode)")
     
-    # Signal Gemma to move to CPU now that transcription is ready
-    try:
-        logger.info("[TRANSCRIPTION] 📡 Signaling Gemma to move to CPU...")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "http://gemma-service:8001/move-to-cpu",
-                headers=get_service_headers()
-            )
-            if response.status_code == 200:
-                logger.info("[TRANSCRIPTION] ✅ Gemma moved to CPU, GPU now available for transcription")
-            else:
-                logger.warning(f"[TRANSCRIPTION] ⚠️ Failed to signal Gemma: {response.status_code}")
-    except Exception as e:
-        logger.warning(f"[TRANSCRIPTION] ⚠️ Could not signal Gemma to move to CPU: {e}")
-        logger.info("[TRANSCRIPTION] This is OK if Gemma is already on CPU or not running")
+    # NOTE: We no longer signal Gemma to move to CPU at startup.
+    # Gemma loads on GPU first, transcription uses remaining VRAM.
+    # GPU coordinator handles pause/resume when Gemma needs exclusive access.
     
     yield
     
@@ -1249,6 +1239,77 @@ async def process_queued_chunks():
     }
 
 
+@app.get("/cli/test")
+async def run_self_test():
+    """
+    Self-test endpoint for CLI testing
+    Returns JSON with test results for service-specific functionality
+    """
+    test_results = []
+    
+    # Test 1: Model loading status
+    test_results.append({
+        "test": "model_loaded",
+        "passed": transcription_model_loaded,
+        "details": f"Transcription model loaded: {transcription_model_loaded}"
+    })
+    
+    # Test 2: Parakeet pipeline (if using parakeet strategy)
+    if TRANSCRIBE_STRATEGY == "parakeet":
+        test_results.append({
+            "test": "parakeet_pipeline",
+            "passed": parakeet_pipeline is not None,
+            "details": f"Parakeet pipeline initialized: {parakeet_pipeline is not None}"
+        })
+    
+    # Test 3: Pause manager status
+    pause_manager = get_pause_manager()
+    pause_status = pause_manager.get_status()
+    test_results.append({
+        "test": "pause_manager",
+        "passed": True,
+        "details": f"Pause manager active, paused={pause_status.get('is_paused')}"
+    })
+    
+    # Test 4: Service dependencies reachable
+    dependencies_ok = True
+    dependency_details = []
+    
+    for service_name, url in [("Emotion", EMOTION_SERVICE_URL), ("RAG", RAG_SERVICE_URL)]:
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"{url}/health")
+                ok = resp.status_code == 200
+                dependencies_ok = dependencies_ok and ok
+                dependency_details.append(f"{service_name}: {'OK' if ok else 'FAIL'}")
+        except Exception as e:
+            dependencies_ok = False
+            dependency_details.append(f"{service_name}: ERROR ({str(e)[:50]})")
+   
+    test_results.append({
+        "test": "service_dependencies",
+        "passed": dependencies_ok,
+        "details": ", ".join(dependency_details)
+    })
+    
+    # Calculate summary
+    passed = sum(1 for t in test_results if t["passed"])
+    total = len(test_results)
+    
+    return {
+        "test_suite": "transcription_service",
+        "timestamp": asyncio.get_event_loop().time(),
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "failed": total - passed,
+        },
+        "results": test_results,
+        "overall_passed": passed == total
+    }
+
+
 if __name__ == "__main__":
+
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8003)

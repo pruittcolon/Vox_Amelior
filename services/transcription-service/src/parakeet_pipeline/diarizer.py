@@ -66,6 +66,18 @@ class PyannoteDiarizer:
             logger.error("Failed to initialise Pyannote diarization: %s", exc)
             self.pipeline = None
 
+    def to(self, device: str) -> None:
+        """Move the pipeline to the specified device."""
+        if not self.pipeline:
+            return
+        target_device = "cuda" if device == "cuda" and torch.cuda.is_available() else "cpu"
+        try:
+            self.pipeline.to(torch.device(target_device))
+            self.device = target_device
+            logger.info("Moved Pyannote pipeline to %s", target_device)
+        except Exception as exc:
+            logger.error("Failed to move Pyannote pipeline to %s: %s", target_device, exc)
+
     def diarize(self, audio_path: str) -> List[SpeakerSegment]:
         if not self.pipeline:
             return []

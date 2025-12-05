@@ -1,0 +1,842 @@
+# =============================================================================
+# Nemo Platform - Kubernetes Deployments
+# =============================================================================
+# This file contains all 10 microservice deployments for the Nemo AI platform.
+#
+# IMPORTANT: hostPath mounts reference local development paths.
+# Update paths for your environment or use Kustomize overlays in k8s/overlays/.
+#
+# Services:
+#   - Infrastructure: Redis (6379), PostgreSQL (5432)
+#   - Orchestration: GPU Coordinator (8002)
+#   - AI Services: Gemma LLM (8001), Transcription ASR (8003)
+#   - Memory & Analysis: RAG (8004), Emotion (8005), ML (8006), Insights (8010)
+#   - Gateway: API Gateway (8000)
+#
+# GPU Architecture:
+#   - gemma-service: Requests nvidia.com/gpu: 1 (primary GPU consumer)
+#   - transcription-service: Uses privileged mode for GPU access via coordinator
+#   - gpu-coordinator: Manages GPU handoff between services
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# REDIS - In-memory cache and GPU semaphore lock store
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: nemo
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+# -----------------------------------------------------------------------------
+# POSTGRESQL - Primary relational database for persistent storage
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: nemo
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: nemo_queue
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: postgres_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: postgres_password
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 5Gi
+---
+# -----------------------------------------------------------------------------
+# GPU COORDINATOR - Manages GPU semaphore and task scheduling
+# Implements preemptive interrupt protocol for VRAM contention
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-coordinator
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gpu-coordinator
+  template:
+    metadata:
+      labels:
+        app: gpu-coordinator
+    spec:
+      containers:
+        - name: gpu-coordinator
+          image: refactored-gpu-coordinator:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8002
+          env:
+            - name: REDIS_PORT
+              value: "6379"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_HOST
+              value: postgres
+            - name: POSTGRES_DB
+              value: nemo_queue
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: postgres_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: postgres_password
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: GPU_PAUSE_TIMEOUT
+              value: "12.0"
+            - name: JWT_ONLY
+              value: "true"
+            - name: JWT_SECRET_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_primary
+            - name: JWT_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_previous
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret
+---
+# -----------------------------------------------------------------------------
+# GEMMA SERVICE - Gemma 3-4B LLM Inference Engine
+# Primary GPU consumer (requests nvidia.com/gpu: 1)
+# Uses llama.cpp with 4-bit quantization for 6GB VRAM compatibility
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gemma-service
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gemma-service
+  template:
+    metadata:
+      labels:
+        app: gemma-service
+    spec:
+      containers:
+        - name: gemma-service
+          image: refactored-gemma:local
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 8001
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              nvidia.com/gpu: 1
+          env:
+            - name: GEMMA_MODEL_PATH
+              value: /app/models/gemma-3-4b-it-UD-Q4_K_XL.gguf
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "all"
+            - name: GEMMA_GPU_LAYERS
+              value: "-1"
+            - name: GEMMA_CONTEXT_SIZE
+              value: "2048"
+            - name: GEMMA_BATCH_SIZE
+              value: "512"
+            - name: GPU_COORDINATOR_URL
+              value: http://gpu-coordinator:8002
+            - name: RAG_SERVICE_URL
+              value: http://rag-service:8004
+            - name: LD_LIBRARY_PATH
+              value: /usr/lib/x86_64-linux-gnu:$(LD_LIBRARY_PATH)
+            - name: JWT_ONLY
+              value: "true"
+            - name: JWT_SECRET_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_primary
+            - name: JWT_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_previous
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret
+          volumeMounts:
+            - name: models
+              mountPath: /app/models
+              readOnly: true
+            - name: libcuda
+              mountPath: /usr/lib/x86_64-linux-gnu/libcuda.so.1
+              readOnly: true
+            - name: libnvidia-ml
+              mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+              readOnly: true
+            - name: libnvidia-ptxjitcompiler
+              mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+              readOnly: true
+            - name: nvidia0
+              mountPath: /dev/nvidia0
+            - name: nvidiactl
+              mountPath: /dev/nvidiactl
+            - name: nvidia-uvm
+              mountPath: /dev/nvidia-uvm
+            - name: nvidia-uvm-tools
+              mountPath: /dev/nvidia-uvm-tools
+      volumes:
+        - name: models
+          hostPath:
+            path: /opt/nemo-server/models
+        - name: nvidia0
+          hostPath:
+            path: /dev/nvidia0
+            type: CharDevice
+        - name: nvidiactl
+          hostPath:
+            path: /dev/nvidiactl
+            type: CharDevice
+        - name: nvidia-uvm
+          hostPath:
+            path: /dev/nvidia-uvm
+            type: CharDevice
+        - name: nvidia-uvm-tools
+          hostPath:
+            path: /dev/nvidia-uvm-tools
+            type: CharDevice
+        - name: libcuda
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libcuda.so.1
+        - name: libnvidia-ml
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+        - name: libnvidia-ptxjitcompiler
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+---
+# -----------------------------------------------------------------------------
+# TRANSCRIPTION SERVICE - Real-time ASR + Speaker Diarization
+# Uses NVIDIA Parakeet-TDT and Pyannote
+# Accesses GPU via privileged mode; coordinator manages handoff with Gemma
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcription-service
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transcription-service
+  template:
+    metadata:
+      labels:
+        app: transcription-service
+    spec:
+      containers:
+        - name: transcription-service
+          image: refactored-transcription:local
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 8003
+          env:
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: EMOTION_SERVICE_URL
+              value: http://emotion-service:8005
+            - name: RAG_SERVICE_URL
+              value: http://rag-service:8004
+            - name: TRANSCRIBE_STRATEGY
+              value: "parakeet"
+            - name: PARAKEET_MODEL_ID
+              value: "nvidia/parakeet-tdt-0.6b-v2"
+            - name: PARAKEET_CHUNK_DURATION
+              value: "300"
+            - name: ENABLE_PYANNOTE
+              value: "true"
+            - name: PYANNOTE_DEVICE
+              value: "cuda"
+            - name: DIARIZER_BACKEND
+              value: "nemo"
+            - name: SORTFORMER_MODEL
+              value: /app/models/diar_sortformer_4spk-v1.nemo
+            - name: SORTFORMER_MAX_SPKS
+              value: "4"
+            - name: SORTFORMER_DEVICE
+              value: "cuda"
+            - name: DIARIZATION_SPK_MAX
+              value: "4"
+            - name: CUDA_LAUNCH_BLOCKING
+              value: "1"
+            - name: TORCH_USE_CUDA_DSA
+              value: "1"
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: "max_split_size_mb:64"
+            - name: NEMO_MODEL_NAME
+              value: "nvidia/parakeet-rnnt-0.6b"
+            - name: HF_HOME
+              value: /tmp/hf-cache
+            - name: HUGGINGFACE_HUB_CACHE
+              value: /tmp/hf-cache
+            - name: LD_LIBRARY_PATH
+              value: /usr/lib/x86_64-linux-gnu:$(LD_LIBRARY_PATH)
+            - name: JWT_ONLY
+              value: "true"
+            - name: ENROLLMENT_DATA_PATH
+              value: /app/enrollment_data
+            - name: SPEAKER_MATCH_THRESHOLD
+              value: "0.42"
+            - name: SPEAKER_DYNAMIC_THRESHOLD_MARGIN
+              value: "0.25"
+            - name: SPEAKER_SUPPORT_MIN_MATCHES
+              value: "1"
+            - name: SPEAKER_SUPPORT_MIN_COVERAGE
+              value: "0.20"
+            - name: ENROLLMENT_SAMPLE_MAX
+              value: "64"
+            - name: SPEAKER_DEBUG
+              value: "false"
+            - name: SPEAKER_EXCLUDE
+              value: "television"
+            - name: JWT_SECRET_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_primary
+            - name: JWT_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_previous
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret
+            - name: HUGGINGFACE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: huggingface_token
+          volumeMounts:
+            - name: models
+              mountPath: /app/models
+              readOnly: true
+            - name: enrollment-data
+              mountPath: /app/enrollment_data
+              readOnly: true
+            - name: libcuda
+              mountPath: /usr/lib/x86_64-linux-gnu/libcuda.so.1
+              readOnly: true
+            - name: libnvidia-ml
+              mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+              readOnly: true
+            - name: libnvidia-ptxjitcompiler
+              mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+              readOnly: true
+            - name: nvidia0
+              mountPath: /dev/nvidia0
+            - name: nvidiactl
+              mountPath: /dev/nvidiactl
+            - name: nvidia-uvm
+              mountPath: /dev/nvidia-uvm
+            - name: nvidia-uvm-tools
+              mountPath: /dev/nvidia-uvm-tools
+      volumes:
+        - name: models
+          hostPath:
+            path: /opt/nemo-server/models
+        - name: enrollment-data
+          hostPath:
+            path: /opt/nemo-server/docker/gateway_instance/enrollment
+        - name: nvidia0
+          hostPath:
+            path: /dev/nvidia0
+            type: CharDevice
+        - name: nvidiactl
+          hostPath:
+            path: /dev/nvidiactl
+            type: CharDevice
+        - name: nvidia-uvm
+          hostPath:
+            path: /dev/nvidia-uvm
+            type: CharDevice
+        - name: nvidia-uvm-tools
+          hostPath:
+            path: /dev/nvidia-uvm-tools
+            type: CharDevice
+        - name: libcuda
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libcuda.so.1
+        - name: libnvidia-ml
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+        - name: libnvidia-ptxjitcompiler
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+---
+# -----------------------------------------------------------------------------
+# RAG SERVICE - Vector Database & Semantic Search
+# Long-term memory using FAISS and Sentence-Transformers
+# Stores conversation transcripts and document embeddings
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-service
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-service
+  template:
+    metadata:
+      labels:
+        app: rag-service
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      initContainers:
+        - name: fix-rag-perms
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 1000:1000 /app/instance /app/faiss_index || true"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: rag-instance
+              mountPath: /app/instance
+            - name: faiss-index
+              mountPath: /app/faiss_index
+      containers:
+        - name: rag-service
+          image: refactored-rag-service:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8004
+          env:
+            - name: EMBEDDING_MODEL
+              value: "/app/models/finetuned/minilm-personal-v1"
+            - name: DB_PATH
+              value: "/app/instance/rag.db.bak"
+            - name: FAISS_INDEX_PATH
+              value: "/app/faiss_index/index.bin"
+            - name: HF_HOME
+              value: "/app/models"
+            - name: JWT_ONLY
+              value: "true"
+            - name: EMAIL_ANALYZER_ENABLED
+              value: "true"
+            - name: EMAIL_DB_ENCRYPTION
+              value: "true"
+            - name: EMAIL_DB_KEY_FILE
+              value: /run/secrets/email_db_key
+            - name: EMAIL_DB_PATH
+              value: /app/instance/email.db
+            - name: ALLOW_PLAINTEXT_FALLBACK
+              value: "true"
+            - name: JWT_SECRET_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_primary
+            - name: JWT_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_previous
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret
+            - name: RAG_DB_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: rag_db_key
+            - name: EMAIL_DB_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: email_db_key
+          volumeMounts:
+            - name: rag-instance
+              mountPath: /app/instance
+            - name: faiss-index
+              mountPath: /app/faiss_index
+            - name: models
+              mountPath: /app/models
+      volumes:
+        - name: rag-instance
+          hostPath:
+            path: /opt/nemo-server/docker/rag_instance
+        - name: faiss-index
+          hostPath:
+            path: /opt/nemo-server/docker/faiss_index
+        - name: models
+          hostPath:
+            path: /opt/nemo-server/models
+---
+# -----------------------------------------------------------------------------
+# EMOTION SERVICE - Sentiment & Emotional Tone Analysis
+# Uses DistilRoBERTa for text classification
+# Enriches transcriptions with emotional context
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emotion-service
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: emotion-service
+  template:
+    metadata:
+      labels:
+        app: emotion-service
+    spec:
+      containers:
+        - name: emotion-service
+          image: refactored-emotion-service:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8005
+          env:
+            - name: EMOTION_MODEL_PATH
+              value: "/app/models/finetuned/emotion-distilroberta-personal-v1"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: JWT_ONLY
+              value: "true"
+            - name: JWT_SECRET_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_primary
+            - name: JWT_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_previous
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret
+          volumeMounts:
+            - name: models
+              mountPath: /app/models
+              readOnly: true
+      volumes:
+        - name: models
+          hostPath:
+            path: /opt/nemo-server/models
+---
+# -----------------------------------------------------------------------------
+# INSIGHTS SERVICE - Business Analytics & Pattern Discovery
+# Derives high-level insights from RAG knowledge base
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insights-service
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: insights-service
+  template:
+    metadata:
+      labels:
+        app: insights-service
+    spec:
+      containers:
+        - name: insights-service
+          image: refactored-insights:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8010
+          env:
+            - name: INSIGHTS_DB_PATH
+              value: /app/instance/rag.db.bak
+            - name: RAG_DB_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: rag_db_key
+          volumeMounts:
+            - name: rag-instance
+              mountPath: /app/instance
+      volumes:
+        - name: rag-instance
+          hostPath:
+            path: /opt/nemo-server/docker/rag_instance
+---
+# -----------------------------------------------------------------------------
+# API GATEWAY - Central Entry Point
+# Handles Authentication (JWT), Rate Limiting, CORS, and Routing
+# Serves frontend static files from /app/frontend
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      initContainers:
+        - name: fix-gateway-perms
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 1000:1000 /app/instance || true"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: gateway-instance
+              mountPath: /app/instance
+      containers:
+        - name: api-gateway
+          image: refactored-gateway:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: GEMMA_URL
+              value: http://gemma-service:8001
+            - name: RAG_URL
+              value: http://rag-service:8004
+            - name: EMOTION_URL
+              value: http://emotion-service:8005
+            - name: TRANSCRIPTION_URL
+              value: http://transcription-service:8003
+            - name: INSIGHTS_URL
+              value: http://insights-service:8010
+            - name: ML_SERVICE_URL
+              value: http://ml-service:8006
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: RATE_LIMIT_ENABLED
+              value: "true"
+            - name: RATE_LIMIT_DEFAULT
+              value: "1000"
+            - name: RATE_LIMIT_WINDOW_SEC
+              value: "60"
+            - name: ENABLE_DEMO_USERS
+              value: "true"
+            - name: ALLOWED_ORIGINS
+              value: "http://127.0.0.1,http://localhost,http://localhost:8000,http://127.0.0.1:8000,http://192.168.0.7,http://10.0.2.2"
+            - name: SESSION_COOKIE_SECURE
+              value: "false"
+            - name: SESSION_COOKIE_SAMESITE
+              value: "lax"
+            - name: CANONICAL_HOST
+              value: ""
+            - name: LOGIN_RATE_LIMIT_WINDOW
+              value: "60"
+            - name: LOGIN_RATE_LIMIT_LIMIT
+              value: "1000"
+            - name: SESSION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: session_key
+            - name: USERS_DB_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: users_db_key
+            - name: JWT_SECRET_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_primary
+            - name: JWT_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_previous
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret
+          volumeMounts:
+            - name: gateway-instance
+              mountPath: /app/instance
+            - name: frontend
+              mountPath: /app/frontend
+              readOnly: true
+      volumes:
+        - name: gateway-instance
+          hostPath:
+            path: /opt/nemo-server/docker/gateway_instance
+        - name: frontend
+          hostPath:
+            path: /opt/nemo-server/frontend
+---
+# -----------------------------------------------------------------------------
+# ML SERVICE - "System 2" Validation Engine
+# AutoML, Symbolic Regression, Causal Inference
+# Validates LLM outputs with mathematical rigor
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-service
+  namespace: nemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-service
+  template:
+    metadata:
+      labels:
+        app: ml-service
+    spec:
+      containers:
+        - name: ml-service
+          image: docker-ml-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8006
+          env:
+            - name: GATEWAY_URL
+              value: http://api-gateway:8000
+            - name: UPLOAD_DIR
+              value: /app/data/uploads
+            - name: GPU_COORDINATOR_URL
+              value: http://gpu-coordinator:8002
+            - name: GPU_ENABLED
+              value: "false"
+            - name: GPU_REQUEST_TIMEOUT
+              value: "15"
+            - name: GPU_FALLBACK_TO_CPU
+              value: "true"
+            - name: JWT_SECRET_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_primary
+            - name: JWT_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret_previous
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nemo-secrets
+                  key: jwt_secret
+          volumeMounts:
+            - name: ml-uploads
+              mountPath: /app/data/uploads
+      volumes:
+        - name: ml-uploads
+          emptyDir: {}

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dev Auto Login - Nemo Server</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      max-width: 500px;
+    }
+    .status {
+      margin: 1rem 0;
+      padding: 1rem;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+    }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+    .info { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Dev Auto Login</h1>
+    <div id="status" class="status info">Authenticating...</div>
+    <div id="details"></div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    const TOKEN_STORAGE_KEY = 'nemo_session_token';
+    const CSRF_STORAGE_KEY = 'nemo_csrf_token';
+
+    async function autoLogin() {
+      const statusEl = document.getElementById('status');
+      const detailsEl = document.getElementById('details');
+
+      try {
+        // Login with admin credentials
+        statusEl.textContent = 'Logging in as admin...';
+        statusEl.className = 'status info';
+
+        const loginResponse = await fetch(`${API_BASE}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username: 'admin', password: 'admin123' })
+        });
+
+        const loginData = await loginResponse.json();
+        
+        if (!loginResponse.ok || !loginData.success) {
+          throw new Error(loginData.detail || 'Login failed');
+        }
+
+        // Store tokens in localStorage for iframe context
+        if (loginData.session_token) {
+          localStorage.setItem(TOKEN_STORAGE_KEY, loginData.session_token);
+        }
+        if (loginData.csrf_token) {
+          localStorage.setItem(CSRF_STORAGE_KEY, loginData.csrf_token);
+        }
+
+        statusEl.textContent = '✅ Login successful!';
+        statusEl.className = 'status success';
+        
+        detailsEl.innerHTML = `
+          <p><strong>User:</strong> ${loginData.user?.user_id || 'admin'}</p>
+          <p><strong>Role:</strong> ${loginData.user?.role || 'admin'}</p>
+          <p><strong>Token stored:</strong> Yes (localStorage)</p>
+          <p class="info">Redirecting to dashboard in 2 seconds...</p>
+        `;
+
+        // Redirect to index after 2 seconds
+        setTimeout(() => {
+          window.location.href = 'index.html';
+        }, 2000);
+
+      } catch (error) {
+        statusEl.textContent = '❌ Login failed';
+        statusEl.className = 'status error';
+        detailsEl.innerHTML = `<p>Error: ${error.message}</p>`;
+        console.error('Auto login error:', error);
+      }
+    }
+
+    // Run auto login on page load
+    autoLogin();
+  </script>
+</body>
+</html>

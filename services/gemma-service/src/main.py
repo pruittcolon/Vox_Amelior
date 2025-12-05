@@ -14,12 +14,14 @@ import inspect
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from llama_cpp import Llama
 import httpx
 import sys
 
 from gemma_analyzer import GemmaAnalyzer
+
 
 # Add shared modules to path
 sys.path.insert(0, '/app')
@@ -143,9 +145,11 @@ def load_model_cpu():
         gemma_model = Llama(
             model_path=GEMMA_MODEL_PATH,
             n_ctx=GEMMA_CONTEXT_SIZE,
-            n_batch=GEMMA_BATCH_SIZE,
+            n_batch=128,  # Smaller batch for stability
             n_gpu_layers=0,  # CPU mode
-            n_threads=4,
+            n_threads=6,
+            use_mlock=False,  # Don't lock memory
+            use_mmap=True,  # Use memory mapping
             verbose=False,
         )
         model_on_gpu = False
@@ -169,11 +173,14 @@ def load_model_gpu():
     
     gemma_model = Llama(
         model_path=GEMMA_MODEL_PATH,
-        n_ctx=GEMMA_CONTEXT_SIZE,
-        n_batch=GEMMA_BATCH_SIZE,
-        n_gpu_layers=GEMMA_GPU_LAYERS,  # GPU mode
-        n_threads=2,
-        verbose=False,
+        n_ctx=GEMMA_CONTEXT_SIZE,  # Context window
+        n_batch=512,  # Larger batch for faster prompt processing
+        n_gpu_layers=-1,  # ALL layers on GPU
+        n_threads=4,  # Fewer CPU threads since GPU does the work
+        use_mlock=False,  # Critical: don't lock memory
+        use_mmap=True,  # Use memory mapping for efficiency
+        flash_attn=True,  # Re-enable flash attention for performance
+        verbose=True,  # Enable verbose for debugging
     )
     model_on_gpu = True
     logger.info("[GEMMA] Model loaded on GPU successfully!")
@@ -256,8 +263,8 @@ def move_model_to_cpu():
 class ServiceAuthMiddleware(BaseHTTPMiddleware):
     """Middleware for JWT service authentication (Phase 3: Enforce JWT-only + replay)."""
     async def dispatch(self, request: Request, call_next):
-        # Skip auth for health checks
-        if request.url.path == "/health":
+        # Skip auth for health checks (internal utility)
+        if request.url.path in ["/health"]:
             return await call_next(request)
 
         jwt_token = request.headers.get("X-Service-Token")
@@ -337,14 +344,21 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ JWT service auth initialization failed: {e}")
         raise
     
-    # START ON CPU (lightweight, waits in background)
-    # User will call /warmup to move to GPU before inference
-    logger.info("[GEMMA] � Loading on CPU (background mode)...")
-    logger.info("[GEMMA] Call /warmup endpoint to move to GPU for fast inference")
-    load_model_cpu()
-    gemma_analyzer = GemmaAnalyzer(rag_url=RAG_SERVICE_URL)
-    logger.info("[GEMMA] ✅ Loaded on CPU successfully!")
-    logger.info("Gemma AI Service started successfully (CPU background mode)")
+    # START ON GPU DIRECTLY (transcription now starts on CPU)
+    # With START_ON_CPU=true for transcription, Gemma can claim GPU at startup
+    logger.info("[GEMMA] 🚀 Loading model DIRECTLY on GPU (transcription on CPU)...")
+    try:
+        load_model_gpu()
+        gemma_analyzer = GemmaAnalyzer(rag_url=RAG_SERVICE_URL)
+        logger.info("[GEMMA] ✅ Loaded on GPU successfully with full 25k context!")
+        logger.info("Gemma AI Service started successfully (GPU mode)")
+    except Exception as e:
+        logger.error(f"[GEMMA] ❌ Failed to load on GPU: {e}")
+        logger.info("[GEMMA] � Falling back to CPU mode...")
+        load_model_cpu()
+        gemma_analyzer = GemmaAnalyzer(rag_url=RAG_SERVICE_URL)
+        logger.info("[GEMMA] ✅ Loaded on CPU successfully!")
+        logger.info("Gemma AI Service started (CPU fallback mode)")
     logger.info("=" * 80)
 
     yield
@@ -368,6 +382,15 @@ app = FastAPI(
 # Add JWT middleware (Phase 2: Permissive)
 app.add_middleware(ServiceAuthMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+
+# CORS (Allow all for local playground)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ============================================================================
 # REQUEST MODELS
@@ -410,6 +433,8 @@ class GemmaAnalyzeRequest(BaseModel):
     custom_prompt: Optional[str] = None
     max_tokens: int = 1024
     temperature: float = 0.3
+
+
 
 
 class RAGChatRequest(BaseModel):
@@ -464,7 +489,7 @@ async def health_check():
             vram_info = result.stdout.strip().split('\n')[0].split(',')
             status["vram_used_mb"] = int(vram_info[0].strip())
             status["vram_total_mb"] = int(vram_info[1].strip())
-    except:
+    except Exception:
         pass
     
     return status
@@ -663,6 +688,13 @@ async def run_llm_task(
         else:
             llama_kwargs.update(decoding_kwargs_from_request())
 
+        # CRITICAL: Reset model state before each inference to prevent KV cache buildup
+        try:
+            gemma_model.reset()
+            logger.debug(f"[TASK {task_id}] Model state reset before generation")
+        except Exception as e:
+            logger.warning(f"[TASK {task_id}] Could not reset model state: {e}")
+
         response = gemma_model(**llama_kwargs)
         usage = response.get("usage", {})
         model_name = response.get("model", "gemma-3-4b-it")
@@ -768,6 +800,8 @@ async def gemma_quick_analyze(request: GemmaAnalyzeRequest):
     except Exception as exc:
         logger.error(f"[ANALYZE] Failed: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/chat")
 async def chat(
     request: ChatRequest
@@ -809,28 +843,15 @@ async def chat(
         gpu_slot_acquired = True
         gpu_slot_released = False
         
+        # Move model to GPU if it's on CPU
         if not model_on_gpu:
-            logger.info(f"[TASK {task_id}] Model not on GPU – attempting warm transfer")
-            try:
-                move_model_to_gpu()
-                logger.info(f"[TASK {task_id}] Model successfully moved to GPU")
-            except Exception as gpu_error:
-                logger.warning(f"⚠️ [TASK {task_id}] Failed to move model to GPU: {gpu_error}")
-                logger.info(f"⚠️ [TASK {task_id}] Releasing GPU slot and falling back to CPU mode")
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        await client.post(
-                            f"{GPU_COORDINATOR_URL}/gemma/release/{task_id}",
-                            json={"result": {"warning": str(gpu_error), "mode": "cpu"}},
-                headers=get_service_headers()
-                        )
-                    gpu_slot_acquired = False
-                    gpu_slot_released = True
-                except Exception as release_error:
-                    logger.error(f"❌ [TASK {task_id}] Failed to release GPU slot after move failure: {release_error}")
+            logger.info(f"[TASK {task_id}] Moving model to GPU for inference...")
+            move_model_to_gpu()
+        
+        logger.info(f"[TASK {task_id}] Using model in {('GPU' if model_on_gpu else 'CPU')} mode")
 
         # Build prompt from messages
-        prompt = ""
+        prompt = "You are a helpful AI assistant. Always respond in English.\n\n"
         
         # Add context if provided
         if request.context:
@@ -847,6 +868,19 @@ async def chat(
         prompt += "ASSISTANT: "
         
         logger.info(f"[TASK {task_id}] Executing inference...")
+        
+        # Track inference time
+        import time
+        start_time = time.time()
+        
+        # CRITICAL: Reset model state before each inference to prevent KV cache buildup
+        # This clears the internal context from previous calls, ensuring each request
+        # starts fresh and doesn't accumulate tokens that could exhaust the context window
+        try:
+            gemma_model.reset()
+            logger.debug(f"[TASK {task_id}] Model state reset successfully")
+        except Exception as e:
+            logger.warning(f"[TASK {task_id}] Could not reset model state: {e}")
         
         stop_sequences = merge_stop_sequences(request.stop)
         llama_kwargs = {
@@ -872,15 +906,48 @@ async def chat(
         
         generated_text = response["choices"][0]["text"].strip()
         tokens_generated = response["usage"].get("completion_tokens", 0)
+        prompt_tokens = response["usage"].get("prompt_tokens", 0)
+        
+        # Calculate inference time and tokens/sec
+        import time
+        inference_end = time.time()
+        inference_time = inference_end - start_time if 'start_time' in locals() else 0
+        tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
 
         if tokens_generated == 0:
             logger.warning(f"⚠️ [TASK {task_id}] Chat generated 0 tokens. Check stop tokens/prompt.")
+        
+        # Get VRAM usage stats
+        vram_stats = {}
+        try:
+            import subprocess
+            vram_result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu", 
+                 "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if vram_result.returncode == 0:
+                info = vram_result.stdout.strip().split('\n')[0].split(',')
+                vram_stats = {
+                    "vram_used_mb": int(info[0].strip()),
+                    "vram_total_mb": int(info[1].strip()),
+                    "gpu_utilization": int(info[2].strip())
+                }
+        except Exception as e:
+            logger.debug(f"Could not query VRAM: {e}")
 
         result = {
             "message": generated_text or "",
             "tokens_generated": tokens_generated,
+            "prompt_tokens": prompt_tokens,
+            "total_tokens": tokens_generated + prompt_tokens,
             "task_id": task_id,
-            "mode": "gpu" if model_on_gpu else "cpu"
+            "mode": "gpu" if model_on_gpu else "cpu",
+            "inference_time_sec": round(inference_time, 2),
+            "tokens_per_sec": round(tokens_per_sec, 1),
+            **vram_stats
         }
         
         logger.info(f"✅ [TASK {task_id}] Inference complete - Generated {result['tokens_generated']} tokens")
@@ -914,7 +981,7 @@ async def chat(
                         json={"result": {"error": str(e)}},
                         headers=get_service_headers()
                     )
-        except:
+        except Exception:
             pass
         
         raise HTTPException(status_code=500, detail=str(e))
@@ -1110,6 +1177,13 @@ async def chat_with_rag(
             )
         )
 
+        # CRITICAL: Reset model state before each inference to prevent KV cache buildup
+        try:
+            gemma_model.reset()
+            logger.debug(f"[TASK {task_id}] Model state reset before RAG generation")
+        except Exception as e:
+            logger.warning(f"[TASK {task_id}] Could not reset model state: {e}")
+
         response = gemma_model(**generation_kwargs)
         answer_text = response["choices"][0]["text"].strip()
         tokens_generated = response["usage"].get("completion_tokens", 0)
@@ -1203,7 +1277,7 @@ async def get_stats():
             stats["vram_used_mb"] = int(info[0].strip())
             stats["vram_total_mb"] = int(info[1].strip())
             stats["gpu_utilization"] = int(info[2].strip())
-    except:
+    except Exception:
         pass
     
     return stats

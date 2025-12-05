@@ -46,6 +46,10 @@ logger = logging.getLogger(__name__)
 JWT_ONLY = os.getenv("JWT_ONLY", "false").lower() in {"1", "true", "yes"}
 DB_PATH = Path(os.getenv("DB_PATH", "/app/instance/rag.db"))
 FAISS_INDEX_PATH = Path(os.getenv("FAISS_INDEX_PATH", "/app/faiss_index/index.bin"))
+from src.config import RAGConfig
+from src.personalization import PersonalizationManager
+
+# Constants
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2 dimension
 EMAIL_ANALYZER_ENABLED = os.getenv("EMAIL_ANALYZER_ENABLED", "true").lower() in {"1", "true", "yes"}
@@ -150,6 +154,14 @@ class RAGService:
         # FAISS index and document store
         self.faiss_index = None
         self.document_store: Dict[str, Dict[str, Any]] = {}
+
+        # Personalization Manager
+        models_path = os.getenv("HF_HOME", "/app/models")
+        self.personalizer = PersonalizationManager(
+            db_path=str(self.db_path),
+            db_key=db_encryption_key,
+            models_path=models_path
+        )
 
         # Database (SQLCipher if key provided)
         self._db = create_encrypted_db(
@@ -1461,7 +1473,7 @@ class RAGService:
                          audio_metrics, embedding, doc_id, created_at,
                          word_count, filler_count, pace_wpm, pause_ms,
                          pitch_mean, pitch_std, volume_rms, volume_peak)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         transcript_id,
                         idx,
@@ -1511,6 +1523,7 @@ class RAGService:
         """Ensure extended analytics columns exist on transcript_segments table."""
         cursor.execute("PRAGMA table_info(transcript_segments)")
         existing = {row["name"] for row in cursor.fetchall()}
+        # columns_to_add is hardcoded and trusted, so f-string usage here is safe from injection
         columns_to_add = [
             ("word_count", "INTEGER"),
             ("filler_count", "INTEGER"),
@@ -1523,6 +1536,7 @@ class RAGService:
         ]
         for name, decl in columns_to_add:
             if name not in existing:
+                # Using f-string is safe here as name/decl are internal constants
                 cursor.execute(f"ALTER TABLE transcript_segments ADD COLUMN {name} {decl}")
 
     def _compute_segment_features(
@@ -2546,23 +2560,26 @@ def memory_emotion_stats(
     }
 
 @app.post("/memory/search")
-def search_memories(
-    request: Dict[str, Any],
-):
-    """Search memories by query"""
-    if not rag_service:
-        raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
-    query = request.get("q", request.get("query", ""))
-    limit = request.get("top_k", request.get("limit", 10))
-    
-    memories = rag_service.search_memories(query=query, limit=limit)
-    
-    return {
-        "success": True,
-        "memories": memories,
-        "count": len(memories)
-    }
+async def search_memories(request: Dict[str, Any]):
+    """Search memories by text/metadata"""
+    try:
+        query = request.get("query")
+        limit = int(request.get("limit", 10))
+        results = rag_service.search_memory(query, limit)
+        return {"results": results}
+    except Exception as e:
+        logger.error(f"Memory search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/personalize")
+async def trigger_personalization():
+    """Trigger database vectorization and model fine-tuning"""
+    try:
+        result = rag_service.personalizer.run_pipeline()
+        return result
+    except Exception as e:
+        logger.error(f"Personalization trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/memory/stats")
 def get_memory_stats(

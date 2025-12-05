@@ -1,0 +1,817 @@
+<title>Nemo Server - LLM Vectorization</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<link rel="stylesheet" href="assets/css/main.css?v=2024111201">
+<link rel="stylesheet" href="assets/css/design-tokens.css?v=2024111201">
+<link rel="stylesheet" href="assets/css/components.css?v=2024111201">
+<link rel="stylesheet" href="assets/css/animations.css?v=2024111201">
+<link rel="stylesheet" href="assets/css/analyzer.css?v=2024111201">
+<style>
+    /* Premium Glassmorphism Theme */
+    .suite-hero {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 3rem 2rem;
+        border-radius: 24px;
+        margin-bottom: 2rem;
+        box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
+        animation: pulse-glow 3s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+
+        0%,
+        100% {
+            box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
+        }
+
+        50% {
+            box-shadow: 0 25px 70px rgba(102, 126, 234, 0.6);
+        }
+    }
+
+    .upload-zone {
+        border: 3px dashed var(--glass-border);
+        border-radius: 16px;
+        padding: 3rem;
+        text-align: center;
+        background: rgba(255, 255, 255, 0.03);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+    }
+
+    .upload-zone:hover,
+    .upload-zone.drag-over {
+        border-color: #8b5cf6;
+        background: rgba(139, 92, 246, 0.1);
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px rgba(139, 92, 246, 0.3);
+    }
+
+    .progress-pipeline {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin: 2rem 0;
+    }
+
+    .pipeline-step {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--glass-border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .pipeline-step::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 0%;
+        height: 4px;
+        background: linear-gradient(90deg, #8b5cf6, #3b82f6);
+        transition: width 0.5s ease;
+    }
+
+    .pipeline-step.active::before {
+        width: 100%;
+    }
+
+    .pipeline-step.complete {
+        background: rgba(34, 197, 94, 0.1);
+        border-color: rgba(34, 197, 94, 0.4);
+    }
+
+    .results-column {
+        max-height: 600px;
+        overflow-y: auto;
+    }
+
+    .spinner {
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top-color: #8b5cf6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+</style>
+<script src="assets/js/api.js?v=2024111201"></script>
+<script src="assets/js/app.js?v=2024110101"></script>
+<script src="assets/js/auth.js?v=2024110101"></script>
+</head>
+
+<body class="gemma-theme">
+
+    <header class="glass-header">
+        <div class="container">
+            <div class="flex-between">
+                <div class="flex">
+                    <h1
+                        style="font-size: 1.5rem; margin: 0; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                        💎 LLM Vectorization
+                    </h1>
+                </div>
+                <nav class="nav">
+                    <a href="index.html" class="nav-link">Dashboard</a>
+                    <a href="search.html" class="nav-link">Search</a>
+                    <a href="gemma.html" class="nav-link">AI Insights</a>
+                    <a href="databases.html" class="nav-link active">LLM Vectorization</a>
+                    <a href="predictions.html" class="nav-link">ML Service</a>
+                    <a href="settings.html" class="nav-link">Settings</a>
+                </nav>
+                <div class="flex" style="gap: 1rem; align-items: center;">
+                    <span id="current-user" style="color: var(--text-secondary); font-size: 0.9rem;"></span>
+                    <button id="logout-btn" class="glass-button" style="display:none;" title="Logout">
+                        <i data-lucide="log-out" style="width:18px;height:18px;"></i>
+                    </button>
+                    <button class="glass-button" data-toggle-theme>
+                        <i data-lucide="moon" style="width:18px;height:18px;"></i>
+                    </button>
+                    <div id="api-status"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container" style="padding-top:2rem;padding-bottom:2rem;">
+        <!-- Hero Section -->
+        <section class="suite-hero fade-in-up">
+            <div style="text-align:center;">
+                <h1 style="font-size:3rem;margin-bottom:0.5rem;color:#fff;">High-Fidelity Vectorization</h1>
+                <p style="font-size:1.2rem;color:rgba(255,255,255,0.9);margin-bottom:1.5rem;">
+                    Transform your data into semantic vectors for advanced ML predictions.
+                </p>
+                <div class="gpu-indicator ready" id="gpu-status">
+                    <i data-lucide="cpu" style="width:16px;height:16px;"></i>
+                    <span>GPU Ready</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="glass-card fade-in-up" style="margin-bottom:2rem;">
+            <h2 style="margin-bottom:1.5rem;">
+                <i data-lucide="upload-cloud"
+                    style="width:24px;height:24px;vertical-align:middle;margin-right:0.5rem;"></i>
+                Step 1: Upload Database
+            </h2>
+
+            <div class="upload-zone" id="upload-zone">
+                <i data-lucide="database" style="width:64px;height:64px;margin-bottom:1rem;color:#8b5cf6;"></i>
+                <h3>Drag & Drop Your Database</h3>
+                <p class="text-muted">Supports: SQLite (.db, .sqlite), CSV (.csv), JSON (.json)</p>
+                <p class="text-muted" style="font-size:0.85rem;">Max size: 100MB</p>
+                <input type="file" id="file-input" accept=".csv,.db,.sqlite,.json" style="display:none;">
+                <button class="btn btn-primary" style="margin-top:1rem;"
+                    onclick="document.getElementById('file-input').click()">
+                    <i data-lucide="folder-open" style="width:18px;height:18px;"></i>
+                    Select File
+                </button>
+            </div>
+
+            <div id="file-info" style="margin-top:1.5rem;display:none;">
+                <div
+                    style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:rgba(139,92,246,0.1);border-radius:8px;border-left:4px solid #8b5cf6;">
+                    <div>
+                        <strong id="file-name"></strong>
+                        <div class="text-muted" style="font-size:0.85rem;margin-top:0.25rem;">
+                            <span id="file-size"></span>
+                        </div>
+                    </div>
+                    <button class="btn btn-ghost" onclick="startAnalysis()">
+                        <i data-lucide="play-circle" style="width:18px;height:18px;"></i>
+                        Start Vectorization
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Processing Pipeline -->
+        <section id="pipeline-section" style="display:none;">
+            <div class="glass-card fade-in-up" style="margin-bottom:2rem;">
+                <h2 style="margin-bottom:1.5rem;">
+                    <i data-lucide="activity"
+                        style="width:24px;height:24px;vertical-align:middle;margin-right:0.5rem;"></i>
+                    Step 2: Processing Pipeline
+                </h2>
+
+                <div class="progress-pipeline">
+                    <div class="pipeline-step" id="step-upload">
+                        <div style="font-size:2rem;margin-bottom:0.5rem;">📦</div>
+                        <h4>Upload</h4>
+                        <p class="text-muted" style="font-size:0.85rem;">Secure transfer</p>
+                        <div id="upload-status">Waiting...</div>
+                    </div>
+
+                    <div class="pipeline-step" id="step-vectorize">
+                        <div style="font-size:2rem;margin-bottom:0.5rem;">💎</div>
+                        <h4>Vectorization</h4>
+                        <p class="text-muted" style="font-size:0.85rem;">Semantic embedding</p>
+                        <div id="vectorize-status">Waiting...</div>
+                    </div>
+
+                    <div class="pipeline-step" id="step-complete">
+                        <div style="font-size:2rem;margin-bottom:0.5rem;">✅</div>
+                        <h4>Complete</h4>
+                        <p class="text-muted" style="font-size:0.85rem;">Ready for ML</p>
+                        <div id="complete-status">Waiting...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Testing Controls Section -->
+        <section id="testing-section" style="display:none;">
+            <div class="glass-card fade-in-up" style="margin-bottom:2rem;">
+                <h2 style="margin-bottom:1.5rem;">
+                    <i data-lucide="flask-conical"
+                        style="width:24px;height:24px;vertical-align:middle;margin-right:0.5rem;"></i>
+                    Step 2: ML Model Testing
+                </h2>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                    <!-- Single Model Test -->
+                    <div
+                        style="padding: 1.5rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px; border-left: 4px solid #8b5cf6;">
+                        <h3 style="margin-bottom: 1rem;">🔬 Test Single Model</h3>
+                        <select id="model-selector"
+                            style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; margin-bottom: 1rem;">
+                            <option value="titan">Titan (Flagship Predictor)</option>
+                            <option value="mirror">Mirror (Synthetic Data)</option>
+                            <option value="chronos">Chronos (Time Series)</option>
+                            <option value="galileo">Galileo (Graph Neural)</option>
+                            <option value="deep_feature">Deep Feature (Auto Feature Engineering)</option>
+                            <option value="oracle">Oracle (Ensemble)</option>
+                            <option value="scout">Scout (Quick Analysis)</option>
+                            <option value="chaos">Chaos (Chaos Theory)</option>
+                        </select>
+
+                        <div
+                            style="padding: 0.75rem; background: rgba(139, 92, 246, 0.1); border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem;">
+                            ℹ️ Will automatically test <strong>both</strong> with and without vectorization for
+                            comparison
+                        </div>
+
+                        <button onclick="testSingleModel()"
+                            style="width: 100%; padding: 1rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                            <i data-lucide="play" style="width: 20px; height: 20px;"></i>
+                            Run Test
+                        </button>
+                    </div>
+
+                    <!-- Batch Testing -->
+                    <div
+                        style="padding: 1.5rem; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border-left: 4px solid #3b82f6;">
+                        <h3 style="margin-bottom: 1rem;">⚡ Batch Testing</h3>
+                        <p class="text-muted" style="font-size: 0.9rem; margin-bottom: 1rem;">Test all models
+                            simultaneously</p>
+                        <button class="btn btn-primary" onclick="testAllModels(false)"
+                            style="width: 100%; margin-bottom: 0.5rem;">
+                            <i data-lucide="zap-off" style="width:18px;height:18px;"></i>
+                            Test All WITHOUT Vectorization
+                        </button>
+                        <button class="btn btn-primary" onclick="testAllModels(true)"
+                            style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                            <i data-lucide="sparkles" style="width:18px;height:18px;"></i>
+                            Test All WITH Vectorization
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Progress Indicator -->
+                <div id="test-progress"
+                    style="display:none; padding: 1rem; background: rgba(59, 130, 246, 0.1); border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="spinner"></div>
+                        <div>
+                            <div id="progress-text" style="font-weight: 500;">Running tests...</div>
+                            <div id="progress-detail" class="text-muted" style="font-size: 0.85rem;">Please wait</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Results Comparison Section -->
+        <section id="results-section" style="display:none;">
+            <div class="glass-card fade-in-up" style="margin-bottom:2rem;">
+                <h2 style="margin-bottom:1.5rem;">
+                    <i data-lucide="bar-chart-3"
+                        style="width:24px;height:24px;vertical-align:middle;margin-right:0.5rem;"></i>
+                    Step 3: Results & Comparison
+                </h2>
+
+                <!-- Single Model Result -->
+                <div id="single-result" style="display:none; margin-bottom: 2rem;">
+                    <h3 style="margin-bottom: 1rem;">Single Model Result</h3>
+                    <div id="single-result-content"></div>
+                </div>
+
+                <!-- Side-by-Side Comparison -->
+                <div id="comparison-view" style="display:none;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3>Model Comparison</h3>
+                        <div class="text-muted" id="comparison-summary"></div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                        <!-- Without Vectorization Column -->
+                        <div>
+                            <div
+                                style="background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #ef4444;">
+                                <h4 style="margin: 0;">
+                                    <i data-lucide="x-circle" style="width:18px;height:18px;vertical-align:middle;"></i>
+                                    WITHOUT Vectorization
+                                </h4>
+                            </div>
+                            <div id="results-without" class="results-column"></div>
+                        </div>
+
+                        <!-- With Vectorization Column -->
+                        <div>
+                            <div
+                                style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #10b981;">
+                                <h4 style="margin: 0;">
+                                    <i data-lucide="check-circle"
+                                        style="width:18px;height:18px;vertical-align:middle;"></i>
+                                    WITH Vectorization
+                                </h4>
+                            </div>
+                            <div id="results-with" class="results-column"></div>
+                        </div>
+                    </div>
+
+                    <!-- Improvement Summary -->
+                    <div id="improvement-summary"
+                        style="margin-top: 2rem; padding: 1.5rem; background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%); border-radius: 12px;">
+                        <h4 style="margin-bottom: 1rem;">📊 Improvement Analysis</h4>
+                        <div id="improvement-content"></div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div style="margin-top: 2rem; text-align: center; display: flex; gap: 1rem; justify-content: center;">
+                    <button class="btn btn-ghost" onclick="resetTest()">
+                        <i data-lucide="refresh-cw" style="width:18px;height:18px;"></i>
+                        Test Again
+                    </button>
+                    <a href="predictions.html" class="btn btn-primary"
+                        style="display: inline-flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="arrow-right" style="width:18px;height:18px;"></i>
+                        Go to Full ML Service
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        // State
+        let currentDatabase = null;
+        let uploadedFilename = null;
+
+        // File Upload Handling
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+
+        uploadZone.addEventListener('click', () => fileInput.click());
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('drag-over');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('drag-over');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            console.log('File selected:', file.name);
+
+            // Display file info
+            document.getElementById('file-name').textContent = file.name;
+            document.getElementById('file-size').textContent = formatFileSize(file.size);
+            document.getElementById('file-info').style.display = 'block';
+
+            // Store file for analysis
+            currentDatabase = file;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        // Available ML models
+        const ML_MODELS = [
+            { id: 'titan', name: 'Titan', endpoint: 'titan' },
+            { id: 'mirror', name: 'Mirror', endpoint: 'mirror' },
+            { id: 'chronos', name: 'Chronos', endpoint: 'chronos' },
+            { id: 'galileo', name: 'Galileo', endpoint: 'galileo' },
+            { id: 'deep_feature', name: 'Deep Feature', endpoint: 'deep-feature' },
+            { id: 'oracle', name: 'Oracle', endpoint: 'oracle' },
+            { id: 'scout', name: 'Scout', endpoint: 'scout' },
+            { id: 'chaos', name: 'Chaos', endpoint: 'chaos' }
+        ];
+
+        // Test results storage
+        let testResults = {
+            without: {},
+            with: {}
+        };
+
+        // Get CSRF token from cookies
+        function getCsrfToken() {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'ws_csrf') {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        async function startAnalysis() {
+            if (!currentDatabase) {
+                alert('Please select a database file first');
+                return;
+            }
+
+            // Show pipeline
+            document.getElementById('pipeline-section').style.display = 'block';
+            document.getElementById('pipeline-section').scrollIntoView({ behavior: 'smooth' });
+
+            // Step 1: Upload
+            const uploadStep = document.getElementById('step-upload');
+            const uploadStatus = document.getElementById('upload-status');
+            uploadStep.classList.add('active');
+            uploadStatus.textContent = 'Uploading...';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', currentDatabase);
+
+                // Upload to ML service
+                const uploadRes = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'include'
+                });
+                const uploadData = await uploadRes.json();
+
+                if (!uploadRes.ok) throw new Error(uploadData.detail || 'Upload failed');
+
+                uploadedFilename = uploadData.filename;
+                uploadStatus.textContent = '✓ Uploaded';
+                uploadStep.classList.remove('active');
+                uploadStep.classList.add('complete');
+
+                // Step 2: Vectorize
+                const vecStep = document.getElementById('step-vectorize');
+                const vecStatus = document.getElementById('vectorize-status');
+                vecStep.classList.add('active');
+                vecStatus.textContent = 'Vectorizing... (This may take a moment)';
+
+                // Get CSRF token
+                const csrfToken = getCsrfToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (csrfToken) {
+                    headers['X-CSRF-Token'] = csrfToken;
+                }
+
+                // Call vectorization endpoint  
+                const vecRes = await fetch('/vectorize/database', {
+                    method: 'POST',
+                    headers: headers,
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        database_name: uploadedFilename,
+                        num_questions: 50,
+                        data_description: 'User uploaded database',
+                        use_gpu: false
+                    })
+                });
+                const vecData = await vecRes.json();
+
+                if (!vecRes.ok) throw new Error(vecData.detail || 'Vectorization failed');
+
+                // Poll for completion
+                const jobId = vecData.job_id;
+                let completed = false;
+
+                while (!completed) {
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+
+                    const statusRes = await fetch(`/vectorize/status/${jobId}`, {
+                        credentials: 'include'
+                    });
+                    const statusData = await statusRes.json();
+
+                    if (statusData.status === 'completed') {
+                        completed = true;
+                        vecStatus.textContent = '✓ Vectorized';
+                    } else if (statusData.status === 'failed') {
+                        throw new Error(statusData.error || 'Vectorization failed');
+                    } else {
+                        // Update progress
+                        const progress = statusData.progress || {};
+                        vecStatus.textContent = `${progress.step || 'Processing'}... ${progress.percent || 0}%`;
+                    }
+                }
+
+                vecStep.classList.remove('active');
+                vecStep.classList.add('complete');
+
+                // Step 3: Complete
+                const compStep = document.getElementById('step-complete');
+                const compStatus = document.getElementById('complete-status');
+                compStep.classList.add('complete');
+                compStatus.textContent = '✓ Ready';
+
+                // Show testing section
+                document.getElementById('testing-section').style.display = 'block';
+                document.getElementById('testing-section').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (err) {
+                console.error(err);
+                alert('Error: ' + err.message);
+                uploadStep.classList.remove('active');
+            }
+        }
+
+        async function testSingleModel() {
+            const modelId = document.getElementById('model-selector').value;
+            const model = ML_MODELS.find(m => m.id === modelId);
+
+            // Always run BOTH with and without vectorization for comparison
+            document.getElementById('test-progress').style.display = 'block';
+            document.getElementById('progress-text').textContent = `Testing ${model.name}...`;
+            document.getElementById('progress-detail').textContent = 'Running without vectorization...';
+
+            try {
+                // Test WITHOUT vectorization first
+                const resultWithout = await runModelTest(model, false);
+                testResults.without[model.id] = resultWithout;
+
+                // Test WITH vectorization
+                document.getElementById('progress-detail').textContent = 'Running with vectorization...';
+                const resultWith = await runModelTest(model, true);
+                testResults.with[model.id] = resultWith;
+
+                // Display comparison
+                displayComparison();
+
+                document.getElementById('results-section').style.display = 'block';
+                document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (err) {
+                alert('Test failed: ' + err.message);
+            } finally {
+                document.getElementById('test-progress').style.display = 'none';
+                lucide.createIcons();
+            }
+        }
+
+        async function testAllModels(useVectorization) {
+            testResults[useVectorization ? 'with' : 'without'] = {};
+
+            document.getElementById('test-progress').style.display = 'block';
+            document.getElementById('progress-text').textContent = `Testing all models ${useVectorization ? 'WITH' : 'WITHOUT'} vectorization...`;
+
+            let completed = 0;
+            const total = ML_MODELS.length;
+
+            for (const model of ML_MODELS) {
+                document.getElementById('progress-detail').textContent = `${model.name} (${completed + 1}/${total})`;
+
+                try {
+                    const result = await runModelTest(model, useVectorization);
+                    testResults[useVectorization ? 'with' : 'without'][model.id] = result;
+                } catch (err) {
+                    testResults[useVectorization ? 'with' : 'without'][model.id] = { error: err.message };
+                }
+
+                completed++;
+            }
+
+            document.getElementById('test-progress').style.display = 'none';
+
+            // If we have both results, show comparison
+            if (Object.keys(testResults.without).length > 0 && Object.keys(testResults.with).length > 0) {
+                displayComparison();
+            } else {
+                // Show single batch result
+                displayBatchResults(useVectorization);
+            }
+
+            document.getElementById('results-section').style.display = 'block';
+            document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+            lucide.createIcons();
+        }
+
+        async function runModelTest(model, useVectorization) {
+            // Call analytics endpoint - it will auto-detect the best target column
+            const response = await fetch(`/analytics/premium/${model.endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    filename: uploadedFilename,
+                    use_vectorization: useVectorization,
+                    n_variants: 5
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || `${model.name} test failed`);
+            }
+
+            const data = await response.json();
+            return { ...data, target: data.target_column || 'Auto-detected' };
+        }
+
+        function extractScore(result) {
+            // Try different score fields depending on engine response format
+            console.log('Full result:', result);
+
+            // Check variants array structure if it exists
+            if (result.variants && result.variants.length > 0) {
+                console.log('First variant:', result.variants[0]);
+                console.log('Variant keys:', Object.keys(result.variants[0]));
+            }
+
+            // Try all possible score locations
+            const score = result.quality_score
+                || result.best_variant?.score
+                || result.accuracy
+                || result.score
+                || (result.variants && result.variants[0]?.cv_score)  // Try cv_score!
+                || (result.variants && result.variants[0]?.score)
+                || (result.variants && result.variants[0]?.accuracy)
+                || 0;
+
+            console.log('Extracted score:', score);
+            return score;
+        }
+
+        function formatSingleResult(model, result, useVec) {
+            const score = extractScore(result);
+            const scorePercent = (score * 100).toFixed(1);
+
+            return `
+                <div style="padding: 1.5rem; background: rgba(139, 92, 246, 0.1); border-radius: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h4>${model.name}</h4>
+                        <div style="font-size: 2rem; font-weight: 700; color: #8b5cf6;">${scorePercent}%</div>
+                    </div>
+                    <div class="text-muted" style="margin-bottom: 0.5rem;">Target: ${result.target}</div>
+                    <div class="text-muted">Vectorization: ${useVec ? '✅ Enabled' : '❌ Disabled'}</div>
+                </div>
+            `;
+        }
+
+        function displayComparison() {
+            document.getElementById('single-result').style.display = 'none';
+            document.getElementById('comparison-view').style.display = 'block';
+
+            const withoutHtml = [];
+            const withHtml = [];
+            let improvements = [];
+
+            ML_MODELS.forEach(model => {
+                const without = testResults.without[model.id];
+                const withVec = testResults.with[model.id];
+
+                if (without && without.error) {
+                    withoutHtml.push(`<div style="padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px; margin-bottom: 0.5rem;">${model.name}: Error</div>`);
+                } else if (without) {
+                    const score = extractScore(without) * 100;
+                    withoutHtml.push(`<div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 0.5rem; display: flex; justify-content: space-between;">
+                        <span>${model.name}</span><strong>${score.toFixed(1)}%</strong>
+                    </div>`);
+                }
+
+                if (withVec && withVec.error) {
+                    withHtml.push(`<div style="padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px; margin-bottom: 0.5rem;">${model.name}: Error</div>`);
+                } else if (withVec) {
+                    const score = extractScore(withVec) * 100;
+                    withHtml.push(`<div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 0.5rem; display: flex; justify-content: space-between;">
+                        <span>${model.name}</span><strong>${score.toFixed(1)}%</strong>
+                    </div>`);
+
+                    // Calculate improvement
+                    if (without && !without.error) {
+                        const withoutScore = extractScore(without) * 100;
+                        const improvement = score - withoutScore;
+                        improvements.push({ model: model.name, improvement, withoutScore: withoutScore, withScore: score });
+                    }
+                }
+            });
+
+            document.getElementById('results-without').innerHTML = withoutHtml.join('');
+            document.getElementById('results-with').innerHTML = withHtml.join('');
+
+            // Improvement analysis
+            if (improvements.length > 0) {
+                const avgImprovement = improvements.reduce((sum, i) => sum + i.improvement, 0) / improvements.length;
+                const bestImprover = improvements.sort((a, b) => b.improvement - a.improvement)[0];
+
+                document.getElementById('improvement-content').innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                        <div style="text-align: center;">
+                            <div class="text-muted" style="font-size: 0.85rem;">Average Improvement</div>
+                            <div style="font-size: 2rem; font-weight: 700; color: ${avgImprovement > 0 ? '#10b981' : '#ef4444'};">
+                                ${avgImprovement > 0 ? '+' : ''}${avgImprovement.toFixed(1)}%
+                            </div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div class="text-muted" style="font-size: 0.85rem;">Best Improver</div>
+                            <div style="font-size: 1.2rem; font-weight: 600;">${bestImprover.model}</div>
+                            <div style="color: #10b981;">+${bestImprover.improvement.toFixed(1)}%</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div class="text-muted" style="font-size: 0.85rem;">Models Tested</div>
+                            <div style="font-size: 2rem; font-weight: 700;">${improvements.length}</div>
+                        </div>
+                    </div>
+                `;
+
+                document.getElementById('comparison-summary').textContent =
+                    `Tested ${improvements.length} models${avgImprovement > 0 ? ', vectorization improved accuracy!' : ''}`;
+            }
+        }
+
+        function displayBatchResults(useVectorization) {
+            document.getElementById('single-result').style.display = 'none';
+            document.getElementById('comparison-view').style.display = 'block';
+
+            const results = testResults[useVectorization ? 'with' : 'without'];
+            const targetColumn = useVectorization ? 'results-with' : 'results-without';
+            const otherColumn = useVectorization ? 'results-without' : 'results-with';
+
+            const html = [];
+            ML_MODELS.forEach(model => {
+                const result = results[model.id];
+                if (result && result.error) {
+                    html.push(`<div style="padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px; margin-bottom: 0.5rem;">${model.name}: Error</div>`);
+                } else if (result) {
+                    const score = extractScore(result) * 100;
+                    html.push(`<div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 0.5rem; display: flex; justify-content: space-between;">
+                        <span>${model.name}</span><strong>${score.toFixed(1)}%</strong>
+                    </div>`);
+                }
+            });
+
+            document.getElementById(targetColumn).innerHTML = html.join('');
+            document.getElementById(otherColumn).innerHTML = '<div class="text-muted" style="text-align: center; padding: 2rem;">Run the other test to compare</div>';
+            document.getElementById('improvement-summary').style.display = 'none';
+        }
+
+        function resetTest() {
+            testResults = { without: {}, with: {} };
+            document.getElementById('testing-section').style.display = 'none';
+            document.getElementById('results-section').style.display = 'none';
+            document.getElementById('pipeline-section').style.display = 'none';
+            document.getElementById('file-info').style.display = 'none';
+            document.getElementById('upload-zone').style.display = 'flex';
+            currentDatabase = null;
+            uploadedFilename = null;
+        }
+    </script>
+</body>
+
+</html>

@@ -158,6 +158,8 @@ class SessionTokenCodec:
         return None
 
 ENABLE_DEMO_USERS = os.environ.get("ENABLE_DEMO_USERS", "false").strip().lower() in {"1", "true", "yes"}
+if ENABLE_DEMO_USERS:
+    print("[AUTH] ⚠️  WARNING: Demo users enabled! Do not use in production.")
 
 
 class AuthManager:

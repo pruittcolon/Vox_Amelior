@@ -1,0 +1,140 @@
+/* Predictions Page - Model Variants */
+
+.variants-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.variant-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 20px;
+  transition: all 0.2s;
+}
+
+.variant-card:hover {
+  border-color: rgba(139, 92, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+.variant-card.best {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(6, 182, 212, 0.1));
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.variant-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.variant-name {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.variant-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.variant-badge.rank-1 {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.variant-badge.rank-2 {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.variant-badge.rank-3 {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.variant-score {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #10b981;
+  margin-bottom: 8px;
+}
+
+.variant-details {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.variant-details div {
+  margin-bottom: 4px;
+}
+
+/* High-precision accuracy display for forecast variants */
+.variant-accuracy-precise {
+  font-family: 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 0.95rem;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.variant-accuracy-precise .label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.variant-accuracy-precise .value {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.variant-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.variant-metric {
+  text-align: center;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+}
+
+.variant-metric .metric-value {
+  font-family: 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 0.85rem;
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.variant-metric .metric-label {
+  font-size: 0.65rem;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.variant-config-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(139, 92, 246, 0.1);
+  color: #a78bfa;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  margin-right: 4px;
+  margin-bottom: 4px;
+}

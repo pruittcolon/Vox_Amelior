@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nemo AI - Comprehensive Analytics Platform</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .bg-animation {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; overflow: hidden;
+        }
+        .bg-animation::before, .bg-animation::after {
+            content: ''; position: absolute; width: 600px; height: 600px;
+            border-radius: 50%; filter: blur(100px); opacity: 0.15;
+            animation: float 20s ease-in-out infinite;
+        }
+        .bg-animation::before {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            top: -200px; left: -200px;
+        }
+        .bg-animation::after {
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            bottom: -200px; right: -200px; animation-delay: -10s;
+        }
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(100px, 100px) scale(1.1); }
+        }
+        .header {
+            padding: 30px 40px; display: flex; justify-content: space-between;
+            align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.3); backdrop-filter: blur(20px);
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { display: flex; align-items: center; gap: 15px; }
+        .logo-icon { font-size: 2.5rem; }
+        .logo-text h1 {
+            font-size: 1.8rem; font-weight: 700;
+            background: linear-gradient(135deg, #6366f1, #06b6d4);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .logo-text p { font-size: 0.85rem; color: #888; }
+        .header-stats { display: flex; gap: 30px; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; color: #6366f1; }
+        .stat-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        .upload-section { padding: 60px 40px; max-width: 1400px; margin: 0 auto; }
+        .upload-container {
+            background: rgba(255,255,255,0.05); border: 2px dashed rgba(99, 102, 241, 0.4);
+            border-radius: 24px; padding: 60px; text-align: center;
+            transition: all 0.3s ease; cursor: pointer; position: relative;
+        }
+        .upload-container:hover, .upload-container.drag-over {
+            border-color: #6366f1; background: rgba(99, 102, 241, 0.1);
+            transform: translateY(-4px); box-shadow: 0 20px 60px rgba(99, 102, 241, 0.2);
+        }
+        .upload-container.has-file {
+            border-style: solid; border-color: #10b981; background: rgba(16, 185, 129, 0.1);
+        }
+        .upload-icon { font-size: 4rem; margin-bottom: 20px; }
+        .upload-title { font-size: 1.5rem; font-weight: 600; margin-bottom: 10px; }
+        .upload-subtitle { color: #888; margin-bottom: 20px; }
+        .upload-btn {
+            display: inline-block; padding: 14px 40px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border: none; border-radius: 12px; color: white;
+            font-weight: 600; font-size: 1rem; cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .upload-btn:hover {
+            transform: translateY(-2px); box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+        }
+        #file-input { display: none; }
+        .file-info {
+            margin-top: 20px; padding: 15px 25px;
+            background: rgba(16, 185, 129, 0.2); border-radius: 12px; display: none;
+        }
+        .file-info.visible { display: inline-block; }
+        .file-info span { color: #10b981; font-weight: 600; }
+        .status-banner {
+            margin: 16px auto 0; max-width: 1100px;
+            padding: 12px 16px; border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(59, 130, 246, 0.12); color: #e2e8f0;
+            display: none; line-height: 1.5;
+        }
+        .status-banner.visible { display: block; }
+        .status-banner.success {
+            background: rgba(16, 185, 129, 0.12);
+            border-color: rgba(16, 185, 129, 0.3);
+            color: #d1fae5;
+        }
+        .status-banner.error {
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #fecdd3;
+        }
+        .status-banner.info {
+            background: rgba(99, 102, 241, 0.14);
+            border-color: rgba(99, 102, 241, 0.28);
+            color: #e0e7ff;
+        }
+        .loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 26, 0.95); backdrop-filter: blur(20px);
+            z-index: 1000; display: none; flex-direction: column;
+            align-items: center; justify-content: center; padding: 40px;
+        }
+        .loading-overlay.active { display: flex; }
+        .loading-header { text-align: center; margin-bottom: 40px; }
+        .loading-title {
+            font-size: 2rem; font-weight: 700; margin-bottom: 10px;
+            background: linear-gradient(135deg, #6366f1, #06b6d4);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .loading-subtitle { color: #888; font-size: 1.1rem; }
+        .progress-container { width: 100%; max-width: 600px; margin-bottom: 40px; }
+        .progress-bar-wrapper {
+            height: 12px; background: rgba(255,255,255,0.1);
+            border-radius: 6px; overflow: hidden; margin-bottom: 15px;
+        }
+        .progress-bar {
+            height: 100%; background: linear-gradient(90deg, #6366f1, #06b6d4, #10b981);
+            background-size: 200% 100%; border-radius: 6px; width: 0%;
+            transition: width 0.5s ease; animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .progress-text { display: flex; justify-content: space-between; font-size: 0.9rem; color: #888; }
+        .progress-percentage { font-weight: 600; color: #6366f1; }
+        .engine-status-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px; width: 100%; max-width: 1000px; max-height: 400px;
+            overflow-y: auto; padding: 10px;
+        }
+        .engine-status-card {
+            background: rgba(255,255,255,0.05); border-radius: 12px; padding: 15px;
+            display: flex; align-items: center; gap: 12px; transition: all 0.3s ease;
+        }
+        .engine-status-card.running {
+            background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4);
+        }
+        .engine-status-card.completed {
+            background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+        .engine-status-card.error {
+            background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+        .engine-icon { font-size: 1.5rem; }
+        .engine-info { flex: 1; }
+        .engine-name { font-weight: 600; font-size: 0.85rem; }
+        .engine-status-text { font-size: 0.75rem; color: #888; }
+        .status-indicator {
+            width: 24px; height: 24px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; font-size: 0.75rem;
+        }
+        .status-indicator.pending { background: rgba(255,255,255,0.1); color: #888; }
+        .status-indicator.running {
+            background: rgba(99, 102, 241, 0.3); color: #6366f1; animation: pulse 1s infinite;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .status-indicator.completed { background: rgba(16, 185, 129, 0.3); color: #10b981; }
+        .status-indicator.error { background: rgba(239, 68, 68, 0.3); color: #ef4444; }
+        .skip-loading-btn {
+            margin-top: 30px; padding: 12px 30px; background: transparent;
+            border: 1px solid rgba(255,255,255,0.2); border-radius: 8px;
+            color: #888; cursor: pointer; transition: all 0.3s ease;
+        }
+        .skip-loading-btn:hover { background: rgba(255,255,255,0.05); color: white; }
+        .results-section {
+            padding: 40px; max-width: 1600px; margin: 0 auto; display: none;
+        }
+        .results-section.visible { display: block; }
+        .results-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;
+        }
+        .results-title { font-size: 1.8rem; font-weight: 700; }
+        .results-summary { display: flex; gap: 20px; }
+        .summary-badge {
+            padding: 8px 16px; background: rgba(99, 102, 241, 0.2);
+            border-radius: 8px; font-size: 0.85rem;
+        }
+        .summary-badge.success { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .category-tabs { display: flex; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; }
+        .category-tab {
+            padding: 10px 20px; background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+            cursor: pointer; transition: all 0.3s ease; font-size: 0.9rem;
+        }
+        .category-tab:hover { background: rgba(255,255,255,0.1); }
+        .category-tab.active {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-color: transparent; color: white;
+        }
+        .engine-results-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(700px, 1fr)); gap: 30px;
+        }
+        @media (max-width: 1500px) { .engine-results-grid { grid-template-columns: 1fr; } }
+        .engine-result-card {
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 20px; overflow: hidden; transition: all 0.3s ease;
+        }
+        .engine-result-card:hover {
+            border-color: rgba(99, 102, 241, 0.3); transform: translateY(-4px);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .card-header {
+            padding: 20px 25px; background: rgba(0,0,0,0.3);
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .card-title-section { display: flex; align-items: center; gap: 15px; }
+        .card-icon { font-size: 2rem; }
+        .card-title-text h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 4px; }
+        .card-title-text .category-badge {
+            font-size: 0.7rem; padding: 3px 10px; background: rgba(99, 102, 241, 0.3);
+            border-radius: 20px; text-transform: uppercase; letter-spacing: 1px;
+        }
+        .category-badge.premium {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(239, 68, 68, 0.3));
+            color: #fbbf24;
+        }
+        .category-badge.core { background: rgba(99, 102, 241, 0.3); color: #a5b4fc; }
+        .category-badge.business { background: rgba(16, 185, 129, 0.3); color: #6ee7b7; }
+        .ai-badge {
+            padding: 6px 14px; background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 20px; font-size: 0.75rem; font-weight: 600;
+        }
+        .carousel-container { position: relative; padding: 20px; }
+        .carousel-wrapper { position: relative; overflow: hidden; }
+        .carousel-slides { display: flex; transition: transform 0.5s ease; }
+        .carousel-slide { min-width: 100%; padding: 10px; }
+        .chart-container {
+            height: 450px; background: rgba(0,0,0,0.2); border-radius: 12px; overflow: hidden;
+        }
+        .carousel-nav {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 44px; height: 44px; background: rgba(99, 102, 241, 0.9);
+            border: none; border-radius: 50%; color: white; font-size: 1.4rem;
+            cursor: pointer; transition: all 0.3s ease;
+            display: flex; align-items: center; justify-content: center; z-index: 10;
+        }
+        .carousel-nav:hover { background: #6366f1; transform: translateY(-50%) scale(1.1); }
+        .carousel-nav.prev { left: 10px; }
+        .carousel-nav.next { right: 10px; }
+        .carousel-nav:disabled { opacity: 0.3; cursor: not-allowed; }
+        .carousel-indicators { display: flex; justify-content: center; gap: 8px; padding: 15px; }
+        .carousel-dot {
+            width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.2);
+            cursor: pointer; transition: all 0.3s ease;
+        }
+        .carousel-dot.active { background: #6366f1; width: 28px; border-radius: 5px; }
+        .insights-section {
+            padding: 20px 25px; background: rgba(0,0,0,0.2);
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .insights-title {
+            font-size: 0.85rem; color: #888; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 15px; display: flex; align-items: center; gap: 8px;
+        }
+        .insight-item {
+            display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .insight-item:last-child { border-bottom: none; }
+        .insight-icon { font-size: 1.2rem; }
+        .insight-text { font-size: 0.95rem; line-height: 1.5; }
+        .layman-explanation {
+            padding: 20px 25px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(6, 182, 212, 0.1));
+            border-left: 4px solid #6366f1; margin: 20px; border-radius: 0 12px 12px 0;
+        }
+        .layman-title {
+            font-size: 0.85rem; color: #6366f1; font-weight: 600;
+            margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+        }
+        .layman-text { font-size: 1rem; line-height: 1.6; color: #e0e0e0; }
+        .no-results { text-align: center; padding: 60px; color: #888; }
+        .no-results-icon { font-size: 4rem; margin-bottom: 20px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.5); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.8); }
+        @media (max-width: 768px) {
+            .header { flex-direction: column; gap: 20px; padding: 20px; }
+            .upload-section { padding: 30px 20px; }
+            .upload-container { padding: 40px 20px; }
+            .engine-results-grid { grid-template-columns: 1fr; }
+            .chart-container { height: 350px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">🔮</div>
+            <div class="logo-text">
+                <h1>Nemo AI Analytics</h1>
+                <p>Enterprise ML Platform</p>
+            </div>
+        </div>
+        <div class="header-stats">
+            <div class="stat">
+                <div class="stat-value" id="total-engines">27</div>
+                <div class="stat-label">Total Engines</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="completed-count">0</div>
+                <div class="stat-label">Completed</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="insights-count">0</div>
+                <div class="stat-label">Insights</div>
+            </div>
+        </div>
+    </header>
+    <section class="upload-section">
+        <div class="upload-container" id="upload-container">
+            <div class="upload-icon">📊</div>
+            <h2 class="upload-title">Upload Your Dataset</h2>
+            <p class="upload-subtitle">Drop any CSV file to run comprehensive AI analysis with 27 ML engines</p>
+            <button class="upload-btn" onclick="document.getElementById('file-input').click()">Choose CSV File</button>
+            <input type="file" id="file-input" accept=".csv" onchange="handleFileSelect(event)">
+            <div class="file-info" id="file-info">📄 <span id="file-name"></span></div>
+        </div>
+    </section>
+    <div id="status-banner" class="status-banner" role="status" aria-live="polite"></div>
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-header">
+            <h2 class="loading-title">🔬 Running AI Analysis</h2>
+            <p class="loading-subtitle">Processing your data with 27 ML engines...</p>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="progress-text">
+                <span id="progress-status">Initializing...</span>
+                <span class="progress-percentage" id="progress-percentage">0%</span>
+            </div>
+        </div>
+        <div class="engine-status-grid" id="engine-status-grid"></div>
+        <button class="skip-loading-btn" onclick="skipLoading()">View Available Results Now →</button>
+    </div>
+    <section class="results-section" id="results-section">
+        <div class="results-header">
+            <h2 class="results-title">📊 Analysis Results</h2>
+            <div class="results-summary">
+                <span class="summary-badge success" id="success-badge">✓ 0 Engines Completed</span>
+                <span class="summary-badge" id="insights-badge">💡 0 Insights Found</span>
+            </div>
+        </div>
+        <div class="category-tabs" id="category-tabs">
+            <button class="category-tab active" data-category="all">🎯 All Engines</button>
+            <button class="category-tab" data-category="premium">🔱 Premium</button>
+            <button class="category-tab" data-category="core">📊 Core</button>
+            <button class="category-tab" data-category="business">💼 Business</button>
+        </div>
+        <div class="engine-results-grid" id="engine-results-grid"></div>
+</section>
+<script>
+// API base - align with current origin, fallback to localhost:8000 when opened from file://
+const API_BASE = (window.location.origin && window.location.origin.startsWith('http'))
+    ? window.location.origin
+    : 'http://localhost:8000';
+const statusBanner = document.getElementById('status-banner');
+
+function setStatus(message, type = 'info') {
+    if (!statusBanner) return;
+    statusBanner.textContent = message;
+    statusBanner.className = 'status-banner visible ' + type;
+}
+
+// ===== Dataset introspection helpers =====
+function getColumnInfo() {
+    const cols = (datasetProfile && datasetProfile.columns) || [];
+    const dtypes = (datasetProfile && datasetProfile.dtypes) || {};
+    const semantics = (datasetProfile && datasetProfile.semantic_schema) || {};
+    const normalize = (s) => (s || '').toString().toLowerCase();
+    const numeric = cols.filter(c => {
+        const t = normalize(dtypes[c]);
+        return t.includes('int') || t.includes('float') || t.includes('double') || t.includes('decimal') || t.includes('number');
+    });
+    const categorical = cols.filter(c => {
+        const t = normalize(dtypes[c]);
+        return !numeric.includes(c);
+    });
+    const timeCols = cols.filter(c => {
+        const sem = normalize(semantics[c]);
+        const t = normalize(dtypes[c]);
+        const name = normalize(c);
+        return sem.includes('time') || sem.includes('date') || name.includes('date') || name.includes('time') || name.includes('year') || t.includes('datetime');
+    });
+    return { cols, dtypes, semantics, numeric, categorical, timeCols };
+}
+
+function pickFirst(arr, fallback = null, predicate = null) {
+    if (!Array.isArray(arr) || arr.length === 0) return fallback;
+    if (!predicate) return arr[0];
+    const found = arr.find(predicate);
+    return found || fallback;
+}
+
+function detectByName(candidates, keywords) {
+    const lowerKeywords = keywords.map(k => k.toLowerCase());
+    const normalized = candidates.map(c => ({ c, n: c.toLowerCase() }));
+    const hit = normalized.find(({ n }) => lowerKeywords.some(k => n.includes(k)));
+    return hit ? hit.c : null;
+}
+
+function buildUrl(path) {
+    if (!path) return API_BASE;
+    return path.startsWith('http') ? path : API_BASE + path;
+}
+
+async function apiRequest(path, options = {}) {
+    const target = buildUrl(path);
+    const fetchOptions = Object.assign({ credentials: 'include' }, options);
+    let response;
+    try {
+        response = await fetch(target, fetchOptions);
+    } catch (networkError) {
+        throw new Error('Network error contacting API: ' + networkError.message);
+    }
+    let payloadText = '';
+    try { payloadText = await response.text(); } catch (e) {}
+    let payload = {};
+    if (payloadText) {
+        try { payload = JSON.parse(payloadText); } catch (e) { payload = { raw: payloadText }; }
+    }
+    if (!response.ok) {
+        let detail = (payload && (payload.detail || payload.message)) || response.statusText || 'Unknown error';
+        if (detail && typeof detail === 'object') {
+            try { detail = JSON.stringify(detail); } catch (e) { detail = String(detail); }
+        }
+        throw new Error('Request failed (' + response.status + '): ' + detail);
+    }
+    return payload;
+}
+
+const ALL_ENGINES = {
+    'titan': { name: 'Titan AutoML', icon: '🔱', category: 'premium', description: 'Universal AutoML with ensemble methods and nested cross-validation. Discovers the best model for your data automatically.' },
+    'chaos': { name: 'Chaos Engine', icon: '🌪️', category: 'premium', description: 'Detects hidden non-linear relationships using advanced correlation methods. Finds patterns regular analysis misses.' },
+    'scout': { name: 'Scout Drift', icon: '🔍', category: 'premium', description: 'Monitors for data drift over time using statistical tests. Alerts when your data distribution changes.' },
+    'oracle': { name: 'Oracle Causality', icon: '🔮', category: 'premium', description: 'Determines if one variable actually causes changes in another using Granger causality tests.' },
+    'newton': { name: 'Newton Equations', icon: '🍎', category: 'premium', description: 'Discovers mathematical formulas hidden in your data using genetic programming.' },
+    'flash': { name: 'Flash Counterfactual', icon: '⚡', category: 'premium', description: 'Generates "what-if" scenarios showing exactly what changes would alter predictions.' },
+    'mirror': { name: 'Mirror Synthetic', icon: '🪞', category: 'premium', description: 'Creates realistic synthetic data that preserves statistical properties while protecting privacy.' },
+    'chronos': { name: 'Chronos Forecast', icon: '⏱️', category: 'premium', description: 'Advanced time-series forecasting with seasonal patterns and confidence intervals.' },
+    'deep_feature': { name: 'Deep Feature', icon: '🧬', category: 'premium', description: 'Automatically engineers new features from your data to improve predictions.' },
+    'galileo': { name: 'Galileo GNN', icon: '🔭', category: 'premium', description: 'Graph Neural Networks for understanding relationships between entities.' },
+    'statistical': { name: 'Statistical Analysis', icon: '📊', category: 'core', description: 'Comprehensive statistics including mean, median, correlations, and hypothesis testing.' },
+    'clustering': { name: 'Smart Clustering', icon: '🎯', category: 'core', description: 'Automatically groups similar data points together to reveal natural segments.' },
+    'anomaly': { name: 'Anomaly Detection', icon: '🚨', category: 'core', description: 'Finds unusual data points that do not follow the normal pattern - potential fraud or errors.' },
+    'trend': { name: 'Trend Analysis', icon: '📈', category: 'core', description: 'Identifies trends, seasonality, and significant change points in your data over time.' },
+    'predictive': { name: 'Predictive Forecast', icon: '🎱', category: 'core', description: 'Forecasts future values based on historical patterns using multiple algorithms.' },
+    'cost-optimization': { name: 'Cost Optimization', icon: '💰', category: 'business', description: 'Identifies the top cost drivers and opportunities for savings using Pareto analysis.' },
+    'roi-prediction': { name: 'ROI Prediction', icon: '📈', category: 'business', description: 'Calculates return on investment with NPV, payback period, and sensitivity analysis.' },
+    'spend-patterns': { name: 'Spend Patterns', icon: '💳', category: 'business', description: 'Analyzes spending behavior to find maverick spend, seasonal trends, and anomalies.' },
+    'budget-variance': { name: 'Budget Variance', icon: '📋', category: 'business', description: 'Compares actual spending vs budget, identifies variances, and projects future spend.' },
+    'customer-ltv': { name: 'Customer LTV', icon: '👥', category: 'business', description: 'Calculates customer lifetime value and segments customers using RFM analysis.' },
+    'profit-margins': { name: 'Profit Margins', icon: '💵', category: 'business', description: 'Analyzes profit margins by product, customer, or region to optimize pricing.' },
+    'cash-flow': { name: 'Cash Flow', icon: '💸', category: 'business', description: 'Analyzes cash inflows and outflows, predicts future cash position.' },
+    'pricing-strategy': { name: 'Pricing Strategy', icon: '🏷️', category: 'business', description: 'Analyzes price elasticity and optimal pricing to maximize revenue.' },
+    'revenue-forecasting': { name: 'Revenue Forecast', icon: '📊', category: 'business', description: 'Forecasts future revenue with seasonality adjustments and confidence bands.' },
+    'inventory-optimization': { name: 'Inventory Optimization', icon: '📦', category: 'business', description: 'Calculates optimal reorder points, identifies slow-moving stock.' },
+    'market-basket': { name: 'Market Basket', icon: '🛒', category: 'business', description: 'Discovers which products are frequently bought together for cross-selling.' },
+    'resource-utilization': { name: 'Resource Utilization', icon: '⚙️', category: 'business', description: 'Analyzes resource usage efficiency and identifies bottlenecks.' }
+};
+
+let currentFile = null;
+let uploadedFilename = null;
+let engineResults = {};
+let completedCount = 0;
+let totalInsights = 0;
+const carouselStates = {};
+let datasetProfile = null;
+const GPU_ENGINES = ['titan', 'chaos', 'mirror']; // Engines expected to exercise GPU; run these first, one at a time.
+
+const uploadContainer = document.getElementById('upload-container');
+setStatus('Upload a CSV file to start the 27-engine analysis.', 'info');
+
+uploadContainer.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadContainer.classList.add('drag-over');
+});
+
+uploadContainer.addEventListener('dragleave', () => {
+    uploadContainer.classList.remove('drag-over');
+});
+
+uploadContainer.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadContainer.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) {
+        processFile(file);
+    } else {
+        alert('Please upload a CSV file');
+    }
+});
+
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) processFile(file);
+}
+
+async function processFile(file) {
+    currentFile = file;
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('file-info').classList.add('visible');
+    uploadContainer.classList.add('has-file');
+    
+    try {
+        setStatus('Uploading ' + file.name + '...', 'info');
+        const formData = new FormData();
+        formData.append('file', file);
+        const uploadData = await apiRequest('/upload', { method: 'POST', body: formData });
+        uploadedFilename = uploadData.filename || (uploadData.data && uploadData.data.filename) || file.name;
+        datasetProfile = uploadData;
+        if (!uploadedFilename) {
+            throw new Error('Upload response missing filename');
+        }
+        setStatus('Upload complete. Running analysis...', 'success');
+    } catch (error) {
+        console.error('Upload error:', error);
+        uploadedFilename = null;
+        setStatus('Upload failed: ' + error.message, 'error');
+        return;
+    }
+    runComprehensiveAnalysis();
+}
+
+function initEngineStatusGrid() {
+    const grid = document.getElementById('engine-status-grid');
+    grid.innerHTML = '';
+    Object.entries(ALL_ENGINES).forEach(([key, engine]) => {
+        const card = document.createElement('div');
+        card.className = 'engine-status-card';
+        card.id = 'status-' + key;
+        card.innerHTML = '<span class="engine-icon">' + engine.icon + '</span><div class="engine-info"><div class="engine-name">' + engine.name + '</div><div class="engine-status-text">Pending...</div></div><div class="status-indicator pending">⏳</div>';
+        grid.appendChild(card);
+    });
+}
+
+function updateEngineStatus(engineKey, status, message) {
+    const card = document.getElementById('status-' + engineKey);
+    if (!card) return;
+    card.className = 'engine-status-card ' + status;
+    card.querySelector('.engine-status-text').textContent = message || status;
+    const indicator = card.querySelector('.status-indicator');
+    indicator.className = 'status-indicator ' + status;
+    if (status === 'running') indicator.textContent = '⚡';
+    else if (status === 'completed') indicator.textContent = '✓';
+    else if (status === 'error') indicator.textContent = '✗';
+}
+
+function updateProgress(completed, total) {
+    const percentage = Math.round((completed / total) * 100);
+    document.getElementById('progress-bar').style.width = percentage + '%';
+    document.getElementById('progress-percentage').textContent = percentage + '%';
+    document.getElementById('progress-status').textContent = completed + ' of ' + total + ' loaded';
+    document.getElementById('completed-count').textContent = completed;
+}
+
+function setProgressMessage(msg) {
+    document.getElementById('progress-status').textContent = msg;
+}
+
+async function runComprehensiveAnalysis() {
+    if (!uploadedFilename) {
+        setStatus('No uploaded dataset found. Please upload a CSV file first.', 'error');
+        return;
+    }
+    if (datasetProfile && Array.isArray(datasetProfile.columns) && datasetProfile.columns.length < 2) {
+        setStatus('Your file has only one column (looks like HTML, not CSV). Upload a real CSV/Excel file.', 'error');
+        return;
+    }
+    if (datasetProfile && datasetProfile.dtypes) {
+        const numericCols = Object.entries(datasetProfile.dtypes).filter(([_, dt]) => {
+            const t = (dt || '').toString().toLowerCase();
+            return t.includes('int') || t.includes('float') || t.includes('double') || t.includes('decimal');
+        });
+        if (numericCols.length === 0) {
+            setStatus('No numeric columns detected. Add at least one numeric column or upload a different file.', 'error');
+            return;
+        }
+    }
+    document.getElementById('loading-overlay').classList.add('active');
+    setStatus('Running analysis across all engines...', 'info');
+    initEngineStatusGrid();
+    const engines = Object.keys(ALL_ENGINES);
+    const gpuEngines = GPU_ENGINES.filter(key => engines.includes(key));
+    const remainingEngines = engines.filter(key => !GPU_ENGINES.includes(key));
+    const total = engines.length;
+    completedCount = 0;
+    engineResults = {};
+    totalInsights = 0;
+    updateProgress(0, total);
+    
+    // Run GPU-bound engines sequentially to avoid overload and let GPU coordinator handle locking
+    for (let idx = 0; idx < gpuEngines.length; idx++) {
+        const key = gpuEngines[idx];
+        setProgressMessage('Running GPU engine ' + (idx + 1) + ' of ' + total + ' (coordinated): ' + ALL_ENGINES[key].name);
+        await runSingleEngine(key);
+        updateProgress(completedCount, total);
+        renderResults();
+    }
+
+    // Run remaining engines sequentially as well to keep load predictable
+    for (let idx = 0; idx < remainingEngines.length; idx++) {
+        const key = remainingEngines[idx];
+        setProgressMessage('Running engine ' + (gpuEngines.length + idx + 1) + ' of ' + total + ': ' + ALL_ENGINES[key].name);
+        await runSingleEngine(key);
+        updateProgress(completedCount, total);
+        renderResults();
+    }
+
+    document.getElementById('loading-overlay').classList.remove('active');
+    document.getElementById('results-section').classList.add('visible');
+    document.getElementById('success-badge').textContent = '✓ ' + completedCount + ' Engines Completed';
+    document.getElementById('insights-badge').textContent = '💡 ' + totalInsights + ' Insights Found';
+    setStatus('Analysis complete: ' + completedCount + ' engines finished, ' + totalInsights + ' insights found.', 'success');
+    document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function runSingleEngine(engineKey) {
+    const engine = ALL_ENGINES[engineKey];
+    try {
+        let endpoint;
+        // Map engine keys to actual API endpoints
+        const endpointMap = {
+            // Premium engines - use /premium/{name}
+            'titan': '/analytics/premium/titan',
+            'chaos': '/analytics/premium/chaos',
+            'scout': '/analytics/premium/scout',
+            'oracle': '/analytics/premium/oracle',
+            'newton': '/analytics/premium/newton',
+            'flash': '/analytics/premium/flash',
+            'mirror': '/analytics/premium/mirror',
+            'chronos': '/analytics/premium/chronos',
+            'deep_feature': '/analytics/premium/deep_feature',
+            'galileo': '/analytics/premium/galileo',
+            // Core engines - specific endpoints
+            'statistical': '/analytics/statistical',
+            'clustering': '/analytics/cluster',
+            'anomaly': '/analytics/detect-anomalies',
+            'trend': '/analytics/analyze-trends',
+            'predictive': '/analytics/predict',
+            // Business engines
+            'cost-optimization': '/analytics/cost-optimization',
+            'roi-prediction': '/analytics/roi-prediction',
+            'spend-patterns': '/analytics/spend-patterns',
+            'budget-variance': '/analytics/budget-variance',
+            'customer-ltv': '/analytics/customer-ltv',
+            'profit-margins': '/analytics/profit-margins',
+            'cash-flow': '/analytics/cash-flow',
+            'pricing-strategy': '/analytics/pricing-strategy',
+            'revenue-forecasting': '/analytics/revenue-forecast',
+            'inventory-optimization': '/analytics/inventory-optimization',
+            'market-basket': '/analytics/market-basket',
+            'resource-utilization': '/analytics/resource-utilization'
+        };
+        endpoint = endpointMap[engineKey] || '/analytics/' + engineKey;
+        updateEngineStatus(engineKey, 'running', 'Analyzing...');
+
+        const { body, skipReason } = buildEngineRequest(engineKey);
+        if (skipReason) {
+            updateEngineStatus(engineKey, 'completed', 'Skipped: ' + skipReason);
+            engineResults[engineKey] = { success: true, skipped: true, reason: skipReason };
+            completedCount++;
+            return;
+        }
+        
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+        let data;
+        try {
+            data = await apiRequest(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: controller.signal
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
+        
+        engineResults[engineKey] = {
+            success: true, data: data,
+            graphs: extractGraphs(data),
+            insights: extractInsights(data),
+            summary: data.summary || (data.results && data.results.summary) || {}
+        };
+        
+        const insightCount = engineResults[engineKey].insights.length;
+        totalInsights += insightCount;
+        document.getElementById('insights-count').textContent = totalInsights;
+        completedCount++;
+        updateEngineStatus(engineKey, 'completed', insightCount + ' insights');
+    } catch (error) {
+        console.error('Engine ' + engineKey + ' failed:', error);
+        engineResults[engineKey] = { success: false, error: error.message };
+        updateEngineStatus(engineKey, 'error', error.message);
+        if (engine && !(statusBanner && statusBanner.className.includes('error'))) {
+            setStatus(engine.name + ' failed: ' + error.message, 'error');
+        }
+        completedCount++;
+    }
+}
+
+function extractGraphs(data) {
+    const graphs = [];
+    if (data.results && data.results.graphs) graphs.push(...data.results.graphs);
+    if (data.graphs) graphs.push(...data.graphs);
+    if (data.visualizations) graphs.push(...data.visualizations);
+    
+    // For premium engines, create graphs from variants if no graphs exist
+    if (graphs.length === 0 && data.variants && data.variants.length > 0) {
+        // Create summary visualization from variants
+        const variants = data.variants.slice(0, 10);
+        if (variants.length > 0) {
+            // Create a bar chart of variant scores
+            graphs.push({
+                type: 'bar',
+                title: (data.engine_display_name || data.engine || 'Analysis') + ' - Top Results',
+                data: {
+                    categories: variants.map((v, i) => v.model_name || v.variant_type || 'Variant ' + (i+1)),
+                    values: variants.map(v => v.cv_score * 100 || v.gemma_score || 50)
+                },
+                x_label: 'Analysis Type',
+                y_label: 'Score'
+            });
+        }
+    }
+    return graphs;
+}
+
+function extractInsights(data) {
+    const insights = [];
+    if (data.results && data.results.insights) insights.push(...data.results.insights);
+    if (data.insights) insights.push(...data.insights);
+    if (data.summary && data.summary.insights) insights.push(...data.summary.insights);
+    if (data.results && data.results.summary && data.results.summary.insights) insights.push(...data.results.summary.insights);
+    if (data.summary && data.summary.headline) insights.unshift(data.summary.headline);
+    if (data.results && data.results.summary && data.results.summary.headline) insights.unshift(data.results.summary.headline);
+    
+    // Extract insights from variants (premium engines)
+    if (data.variants && data.variants.length > 0) {
+        data.variants.slice(0, 5).forEach(v => {
+            if (v.interpretation) insights.push(v.interpretation);
+        });
+    }
+    
+    // Extract from summary object
+    if (data.summary) {
+        if (data.summary.headline && !insights.includes(data.summary.headline)) insights.unshift(data.summary.headline);
+        if (data.summary.explanation) insights.push(data.summary.explanation);
+        if (data.summary.recommendation) insights.push('💡 ' + data.summary.recommendation);
+    }
+    
+    return insights;
+}
+
+function buildEngineRequest(engineKey) {
+    const base = { filename: uploadedFilename };
+    const { numeric, categorical, timeCols, cols } = getColumnInfo();
+    const lowerCols = cols.map(c => c.toLowerCase());
+    const hasNumeric = numeric && numeric.length > 0;
+    const target = pickFirst(numeric, null, c => !c.toLowerCase().includes('id'));
+    const amountCol = detectByName(cols, ['amount', 'revenue', 'sales', 'cost', 'price', 'spend', 'expense', 'charge', 'profit', 'total']);
+    const customerCol = detectByName(cols, ['customer', 'client', 'account', 'user', 'member']);
+    const productCol = detectByName(cols, ['product', 'sku', 'item', 'article', 'name']);
+    const quantityCol = detectByName(cols, ['quantity', 'qty', 'units', 'volume']);
+    const transactionCol = detectByName(cols, ['transaction', 'order', 'invoice', 'basket', 'receipt', 'session']);
+    const resourceCol = detectByName(cols, ['resource', 'server', 'machine', 'employee', 'device']);
+    const usageCol = detectByName(cols, ['usage', 'load', 'cpu', 'memory', 'hours', 'utilization', 'usage_pct']);
+    const costCol = detectByName(cols, ['cost', 'expense', 'spend']);
+    const priceCol = detectByName(cols, ['price', 'unit_price']);
+    const revenueCol = detectByName(cols, ['revenue', 'sales', 'turnover']);
+    const dateCol = pickFirst(timeCols, detectByName(cols, ['date', 'time', 'timestamp']), null);
+    const defaultFeatures = numeric && numeric.length > 0 ? numeric : cols;
+
+    const body = { ...base };
+    let skipReason = null;
+
+    const ensure = (cond, reason) => {
+        if (!cond) skipReason = reason;
+    };
+
+    switch (engineKey) {
+        case 'titan':
+        case 'chaos':
+        case 'mirror':
+            if (target) body.target_column = target;
+            break;
+        case 'predictive':
+        case 'trend':
+            if (target) body.target = target;
+            if (dateCol) body.date_column = dateCol;
+            break;
+        case 'clustering':
+            body.features = defaultFeatures;
+            break;
+        case 'anomaly':
+            body.target_columns = defaultFeatures;
+            break;
+        case 'profit-margins':
+            if (revenueCol) body.revenue_column = revenueCol;
+            if (costCol) body.cost_column = costCol;
+            ensure(revenueCol && costCol, 'Need revenue and cost columns');
+            break;
+        case 'revenue-forecasting':
+            if (revenueCol) body.revenue_column = revenueCol;
+            if (dateCol) body.date_column = dateCol;
+            ensure(revenueCol && dateCol, 'Need revenue and date columns');
+            break;
+        case 'customer-ltv':
+            if (customerCol) body.customer_column = customerCol;
+            if (amountCol) body.amount_column = amountCol;
+            if (dateCol) body.date_column = dateCol;
+            ensure(customerCol && amountCol, 'Need customer and amount columns');
+            break;
+        case 'inventory-optimization':
+            if (productCol) body.product_column = productCol;
+            if (quantityCol) body.quantity_column = quantityCol;
+            if (costCol) body.cost_column = costCol;
+            ensure(productCol && quantityCol, 'Need product and quantity columns');
+            break;
+        case 'pricing-strategy':
+            if (priceCol) body.price_column = priceCol;
+            if (quantityCol) body.quantity_column = quantityCol;
+            if (productCol) body.product_column = productCol;
+            ensure(priceCol && quantityCol, 'Need price and quantity columns');
+            break;
+        case 'market-basket':
+            if (transactionCol) body.transaction_column = transactionCol;
+            if (productCol) body.item_column = productCol;
+            ensure(transactionCol && productCol, 'Need transaction and item columns');
+            break;
+        case 'resource-utilization':
+            if (resourceCol) body.resource_column = resourceCol;
+            if (usageCol) body.usage_column = usageCol;
+            if (dateCol) body.time_column = dateCol;
+            ensure(resourceCol && usageCol, 'Need resource and usage columns');
+            break;
+        case 'cash-flow':
+            if (dateCol) body.date_column = dateCol;
+            if (amountCol) body.amount_column = amountCol;
+            ensure(dateCol && amountCol, 'Need date and amount columns');
+            break;
+        default:
+            // Most engines just need filename; add target/features when helpful
+            if (!body.target && target) body.target_column = target;
+            break;
+    }
+
+    return { body, skipReason };
+}
+function skipLoading() {
+    document.getElementById('loading-overlay').classList.remove('active');
+    document.getElementById('results-section').classList.add('visible');
+    renderResults();
+}
+
+function renderResults(categoryFilter) {
+    if (!categoryFilter) categoryFilter = 'all';
+    const grid = document.getElementById('engine-results-grid');
+    grid.innerHTML = '';
+    
+    Object.entries(engineResults).forEach(([key, result]) => {
+        if (!result.success) return;
+        const engine = ALL_ENGINES[key];
+        if (categoryFilter !== 'all' && engine.category !== categoryFilter) return;
+        const card = createResultCard(key, engine, result);
+        grid.appendChild(card);
+    });
+    initializeCarousels();
+}
+
+function createResultCard(engineKey, engine, result) {
+    const card = document.createElement('div');
+    card.className = 'engine-result-card';
+    card.dataset.category = engine.category;
+    const graphs = result.graphs || [];
+    const insights = result.insights || [];
+    
+    let graphsHtml = '';
+    if (graphs.length > 0) {
+        let slidesHtml = '';
+        for (let idx = 0; idx < graphs.length; idx++) {
+            slidesHtml += '<div class="carousel-slide"><div class="chart-container" id="chart-' + engineKey + '-' + idx + '"></div></div>';
+        }
+        let navHtml = '';
+        if (graphs.length > 1) {
+            let dotsHtml = '';
+            for (let idx = 0; idx < graphs.length; idx++) {
+                dotsHtml += '<div class="carousel-dot' + (idx === 0 ? ' active' : '') + '" onclick="goToSlide(\'' + engineKey + '\', ' + idx + ')"></div>';
+            }
+            navHtml = '<button class="carousel-nav prev" onclick="moveCarousel(\'' + engineKey + '\', -1)">←</button><button class="carousel-nav next" onclick="moveCarousel(\'' + engineKey + '\', 1)">→</button><div class="carousel-indicators">' + dotsHtml + '</div>';
+        }
+        graphsHtml = '<div class="carousel-container" data-carousel="' + engineKey + '"><div class="carousel-wrapper"><div class="carousel-slides" id="slides-' + engineKey + '">' + slidesHtml + '</div></div>' + navHtml + '</div>';
+    } else {
+        graphsHtml = '<div class="no-results"><div class="no-results-icon">📉</div><p>No visualizations available</p></div>';
+    }
+    
+    let insightsHtml = '';
+    if (insights.length > 0) {
+        let itemsHtml = '';
+        for (let i = 0; i < Math.min(5, insights.length); i++) {
+            itemsHtml += '<div class="insight-item"><span class="insight-icon">' + getInsightIcon(insights[i]) + '</span><span class="insight-text">' + insights[i] + '</span></div>';
+        }
+        insightsHtml = '<div class="insights-section"><div class="insights-title">💡 Key Insights</div>' + itemsHtml + '</div>';
+    }
+    
+    card.innerHTML = '<div class="card-header"><div class="card-title-section"><span class="card-icon">' + engine.icon + '</span><div class="card-title-text"><h3>' + engine.name + '</h3><span class="category-badge ' + engine.category + '">' + engine.category + '</span></div></div><span class="ai-badge">AI POWERED</span></div>' + graphsHtml + '<div class="layman-explanation"><div class="layman-title">💡 What This Means</div><div class="layman-text">' + engine.description + '</div></div>' + insightsHtml;
+    
+    setTimeout(function() {
+        for (let idx = 0; idx < graphs.length; idx++) {
+            renderChart('chart-' + engineKey + '-' + idx, graphs[idx]);
+        }
+    }, 100);
+    
+    return card;
+}
+
+function getInsightIcon(insight) {
+    const text = insight.toLowerCase();
+    if (text.includes('increase') || text.includes('growth') || text.includes('up')) return '📈';
+    if (text.includes('decrease') || text.includes('decline') || text.includes('down')) return '📉';
+    if (text.includes('warning') || text.includes('alert') || text.includes('exceed')) return '⚠️';
+    if (text.includes('save') || text.includes('savings')) return '💰';
+    if (text.includes('recommend')) return '💡';
+    return '✅';
+}
+
+function renderChart(containerId, graphSpec) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    try {
+        const chartType = graphSpec.type || graphSpec.chart_type || 'scatter';
+        const data = graphSpec.data || graphSpec;
+        const plotlyData = convertToPlotly(chartType, data, graphSpec);
+        const layout = {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0.2)',
+            font: { color: '#e0e0e0', family: 'Inter, sans-serif', size: 13 },
+            margin: { t: 60, r: 40, b: 70, l: 80 },
+            title: { text: graphSpec.title || '', font: { size: 18 } },
+            xaxis: { title: { text: graphSpec.x_label || (graphSpec.xaxis && graphSpec.xaxis.title) || '', font: { size: 14 } }, gridcolor: 'rgba(255,255,255,0.1)', linecolor: 'rgba(255,255,255,0.2)', tickfont: { size: 12 } },
+            yaxis: { title: { text: graphSpec.y_label || (graphSpec.yaxis && graphSpec.yaxis.title) || '', font: { size: 14 } }, gridcolor: 'rgba(255,255,255,0.1)', linecolor: 'rgba(255,255,255,0.2)', tickfont: { size: 12 } },
+            showlegend: true,
+            legend: { bgcolor: 'rgba(0,0,0,0.3)', bordercolor: 'rgba(255,255,255,0.1)', font: { size: 12 } }
+        };
+        const config = { responsive: true, displayModeBar: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
+        Plotly.newPlot(container, plotlyData, layout, config);
+    } catch (error) {
+        console.error('Chart render error for ' + containerId + ':', error);
+        container.innerHTML = '<div class="no-results"><p>Chart unavailable</p></div>';
+    }
+}
+
+function convertToPlotly(type, data, spec) {
+    switch (type) {
+        case 'pareto': return createParetoChart(data, spec);
+        case 'waterfall': return createWaterfallChart(data, spec);
+        case 'heatmap': return createHeatmap(data, spec);
+        case 'network_graph': case 'sankey': return createSankeyChart(data, spec);
+        case 'scatter': return createScatterChart(data, spec);
+        case 'line': case 'forecast': return createForecastChart(data, spec);
+        case 'bar': return createBarChart(data, spec);
+        case 'pie': case 'donut': return createPieChart(data, spec);
+        case 'histogram': return createHistogram(data, spec);
+        case 'box': return createBoxPlot(data, spec);
+        default: return createGenericChart(data, spec);
+    }
+}
+
+function createParetoChart(data, spec) {
+    const categories = data.categories || data.x || [];
+    const values = data.values || data.y || [];
+    const cumulative = data.cumulative_percentage || calculateCumulative(values);
+    return [
+        { x: categories, y: values, type: 'bar', name: 'Value', marker: { color: values.map(function(v, i) { return 'hsl(' + (240 - (i / values.length) * 60) + ', 70%, 60%)'; }) } },
+        { x: categories, y: cumulative, type: 'scatter', mode: 'lines+markers', name: 'Cumulative %', yaxis: 'y2', line: { color: '#f59e0b', width: 3 }, marker: { size: 8 } }
+    ];
+}
+
+function createWaterfallChart(data, spec) {
+    const categories = data.categories || data.x || [];
+    const values = data.values || data.y || [];
+    const measures = data.measures || values.map(function(v, i) { return i === 0 ? 'absolute' : (i === values.length - 1 ? 'total' : 'relative'); });
+    return [{ type: 'waterfall', x: categories, y: values, measure: measures, connector: { line: { color: 'rgba(99, 102, 241, 0.5)' } }, increasing: { marker: { color: '#10b981' } }, decreasing: { marker: { color: '#ef4444' } }, totals: { marker: { color: '#6366f1' } } }];
+}
+
+function createHeatmap(data, spec) {
+    return [{ type: 'heatmap', z: data.values || data.z || [], x: data.x_labels || data.x || [], y: data.y_labels || data.y || [], colorscale: 'RdBu', reversescale: true }];
+}
+
+function createSankeyChart(data, spec) {
+    const nodes = data.nodes || [];
+    return [{ type: 'sankey', orientation: 'h', node: { pad: 15, thickness: 20, line: { color: 'rgba(255,255,255,0.3)', width: 0.5 }, label: nodes, color: nodes.map(function(n, i) { return 'hsl(' + ((i * 30) % 360) + ', 70%, 50%)'; }) }, link: { source: (data.links && data.links.source) || data.source || [], target: (data.links && data.links.target) || data.target || [], value: (data.links && data.links.value) || data.value || [] } }];
+}
+
+function createScatterChart(data, spec) {
+    const x = data.x || [];
+    const y = data.y || [];
+    const isAnomaly = data.is_anomaly || data.anomaly || [];
+    if (isAnomaly.length > 0) {
+        return [{ x: x, y: y, mode: 'markers', type: 'scatter', marker: { color: isAnomaly.map(function(a) { return a ? '#ef4444' : '#6366f1'; }), size: isAnomaly.map(function(a) { return a ? 12 : 8; }), line: { color: 'white', width: 1 } } }];
+    }
+    return [{ x: x, y: y, mode: 'markers', type: 'scatter', marker: { color: '#6366f1', size: 8 } }];
+}
+
+function createForecastChart(data, spec) {
+    const traces = [];
+    if (data.actual || data.historical) {
+        traces.push({ x: data.dates || data.x || [], y: data.actual || data.historical || [], mode: 'lines', name: 'Actual', line: { color: '#6366f1', width: 2 } });
+    }
+    if (data.forecast || data.predicted) {
+        traces.push({ x: data.forecast_dates || data.x || [], y: data.forecast || data.predicted || [], mode: 'lines', name: 'Forecast', line: { color: '#10b981', width: 2, dash: 'dash' } });
+    }
+    if (data.upper_bound && data.lower_bound) {
+        const xVals = data.forecast_dates || data.x || [];
+        traces.push({ x: xVals.concat(xVals.slice().reverse()), y: data.upper_bound.concat(data.lower_bound.slice().reverse()), fill: 'toself', fillcolor: 'rgba(16, 185, 129, 0.2)', line: { color: 'transparent' }, name: '95% Confidence', showlegend: true });
+    }
+    return traces.length > 0 ? traces : createGenericChart(data, spec);
+}
+
+function createBarChart(data, spec) {
+    return [{ x: data.categories || data.x || [], y: data.values || data.y || [], type: 'bar', marker: { color: '#6366f1', line: { color: 'rgba(255,255,255,0.3)', width: 1 } } }];
+}
+
+function createPieChart(data, spec) {
+    const labels = data.labels || [];
+    return [{ values: data.values || [], labels: labels, type: 'pie', hole: spec.type === 'donut' ? 0.5 : 0, marker: { colors: labels.map(function(l, i) { return 'hsl(' + ((i * 40) % 360) + ', 70%, 55%)'; }) } }];
+}
+
+function createHistogram(data, spec) {
+    return [{ x: data.values || data.x || [], type: 'histogram', marker: { color: '#6366f1' } }];
+}
+
+function createBoxPlot(data, spec) {
+    return [{ y: data.values || data.y || [], type: 'box', marker: { color: '#6366f1' } }];
+}
+
+function createGenericChart(data, spec) {
+    const x = data.x || data.categories || Object.keys(data).slice(0, 10);
+    const y = data.y || data.values || Object.values(data).slice(0, 10);
+    if (Array.isArray(x) && Array.isArray(y)) {
+        return [{ x: x, y: y, type: 'bar', marker: { color: '#6366f1' } }];
+    }
+    return [{ x: [1, 2, 3], y: [1, 2, 3], type: 'scatter', mode: 'lines' }];
+}
+
+function calculateCumulative(values) {
+    const total = values.reduce(function(a, b) { return a + b; }, 0);
+    let cumSum = 0;
+    return values.map(function(v) { cumSum += v; return (cumSum / total) * 100; });
+}
+
+function initializeCarousels() {
+    document.querySelectorAll('[data-carousel]').forEach(function(container) {
+        const key = container.dataset.carousel;
+        carouselStates[key] = { currentIndex: 0 };
+    });
+}
+
+function moveCarousel(key, direction) {
+    const slides = document.getElementById('slides-' + key);
+    if (!slides) return;
+    const slideCount = slides.children.length;
+    if (slideCount <= 1) return;
+    let newIndex = (carouselStates[key] && carouselStates[key].currentIndex || 0) + direction;
+    if (newIndex < 0) newIndex = slideCount - 1;
+    if (newIndex >= slideCount) newIndex = 0;
+    goToSlide(key, newIndex);
+}
+
+function goToSlide(key, index) {
+    const slides = document.getElementById('slides-' + key);
+    if (!slides) return;
+    carouselStates[key] = { currentIndex: index };
+    slides.style.transform = 'translateX(-' + (index * 100) + '%)';
+    const container = slides.closest('[data-carousel]');
+    if (container) {
+        container.querySelectorAll('.carousel-dot').forEach(function(dot, i) {
+            if (i === index) dot.classList.add('active');
+            else dot.classList.remove('active');
+        });
+    }
+}
+
+document.querySelectorAll('.category-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+        document.querySelectorAll('.category-tab').forEach(function(t) { t.classList.remove('active'); });
+        tab.classList.add('active');
+        renderResults(tab.dataset.category);
+    });
+});
+
+console.log('🔮 Nemo AI Analytics Platform loaded');
+console.log('📊 ' + Object.keys(ALL_ENGINES).length + ' engines available');
+</script>
+</body>
+</html>

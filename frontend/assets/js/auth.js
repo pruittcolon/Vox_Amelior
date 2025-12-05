@@ -1,6 +1,7 @@
 /**
  * Authentication and Session Management
  * Handles login state, role checks, and session validation
+ * Supports both cookie-based and localStorage token-based auth (for iframe contexts like VS Code Simple Browser)
  */
 
 const API_BASE = (() => {
@@ -26,6 +27,96 @@ function buildApiUrl(path) {
   return `${API_BASE}${normalized}`;
 }
 
+// Token storage key
+const TOKEN_STORAGE_KEY = 'nemo_session_token';
+const CSRF_STORAGE_KEY = 'nemo_csrf_token';
+
+/**
+ * Get stored auth token from localStorage
+ */
+function getStoredToken() {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Store auth token in localStorage
+ */
+function setStoredToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch (e) {
+    console.warn('[AUTH] localStorage not available');
+  }
+}
+
+/**
+ * Get stored CSRF token from localStorage
+ */
+function getStoredCsrf() {
+  try {
+    return localStorage.getItem(CSRF_STORAGE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Store CSRF token in localStorage
+ */
+function setStoredCsrf(token) {
+  try {
+    if (token) {
+      localStorage.setItem(CSRF_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(CSRF_STORAGE_KEY);
+    }
+  } catch (e) {
+    console.warn('[AUTH] localStorage not available');
+  }
+}
+
+/**
+ * Build headers for authenticated requests
+ * Uses Bearer token from localStorage if available
+ */
+function getAuthHeaders() {
+  const headers = {};
+  const token = getStoredToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const csrf = getStoredCsrf();
+  if (csrf) {
+    headers['X-CSRF-Token'] = csrf;
+  }
+  return headers;
+}
+
+/**
+ * Make an authenticated fetch request
+ * Automatically includes auth headers from localStorage
+ */
+async function authFetch(url, options = {}) {
+  const authHeaders = getAuthHeaders();
+  const mergedOptions = {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...authHeaders,
+      ...(options.headers || {})
+    }
+  };
+  return fetch(url, mergedOptions);
+}
+
 const Auth = {
   currentUser: null,
   
@@ -35,9 +126,8 @@ const Auth = {
    */
   async checkSession() {
     try {
-      const response = await fetch(buildApiUrl('/api/auth/check'), {
-        method: 'GET',
-        credentials: 'include' // Include cookies
+      const response = await authFetch(buildApiUrl('/api/auth/check'), {
+        method: 'GET'
       });
       
       const data = await response.json();
@@ -54,6 +144,9 @@ const Auth = {
         return true;
       } else {
         this.currentUser = null;
+        // Clear stored token if session is invalid
+        setStoredToken(null);
+        setStoredCsrf(null);
         return false;
       }
     } catch (error) {
@@ -122,16 +215,20 @@ const Auth = {
    */
   async logout() {
     try {
-      await fetch(buildApiUrl('/api/auth/logout'), {
-        method: 'POST',
-        credentials: 'include'
+      await authFetch(buildApiUrl('/api/auth/logout'), {
+        method: 'POST'
       });
       
       this.currentUser = null;
+      // Clear stored tokens
+      setStoredToken(null);
+      setStoredCsrf(null);
       window.location.href = 'login.html';
     } catch (error) {
       console.error('Logout failed:', error);
-      // Redirect anyway
+      // Clear tokens and redirect anyway
+      setStoredToken(null);
+      setStoredCsrf(null);
       window.location.href = 'login.html';
     }
   },

@@ -1,0 +1,33 @@
+{
+  "sessionId": "20251203_224552_892307fe",
+  "filename": "test.csv",
+  "timestamp": "2025-12-03T22:45:52.548275",
+  "engineResults": [
+    {
+      "name": "titan",
+      "display": "Titan AutoML",
+      "icon": "\ud83e\udd16",
+      "category": "ml",
+      "status": "success",
+      "duration": 1.5,
+      "dataSize": 100,
+      "gemmaSummary": null,
+      "data": null,
+      "error": null
+    }
+  ],
+  "totalTime": 10.5,
+  "categoryStats": {
+    "all": {
+      "success": 1,
+      "error": 0,
+      "pending": 0
+    }
+  },
+  "metadata": {
+    "engineCount": 1,
+    "successCount": 1,
+    "errorCount": 0,
+    "totalDataSize": 100
+  }
+}

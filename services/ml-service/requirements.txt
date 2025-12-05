@@ -1,0 +1,39 @@
+pandas
+numpy
+fastapi
+uvicorn
+python-multipart
+scikit-learn
+requests
+openpyxl
+pyarrow
+psycopg2-binary
+sqlalchemy
+pymysql
+pymongo
+redis
+google-cloud-bigquery
+db-dtypes
+snowflake-connector-python
+boto3
+s3fs
+google-cloud-storage
+gcsfs
+confluent-kafka
+sentence-transformers
+# Use faiss-gpu for CUDA-enabled vector search
+faiss-gpu
+shap
+scipy>=1.11.0
+statsmodels>=0.14.0
+# XGBoost with GPU support
+xgboost>=2.0.0
+# HTTP client for GPU coordinator
+httpx>=0.27.0
+# Premium engine requirements
+prophet>=1.1.0
+gplearn>=0.4.2
+dice-ml>=0.11
+sdv>=1.10.0
+featuretools>=1.31.0
+# torch-geometric installed separately in Dockerfile with CUDA

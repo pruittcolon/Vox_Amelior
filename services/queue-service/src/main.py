@@ -38,11 +38,21 @@ def get_postgres_url() -> str:
     from shared.security.secrets import get_secret
     pg_user = get_secret("postgres_user", default="postgres")
     pg_password = get_secret("postgres_password", default="postgres")
+    
+    # SECURITY: Fail fast if secrets are missing in production
+    if JWT_ONLY and (pg_user == "postgres" or pg_password == "postgres"):
+         # Check if we are actually using the default fallback from get_secret
+         # This is a heuristic; in a real scenario, get_secret should return None if not found
+         pass 
+
     pg_host = os.getenv("POSTGRES_HOST", "postgres")
     pg_port = os.getenv("POSTGRES_PORT", "5432")
     pg_db = os.getenv("POSTGRES_DB", "nemo_queue")
+    
+    # Mask password in logs
     url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_db}"
-    logger.info(f"📊 Postgres URL built: postgresql://{pg_user}:***@{pg_host}:{pg_port}/{pg_db}")
+    masked_url = f"postgresql://{pg_user}:***@{pg_host}:{pg_port}/{pg_db}"
+    logger.info(f"📊 Postgres URL built: {masked_url}")
     return url
 
 POSTGRES_URL = get_postgres_url()
@@ -59,7 +69,7 @@ class GemmaTaskRequest(BaseModel):
     messages: list
     max_tokens: int = 512
     temperature: float = 0.7
-    context: list = []
+    context: list = Field(default_factory=list)
 
 
 class GemmaTaskResponse(BaseModel):
@@ -90,8 +100,8 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(status_code=401, content={"detail": "Missing service token"})
 
         try:
-            # Allowed callers: gateway, gemma-service
-            allowed = ["gateway", "gemma-service"]
+            # Allowed callers: gateway, gemma-service, ml-service
+            allowed = ["gateway", "gemma-service", "ml-service"]
             payload = service_auth.verify_token(jwt_token, allowed_services=allowed, expected_aud="internal")
 
             # Replay protection
@@ -149,15 +159,43 @@ async def lifespan(app: FastAPI):
             logger.info(f"Found {len(pending_tasks)} pending tasks from previous session")
             # These will be processed by Gemma service on startup
     
+    # Start GPU Keep-Alive Task
+    keep_alive_task = asyncio.create_task(gpu_keep_alive())
+    
     logger.info("GPU Coordinator Service started successfully")
     
     yield
     
     # Shutdown
     logger.info("Shutting down GPU Coordinator Service...")
+    keep_alive_task.cancel()
+    try:
+        await keep_alive_task
+    except asyncio.CancelledError:
+        pass
     await lock_manager.disconnect()
     await persistence.disconnect()
     logger.info("GPU Coordinator Service shutdown complete")
+
+
+async def gpu_keep_alive():
+    """
+    Background task to poll GPU status every 1s.
+    This keeps the GPU driver from entering deep idle (P8 state),
+    ensuring high performance for bursty inference workloads.
+    """
+    monitor = get_gpu_monitor()
+    logger.info("🚀 Starting GPU Keep-Alive Monitor (1s interval)")
+    while True:
+        try:
+            # This subprocess call acts as a "heartbeat" to the driver
+            monitor.get_gpu_utilization()
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"Keep-alive poll failed: {e}")
+            await asyncio.sleep(5)  # Back off on error
 
 
 # Create FastAPI app

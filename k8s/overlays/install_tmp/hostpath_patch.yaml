@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gemma-service
+  namespace: nemo
+spec:
+  template:
+    spec:
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcription-service
+  namespace: nemo
+spec:
+  template:
+    spec:
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+        - name: enrollment-data
+          persistentVolumeClaim:
+            claimName: enrollment-data-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-service
+  namespace: nemo
+spec:
+  template:
+    spec:
+      volumes:
+        - name: rag-instance
+          persistentVolumeClaim:
+            claimName: rag-instance-pvc
+        - name: faiss-index
+          persistentVolumeClaim:
+            claimName: faiss-index-pvc
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emotion-service
+  namespace: nemo
+spec:
+  template:
+    spec:
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insights-service
+  namespace: nemo
+spec:
+  template:
+    spec:
+      volumes:
+        - name: rag-instance
+          persistentVolumeClaim:
+            claimName: rag-instance-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: nemo
+spec:
+  template:
+    spec:
+      volumes:
+        - name: gateway-instance
+          persistentVolumeClaim:
+            claimName: gateway-instance-pvc
