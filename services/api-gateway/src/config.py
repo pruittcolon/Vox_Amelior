@@ -62,7 +62,10 @@ class DatabaseConfig:
     
     # PostgreSQL (for task persistence)
     POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
-    POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+    try:
+        POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+    except ValueError:
+        POSTGRES_PORT = 5432
     POSTGRES_DB = os.getenv("POSTGRES_DB", "nemo_queue")
     POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
@@ -77,7 +80,10 @@ class RedisConfig:
     """Redis configuration"""
     
     REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    try:
+        REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    except ValueError:
+        REDIS_PORT = 6379
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
     

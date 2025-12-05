@@ -1,0 +1,84 @@
+# =============================================================================
+# NVIDIA Device Plugin for GPU Support
+# =============================================================================
+# Enables Kubernetes to schedule GPU workloads on nodes with NVIDIA GPUs.
+#
+# Key Features:
+#   - Device Plugin v0.17.0 with NVML discovery
+#   - Time-slicing enabled: 1 physical GPU → 2 virtual GPUs
+#   - Allows gemma-service and transcription-service to share GPU
+#
+# Prerequisites:
+#   1. nvidia-container-toolkit installed in Kind node
+#   2. containerd configured to use nvidia runtime
+#   3. time-slicing-config ConfigMap created in kube-system namespace
+#
+# Time-Slicing ConfigMap (apply before this manifest):
+#   kubectl create configmap time-slicing-config -n kube-system \
+#     --from-literal=any='version: v1
+#     sharing:
+#       timeSlicing:
+#         resources:
+#           - name: nvidia.com/gpu
+#             replicas: 2'
+# =============================================================================
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      priorityClassName: "system-node-critical"
+      containers:
+      - image: nvcr.io/nvidia/k8s-device-plugin:v0.17.0
+        name: nvidia-device-plugin-ctr
+        args:
+          - --device-list-strategy=envvar
+          - --device-discovery-strategy=nvml
+          - --config-file=/etc/nvidia/time-slicing-config/any
+        env:
+          - name: FAIL_ON_INIT_ERROR
+            value: "false"
+          - name: NVIDIA_VISIBLE_DEVICES
+            value: "all"
+          - name: NVIDIA_DRIVER_CAPABILITIES
+            value: "all"
+          - name: NVIDIA_MIG_MONITOR_DEVICES
+            value: "all"
+          - name: LD_LIBRARY_PATH
+            value: "/usr/lib/x86_64-linux-gnu"
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - name: device-plugin
+            mountPath: /var/lib/kubelet/device-plugins
+          - name: nvidia-libs
+            mountPath: /usr/lib/x86_64-linux-gnu
+            readOnly: true
+          - name: time-slicing-config
+            mountPath: /etc/nvidia/time-slicing-config
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: nvidia-libs
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu
+        - name: time-slicing-config
+          configMap:
+            name: time-slicing-config

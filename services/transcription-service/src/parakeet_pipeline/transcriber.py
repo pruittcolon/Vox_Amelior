@@ -58,7 +58,14 @@ class ParakeetPipeline:
     ) -> None:
         self.model_id = model_id
         self.chunk_duration = chunk_duration
-        self.model_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Respect START_ON_CPU for GPU coordination
+        start_on_cpu = os.getenv("START_ON_CPU", "false").lower() == "true"
+        if start_on_cpu:
+            self.model_device = "cpu"
+            logger.info("START_ON_CPU=true, loading Parakeet on CPU for GPU coordination")
+        else:
+            self.model_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
         logger.info("Loading Parakeet model %s on %s", self.model_id, self.model_device)
         self.model: EncDecCTCModelBPE = EncDecCTCModelBPE.from_pretrained(self.model_id)
@@ -68,12 +75,16 @@ class ParakeetPipeline:
 
         self.diarizer_backend = os.getenv("DIARIZER_BACKEND", "pyannote").lower()
         self.diarizer: Optional[object] = None
+        
+        # Diarizer should also start on CPU if requested
+        diarizer_device = "cpu" if start_on_cpu else (diarization_device or self.model_device)
+        
         if enable_diarization:
             if self.diarizer_backend == "nemo":
-                self.diarizer = self._init_nemo_diarizer(diarization_num_speakers)
+                self.diarizer = self._init_nemo_diarizer(diarization_num_speakers, diarizer_device)
             else:
                 self.diarizer = self._init_pyannote_diarizer(
-                    diarization_device, diarization_num_speakers
+                    diarizer_device, diarization_num_speakers
                 )
 
         if self.diarizer:
@@ -85,16 +96,18 @@ class ParakeetPipeline:
     # Device management
     # ------------------------------------------------------------------#
     def to(self, device: str) -> None:
-        """Move the ASR model to the requested device."""
+        """Move the ASR model and diarizer to the requested device."""
         target = device
-        if target == self.model_device:
-            return
         if target == "cuda" and not torch.cuda.is_available():
             target = "cpu"
 
-        logger.info("Moving Parakeet model to %s", target)
-        self.model = self.model.to(target)
-        self.model_device = target
+        if target != self.model_device:
+            logger.info("Moving Parakeet model to %s", target)
+            self.model = self.model.to(target)
+            self.model_device = target
+
+        if self.diarizer and hasattr(self.diarizer, "to"):
+            self.diarizer.to(target)
 
         if target == "cpu":
             torch.cuda.empty_cache()
@@ -220,7 +233,7 @@ class ParakeetPipeline:
         logger.warning("Pyannote diarization unavailable (missing token or dependency)")
         return None
 
-    def _init_nemo_diarizer(self, num_speakers: Optional[int]) -> Optional[object]:
+    def _init_nemo_diarizer(self, num_speakers: Optional[int], device: str = "cuda") -> Optional[object]:
         if NemoSortformerDiarizer is None:
             logger.warning("NeMo diarizer unavailable (nemo_toolkit not installed)")
             return None
@@ -231,12 +244,14 @@ class ParakeetPipeline:
             return None
 
         max_spks = num_speakers or int(os.getenv("SORTFORMER_MAX_SPKS", "4"))
-        device = os.getenv("SORTFORMER_DEVICE", "cuda")
+        # device argument overrides env var if provided (for start_on_cpu support)
+        target_device = device or os.getenv("SORTFORMER_DEVICE", "cuda")
+        
         try:
             return NemoSortformerDiarizer(
                 nemo_model_path=model_path,
                 max_speakers=max_spks,
-                device=device,
+                device=target_device,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("Failed to initialise NeMo diarizer: %s", exc)

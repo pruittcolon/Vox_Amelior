@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Titan Premium Analysis</title>
+  
+  <!-- External CSS Files -->
+  <link rel="stylesheet" href="assets/css/design-tokens.css">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/predictions/predictions-base.css">
+  <link rel="stylesheet" href="assets/css/predictions/predictions-upload.css">
+  <link rel="stylesheet" href="assets/css/predictions/predictions-tabs.css">
+  <link rel="stylesheet" href="assets/css/predictions/predictions-charts.css">
+  <link rel="stylesheet" href="assets/css/predictions/predictions-variants.css">
+  <link rel="stylesheet" href="assets/css/predictions/predictions-forecast.css">
+  <link rel="stylesheet" href="assets/css/predictions/predictions-engines.css">
+  
+  <!-- Chart.js Library -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+
+<body>
+  <header>
+    <div>
+      <h1>🚀 Titan Premium Analysis</h1>
+      <div class="subtitle">Enterprise-grade ML analysis with plain-English explanations</div>
+    </div>
+    <div class="header-badge">✨ 27 Engines</div>
+  </header>
+
+  <main>
+    <!-- Upload Section -->
+    <div class="card" id="upload-section">
+      <div class="card-title">📂 Upload Your Dataset</div>
+      <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+        <div class="upload-icon">📊</div>
+        <div class="upload-text">Drop your CSV or Excel file here</div>
+        <div class="upload-hint">or click to browse • Max 50MB</div>
+      </div>
+      <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+      <div style="text-align: center; margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+        <button class="btn btn-lg" id="analyze-btn" disabled>⚡ Run Premium Analysis</button>
+        <button class="btn btn-lg" id="test-all-btn" disabled style="background: linear-gradient(135deg, #10b981, #059669);">🧪 Test All 22 Engines</button>
+      </div>
+      <div class="status-bar" id="status-bar"><span>👋 Upload a dataset to begin</span></div>
+      <div class="progress-bar">
+        <div class="fill" id="progress-fill"></div>
+      </div>
+    </div>
+
+    <!-- Column Selection Card -->
+    <div class="card column-selection-card" id="column-selection-section">
+      <div class="card-title">🎯 Column Selection</div>
+      <p style="color: #94a3b8; margin-bottom: 16px;">Choose how to select your target column and features for analysis.</p>
+
+      <div class="selection-mode-toggle">
+        <button class="mode-btn active" id="mode-gemma" onclick="setSelectionMode('gemma')">
+          🤖 Gemma AI (Auto)
+        </button>
+        <button class="mode-btn" id="mode-manual" onclick="setSelectionMode('manual')">
+          ✋ Manual Selection
+        </button>
+      </div>
+
+      <div id="gemma-mode-panel">
+        <div class="gemma-mode-info">
+          <strong>🤖 Gemma AI Mode:</strong> Gemma will analyze your columns and automatically recommend the best target variable and relevant features for prediction.
+        </div>
+      </div>
+
+      <div id="manual-mode-panel" style="display: none;">
+        <div class="column-selector">
+          <div class="column-selector-title">🎯 Target Column (What to Predict)</div>
+          <select id="target-select" onchange="onTargetChange()">
+            <option value="">-- Select target column --</option>
+          </select>
+        </div>
+
+        <div class="column-selector">
+          <div class="column-selector-title">📊 Feature Columns (Input Variables)</div>
+          <div class="feature-checkbox-grid" id="feature-grid"></div>
+          <div class="selection-actions">
+            <button class="select-all-btn" onclick="selectAllFeatures()">✅ Select All</button>
+            <button class="select-all-btn" onclick="deselectAllFeatures()">❌ Deselect All</button>
+            <span id="feature-count" style="color: #94a3b8; font-size: 0.85rem; margin-left: auto;">0 features selected</span>
+          </div>
+        </div>
+
+        <div class="manual-mode-info">
+          <strong>✋ Manual Mode:</strong> You've taken control! Select your target column and check the features you want to include in the analysis.
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="results-section" id="results-section">
+      <!-- Tab Navigation -->
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('overview')">📊 Overview</button>
+        <button class="tab-btn" onclick="switchTab('models')">🏆 Models</button>
+        <button class="tab-btn" onclick="switchTab('features')">📈 Features</button>
+        <button class="tab-btn" onclick="switchTab('forecasting')" id="forecasting-tab-btn" style="display: none;">🔮 Forecasting</button>
+        <button class="tab-btn" onclick="switchTab('methodology')">🔬 Methodology</button>
+        <button class="tab-btn" onclick="switchTab('config')">⚙️ Config</button>
+      </div>
+
+      <!-- Overview Tab -->
+      <div class="tab-content active" id="tab-overview">
+        <div class="hero-headline" id="hero-section">
+          <h2 id="hero-title">Analysis Complete</h2>
+          <div class="hero-explanation" id="hero-explanation"></div>
+          <div class="hero-confidence" id="hero-confidence"><span id="confidence-text">High Confidence</span></div>
+        </div>
+
+        <div class="card" id="test-summary-section">
+          <div class="card-title">📋 Test Run Summary</div>
+          <div id="test-summary-content" style="line-height: 1.8; color: #cbd5e1;"></div>
+        </div>
+
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-rows">-</div>
+            <div class="stat-label">Records</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-cols">-</div>
+            <div class="stat-label">Features</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-accuracy">-</div>
+            <div class="stat-label">Best Accuracy</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-time">-</div>
+            <div class="stat-label">Analysis Time</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-models">-</div>
+            <div class="stat-label">Models Tested</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Models Tab -->
+      <div class="tab-content" id="tab-models">
+        <div class="card" id="variants-section">
+          <div class="card-title">🏆 Model Comparison</div>
+          <p style="color: #94a3b8; margin-bottom: 16px;">We tested multiple ML models on your data.</p>
+          <div class="variants-grid" id="variants-container"></div>
+        </div>
+      </div>
+
+      <!-- Features Tab -->
+      <div class="tab-content" id="tab-features">
+        <div class="card" id="features-section">
+          <div class="card-title">📊 What Matters Most</div>
+          <p style="color: #94a3b8; margin-bottom: 16px;"><strong style="color:#a78bfa;">Feature Stability</strong> shows which columns help predict the target.</p>
+          <div class="feature-list" id="feature-list"></div>
+        </div>
+      </div>
+
+      <!-- Forecasting Tab -->
+      <div class="tab-content" id="tab-forecasting">
+        <div class="card">
+          <div class="card-title">🔮 Time-Series Forecasting</div>
+          <p style="color: #94a3b8; margin-bottom: 16px;">Powered by Chronos Engine (Facebook Prophet).</p>
+          <div id="no-time-data" style="display: none; text-align: center; padding: 40px; color: #94a3b8;">
+            <div style="font-size: 3rem; margin-bottom: 16px;">📅</div>
+            <p style="font-size: 1.1rem; margin-bottom: 8px;">No time column detected in your data.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Methodology Tab -->
+      <div class="tab-content" id="tab-methodology">
+        <div class="card" id="methodology-section">
+          <div class="card-title">🔬 How We Analyzed Your Data</div>
+          <div class="methodology" id="methodology-container"></div>
+        </div>
+      </div>
+
+      <!-- Config Tab -->
+      <div class="tab-content" id="tab-config">
+        <div class="card" id="config-section">
+          <div class="card-title">⚙️ Configuration Options</div>
+          <p style="color: #94a3b8; margin-bottom: 16px;">Tune these for different results:</p>
+          <div class="config-grid" id="config-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="card">
+      <div class="card-title">📋 Activity Log</div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <!-- All Engines Section -->
+    <div class="card" id="all-engines-section" style="display: none;">
+      <div class="card-title">🧪 All 22 Engines - Comprehensive Analysis Results</div>
+      <div id="all-engines-summary" style="margin-bottom: 20px; padding: 16px; background: rgba(139,92,246,0.1); border-radius: 8px;">
+        <p style="color: #e5e7eb; margin: 0;">
+          <strong>Sequential Execution:</strong> Each engine runs one at a time showing full results + Gemma summary.
+        </p>
+        <p style="color: #94a3b8; margin: 8px 0 0 0; font-size: 0.9rem;">
+          Database: <span id="engines-database-name">-</span> |
+          Progress: <span id="engines-progress">0/22</span> |
+          Status: <span id="engines-status">Ready</span>
+        </p>
+      </div>
+      <div id="all-engines-results"></div>
+    </div>
+  </main>
+
+  <!-- External JavaScript Modules (ES6 Modules) -->
+  <script type="module" src="assets/js/predictions/predictions-main.js"></script>
+</body>
+
+</html>

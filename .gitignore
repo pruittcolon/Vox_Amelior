@@ -8,6 +8,7 @@ docker/.env
 .env
 .env.local
 .env.*.local
+k8s/base/secrets.yaml
 
 # Docker secrets directory - contains all sensitive keys
 docker/secrets/*
@@ -117,6 +118,9 @@ build/
 target/
 out/
 
+# Local binaries (should be installed via package manager, not committed)
+bin/
+
 # IDE & Editor Files
 # ============================================================================
 .vscode/
@@ -205,3 +209,11 @@ build/
 tv_audit_report*.json
 
 # Security - DO NOT COMMIT
+
+# Added by cleanup
+checkpoints/
+_unused_assets/
+
+# Old/backup directories
+*-old/
+*.bak/

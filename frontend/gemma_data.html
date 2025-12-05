@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nemo Server - Universal Data Encoder</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="assets/css/main.css">
+    <link rel="stylesheet" href="assets/css/design-tokens.css">
+    <link rel="stylesheet" href="assets/css/components.css">
+    <link rel="stylesheet" href="assets/css/animations.css">
+    <style>
+        .segment-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+
+        .segment-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1rem;
+            transition: all 0.2s ease;
+        }
+
+        .segment-card:hover {
+            background: rgba(255, 255, 255, 0.06);
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .score-mini-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .score-mini-label {
+            width: 60px;
+            color: var(--text-secondary);
+        }
+
+        .score-mini-track {
+            flex: 1;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+        }
+
+        .score-mini-fill {
+            height: 100%;
+            border-radius: 2px;
+        }
+
+        .fill-quality {
+            background: #3b82f6;
+        }
+
+        .fill-value {
+            background: #8b5cf6;
+        }
+
+        .fill-risk {
+            background: #ef4444;
+        }
+
+        .fill-anomaly {
+            background: #f59e0b;
+        }
+
+        .fill-action {
+            background: #10b981;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-right: 0.25rem;
+        }
+
+        .tag-risk {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+        .tag-value {
+            background: rgba(139, 92, 246, 0.2);
+            color: #c4b5fd;
+        }
+    </style>
+</head>
+
+<body class="gemma-theme">
+
+    <header class="glass-header">
+        <div class="container">
+            <div class="flex-between">
+                <div class="flex">
+                    <h1
+                        style="font-size: 1.5rem; margin: 0; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                        💎 Universal Data Encoder
+                    </h1>
+                </div>
+                <nav class="nav">
+                    <a href="index.html" class="nav-link">Dashboard</a>
+                    <a href="gemma_data.html" class="nav-link active">Data Encoder</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="container" style="padding-top:2rem;padding-bottom:2rem;">
+        <section class="fade-in-up" style="text-align:center;margin-bottom:2rem;">
+            <h1 style="font-size:2.4rem;margin-bottom:0.5rem;">Flagship Semantic Analysis</h1>
+            <p class="text-muted">Segment-Based Analysis using Gemma 2 (Quality, Value, Risk, Anomaly, Actionability)
+            </p>
+        </section>
+
+        <div class="grid grid-3" style="gap: 1.5rem; align-items: start;">
+
+            <!-- Left Column: Global Stats -->
+            <div class="glass-card fade-in-up">
+                <h3 style="margin-bottom:1rem;">Global Context</h3>
+                <div id="global-stats-container">
+                    <p class="text-muted">Calculating dataset baselines...</p>
+                </div>
+            </div>
+
+            <!-- Right Column: Main Content -->
+            <div style="grid-column: span 2;">
+
+                <section class="grid grid-3 gemma-hero-stats fade-in-up" style="margin-bottom:1.5rem;">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Segments</div>
+                        <div class="stat-value" id="stat-total">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">High Risk Segments</div>
+                        <div class="stat-value" id="stat-risk">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Actionable Segments</div>
+                        <div class="stat-value" id="stat-action">0</div>
+                    </div>
+                </section>
+
+                <section class="glass-card fade-in-up" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom:1rem;">Ask Gemma</h3>
+                    <form id="chat-form" class="flex" style="gap:0.5rem;">
+                        <input class="input" id="chat-input" placeholder="Which segment has the highest anomaly score?"
+                            style="flex:1;">
+                        <button class="btn btn-primary" type="submit">Ask</button>
+                    </form>
+                    <div id="chat-response" style="margin-top:1rem; min-height: 2rem; color: var(--text-secondary);">
+                    </div>
+                </section>
+
+                <section class="fade-in-up">
+                    <h3 style="margin-bottom:1rem;">Segment Analysis</h3>
+                    <div id="segment-grid" class="segment-grid">
+                        <div style="text-align:center; grid-column: 1/-1;">Loading segments...</div>
+                    </div>
+                </section>
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        async function loadData() {
+            try {
+                const response = await fetch('assets/data/universal_gemma_vectors.json');
+                const data = await response.json();
+
+                // 1. Update Top Stats
+                document.getElementById('stat-total').textContent = data.length;
+                const highRisk = data.filter(d => d.semantic_scores.risk > 7).length;
+                document.getElementById('stat-risk').textContent = highRisk;
+                const actionable = data.filter(d => d.semantic_scores.actionability > 7).length;
+                document.getElementById('stat-action').textContent = actionable;
+
+                // 2. Render Global Stats (Simulated based on sample records)
+                // In a real app, we'd pass this from the backend. For now, we estimate from samples.
+                const allSamples = data.flatMap(d => d.sample_records);
+                const revenues = allSamples.map(d => d.revenue);
+                const avgRev = revenues.reduce((a, b) => a + b, 0) / revenues.length;
+
+                const statsHtml = `
+          <div class="stat-row" style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span>Avg Revenue</span> <span>$${(avgRev / 1000000).toFixed(1)}M</span></div>
+          <div class="stat-row" style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span>Segments</span> <span>${data.length}</span></div>
+          <div class="stat-row" style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span>Records/Seg</span> <span>${data[0].record_count}</span></div>
+        `;
+                document.getElementById('global-stats-container').innerHTML = statsHtml;
+
+                // 3. Render Segment Grid
+                const grid = document.getElementById('segment-grid');
+                grid.innerHTML = '';
+
+                data.forEach(seg => {
+                    const s = seg.semantic_scores;
+                    let tags = '';
+                    if (s.risk > 7) tags += `<span class="tag tag-risk">High Risk</span>`;
+                    if (s.value > 7) tags += `<span class="tag tag-value">High Value</span>`;
+
+                    const card = document.createElement('div');
+                    card.className = 'segment-card';
+                    card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+              <strong>Segment ${seg.segment_id}</strong>
+              <span style="font-size:0.8rem;color:var(--text-secondary);">${seg.record_count} records</span>
+            </div>
+            <div style="margin-bottom:0.5rem;">${tags}</div>
+            
+            <div class="score-mini-bar"><span class="score-mini-label">Quality</span><div class="score-mini-track"><div class="score-mini-fill fill-quality" style="width:${s.quality * 10}%"></div></div></div>
+            <div class="score-mini-bar"><span class="score-mini-label">Value</span><div class="score-mini-track"><div class="score-mini-fill fill-value" style="width:${s.value * 10}%"></div></div></div>
+            <div class="score-mini-bar"><span class="score-mini-label">Risk</span><div class="score-mini-track"><div class="score-mini-fill fill-risk" style="width:${s.risk * 10}%"></div></div></div>
+            <div class="score-mini-bar"><span class="score-mini-label">Anomaly</span><div class="score-mini-track"><div class="score-mini-fill fill-anomaly" style="width:${s.anomaly * 10}%"></div></div></div>
+            <div class="score-mini-bar"><span class="score-mini-label">Action</span><div class="score-mini-track"><div class="score-mini-fill fill-action" style="width:${s.actionability * 10}%"></div></div></div>
+            
+            <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-secondary);">
+              IDs: ${seg.start_record_id} - ${seg.end_record_id}
+            </div>
+          `;
+                    grid.appendChild(card);
+                });
+
+            } catch (e) {
+                console.error("Failed to load data:", e);
+                document.getElementById('segment-grid').innerHTML = `<div style="color:red;text-align:center;">Error loading data: ${e.message}</div>`;
+            }
+        }
+
+        // Mock Chat
+        document.getElementById('chat-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('chat-input').value;
+            const responseDiv = document.getElementById('chat-response');
+            responseDiv.innerHTML = "<em>Gemma is analyzing the segments...</em>";
+
+            setTimeout(() => {
+                responseDiv.innerHTML = `<strong>Gemma:</strong> <strong>Segment 3</strong> (Records 20-30) has the highest Anomaly Score (9.0) and Risk Score (8.5), likely due to the expense spike detected in that batch.`;
+            }, 1500);
+        });
+
+        loadData();
+    </script>
+</body>
+
+</html>

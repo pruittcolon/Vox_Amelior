@@ -476,14 +476,38 @@ document.addEventListener('keydown', (e) => {
 // ERROR HANDLING
 // ============================================================================
 
+// Debounce error toasts to prevent spam
+let lastErrorTime = 0;
+let lastErrorMessage = '';
+const ERROR_DEBOUNCE_MS = 3000;
+
+function shouldShowErrorToast(message) {
+  const now = Date.now();
+  // Skip if same error within debounce window
+  if (message === lastErrorMessage && now - lastErrorTime < ERROR_DEBOUNCE_MS) {
+    return false;
+  }
+  lastErrorTime = now;
+  lastErrorMessage = message;
+  return true;
+}
+
 window.addEventListener('error', (event) => {
   console.error('Global error:', event.error);
-  showToast('Error', 'Something went wrong. Check console for details.', 'error', 5000);
+  // Only show toast for critical errors, not null property access (handled gracefully)
+  const msg = event.error?.message || String(event.error);
+  if (msg && !msg.includes('null') && !msg.includes('undefined') && shouldShowErrorToast(msg)) {
+    showToast('Error', 'Something went wrong. Check console for details.', 'error', 5000);
+  }
 });
 
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled promise rejection:', event.reason);
-  showToast('Error', 'API request failed. Check your connection.', 'error', 5000);
+  const msg = event.reason?.message || String(event.reason);
+  // Skip common non-critical errors
+  if (msg && !msg.includes('null') && !msg.includes('undefined') && !msg.includes('NetworkError') && shouldShowErrorToast(msg)) {
+    showToast('Error', 'API request failed. Check your connection.', 'error', 5000);
+  }
 });
 
 if (typeof window !== 'undefined') {

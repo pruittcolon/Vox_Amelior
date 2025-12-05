@@ -383,10 +383,43 @@ start_services() {
     fi
 
     
-    print_info "Starting containers..."
+    print_info "Starting infrastructure services (redis, postgres)..."
+    compose_cmd up -d redis postgres
+    sleep 3
     
+    print_info "Starting GPU coordinator..."
+    compose_cmd up -d gpu-coordinator
+    sleep 2
+    
+    print_info "Starting Gemma service (loading model on GPU first)..."
+    compose_cmd up -d gemma-service
+    
+    # Wait for Gemma to load on GPU before starting transcription
+    print_info "Waiting for Gemma to load model on GPU..."
+    local gemma_ready=false
+    for i in {1..60}; do
+        if docker logs refactored_gemma 2>&1 | grep -q "Model loaded on GPU successfully\|Loaded on GPU successfully"; then
+            gemma_ready=true
+            print_success "Gemma loaded on GPU!"
+            break
+        fi
+        if docker logs refactored_gemma 2>&1 | grep -q "CPU fallback mode"; then
+            print_warning "Gemma fell back to CPU mode - check VRAM"
+            break
+        fi
+        sleep 2
+        if [ $((i % 10)) -eq 0 ]; then
+            print_info "Still waiting for Gemma... (${i}s)"
+        fi
+    done
+    
+    print_info "Starting transcription service..."
+    compose_cmd up -d transcription-service
+    sleep 3
+    
+    print_info "Starting remaining services..."
     if compose_cmd up -d; then
-        print_success "Services started successfully"
+        print_success "All services started successfully"
     else
         print_error "Failed to start services"
         capture_diagnostics "start_failure"
@@ -643,26 +676,35 @@ EOF
     echo "  ✅ Phase 7: Redis/Postgres Bound to Loopback"
     echo "  📊 Comprehensive Logging: All requests traced with request_id"
     echo ""
-    echo "Press Ctrl+C to view logs, or run:"
-    echo "  cd docker && docker-compose logs -f"
-    echo ""
-    echo "To stop services:"
-    echo "  cd docker && docker-compose down"
+    echo -e "${YELLOW}Controls:${NC}"
+    echo "  Press 'R' to restart all services"
+    echo "  Press Ctrl+C to stop all services and exit"
     echo ""
 }
 
-# Trap Ctrl+C to show logs using compose_cmd
-tail_logs_trap() {
-    echo -e "\n${BLUE}Showing logs (Ctrl+C again to exit)...${NC}\n"
-    pushd "$SCRIPT_DIR/docker" >/dev/null 2>&1 || return
-    compose_cmd logs -f
+# Interactive control loop
+interactive_loop() {
+    while true; do
+        # Read single character without waiting for Enter
+        if read -rsn1 -t 1 key 2>/dev/null; then
+            case "$key" in
+                r|R)
+                    echo -e "\n${YELLOW}Restarting all services...${NC}"
+                    pushd "$SCRIPT_DIR/docker" >/dev/null 2>&1 || continue
+                    compose_cmd restart
+                    popd >/dev/null 2>&1 || true
+                    echo -e "${GREEN}Services restarted!${NC}\n"
+                    ;;
+            esac
+        fi
+    done
 }
-trap tail_logs_trap INT
 
 # Run main function
 main
 
-echo -e "${BLUE}Press Ctrl+C to stop all services and exit.${NC}"
-while true; do
-    sleep 86400
-done
+# Set up clean exit on Ctrl+C
+trap cleanup INT TERM
+
+echo -e "${BLUE}Server running. Press 'R' to restart, Ctrl+C to stop.${NC}"
+interactive_loop

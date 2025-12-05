@@ -56,7 +56,10 @@ class DatabaseConfig:
     
     # PostgreSQL (for task persistence)
     POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
-    POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+    try:
+        POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+    except ValueError:
+        POSTGRES_PORT = 5432
     POSTGRES_DB = os.getenv("POSTGRES_DB", "nemo_queue")
     POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
@@ -71,7 +74,10 @@ class RedisConfig:
     """Redis configuration"""
     
     REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    try:
+        REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    except ValueError:
+        REDIS_PORT = 6379
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
     
@@ -92,4 +98,12 @@ class ServiceConfig:
     TRANSCRIPTION_SERVICE_URL = os.getenv("TRANSCRIPTION_SERVICE_URL", "http://transcription-service:8003")
     EMOTION_SERVICE_URL = os.getenv("EMOTION_SERVICE_URL", "http://emotion-service:8005")
     API_SERVICE_URL = os.getenv("API_SERVICE_URL", "http://api-service:8000")
+
+class RAGConfig:
+    """RAG Service specific configuration"""
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    DB_PATH = os.getenv("DB_PATH", "/app/instance/rag.db")
+    FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "/app/faiss_index/index.bin")
+    HF_HOME = os.getenv("HF_HOME", "/app/models")
+    RAG_ENABLE_SEMANTIC = os.getenv("RAG_ENABLE_SEMANTIC", "true").lower() == "true"
 

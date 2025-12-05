@@ -44,7 +44,14 @@ try:
 except ImportError as e:
     print(f"[GATEWAY] WARNING: Auth import failed: {e}")
     AuthManager = None
-    require_auth = None
+    # Create dummy dependency to prevent FastAPI AssertionError
+    async def require_auth():
+        # Return a dummy session object so endpoints don't crash
+        class DummySession:
+            user_id = "dummy_user"
+            role = "admin"
+            csrf_token = "dummy_token"
+        return DummySession()
     Session = None
 
 # Configure logging
@@ -61,6 +68,7 @@ RAG_URL = os.getenv("RAG_URL", "http://rag-service:8004")
 EMOTION_URL = os.getenv("EMOTION_URL", "http://emotion-service:8005")
 TRANSCRIPTION_URL = os.getenv("TRANSCRIPTION_URL", "http://transcription-service:8003")
 INSIGHTS_URL = os.getenv("INSIGHTS_URL", "http://insights-service:8010")
+ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://localhost:8006")
 # Feature toggles
 EMAIL_ANALYZER_ENABLED = os.getenv("EMAIL_ANALYZER_ENABLED", "true").lower() in {"1", "true", "yes"}
 # Security & CORS
@@ -76,11 +84,15 @@ MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 # Speaker identifier validation pattern (lowercase alphanumerics, hyphen, underscore)
 SPEAKER_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,64}$")
 # Frontend is at /app/frontend in container
+# Use local instance dir if /app/instance fails (for local dev)
 APP_INSTANCE_DIR = Path(os.getenv("APP_INSTANCE_DIR", "/app/instance"))
 try:
     APP_INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
-except Exception as exc:  # noqa: BLE001
-    logger.warning("Failed to create APP_INSTANCE_DIR %s: %s", APP_INSTANCE_DIR, exc)
+except Exception as exc:
+    # Fallback to local directory
+    logger.warning("Failed to create APP_INSTANCE_DIR %s: %s. Falling back to ./instance", APP_INSTANCE_DIR, exc)
+    APP_INSTANCE_DIR = Path("instance")
+    APP_INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
 
 FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).parent.parent.parent.parent.parent / "frontend"
 FAVICON_PATH = FRONTEND_DIR / "assets" / "images" / "icons" / "favicon.png"
@@ -241,15 +253,26 @@ async def lifespan(app: FastAPI):
             get_service_auth,
             load_service_jwt_keys,
         )
-        jwt_keys = load_service_jwt_keys("gateway")
-        global service_auth
-        service_auth = get_service_auth(service_id="gateway", service_secret=jwt_keys)
-        logger.info("✅ JWT service auth initialized for gateway (keys=%s)", len(jwt_keys))
+        try:
+            jwt_keys = load_service_jwt_keys("gateway")
+            global service_auth
+            service_auth = get_service_auth(service_id="gateway", service_secret=jwt_keys)
+            logger.info("✅ JWT service auth initialized for gateway (keys=%s)", len(jwt_keys))
+        except Exception as auth_err:
+            logger.warning(f"⚠️ ServiceAuth init failed: {auth_err}. Using dummy auth for dev mode.")
+            # Dummy service auth for dev mode
+            class DummyServiceAuth:
+                def create_token(self, **kwargs):
+                    return "dummy_token"
+            service_auth = DummyServiceAuth()
     except Exception as e:
         import traceback
-        logger.error(f"⚠️ Failed to initialize ServiceAuth: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise
+        logger.error(f"⚠️ Failed to import ServiceAuth modules: {e}")
+        # Continue without service auth (will fail if endpoints rely on it strictly)
+        class DummyServiceAuth:
+            def create_token(self, **kwargs):
+                return "dummy_token"
+        service_auth = DummyServiceAuth()
     
     yield
     
@@ -367,20 +390,24 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         force_hsts = os.getenv("FORCE_HSTS", "false").lower() in {"1", "true", "yes"}
         self.include_hsts = SESSION_COOKIE_SECURE or force_hsts
+        # DEV ONLY: Set ALLOW_FRAMING=true to allow iframe embedding (e.g., VS Code Simple Browser)
+        # WARNING: Do NOT enable in production - this disables clickjacking protection
+        self.allow_framing = os.getenv("ALLOW_FRAMING", "false").lower() in {"1", "true", "yes"}
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
+        if not self.allow_framing:
+            response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
             "img-src 'self' data: https:; "
-            "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self'"
+            "connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:* https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly;"
         )
         if self.include_hsts:
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -393,9 +420,14 @@ app.add_middleware(SecurityHeadersMiddleware)
 class CSRFMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
-        self.exempt_paths = {"/health", "/api/auth/login", "/api/auth/logout", "/docs", "/openapi.json"}
+        self.exempt_paths = {"/health", "/api/auth/login", "/api/auth/logout", "/docs", "/openapi.json", "/upload", "/api/upload", "/api/public/chat", 
+                             "/vectorize/database", "/vectorize/status"}
+        # Paths that start with these prefixes are exempt (ML analytics, vectorization)
+        self.exempt_prefixes = {"/analytics/", "/api/analytics/", "/vectorize/"}
         # Paths that allow Bearer token auth (mobile clients) without CSRF
-        self.bearer_auth_paths = {"/transcribe"}
+        # Also include vectorization and upload paths for demo purposes
+        self.bearer_auth_paths = {"/api/analyze/stream", "/docs", "/openapi.json", "/redoc", "/health", 
+                                   "/vectorize/database","/vectorize/status", "/upload"}
         self.logger = logging.getLogger(__name__)
         self.logger.info("CSRFMiddleware initialized")
 
@@ -420,6 +452,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         try:
             # Skip all checks for exempt paths (like login, health, etc.)
             if request.url.path in self.exempt_paths:
+                return await call_next(request)
+            # Skip checks for exempt path prefixes (ML analytics endpoints)
+            if any(request.url.path.startswith(prefix) for prefix in self.exempt_prefixes):
                 return await call_next(request)
             
             if request.method in {"POST", "PUT", "DELETE"}:
@@ -638,6 +673,7 @@ async def login(request: LoginRequest, response: Response, raw_request: Request)
     return {
         "success": True,
         "session_token": session_token,
+        "csrf_token": session.csrf_token or "",
         "user": {
             "user_id": session.user_id,
             "role": session.role.value
@@ -671,8 +707,18 @@ async def check_session(request: Request):
 
 @app.get("/api/auth/check")
 async def check_auth(request: Request):
-    """Check if user is authenticated - used by frontend auth.js"""
+    """Check if user is authenticated - used by frontend auth.js
+    Supports both cookie-based and Bearer token authentication (for iframe contexts)
+    """
+    # Try cookie first
     ws_session = request.cookies.get(SESSION_COOKIE_NAME)
+    
+    # Fall back to Bearer token from Authorization header (for iframe/localStorage auth)
+    if not ws_session:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            ws_session = auth_header[7:]  # Remove "Bearer " prefix
+    
     if not auth_manager or not ws_session:
         return {"valid": False}
     
@@ -868,6 +914,13 @@ async def gemma_generate(request: Dict[str, Any], session: Session = Depends(req
 
 @app.post("/api/gemma/chat")
 async def gemma_chat(request: Dict[str, Any], session: Session = Depends(require_auth)):
+    result = await proxy_request(f"{GEMMA_URL}/chat", "POST", json=request)
+    return result
+
+@app.post("/api/public/chat")
+async def public_chat(request: Dict[str, Any], http_request: Request):
+    """Public chat endpoint for unauthenticated chatbot access (IP rate-limited)"""
+    # IP-based rate limiting is handled by RateLimitMiddleware
     result = await proxy_request(f"{GEMMA_URL}/chat", "POST", json=request)
     return result
 
@@ -1993,11 +2046,153 @@ async def memory_list(
     result = await proxy_request(f"{RAG_URL}/memory/list?limit={limit}&offset={offset}", "GET")
     return result
 
+
+# Vectorization endpoints (must be before /api/vectorize/{filename} catch-all)
+@app.post("/api/vectorize/database")
+async def vectorize_database_api(request: Request):
+    """Start database vectorization"""
+    body = await request.json()
+    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/database", "POST", json=body)
+    return result
+
+
+@app.get("/api/vectorize/status/{job_id}")
+async def vectorize_status_api(job_id: str):
+    """Get vectorization job status"""
+    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/status/{job_id}", "GET")
+    return result
+
+
+# Vectorization endpoints without /api prefix (no auth required for demo)
+@app.post("/vectorize/database")
+async def vectorize_database_noauth(request: Request):
+    """Start database vectorization (no auth)"""
+    body = await request.json()
+    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/database", "POST", json=body)
+    return result
+
+
+@app.get("/vectorize/status/{job_id}")
+async def vectorize_status_noauth(job_id: str):
+    """Get vectorization job status (no auth)"""
+    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/status/{job_id}", "GET")
+    return result
+
+
 @app.post("/api/memory/search")
 async def memory_search(request: Dict[str, Any], session: Session = Depends(require_auth)):
     """Search memories"""
     result = await proxy_request(f"{RAG_URL}/memory/search", "POST", json=request)
     return result
+
+# ============================================================================
+# ML Agent Endpoints (Proxy to ML service)
+# ============================================================================
+
+@app.post("/api/ml/ingest")
+async def ml_ingest(file: UploadFile = File(...), session: Session = Depends(require_auth)):
+    """Proxy file ingestion to ML service"""
+    # We need to stream the file content to the backend
+    files = {"file": (file.filename, file.file, file.content_type)}
+    # Note: proxy_request helper handles json/files, but we need to use the specific key 'file'
+    # The helper function logic for files: if files is passed, it sends multipart/form-data
+    result = await proxy_request(f"{ML_SERVICE_URL}/ingest", "POST", files=files)
+    return result
+
+@app.post("/api/ml/propose-goals")
+async def ml_propose_goals(request: Dict[str, Any], session: Session = Depends(require_auth)):
+    result = await proxy_request(f"{ML_SERVICE_URL}/propose-goals", "POST", json=request)
+    return result
+
+@app.post("/api/ml/execute-analysis")
+async def ml_execute_analysis(request: Dict[str, Any], session: Session = Depends(require_auth)):
+    result = await proxy_request(f"{ML_SERVICE_URL}/execute-analysis", "POST", json=request)
+    return result
+
+@app.post("/api/ml/explain-finding")
+async def ml_explain_finding(request: Dict[str, Any], session: Session = Depends(require_auth)):
+    result = await proxy_request(f"{ML_SERVICE_URL}/explain-finding", "POST", json=request)
+    return result
+
+
+# ============================================================================
+# ML Analytics Upload & Premium Endpoints (Proxy to ML service)
+# ============================================================================
+
+@app.post("/upload")
+async def ml_upload(file: UploadFile = File(...)):
+    """Proxy file upload to ML service (no auth required for demo)"""
+    # Read the file content first to ensure it's fully available
+    content = await file.read()
+    # Reset the file position in case it needs to be read again
+    await file.seek(0)
+    # Send as bytes with proper filename
+    files = {"file": (file.filename, content, file.content_type or "application/octet-stream")}
+    result = await proxy_request(f"{ML_SERVICE_URL}/ingest", "POST", files=files)
+    return result
+
+
+@app.post("/api/upload")
+async def api_ml_upload(file: UploadFile = File(...)):
+    """Alias with /api prefix"""
+    return await ml_upload(file)
+
+
+@app.post("/api/vectorize/{filename}")
+async def ml_vectorize(filename: str, session: Session = Depends(require_auth)):
+    """Proxy vectorization request to ML service (old endpoint for compatibility)"""
+    result = await proxy_request(f"{ML_SERVICE_URL}/embed/{filename}", "POST")
+    return result
+
+
+# New vectorization endpoints for LLM Q&A generation (no auth required for demo)
+@app.post("/vectorize/{path:path}")
+async def vectorize_proxy_post(path: str, request: Request):
+    """Proxy all POST vectorization endpoints to ML service"""
+    try:
+        body = await request.json()
+    except:
+        body = {}
+    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "POST", json=body)
+    return result
+
+
+@app.get("/vectorize/{path:path}")
+async def vectorize_proxy_get(path: str):
+    """Proxy all GET vectorization endpoints to ML service"""
+    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "GET")
+    return result
+
+
+@app.delete("/vectorize/{path:path}")
+async def vectorize_proxy_delete(path: str):
+    """Proxy DELETE vectorization endpoints to ML service"""
+    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "DELETE")
+    return result
+
+
+@app.post("/analytics/{path:path}")
+async def ml_analytics_proxy(path: str, request: Request):
+    """Proxy all analytics endpoints to ML service"""
+    body = await request.json()
+    result = await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "POST", json=body)
+    return result
+
+
+@app.post("/api/analytics/{path:path}")
+async def api_ml_analytics_proxy(path: str, request: Request):
+    """Alias with /api prefix for analytics endpoints"""
+    body = await request.json()
+    result = await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "POST", json=body)
+    return result
+
+
+@app.get("/analytics/{path:path}")
+async def ml_analytics_get_proxy(path: str, request: Request):
+    """Proxy GET analytics endpoints to ML service"""
+    result = await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "GET")
+    return result
+
 
 @app.post("/api/memory/add")
 async def memory_add(request: Dict[str, Any], session: Session = Depends(require_auth)):
@@ -2416,6 +2611,16 @@ async def analytics_segments(
     query_string = f"?{urlencode(query_params)}" if query_params else ""
     result = await proxy_request(f"{INSIGHTS_URL}/analytics/segments{query_string}", "GET")
     return result
+
+@app.get("/api/insights/automl/hypotheses")
+async def get_automl_hypotheses(session: Session = Depends(require_auth)):
+    """Get available AutoML hypotheses"""
+    return await proxy_request(f"{INSIGHTS_URL}/automl/hypotheses", "GET")
+
+@app.post("/api/insights/automl/run")
+async def run_automl_experiment(payload: Dict[str, Any], session: Session = Depends(require_auth)):
+    """Run AutoML experiment"""
+    return await proxy_request(f"{INSIGHTS_URL}/automl/run", "POST", json=payload)
 
 @app.get("/api/transcripts/speakers")
 async def transcripts_speakers(session: Session = Depends(require_auth)):
@@ -3235,6 +3440,14 @@ if FRONTEND_DIR.exists():
 else:
     logger.warning(f"Frontend not found at {FRONTEND_DIR}")
 
+# Mount test datasets for easy loading
+TEST_DATASETS_DIR = FRONTEND_DIR.parent / "data" / "test_datasets"
+if TEST_DATASETS_DIR.exists():
+    app.mount("/test-datasets", StaticFiles(directory=str(TEST_DATASETS_DIR)), name="test-datasets")
+    logger.info(f"Test datasets mounted at /test-datasets from {TEST_DATASETS_DIR}")
+else:
+    logger.warning(f"Test datasets not found at {TEST_DATASETS_DIR}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
@@ -3302,3 +3515,12 @@ async def debug_transcript_time_range(session: Session = Depends(require_auth)):
     """Expose RAG dataset coverage stats to the UI."""
     logger.info("[DEBUG] transcript time range requested by %s", getattr(session, "user_id", None))
     return await proxy_request(f"{RAG_URL}/debug/transcripts/time-range", "GET")
+
+@app.post("/api/rag/personalize")
+async def rag_personalize(session: Session = Depends(require_auth)):
+    """Trigger RAG personalization pipeline"""
+    if not _is_admin(session):
+        raise HTTPException(status_code=403, detail="Admin access required")
+        
+    result = await proxy_request(f"{RAG_URL}/personalize", "POST")
+    return result

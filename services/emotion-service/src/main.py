@@ -227,6 +227,52 @@ def analyze_batch(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/cli/test")
+def run_self_test() -> Dict[str, Any]:
+    """Self-test endpoint for CLI testing"""
+    test_results = []
+    
+    # Test 1: Classifier loaded
+    test_results.append({
+        "test": "classifier_loaded",
+        "passed": classifier is not None,
+        "details": f"Emotion classifier initialized: {classifier is not None}"
+    })
+    
+    # Test 2: Test emotion analysis
+    if classifier is not None:
+        try:
+            test_result = analyze_emotion("I am very happy today!")
+            test_results.append({
+                "test": "test_emotion_analysis",
+                "passed": "dominant_emotion" in test_result,
+                "details": f"Test analysis successful, detected: {test_result.get('dominant_emotion')}"
+            })
+        except Exception as e:
+            test_results.append({
+                "test": "test_emotion_analysis",
+                "passed": False,
+                "details": f"Test analysis failed: {str(e)[:50]}"
+            })
+    else:
+        test_results.append({
+            "test": "test_emotion_analysis",
+            "passed": False,
+            "details": "Classifier not loaded"
+        })
+    
+    passed = sum(1 for t in test_results if t["passed"])
+    total = len(test_results)
+    
+    return {
+        "test_suite": "emotion_service",
+        "summary": {"total": total, "passed": passed, "failed": total - passed},
+        "results": test_results,
+        "overall_passed": passed == total
+    }
+
+
 if __name__ == "__main__":
+
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8005, log_level="info")

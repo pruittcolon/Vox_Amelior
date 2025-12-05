@@ -31,6 +31,43 @@ class WhisperAPI {
     // CSRF config per backend defaults (gateway sets ws_csrf cookie)
     this.csrfCookieName = (typeof window !== 'undefined' && window.CSRF_COOKIE_NAME) || 'ws_csrf';
     this.csrfHeaderName = (typeof window !== 'undefined' && window.CSRF_HEADER_NAME) || 'X-CSRF-Token';
+    // Token storage keys for iframe contexts (VS Code Simple Browser)
+    this.tokenStorageKey = 'nemo_session_token';
+    this.csrfStorageKey = 'nemo_csrf_token';
+  }
+
+  /**
+   * Get stored auth token from localStorage (for iframe contexts)
+   */
+  getStoredToken() {
+    try {
+      return localStorage.getItem(this.tokenStorageKey);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Get stored CSRF token from localStorage (for iframe contexts)
+   */
+  getStoredCsrf() {
+    try {
+      return localStorage.getItem(this.csrfStorageKey);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Get auth headers including Bearer token from localStorage
+   */
+  getAuthHeaders() {
+    const headers = {};
+    const token = this.getStoredToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
   }
 
   normalizePath(path) {
@@ -72,6 +109,7 @@ class WhisperAPI {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
+          ...this.getAuthHeaders(),
           ...(extraHeaders || {}),
           ...(analysisId ? { 'X-Analysis-Id': analysisId } : {}),
         },
@@ -133,7 +171,11 @@ class WhisperAPI {
   }
 
   getCsrfToken() {
-    // Try configured name, then common fallbacks
+    // Try localStorage first (for iframe contexts like VS Code Simple Browser)
+    const storedCsrf = this.getStoredCsrf();
+    if (storedCsrf) return storedCsrf;
+    
+    // Fall back to cookies
     const tryNames = [
       this.csrfCookieName || 'ws_csrf',
       'ws_csrf',
@@ -151,12 +193,11 @@ class WhisperAPI {
       const headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        ...this.getAuthHeaders(),
       };
       const csrf = this.getCsrfToken();
       if (csrf) {
         headers[this.csrfHeaderName] = csrf;
-      } else {
-        console.warn('[API] No CSRF token found in cookies; POST may be rejected');
       }
       const { analysisId, headers: extraHeaders } = options || {};
       if (analysisId) {

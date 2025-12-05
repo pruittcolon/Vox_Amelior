@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nemo-health-ingress
+  namespace: nemo
+  annotations:
+    # No rewrite-target annotation here, so /health will be passed as is
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /health
+            pathType: Exact # Use Exact to match only /health
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8000
+---

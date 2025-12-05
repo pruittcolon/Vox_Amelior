@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Premium Engine Test Bed</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0b1224; color: #e5e7eb; margin: 0; padding: 0; }
+    header { padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); }
+    h1 { margin: 0; font-size: 1.4rem; }
+    main { padding: 20px 24px; max-width: 1100px; margin: 0 auto; }
+    .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .btn { background: linear-gradient(135deg, #2563eb, #06b6d4); border: none; color: #fff; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .btn.secondary { background: rgba(255,255,255,0.08); color: #cbd5e1; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    .status-table th, .status-table td { padding: 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .badge { padding: 4px 8px; border-radius: 999px; font-size: 0.8rem; }
+    .badge.ok { background: rgba(34,197,94,0.15); color: #34d399; }
+    .badge.err { background: rgba(239,68,68,0.15); color: #f87171; }
+    .badge.pending { background: rgba(255,255,255,0.08); color: #cbd5e1; }
+    .log { font-family: "SFMono-Regular", Menlo, monospace; background: #0f172a; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 12px; height: 200px; overflow-y: auto; margin-top: 12px; font-size: 0.9rem; }
+    .progress { height: 10px; background: rgba(255,255,255,0.06); border-radius: 999px; overflow: hidden; margin-top: 8px; }
+    .progress .bar { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #10b981); transition: width 0.2s ease; }
+    .hint { color: #94a3b8; font-size: 0.9rem; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Premium Engine Test Bed</h1>
+    <div class="hint">Uploads a dataset to /upload then exercises the 10 flagship engines one at a time.</div>
+  </header>
+  <main>
+    <div class="card">
+      <div class="row">
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+        <button class="btn" id="upload-btn">Upload Dataset</button>
+        <button class="btn secondary" id="load-sample-btn">Load Sample (Affairs.csv)</button>
+        <span id="file-label" class="hint">No file uploaded.</span>
+      </div>
+      <div class="hint" id="dataset-hint"></div>
+      <div class="progress"><div class="bar" id="upload-progress"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <button class="btn" id="run-all-btn" disabled>Run All (sequential)</button>
+        <span class="hint" id="run-status">Idle</span>
+      </div>
+      <table class="status-table" id="status-table">
+        <thead><tr><th>Engine</th><th>Status</th><th>Message</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="progress"><div class="bar" id="run-progress"></div></div>
+    </div>
+
+    <div class="card">
+      <strong>Log</strong>
+      <div class="log" id="log"></div>
+    </div>
+  </main>
+
+  <script>
+    const API_BASE = (window.location.origin && window.location.origin.startsWith('http')) ? window.location.origin : 'http://localhost:8000';
+    const PREMIUM_ENGINES = ['titan','chaos','scout','oracle','newton','flash','mirror','chronos','deep_feature','galileo'];
+    let uploadedFilename = null;
+    let datasetProfile = null;
+
+    const logEl = document.getElementById('log');
+    const fileInput = document.getElementById('file-input');
+    const fileLabel = document.getElementById('file-label');
+    const datasetHint = document.getElementById('dataset-hint');
+    const uploadBar = document.getElementById('upload-progress');
+    const runBar = document.getElementById('run-progress');
+    const runStatus = document.getElementById('run-status');
+    const runAllBtn = document.getElementById('run-all-btn');
+    const statusBody = document.querySelector('#status-table tbody');
+
+    function log(msg) {
+      const ts = new Date().toISOString();
+      const div = document.createElement('div');
+      div.textContent = `[${ts}] ${msg}`;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function apiRequest(path, options = {}) {
+      const target = path.startsWith('http') ? path : API_BASE + path;
+      return fetch(target, Object.assign({ credentials: 'include' }, options))
+        .then(async res => {
+          let payloadText = '';
+          try { payloadText = await res.text(); } catch (e) {}
+          let payload = {};
+          if (payloadText) {
+            try { payload = JSON.parse(payloadText); } catch (e) { payload = { raw: payloadText }; }
+          }
+          if (!res.ok) {
+            let detail = (payload && (payload.detail || payload.message)) || res.statusText || 'Unknown error';
+            if (typeof detail === 'object') { try { detail = JSON.stringify(detail); } catch (e) { detail = String(detail); } }
+            throw new Error(`HTTP ${res.status}: ${detail}`);
+          }
+          return payload;
+        });
+    }
+
+    function renderStatusTable(states) {
+      statusBody.innerHTML = '';
+      PREMIUM_ENGINES.forEach(engine => {
+        const s = states[engine] || { status: 'pending', message: 'Pending' };
+        const tr = document.createElement('tr');
+        const badgeClass = s.status === 'ok' ? 'ok' : s.status === 'err' ? 'err' : 'pending';
+        tr.innerHTML = `<td>${engine}</td><td><span class="badge ${badgeClass}">${s.status}</span></td><td>${s.message || ''}</td>`;
+        statusBody.appendChild(tr);
+      });
+    }
+
+    function updateRunProgress(done, total, label) {
+      const pct = Math.round((done / total) * 100);
+      runBar.style.width = `${pct}%`;
+      runStatus.textContent = label || `${done} of ${total} completed`;
+    }
+
+    function summarizeProfile(profile) {
+      if (!profile || !profile.columns) return 'No profile';
+      const cols = profile.columns.length;
+      const numeric = Object.values(profile.dtypes || {}).filter(t => (t || '').toString().toLowerCase().match(/int|float|double|decimal/)).length;
+      const timeCols = Object.keys(profile.semantic_schema || {}).filter(k => (profile.semantic_schema[k] || '').toLowerCase().includes('time')).length;
+      return `Columns: ${cols}, Numeric: ${numeric}, Time-like: ${timeCols}`;
+    }
+
+    async function uploadFile(file) {
+      const form = new FormData();
+      form.append('file', file);
+      uploadBar.style.width = '30%';
+      const payload = await apiRequest('/upload', { method: 'POST', body: form });
+      uploadBar.style.width = '100%';
+      uploadedFilename = payload.filename || (payload.data && payload.data.filename) || file.name;
+      datasetProfile = payload;
+      fileLabel.textContent = `Uploaded as ${uploadedFilename}`;
+      datasetHint.textContent = summarizeProfile(payload);
+      runAllBtn.disabled = false;
+      log(`Uploaded ${file.name} -> ${uploadedFilename}`);
+    }
+
+    function buildBody(engine) {
+      const body = { filename: uploadedFilename };
+      if (!datasetProfile) return body;
+      const cols = datasetProfile.columns || [];
+      const dtypes = datasetProfile.dtypes || {};
+      const lowerCols = cols.map(c => c.toLowerCase());
+      const numeric = cols.filter(c => (dtypes[c] || '').toLowerCase().match(/int|float|double|decimal|number/));
+      const target = numeric.find(c => !c.toLowerCase().includes('id')) || numeric[0];
+      const dateCol = cols.find(c => c.toLowerCase().match(/date|time|timestamp|year/));
+      const revenue = cols.find(c => c.toLowerCase().match(/revenue|sales|turnover|amount/));
+      if (['titan','chaos','mirror','oracle','newton','flash','deep_feature','galileo','chronos'].includes(engine) && target) {
+        body.target_column = target;
+      }
+      if (engine === 'chronos' && dateCol) body.date_column = dateCol;
+      if (engine === 'chronos' && revenue) body.revenue_column = revenue;
+      return body;
+    }
+
+    async function runEnginesSequential() {
+      if (!uploadedFilename) {
+        alert('Upload a dataset first');
+        return;
+      }
+      const states = {};
+      renderStatusTable(states);
+      runAllBtn.disabled = true;
+      let done = 0;
+      updateRunProgress(0, PREMIUM_ENGINES.length, 'Starting...');
+      for (const engine of PREMIUM_ENGINES) {
+        const body = buildBody(engine);
+        log(`Running ${engine}...`);
+        states[engine] = { status: 'pending', message: 'Running' };
+        renderStatusTable(states);
+        try {
+          const res = await apiRequest(`/analytics/premium/${engine}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const summary = res.summary && res.summary.headline ? res.summary.headline : 'OK';
+          states[engine] = { status: 'ok', message: summary };
+          log(`${engine}: success (${summary})`);
+        } catch (err) {
+          states[engine] = { status: 'err', message: err.message };
+          log(`${engine}: error ${err.message}`);
+        }
+        done += 1;
+        updateRunProgress(done, PREMIUM_ENGINES.length, `${done} of ${PREMIUM_ENGINES.length} completed`);
+        renderStatusTable(states);
+      }
+      runAllBtn.disabled = false;
+      log('Run complete.');
+    }
+
+    document.getElementById('upload-btn').addEventListener('click', () => {
+      if (!fileInput.files[0]) {
+        alert('Choose a file first.');
+        return;
+      }
+      uploadFile(fileInput.files[0]).catch(err => { log(`Upload error: ${err.message}`); });
+    });
+
+    document.getElementById('load-sample-btn').addEventListener('click', async () => {
+      const sampleUrl = `${API_BASE}/test-datasets/unit1/Affairs.csv`;
+      log('Fetching sample dataset (Affairs.csv)...');
+      const res = await fetch(sampleUrl);
+      const blob = await res.blob();
+      const file = new File([blob], 'Affairs.csv', { type: 'text/csv' });
+      uploadFile(file).catch(err => { log(`Upload error: ${err.message}`); });
+    });
+
+    runAllBtn.addEventListener('click', () => {
+      runEnginesSequential().catch(err => { log(`Run error: ${err.message}`); });
+    });
+
+    renderStatusTable({});
+  </script>
+</body>
+</html>
