@@ -16,7 +16,7 @@
 
 Nemo is a **Cognitive Architecture** designed for high-performance, offline AI orchestration. It solves the "Single GPU Contention" problem by implementing a custom **Preemptive Resource Scheduler**, allowing heavy workloads (4B+ LLMs, ASR, Diarization) to coexist on consumer hardware (**as low as 6GB VRAM**) without degradation.
 
-Unlike standard RAG wrappers, Nemo implements **"System 2" thinking**—a secondary cognitive loop that uses symbolic regression and causal inference to mathematically verify LLM outputs, mitigating hallucination in critical business scenarios.
+Unlike standard RAG wrappers, Nemo implements **"System 2" thinking** - a secondary cognitive loop that uses symbolic regression and causal inference to mathematically verify LLM outputs, mitigating hallucination in critical business scenarios.
 
 ---
 
