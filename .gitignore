@@ -217,3 +217,17 @@ _unused_assets/
 # Old/backup directories
 *-old/
 *.bak/
+
+# Separate repos (not part of this project)
+whyhirepruitt-main/
+
+# Runtime/session data
+sessions_data/
+*.superbak
+
+# Legacy/deprecated code
+frontend/legacyML/
+
+# Root npm files (orphaned - playwright only)
+/package.json
+/package-lock.json
