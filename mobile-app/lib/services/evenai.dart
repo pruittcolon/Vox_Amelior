@@ -139,11 +139,6 @@ class EvenAI {
   bool _isAwaitingRokuCommand = false;
   bool _isAwaitingAlexaCommand = false; // --- NEW --- Flag for Alexa mode
 
-  // --- CHATGPT CONVERSATION MODE STATE ---
-  bool _isChatGPTConversationMode = false;
-  List<Map<String, String>> _chatGPTHistory = [];
-  Timer? _chatGPTModeTimer;
-
   // --- MEMORY MODE STATE ---
   /// Client used to communicate with the memory server.
   final _MemoryServerClient _memoryClient = _MemoryServerClient();
@@ -268,23 +263,17 @@ class EvenAI {
     }
   }
 
-  // Display Roku commands as text
+  // Display the Roku remote BMP (no text overlay)
   Future<void> _displayRokuRemoteCard() async {
     if (!BleManager.get().isConnected) {
-      print("EvenAI: Cannot display Roku commands; glasses not connected.");
+      print("EvenAI: Cannot display Roku remote; glasses not connected.");
       return;
     }
     try {
-      print("EvenAI: Displaying Roku commands on glasses.");
-      const rokuCommands = """Roku Remote:
-Power On/Off
-Up, Down, Left, Right
-Select, Home, Back
-Volume Up/Down
-Say 'Terminate' to exit""";
-      await TextService.get.startSendText(rokuCommands);
+      print("EvenAI: Displaying Roku remote card on glasses.");
+      await FeaturesServices().sendBmp("assets/images/image_2.bmp");
     } catch (e) {
-      print("EvenAI: Failed to display Roku commands: $e");
+      print("EvenAI: Failed to display Roku remote card: $e");
     }
   }
 
@@ -451,10 +440,6 @@ Say 'Terminate' to exit""";
       RegExp(r"\balexa\b", caseSensitive: false).hasMatch(text);
   bool _matchesMenu(String text) =>
       RegExp(r"\bmenu\b", caseSensitive: false).hasMatch(text);
-  bool _matchesChatMode(String text) =>
-      RegExp(r"\bchat\b", caseSensitive: false).hasMatch(text);
-  bool _matchesInterviewMode(String text) =>
-      RegExp(r"\binterview\b", caseSensitive: false).hasMatch(text);
 
   Future<void> recordOverByOS() async {
     // --- MEMORY MODE ---
@@ -658,32 +643,6 @@ Say 'Terminate' to exit""";
         }
       }
 
-      // --- ENTER CHATGPT CONVERSATION MODE ---
-      if (_matchesChatMode(cleanTranscript)) {
-        print("EvenAI: Entering ChatGPT Conversation Mode.");
-        _isChatGPTConversationMode = true;
-        _chatGPTHistory.clear();
-        await TextService.get.startSendText(
-            "Chat Mode:\nI'll remember our conversation.\nSay 'Terminate' to exit.");
-        _chatGPTModeTimer?.cancel();
-        _chatGPTModeTimer = Timer(const Duration(minutes: 10), () async {
-          print("EvenAI: ChatGPT mode FORCE EXIT after 10 minutes.");
-          _isChatGPTConversationMode = false;
-          _chatGPTHistory.clear();
-          await _robustExitBmp();
-          clear();
-          isRunning = false;
-        });
-        toStartEvenAIByOS();  // Immediately start listening for first question
-        return;
-      }
-
-      // --- ENTER INTERVIEW MODE ---
-      if (_matchesInterviewMode(cleanTranscript)) {
-        await startInterviewMode();
-        return;
-      }
-
       // --- NEW: ENTER ALEXA MODE ---
       if (_matchesAlexa(cleanTranscript)) {
         print("EvenAI: Entering Alexa Remote Mode.");
@@ -770,15 +729,6 @@ Say 'Terminate' to exit""";
         if (cleanTranscript.contains("terminate") ||
             cleanTranscript.contains("end")) {
           print("EvenAI: User spoke 'terminate', ending session.");
-          
-          // Clear ChatGPT conversation mode if active
-          if (_isChatGPTConversationMode) {
-            print("EvenAI: Exiting ChatGPT/Interview mode. Clearing ${_chatGPTHistory.length} messages.");
-            _isChatGPTConversationMode = false;
-            _chatGPTHistory.clear();
-            _chatGPTModeTimer?.cancel();
-          }
-          
           _isAwaitingFollowUp = false;
           await _robustExitBmp();
           clear();
@@ -786,13 +736,6 @@ Say 'Terminate' to exit""";
           return;
         }
         
-        if (cleanTranscript.contains("terminate") ||
-            cleanTranscript.contains("end")) {
-          print("EvenAI: User spoke 'terminate', ending session.");
-          
-          // Clear ChatGPT conversation mode if active
-          if (_isChatGPTConversationMode) {
-            print("EvenAI: Exiting ChatGPT/Interview mode. Clearing ${_chatGPTHistory.length} messages.");
             _isChatGPTConversationMode = false;
             _chatGPTHistory.clear();
             _chatGPTModeTimer?.cancel();
@@ -822,28 +765,15 @@ Say 'Terminate' to exit""";
       updateDynamicText("Answering Question Asked: $transcript");
       await TextService.get.startSendText("Q: $transcript");
       final apiService = ApiDeepSeekService();
-      
-      // Pass conversation history if in ChatGPT conversation mode
-      final answer = await apiService.sendChatRequest(
-        transcript, 
-        conversationHistory: _isChatGPTConversationMode ? _chatGPTHistory : null
-      );
-      
+      final answer = await apiService.sendChatRequest(transcript);
       print("EvenAI: Answer from OpenAI: '$answer'");
-      
-      // If in conversation mode, add to history
-      if (_isChatGPTConversationMode) {
-        _chatGPTHistory.add({"role": "user", "content": transcript});
-        _chatGPTHistory.add({"role": "assistant", "content": answer});
-        print("ChatGPT: Conversation history now has ${_chatGPTHistory.length} messages");
-      }
-      
       updateDynamicText("$transcript\n\n$answer");
       isEvenAISyncing.value = false;
       saveQuestionItem(transcript, answer);
       await TextService.get.startSendText(answer);
 
       _isAwaitingFollowUp = true;
+<<<<<<< HEAD:mobile-app/lib/services/evenai.dart
       // Adjusted delay to 4 seconds (between 1s and 8s)
       await Future.delayed(const Duration(seconds: 4));
       
@@ -855,6 +785,11 @@ Say 'Terminate' to exit""";
         await TextService.get
             .startSendText("$answer\n\n'Continue Asking' or say 'Terminate' to End");
       }
+=======
+      await Future.delayed(const Duration(seconds: 1));
+      await TextService.get
+          .startSendText("$answer\n\nSay 'Continue Asking ' or say 'Terminate' to End");
+>>>>>>> parent of a83713e (feat(app-modes): add Chat/Interview modes w/ auto-exit; Roku text UI; Quick Note BLE; vocab init; add interview assets path):EvenDemoApp-main/lib/services/evenai.dart
       _listenForFollowUpCommand();
     } catch (e, stackTrace) {
       print("EvenAI: Error during transcription or API call: $e");
@@ -1343,7 +1278,7 @@ class ApiDeepSeekService {
     );
   }
 
-  Future<String> sendChatRequest(String question, {List<Map<String, String>>? conversationHistory}) async {
+  Future<String> sendChatRequest(String question) async {
     String modelToUse;
     if (question.toLowerCase().contains("research")) {
       modelToUse = "gpt-5";
@@ -1352,26 +1287,15 @@ class ApiDeepSeekService {
     }
     print("Keyword check complete. Using model: $modelToUse");
 
-    // Build messages array with conversation history
-    List<Map<String, String>> messages = [
-      {"role": "system", "content": "You are a helpful assistant. Keep responses concise for smart glasses display."},
-    ];
-    
-    // Add conversation history if provided
-    if (conversationHistory != null && conversationHistory.isNotEmpty) {
-      messages.addAll(conversationHistory);
-      print("ChatGPT: Including ${conversationHistory.length} previous messages");
-    }
-    
-    // Add current question
-    messages.add({"role": "user", "content": question});
-
     final data = {
       "model": modelToUse,
-      "messages": messages,
+      "messages": [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": question}
+      ],
     };
 
-    print("Sending request to OpenAI with ${messages.length} messages");
+    print("Sending request to OpenAI with data: $data");
 
     try {
       final response = await _dio.post('/chat/completions', data: data);
