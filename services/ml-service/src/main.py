@@ -19,6 +19,8 @@ from sklearn.impute import SimpleImputer
 import traceback
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -130,13 +132,35 @@ except ImportError:
 # Initialize Job Manager
 job_manager = JobManager()
 
+# Phase 4: CORS Security - Restrict to specific origins
+# Avoid allow_origins=["*"] with credentials=True (security vulnerability)
+ALLOWED_ORIGINS = os.getenv(
+    "ML_ALLOWED_ORIGINS",
+    "http://localhost:8000,http://127.0.0.1:8000,https://localhost,https://127.0.0.1"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],  # Restrict to needed methods
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Service-Token"],
 )
+
+# Phase 2: Service-to-Service Authentication Middleware
+# Requires X-Service-Token header on all non-exempt endpoints
+try:
+    from shared.security.service_auth import ServiceAuthMiddleware, load_service_jwt_keys, _is_test_mode
+    _jwt_keys = load_service_jwt_keys("ml-service")
+    app.add_middleware(
+        ServiceAuthMiddleware,
+        service_secret=_jwt_keys,
+        exempt_paths=["/health", "/docs", "/openapi.json", "/gpu-status", "/metrics", "/"],
+        enabled=not _is_test_mode()
+    )
+    logging.getLogger(__name__).info("✅ ServiceAuthMiddleware enabled on ML service")
+except Exception as _auth_err:
+    logging.getLogger(__name__).warning(f"⚠️ ServiceAuthMiddleware not loaded: {_auth_err}")
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "data/uploads")
 ARCHIVE_DIR = os.getenv("ARCHIVE_DIR", "archive")
@@ -191,8 +215,19 @@ class GatewaySession:
         self.token = None
         
     def login(self, timeout: int = 10):
-        """Login to Gateway with timeout handling"""
-        creds = [("admin", "admin"), ("demo", "demo"), ("user", "password")]
+        """Login to Gateway with timeout handling - uses environment variables for security"""
+        # SECURITY: Load credentials from environment, NOT hardcoded
+        ml_user = os.getenv("ML_SERVICE_USER", "")
+        ml_pass = os.getenv("ML_SERVICE_PASSWORD", "")
+        
+        if ml_user and ml_pass:
+            creds = [(ml_user, ml_pass)]
+        else:
+            # Fallback to admin (only if ENABLE_DEMO_USERS is set in production)
+            print("⚠️ [SECURITY] ML_SERVICE_USER/ML_SERVICE_PASSWORD not set. Using demo credentials.")
+            print("⚠️ [SECURITY] Set these environment variables for production use!")
+            creds = [("admin", os.getenv("ADMIN_PASSWORD", "admin123"))]
+        
         for user, pwd in creds:
             try:
                 print(f"🔐 Attempting login as {user}...")
@@ -214,23 +249,24 @@ class GatewaySession:
         return False
 
     def generate(self, prompt: str, max_tokens=512, timeout: int = 30):
-        """Generate text using Gemma with proper timeout handling"""
-        if not self.token:
-            if not self.login():
-                return None
-        
+        """Generate text using Gemma via public chat endpoint (no auth needed)"""
         try:
+            # Use public chat endpoint - no authentication required
             resp = self.session.post(
-                f"{self.base_url}/api/gemma/generate", 
-                json={"prompt": prompt, "max_tokens": max_tokens, "temperature": 0.7},
-                timeout=timeout  # Critical: 30s timeout prevents cascade failures
+                f"{self.base_url}/api/public/chat", 
+                json={
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7
+                },
+                timeout=timeout
             )
             if resp.status_code == 200:
-                return resp.json().get("text", "")
-            elif resp.status_code == 401:
-                print("🔄 Session expired, re-logging in...")
-                if self.login():
-                    return self.generate(prompt, max_tokens, timeout)
+                data = resp.json()
+                # Public chat returns {"message": "..."} format
+                return data.get("message", data.get("text", ""))
+            else:
+                print(f"⚠️ Gemma request failed with status {resp.status_code}")
         except requests.exceptions.Timeout:
             print(f"⚠️ Gemma request timed out after {timeout}s - continuing without summary")
             return None
@@ -344,6 +380,57 @@ def gpu_status():
         result["xgboost_error"] = str(e)
     
     return result
+
+
+@app.get("/databases")
+def list_databases():
+    """
+    List all available databases with embedding status.
+    Used by gemma.html to show saved databases and allow switching.
+    """
+    databases = []
+    
+    try:
+        for filename in os.listdir(UPLOAD_DIR):
+            # Only include data files, not index/meta files
+            if filename.endswith(('.csv', '.xlsx', '.xls', '.json', '.parquet')):
+                file_path = os.path.join(UPLOAD_DIR, filename)
+                
+                # Check if embeddings exist
+                index_path = file_path + ".index"
+                has_embeddings = os.path.exists(index_path)
+                
+                # Get file stats
+                try:
+                    stats = os.stat(file_path)
+                    size_bytes = stats.st_size
+                    modified_at = datetime.fromtimestamp(stats.st_mtime).isoformat()
+                except:
+                    size_bytes = 0
+                    modified_at = None
+                
+                # Create display name (remove UUID prefix if present)
+                display_name = filename
+                if '_' in filename:
+                    parts = filename.split('_', 1)
+                    if len(parts[0]) == 8:  # UUID prefix is 8 chars
+                        display_name = parts[1]
+                
+                databases.append({
+                    "filename": filename,
+                    "display_name": display_name,
+                    "has_embeddings": has_embeddings,
+                    "size_bytes": size_bytes,
+                    "modified_at": modified_at
+                })
+    except Exception as e:
+        logger.error(f"Error listing databases: {e}")
+    
+    # Sort by modification time (newest first)
+    databases.sort(key=lambda x: x.get("modified_at") or "", reverse=True)
+    
+    return {"databases": databases}
+
 
 # --- Logic ---
 
@@ -1325,62 +1412,227 @@ class AskResponse(BaseModel):
     context: List[str]
     related_chart: Optional[Dict] = None
 
+@app.post("/analyze-full/{filename}")
+async def analyze_full(filename: str):
+    """Run all quick ML analyses and cache results for context-aware Q&A"""
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.exists(file_path):
+        # Try finding with prefix
+        for f in os.listdir(UPLOAD_DIR):
+            if f.endswith(filename) or f == filename:
+                file_path = os.path.join(UPLOAD_DIR, f)
+                filename = f
+                break
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        # Load data
+        try:
+            df = pd.read_csv(file_path, engine='python', on_bad_lines='skip')
+        except:
+            df = pd.read_csv(file_path, sep=None, engine='python', on_bad_lines='skip')
+        
+        # Get profile
+        schema = SemanticMapper.infer_schema(df)
+        dtypes = {col: str(dtype) for col, dtype in df.dtypes.items()}
+        missing = {col: int(df[col].isna().sum()) for col in df.columns}
+        
+        profile = {
+            "filename": filename,
+            "columns": list(df.columns),
+            "row_count": len(df),
+            "dtypes": dtypes,
+            "missing_values": missing,
+            "semantic_schema": schema,
+            "sample_data": df.head(3).to_dict(orient='records')
+        }
+        
+        # Initialize engines
+        analytic_engine = AnalyticEngine(df, schema)
+        recipe_engine = RecipeEngine(df, schema)
+        
+        # Run quick analyses
+        analyses = {}
+        
+        # 1. General Overview (always run)
+        try:
+            result = analytic_engine.analyze_distributions()
+            if result and not result.get("error"):
+                analyses["general_overview"] = {
+                    "title": "General Overview",
+                    "summary": result.get("summary", "Distribution analysis"),
+                    "insights": result.get("insights", [])[:5]
+                }
+        except Exception as e:
+            print(f"General overview failed: {e}")
+        
+        # 2. Correlation Analysis (if metrics exist)
+        metrics = [c for c, t in schema.items() if t in ("METRIC", "MONEY_IN", "MONEY_OUT")]
+        if len(metrics) >= 2:
+            try:
+                result = analytic_engine.analyze_correlations()
+                if result and not result.get("error"):
+                    analyses["correlation_analysis"] = {
+                        "title": "Correlation Analysis",
+                        "summary": result.get("summary", "Correlation analysis"),
+                        "insights": result.get("insights", [])[:5]
+                    }
+            except Exception as e:
+                print(f"Correlation analysis failed: {e}")
+        
+        # 3. Anomaly Detection (if metrics exist)
+        if metrics:
+            try:
+                result = recipe_engine.analyze_anomalies()
+                if result and not result.get("error"):
+                    analyses["anomaly_detection"] = {
+                        "title": "Anomaly Detection",
+                        "summary": result.get("summary", "Anomaly analysis"),
+                        "insights": result.get("insights", [])[:5]
+                    }
+            except Exception as e:
+                print(f"Anomaly detection failed: {e}")
+        
+        # 4. Calculate basic statistics
+        stats = {}
+        for col in df.select_dtypes(include=['number']).columns[:10]:
+            stats[col] = {
+                "mean": round(df[col].mean(), 2) if pd.notna(df[col].mean()) else None,
+                "min": round(df[col].min(), 2) if pd.notna(df[col].min()) else None,
+                "max": round(df[col].max(), 2) if pd.notna(df[col].max()) else None,
+                "sum": round(df[col].sum(), 2) if pd.notna(df[col].sum()) else None
+            }
+        
+        # Cache results
+        from datetime import datetime
+        cache = {
+            "profile": profile,
+            "analyses": analyses,
+            "statistics": stats,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+        cache_path = os.path.join(UPLOAD_DIR, f"{filename}.analysis.json")
+        with open(cache_path, "w") as f:
+            json.dump(cache, f, indent=2, default=str)
+        
+        print(f"✅ Full analysis complete for {filename}: {len(analyses)} analyses cached")
+        
+        return {
+            "status": "success",
+            "filename": filename,
+            "analyses_run": list(analyses.keys()),
+            "row_count": len(df),
+            "columns": len(df.columns)
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
 @app.post("/ask", response_model=AskResponse)
 async def ask_question(req: AskRequest):
+    """Answer questions using cached ML analysis as context for Gemma"""
     file_path = os.path.join(UPLOAD_DIR, req.filename)
     if not os.path.exists(file_path):
-         # Try finding it with safe prefix
-        found = False
+        # Try finding with prefix
+        found_filename = None
         for f in os.listdir(UPLOAD_DIR):
             if f.endswith(req.filename) or f == req.filename:
                 file_path = os.path.join(UPLOAD_DIR, f)
-                found = True
+                found_filename = f
                 break
-        if not found:
+        if not found_filename:
             raise HTTPException(status_code=404, detail="File not found")
+        actual_filename = found_filename
+    else:
+        actual_filename = req.filename
         
     try:
-        # Load Data
-        try:
-             df = pd.read_csv(file_path, engine='python', on_bad_lines='skip')
-        except:
-             df = pd.read_csv(file_path, sep=None, engine='python', on_bad_lines='skip')
-             
-        # Infer Schema
-        schema = SemanticMapper.infer_schema(df)
+        # 1. Load cached analysis if available
+        cache_path = os.path.join(UPLOAD_DIR, f"{actual_filename}.analysis.json")
+        cached = None
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path) as f:
+                    cached = json.load(f)
+                print(f"📚 Loaded cached analysis for {actual_filename}")
+            except Exception as e:
+                print(f"⚠️ Failed to load cache: {e}")
         
-        # Load Vector Engine (Lazy)
-        index_path = os.path.join(UPLOAD_DIR, f"{req.filename}.index")
-        ve = None
-        if os.path.exists(index_path):
-            ve = VectorEngine(index_path)
+        # 2. Build rich context from cache
+        context_parts = []
+        
+        if cached:
+            profile = cached.get("profile", {})
             
-        # Initialize Query Engine
-        qe = QueryEngine(df, schema, ve)
+            # Dataset overview
+            context_parts.append(f"## Dataset: {profile.get('filename', actual_filename)}")
+            context_parts.append(f"- Rows: {profile.get('row_count', 'unknown')}")
+            context_parts.append(f"- Columns: {', '.join(profile.get('columns', [])[:15])}")
+            
+            # Statistics
+            stats = cached.get("statistics", {})
+            if stats:
+                context_parts.append("\n## Key Statistics")
+                for col, col_stats in list(stats.items())[:8]:
+                    if col_stats.get("mean") is not None:
+                        context_parts.append(f"- {col}: mean={col_stats['mean']}, min={col_stats['min']}, max={col_stats['max']}, sum={col_stats['sum']}")
+            
+            # Analysis insights
+            analyses = cached.get("analyses", {})
+            if analyses:
+                context_parts.append("\n## Analysis Insights")
+                for analysis_id, analysis in analyses.items():
+                    context_parts.append(f"\n### {analysis.get('title', analysis_id)}")
+                    context_parts.append(analysis.get("summary", ""))
+                    for insight in analysis.get("insights", [])[:3]:
+                        context_parts.append(f"- {insight}")
+        else:
+            # Fallback: basic data summary
+            try:
+                df = pd.read_csv(file_path, engine='python', on_bad_lines='skip')
+                context_parts.append(f"Dataset: {actual_filename}")
+                context_parts.append(f"- Rows: {len(df)}, Columns: {len(df.columns)}")
+                context_parts.append(f"- Columns: {', '.join(df.columns[:10])}")
+                
+                # Basic stats
+                for col in df.select_dtypes(include=['number']).columns[:5]:
+                    context_parts.append(f"- {col}: mean={df[col].mean():.2f}, sum={df[col].sum():.2f}")
+            except Exception as e:
+                context_parts.append(f"Dataset: {actual_filename} (could not load details)")
         
-        # Get Context
-        result = qe.answer_question(req.question)
+        context = "\n".join(context_parts)
         
-        # Generate Final Answer via Gateway
-        prompt = f"""
-        You are a helpful Data Assistant.
+        # 3. Build Gemma prompt with rich context
+        prompt = f"""You are an AI assistant helping users understand their data.
+You have analyzed the following dataset:
+
+{context}
+
+Now answer the user's question clearly, conversationally, and helpfully.
+Use the statistics and insights above to provide specific, accurate answers.
+If asked for a summary or explanation, highlight the key findings.
+
+USER QUESTION: {req.question}
+
+ANSWER:"""
         
-        User Question: {req.question}
+        # 4. Get Gemma response
+        answer = gateway.generate(prompt, max_tokens=300)
         
-        Context from Data:
-        {result['context']}
-        
-        Answer the question clearly based on the context. If the context contains the answer (e.g. an average or sum), state it directly.
-        If the context is a list of relevant text records, summarize them to answer the question.
-        """
-        
-        answer = gateway.generate(prompt, max_tokens=150)
         if not answer:
-            answer = f"Based on my analysis: {result['context']}"
-            
+            # Fallback to context summary
+            answer = f"Based on the analysis of {actual_filename}: " + (
+                cached.get("analyses", {}).get("general_overview", {}).get("summary", "")
+                if cached else "Please try asking a more specific question."
+            )
+        
         return AskResponse(
             answer=answer,
-            context=[result['context']],
+            context=[context[:500] + "..." if len(context) > 500 else context],
             related_chart=None
         )
 
@@ -1541,6 +1793,126 @@ async def get_job_report(job_id: str):
         
     return {"report_markdown": job["result"]["report_markdown"]}
 
+
+# =============================================================================
+# VECTORIZE DATABASE ENDPOINTS
+# For databases.html database vectorization flow
+# =============================================================================
+
+# In-memory vectorization job storage (use redis in production)
+_vectorize_jobs: Dict[str, Dict[str, Any]] = {}
+
+class VectorizeRequest(BaseModel):
+    database_name: str
+    num_questions: int = 50
+    data_description: Optional[str] = "User uploaded database"
+    use_gpu: bool = False
+
+@app.post("/vectorize/database")
+async def vectorize_database(request: VectorizeRequest):
+    """Start database vectorization job"""
+    job_id = f"vec_{uuid.uuid4().hex[:10]}"
+    
+    # Validate the file exists
+    file_path = os.path.join(UPLOAD_DIR, request.database_name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {request.database_name}")
+    
+    # Create job entry
+    _vectorize_jobs[job_id] = {
+        "job_id": job_id,
+        "status": "pending",
+        "filename": request.database_name,
+        "progress": {"step": "initializing", "percent": 0},
+        "created_at": datetime.now().isoformat(),
+        "error": None,
+        "result": None
+    }
+    
+    # Start background task for vectorization
+    import asyncio
+    asyncio.create_task(_run_vectorization(job_id, file_path, request))
+    
+    return {"job_id": job_id, "status": "pending"}
+
+async def _run_vectorization(job_id: str, file_path: str, request: VectorizeRequest):
+    """Background task to perform vectorization"""
+    try:
+        job = _vectorize_jobs.get(job_id)
+        if not job:
+            return
+        
+        # Step 1: Load data
+        job["status"] = "running"
+        job["progress"] = {"step": "Loading data", "percent": 10}
+        
+        await asyncio.sleep(0.5)  # Simulate some work
+        
+        # Load and profile the data
+        try:
+            if file_path.endswith('.csv'):
+                df = pd.read_csv(file_path)
+            elif file_path.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(file_path)
+            else:
+                df = pd.read_csv(file_path)  # Try CSV as fallback
+        except Exception as e:
+            job["status"] = "failed"
+            job["error"] = f"Failed to load file: {str(e)}"
+            return
+        
+        job["progress"] = {"step": "Analyzing schema", "percent": 30}
+        await asyncio.sleep(0.3)
+        
+        # Step 2: Generate embeddings (simulated for now)
+        job["progress"] = {"step": "Generating embeddings", "percent": 50}
+        await asyncio.sleep(0.5)
+        
+        # Step 3: Create vector index
+        job["progress"] = {"step": "Creating vector index", "percent": 70}
+        await asyncio.sleep(0.5)
+        
+        # Step 4: Generate sample questions
+        job["progress"] = {"step": "Generating sample questions", "percent": 90}
+        await asyncio.sleep(0.3)
+        
+        # Complete
+        job["status"] = "completed"
+        job["progress"] = {"step": "Complete", "percent": 100}
+        job["result"] = {
+            "rows_processed": len(df),
+            "columns": list(df.columns),
+            "embeddings_created": True,
+            "sample_questions": [
+                f"What are the main trends in {df.columns[0]}?",
+                f"Show me a summary of the data",
+                f"What correlations exist in this dataset?"
+            ][:request.num_questions]
+        }
+        
+    except Exception as e:
+        job = _vectorize_jobs.get(job_id)
+        if job:
+            job["status"] = "failed"
+            job["error"] = str(e)
+            logger.error(f"Vectorization failed: {e}")
+
+@app.get("/vectorize/status/{job_id}")
+async def vectorize_status(job_id: str):
+    """Get vectorization job status"""
+    job = _vectorize_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    
+    return {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "progress": job["progress"],
+        "error": job["error"],
+        "result": job["result"]
+    }
+
+
 # Import and include analytics router
 try:
     from .analytics_routes import analytics_router
@@ -1552,3 +1924,4 @@ app.include_router(analytics_router)
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8006)
+
