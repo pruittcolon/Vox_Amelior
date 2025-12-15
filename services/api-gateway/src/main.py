@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Request, Response, Depends, Cookie, Header, File, UploadFile, Form, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Cookie, Header, File, UploadFile, Form, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +26,7 @@ from starlette.responses import Response as StarletteResponse
 from starlette.responses import StreamingResponse as StarletteStreamingResponse
 import time
 import asyncio
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import httpx
 
 # Add parent directories to path
@@ -38,29 +38,44 @@ if root_dir not in sys.path:
 
 # Import auth modules
 try:
-    from auth.auth_manager import AuthManager
-    from auth.permissions import require_auth, Session
-    print("[GATEWAY] Auth modules loaded")
+    # Import explicitly from src.auth to avoid shadowing by /app/auth in Docker builds.
+    from src.auth.auth_manager import AuthManager
+    from src.auth.permissions import require_auth, Session
+    _auth_loaded = True
 except ImportError as e:
-    print(f"[GATEWAY] WARNING: Auth import failed: {e}")
+    _auth_import_error = str(e)
+    _auth_loaded = False
     AuthManager = None
-    # Create dummy dependency to prevent FastAPI AssertionError
-    async def require_auth():
-        # Return a dummy session object so endpoints don't crash
-        class DummySession:
-            user_id = "dummy_user"
-            role = "admin"
-            csrf_token = "dummy_token"
-        return DummySession()
     Session = None
+    # FAIL-CLOSED: Do not create dummy auth - will raise at startup
+    require_auth = None
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
-logger = logging.getLogger(__name__)
+try:
+    from shared.logging.structured import setup_structured_logging
+    # Default to INFO, enable based on env var (default true for this phase)
+    if os.getenv("STRUCTURED_LOGGING", "true").lower() in ("true", "1", "yes"):
+        setup_structured_logging("api-gateway")
+        logger = logging.getLogger(__name__)
+        logger.info("✅ Structured logging enabled for API Gateway")
+    else:
+        raise ImportError("Structured logging disabled via env")
+except (ImportError, Exception) as e:
+    # Fallback
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+    logger = logging.getLogger(__name__)
+    logger.info(f"Standard logging enabled (Structured logging skipped: {e})")
+
+# Log auth import status after logger is configured
+if _auth_loaded:
+    logger.info("Auth modules loaded")
+else:
+    logger.warning("Auth import failed: %s", _auth_import_error)
 
 from src.config import SecurityConfig as SecConf
 from shared.analysis.fallback_store import AnalysisFallbackStore
 from shared.logging.safe_logging import header_presence, token_presence
+# shared.audit imported conditionally below when AUDIT_ENABLED
 
 # Configuration
 GEMMA_URL = os.getenv("GEMMA_URL", "http://gemma-service:8001")
@@ -114,6 +129,10 @@ service_auth = None
 _LOGIN_WINDOW = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW", "60"))
 _LOGIN_LIMIT = int(os.getenv("LOGIN_RATE_LIMIT_LIMIT", "5"))
 login_attempts: Dict[str, Dict[str, Any]] = {"window": _LOGIN_WINDOW, "limit": _LOGIN_LIMIT, "ips": {}}
+# Registration rate limiting parameters (tunable via env)
+_REGISTER_WINDOW = int(os.getenv("REGISTER_RATE_LIMIT_WINDOW", "60"))
+_REGISTER_LIMIT = int(os.getenv("REGISTER_RATE_LIMIT_LIMIT", "5"))
+register_attempts: Dict[str, Dict[str, Any]] = {"window": _REGISTER_WINDOW, "limit": _REGISTER_LIMIT, "ips": {}}
 personality_jobs: Dict[str, Dict[str, Any]] = {}
 analysis_jobs: Dict[str, Dict[str, Any]] = {}
 
@@ -206,6 +225,17 @@ async def lifespan(app: FastAPI):
     global auth_manager
     logger.info("Starting API Gateway...")
     
+    # PHASE 0: Fail-closed security checks
+    from shared.security.startup_checks import assert_secure_mode
+    assert_secure_mode()  # Blocks if SECURE_MODE=true and unsafe flags enabled
+    
+    # FAIL-CLOSED: Block startup if auth module failed to load
+    if not _auth_loaded:
+        raise RuntimeError(
+            f"SECURITY: AuthManager failed to import: {_auth_import_error}. "
+            "Cannot start API Gateway without authentication."
+        )
+    
     session_key_bytes: Optional[bytes] = None
     secrets_source: Optional[str] = None
 
@@ -238,7 +268,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Users DB encryption key not found; storing credentials database without encryption")
 
         # Import init_auth_manager to properly initialize the global singleton
-        from auth.auth_manager import init_auth_manager
+        from src.auth.auth_manager import init_auth_manager
         auth_manager = init_auth_manager(
             secret_key=session_key_bytes,
             db_path=str(APP_INSTANCE_DIR / "users.db"),
@@ -259,20 +289,19 @@ async def lifespan(app: FastAPI):
             service_auth = get_service_auth(service_id="gateway", service_secret=jwt_keys)
             logger.info("✅ JWT service auth initialized for gateway (keys=%s)", len(jwt_keys))
         except Exception as auth_err:
-            logger.warning(f"⚠️ ServiceAuth init failed: {auth_err}. Using dummy auth for dev mode.")
-            # Dummy service auth for dev mode
-            class DummyServiceAuth:
-                def create_token(self, **kwargs):
-                    return "dummy_token"
-            service_auth = DummyServiceAuth()
+            # FAIL-CLOSED: Block startup without valid service auth
+            logger.critical("🚫 ServiceAuth init failed: %s - BLOCKING STARTUP", auth_err)
+            raise RuntimeError(
+                f"SECURITY: ServiceAuth required but failed to initialize: {auth_err}. "
+                "Run: ./scripts/setup_secrets.sh"
+            ) from auth_err
     except Exception as e:
-        import traceback
-        logger.error(f"⚠️ Failed to import ServiceAuth modules: {e}")
-        # Continue without service auth (will fail if endpoints rely on it strictly)
-        class DummyServiceAuth:
-            def create_token(self, **kwargs):
-                return "dummy_token"
-        service_auth = DummyServiceAuth()
+        # FAIL-CLOSED: Block startup without service auth module
+        logger.critical("🚫 Failed to import ServiceAuth modules: %s - BLOCKING STARTUP", e)
+        raise RuntimeError(
+            f"SECURITY: ServiceAuth module import failed: {e}. "
+            "Ensure shared/security/service_auth.py exists and dependencies are installed."
+        ) from e
     
     yield
     
@@ -399,18 +428,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         if not self.allow_framing:
             response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(self), camera=()")
+        # Content Security Policy
+        # Security: Removed 'unsafe-eval' - prevents XSS via eval()
+        # Note: Some Plotly.js features (custom transforms) may be limited
+        # Using 'wasm-unsafe-eval' for WebAssembly support only
+        # NOTE: 'unsafe-inline' is required for inline styles/scripts - consider nonce-based CSP in future
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
             "img-src 'self' data: https:; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly; "
+            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:* https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly;"
+            "connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://127.0.0.1:* https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self';"
         )
         if self.include_hsts:
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
         return response
 
 
@@ -420,10 +458,14 @@ app.add_middleware(SecurityHeadersMiddleware)
 class CSRFMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
-        self.exempt_paths = {"/health", "/api/auth/login", "/api/auth/logout", "/docs", "/openapi.json", "/upload", "/api/upload", "/api/public/chat", 
-                             "/vectorize/database", "/vectorize/status"}
+        self.exempt_paths = {"/health", "/api/auth/login", "/api/auth/register", "/api/auth/logout", "/docs", "/openapi.json", "/upload", "/api/upload", "/api/public/chat", 
+                             "/vectorize/database", "/vectorize/status",
+                             # RAG chatbot endpoints
+                             "/embed", "/ask", "/databases", "/api/databases",
+                             # Service-to-service endpoints (ML calling Gemma)
+                             "/api/gemma/generate"}
         # Paths that start with these prefixes are exempt (ML analytics, vectorization)
-        self.exempt_prefixes = {"/analytics/", "/api/analytics/", "/vectorize/"}
+        self.exempt_prefixes = {"/analytics/", "/api/analytics/", "/vectorize/", "/analyze-full/"}
         # Paths that allow Bearer token auth (mobile clients) without CSRF
         # Also include vectorization and upload paths for demo purposes
         self.bearer_auth_paths = {"/api/analyze/stream", "/docs", "/openapi.json", "/redoc", "/health", 
@@ -589,6 +631,46 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CanonicalHostMiddleware)
 
+# Enterprise Audit Middleware (request logging + anomaly detection)
+AUDIT_ENABLED = os.getenv("AUDIT_ENABLED", "true").lower() in {"1", "true", "yes"}
+if AUDIT_ENABLED:
+    from shared.audit import get_audit_logger
+    audit_logger_instance = get_audit_logger()
+    
+    @app.middleware("http")
+    async def audit_request_middleware(request: Request, call_next):
+        """Log all requests with timing and anomaly detection"""
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        start_time = time.time()
+        error_msg = None
+        status_code = 500
+        
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        except Exception as e:
+            error_msg = str(e)
+            raise
+        finally:
+            latency_ms = (time.time() - start_time) * 1000
+            await audit_logger_instance.log_request(
+                request_id=request_id,
+                method=request.method,
+                path=request.url.path,
+                status_code=status_code,
+                latency_ms=latency_ms,
+                user_id=getattr(request.state, "user_id", None),
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("User-Agent"),
+                error=error_msg
+            )
+    
+    logger.info("✅ Enterprise audit middleware enabled with anomaly detection")
+else:
+    audit_logger_instance = None
+    logger.info("Audit middleware disabled via AUDIT_ENABLED")
+
 # ============================================================================
 # Authentication Models
 # ============================================================================
@@ -596,6 +678,51 @@ app.add_middleware(CanonicalHostMiddleware)
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    """Public self-registration request."""
+    username: str
+    password: str
+    email: Optional[str] = None
+    speaker_id: Optional[str] = None
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9_]{3,50}$", v):
+            raise ValueError("Username must be 3-50 alphanumeric characters or underscores")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        # NIST 2024: prioritize length, basic complexity
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if len(v) > 128:
+            raise ValueError("Password must be at most 128 characters")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^[^@]+@[^@]+\\.[^@]+$", v):
+            raise ValueError("Invalid email format")
+        return v
+
+    @field_validator("speaker_id")
+    @classmethod
+    def validate_speaker_id(cls, v: Optional[str]) -> Optional[str]:
+        if v and not SPEAKER_ID_PATTERN.match(v):
+            raise ValueError("speaker_id must be lowercase alphanumerics, hyphen, underscore (1-64 chars)")
+        return v
 
 # ============================================================================
 # Health Check
@@ -610,6 +737,31 @@ def api_health() -> Dict[str, Any]:
     """Alias for legacy frontend that prefixes requests with /api."""
     return health()
 
+@app.get("/api/audit/status")
+async def audit_status() -> Dict[str, Any]:
+    """Get audit logging status and statistics - for CLI testing"""
+    if not AUDIT_ENABLED or audit_logger_instance is None:
+        return {"enabled": False, "message": "Audit logging disabled"}
+    
+    stats = audit_logger_instance.get_stats()
+    anomalies = audit_logger_instance.get_anomalies()
+    
+    return {
+        "enabled": True,
+        "stats": stats,
+        "anomalies": [
+            {
+                "type": a.anomaly_type,
+                "path": a.path,
+                "description": a.description,
+                "severity": a.severity,
+                "timestamp": a.timestamp
+            }
+            for a in anomalies[-10:]  # Last 10 anomalies
+        ],
+        "thresholds": audit_logger_instance.thresholds
+    }
+
 # ============================================================================
 # Authentication Endpoints
 # ============================================================================
@@ -619,6 +771,119 @@ def _client_ip(request: Request) -> str:
     if xff:
         return xff.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+def _generate_unique_speaker_id(username: str, requested: Optional[str]) -> str:
+    """Derive a lowercase speaker_id that matches SPEAKER_ID_PATTERN and is unique."""
+    base = (requested or username).lower()
+    base = re.sub(r"[^a-z0-9_-]", "_", base)
+    base = base.strip("_-") or f"user_{uuid.uuid4().hex[:6]}"
+    base = base[:64]
+    if not SPEAKER_ID_PATTERN.match(base):
+        base = re.sub(r"[^a-z0-9_-]", "_", base.lower())[:64]
+
+    existing = {
+        u.get("speaker_id")
+        for u in (auth_manager.list_users() if auth_manager else [])
+        if u.get("speaker_id")
+    }
+    speaker_id = base
+    while speaker_id in existing:
+        suffix = uuid.uuid4().hex[:4]
+        trimmed = base[: max(0, 64 - (len(suffix) + 1))]
+        speaker_id = f"{trimmed}_{suffix}" if trimmed else f"user_{suffix}"
+    return speaker_id
+
+
+@app.post("/api/auth/register")
+async def register(request: RegisterRequest, response: Response, raw_request: Request):
+    """Public account creation. Creates a USER role and logs them in."""
+    if not auth_manager:
+        raise HTTPException(status_code=503, detail="Auth not available")
+
+    if os.getenv("ALLOW_SELF_REGISTRATION", "true").lower() not in {"1", "true", "yes"}:
+        raise HTTPException(status_code=403, detail="Self-registration is disabled")
+
+    # Rate limiting (simple per-IP window)
+    try:
+        ip = _client_ip(raw_request)
+        now = time.time()
+        window = register_attempts["window"]
+        lim = register_attempts["limit"]
+        ip_state = register_attempts["ips"].get(ip, {"count": 0, "start": now})
+        if now - ip_state["start"] > window:
+            ip_state = {"count": 0, "start": now}
+        ip_state["count"] += 1
+        register_attempts["ips"][ip] = ip_state
+        if ip_state["count"] > lim:
+            raise HTTPException(status_code=429, detail="Too many registration attempts. Please try again later.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    # Enforce case-insensitive username uniqueness
+    try:
+        existing_users = auth_manager.list_users()
+        if any(u.get("username", "").lower() == request.username.lower() for u in existing_users):
+            raise HTTPException(status_code=409, detail="Username already exists")
+    except HTTPException:
+        raise
+    except Exception:
+        # Fall back to exact-match check inside create_user
+        existing_users = []
+
+    from src.auth.auth_manager import UserRole
+    speaker_id = _generate_unique_speaker_id(request.username, request.speaker_id)
+
+    try:
+        auth_manager.create_user(
+            username=request.username,
+            password=request.password,
+            role=UserRole.USER,
+            speaker_id=speaker_id,
+            email=request.email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Auto-login after registration
+    session_token = auth_manager.authenticate(
+        request.username, request.password, ip_address=_client_ip(raw_request)
+    )
+    if not session_token:
+        raise HTTPException(status_code=500, detail="Login after registration failed")
+    session = auth_manager.validate_session(session_token)
+    if not session:
+        raise HTTPException(status_code=500, detail="Session creation failed")
+
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        httponly=True,
+        max_age=86400,
+        samesite=SESSION_COOKIE_SAMESITE,
+        secure=SESSION_COOKIE_SECURE,
+    )
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=session.csrf_token or "",
+        httponly=False,
+        max_age=86400,
+        samesite=SESSION_COOKIE_SAMESITE,
+        secure=SESSION_COOKIE_SECURE,
+    )
+
+    return {
+        "success": True,
+        "message": "Account created",
+        "session_token": session_token,
+        "csrf_token": session.csrf_token or "",
+        "user": {
+            "user_id": session.user_id,
+            "role": session.role.value,
+            "speaker_id": speaker_id,
+        },
+    }
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest, response: Response, raw_request: Request):
@@ -2119,9 +2384,52 @@ async def ml_explain_finding(request: Dict[str, Any], session: Session = Depends
 # ML Analytics Upload & Premium Endpoints (Proxy to ML service)
 # ============================================================================
 
+# Allowed file extensions for upload (data files only)
+ALLOWED_UPLOAD_EXTENSIONS = {
+    # Data files
+    '.csv', '.tsv', '.txt', '.json', '.jsonl', '.ndjson',
+    '.xlsx', '.xls', '.xlsm', '.xlsb',
+    '.parquet', '.pq',
+    '.db', '.sqlite', '.sqlite3',
+    # Audio files (for transcription)
+    '.wav', '.mp3', '.m4a', '.flac', '.ogg', '.webm', '.aac',
+    # Images (for ML)
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff',
+}
+
+# Dangerous file extensions to explicitly reject
+DANGEROUS_EXTENSIONS = {
+    '.sh', '.bash', '.zsh', '.fish',  # Shell scripts
+    '.exe', '.dll', '.so', '.dylib',  # Executables
+    '.bat', '.cmd', '.ps1', '.vbs',   # Windows scripts
+    '.php', '.phtml', '.jsp', '.asp', '.aspx',  # Server scripts
+    '.py', '.rb', '.pl', '.cgi',      # Interpreted scripts
+    '.jar', '.war', '.ear',           # Java archives
+    '.msi', '.deb', '.rpm', '.apk',   # Installers
+}
+
+
 @app.post("/upload")
 async def ml_upload(file: UploadFile = File(...)):
-    """Proxy file upload to ML service (no auth required for demo)"""
+    """Proxy file upload to ML service (with file type validation)"""
+    # Security: Validate file extension
+    filename = file.filename or ""
+    file_ext = os.path.splitext(filename.lower())[1]
+    
+    # Reject explicitly dangerous extensions
+    if file_ext in DANGEROUS_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"File type '{file_ext}' not allowed. Dangerous file types are rejected for security."
+        )
+    
+    # Validate against allowlist if extension is present
+    if file_ext and file_ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"File type '{file_ext}' not supported. Allowed types: data files (csv, json, xlsx, parquet), audio, images."
+        )
+    
     # Read the file content first to ensure it's fully available
     content = await file.read()
     # Reset the file position in case it needs to be read again
@@ -2136,6 +2444,19 @@ async def ml_upload(file: UploadFile = File(...)):
 async def api_ml_upload(file: UploadFile = File(...)):
     """Alias with /api prefix"""
     return await ml_upload(file)
+
+
+@app.get("/databases")
+async def list_databases():
+    """Proxy to ML service to list all available databases with embedding status"""
+    result = await proxy_request(f"{ML_SERVICE_URL}/databases", "GET")
+    return result
+
+
+@app.get("/api/databases")
+async def api_list_databases():
+    """Alias with /api prefix"""
+    return await list_databases()
 
 
 @app.post("/api/vectorize/{filename}")
@@ -2169,6 +2490,42 @@ async def vectorize_proxy_delete(path: str):
     """Proxy DELETE vectorization endpoints to ML service"""
     result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "DELETE")
     return result
+
+
+# RAG Chatbot endpoints - no auth for ease of use
+@app.post("/embed")
+async def embed_proxy(request: Request):
+    """Proxy embedding request to ML service (for document indexing)"""
+    try:
+        body = await request.json()
+        filename = body.get("filename", "")
+        if not filename:
+            raise HTTPException(status_code=400, detail="filename is required")
+        result = await proxy_request(f"{ML_SERVICE_URL}/embed/{filename}", "POST")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ask")
+async def ask_proxy(request: Request):
+    """Proxy ask request to ML service (RAG question answering)"""
+    try:
+        body = await request.json()
+        result = await proxy_request(f"{ML_SERVICE_URL}/ask", "POST", json=body)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/analyze-full/{filename}")
+async def analyze_full_proxy(filename: str):
+    """Proxy full analysis request to ML service (runs all quick ML analyses)"""
+    try:
+        result = await proxy_request(f"{ML_SERVICE_URL}/analyze-full/{filename}", "POST")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/analytics/{path:path}")
@@ -3235,6 +3592,118 @@ async def api_transcribe(request: Request, session: Session = Depends(require_au
     """Alias route for frontend clients that prefix endpoints with /api."""
     return await transcribe_direct(request=request, session=session)
 
+
+# ============================================================================
+# WebSocket Streaming Proxy (Real-time Transcription)
+# ============================================================================
+
+# Allowed WebSocket origins (configurable via env)
+WS_ALLOWED_ORIGINS = set(filter(None, os.getenv(
+    "WS_ALLOWED_ORIGINS", 
+    "http://localhost,http://127.0.0.1,https://localhost,https://127.0.0.1"
+).split(",")))
+
+@app.websocket("/stream")
+async def websocket_stream_proxy(websocket: WebSocket, token: Optional[str] = Query(None)):
+    """
+    WebSocket proxy to transcription service for real-time streaming.
+    
+    Mobile app connects to ws://gateway:8000/stream?token=<session_token>
+    Gateway proxies to ws://transcription-service:8003/stream
+    
+    Security:
+    - JWT authentication required (via query param or cookie)
+    - Origin validation for browser clients
+    """
+    import websockets
+    
+    # --- Origin Validation (for browser clients) ---
+    origin = websocket.headers.get("origin", "")
+    if origin:
+        origin_host = origin.rstrip("/")
+        # Check if origin matches allowed list (strip port for localhost)
+        origin_allowed = any(
+            origin_host.startswith(allowed.rstrip("/")) 
+            for allowed in WS_ALLOWED_ORIGINS
+        )
+        if not origin_allowed:
+            logger.warning("ws_origin_rejected", origin=origin, allowed=list(WS_ALLOWED_ORIGINS))
+            await websocket.close(code=4003, reason="Origin not allowed")
+            return
+    
+    # --- JWT Authentication ---
+    session_token = token
+    if not session_token:
+        # Try cookie fallback
+        session_token = websocket.cookies.get(SESSION_COOKIE_NAME)
+    
+    if not session_token or not auth_manager:
+        logger.warning(f"ws_auth_missing: has_token={bool(session_token)}, has_auth_manager={bool(auth_manager)}")
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+    
+    session = auth_manager.validate_session(session_token)
+    if not session:
+        logger.warning("ws_auth_invalid: Invalid or expired session")
+        await websocket.close(code=4001, reason="Invalid session")
+        return
+    
+    logger.info(f"ws_authenticated: user_id={session.user_id}, role={session.role.value}")
+    
+    # Convert HTTP URL to WebSocket URL
+    transcription_ws_url = TRANSCRIPTION_URL.replace("http://", "ws://").replace("https://", "wss://")
+    backend_url = f"{transcription_ws_url}/stream"
+    
+    logger.info(f"[WS-PROXY] Client connecting, proxying to {backend_url}")
+    
+    try:
+        # Accept client connection first
+        await websocket.accept()
+        logger.info("[WS-PROXY] Client connection accepted")
+        
+        # Connect to backend transcription service
+        async with websockets.connect(backend_url) as backend_ws:
+            logger.info("[WS-PROXY] Connected to backend transcription service")
+            
+            async def forward_to_backend():
+                """Forward messages from client to backend."""
+                try:
+                    while True:
+                        data = await websocket.receive()
+                        if "bytes" in data:
+                            await backend_ws.send(data["bytes"])
+                        elif "text" in data:
+                            await backend_ws.send(data["text"])
+                except WebSocketDisconnect:
+                    logger.info("[WS-PROXY] Client disconnected")
+                except Exception as e:
+                    logger.error(f"[WS-PROXY] Error forwarding to backend: {e}")
+            
+            async def forward_to_client():
+                """Forward messages from backend to client."""
+                try:
+                    async for message in backend_ws:
+                        if isinstance(message, bytes):
+                            await websocket.send_bytes(message)
+                        else:
+                            await websocket.send_text(message)
+                except Exception as e:
+                    logger.error(f"[WS-PROXY] Error forwarding to client: {e}")
+            
+            # Run both forwarding tasks concurrently
+            await asyncio.gather(
+                forward_to_backend(),
+                forward_to_client(),
+                return_exceptions=True
+            )
+            
+    except Exception as e:
+        logger.error(f"[WS-PROXY] Connection error: {e}")
+        try:
+            await websocket.close(code=1011, reason=str(e))
+        except:
+            pass
+
 # ============================================================================
 
 # ============================================================================
@@ -3524,3 +3993,42 @@ async def rag_personalize(session: Session = Depends(require_auth)):
         
     result = await proxy_request(f"{RAG_URL}/personalize", "POST")
     return result
+
+# ============================================================================
+# API Versioning (Phase 5)
+# ============================================================================
+v1 = APIRouter(prefix="/api/v1", tags=["v1"])
+
+# Authentication
+v1.add_api_route("/auth/login", login, methods=["POST"])
+v1.add_api_route("/auth/register", register, methods=["POST"])
+v1.add_api_route("/auth/logout", logout, methods=["POST"])
+v1.add_api_route("/auth/session", check_session, methods=["GET"])
+v1.add_api_route("/auth/check", check_auth, methods=["GET"])
+
+# Generative AI (Gemma)
+v1.add_api_route("/gemma/chat", gemma_chat, methods=["POST"])
+v1.add_api_route("/gemma/generate", gemma_generate, methods=["POST"])
+v1.add_api_route("/gemma/stats", gemma_stats, methods=["GET"])
+v1.add_api_route("/gemma/analyze/stream", gemma_analyze_stream_create, methods=["POST"])
+
+# Data Ingestion
+v1.add_api_route("/upload", ml_upload, methods=["POST"])
+
+# Mount v1 router
+app.include_router(v1)
+logger.info("✅ API v1 Router mounted at /api/v1")
+
+# Include auth router with user management endpoints
+from src.routers.auth import router as auth_router
+app.include_router(auth_router)
+logger.info("✅ Auth Router mounted with user management endpoints")
+
+# Include enterprise manager router (QA, Automation, Knowledge, Analytics, Meetings)
+try:
+    from src.routers.enterprise import router as enterprise_router
+    app.include_router(enterprise_router)
+    logger.info("✅ Enterprise Router mounted at /api/enterprise")
+except ImportError as e:
+    logger.warning(f"⚠️ Enterprise Router not available: {e}")
+

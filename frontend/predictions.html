@@ -40,12 +40,71 @@
 </head>
 
 <body>
-  <header>
-    <div>
-      <h1>🚀 Titan Premium Analysis</h1>
-      <div class="subtitle">Enterprise-grade ML analysis with plain-English explanations</div>
+  <!-- Navigation Header (matching other pages) -->
+  <header class="glass-header"
+    style="position: sticky; top: 0; z-index: 100; background: rgba(10, 15, 28, 0.95); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(148, 163, 184, 0.1); padding: 0.75rem 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1400px; margin: 0 auto;">
+      <!-- Logo -->
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <h1
+          style="font-size: 1.3rem; margin: 0; background: linear-gradient(135deg, #06b6d4, #8b5cf6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">
+          🎙️ Nemo Server
+        </h1>
+      </div>
+
+      <!-- Navigation -->
+      <nav style="display: flex; gap: 0.25rem; align-items: center;">
+        <a href="index.html"
+          style="padding: 0.5rem 0.75rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;">Dashboard</a>
+        <a href="search.html"
+          style="padding: 0.5rem 0.75rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;">Search</a>
+        <a href="emotions.html"
+          style="padding: 0.5rem 0.75rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;">Emotions</a>
+        <a href="memories.html"
+          style="padding: 0.5rem 0.75rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;">Memories</a>
+        <a href="gemma.html"
+          style="padding: 0.5rem 0.75rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;">AI
+          Insights</a>
+        <a href="databases.html"
+          style="padding: 0.5rem 0.75rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;">LLM
+          Vectorization</a>
+        <a href="predictions.html"
+          style="padding: 0.5rem 0.75rem; color: #06b6d4; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; background: rgba(6, 182, 212, 0.1); font-weight: 500;">ML
+          Service</a>
+        <div class="nav-dropdown" style="position: relative; display: inline-block;">
+          <button
+            style="padding: 0.5rem 0.75rem; color: #94a3b8; background: none; border: none; cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: 0.35rem;">
+            Enterprise ▼
+          </button>
+          <div class="nav-dropdown-menu"
+            style="display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); min-width: 180px; background: rgba(15, 23, 42, 0.98); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 0.75rem; box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5); padding: 0.5rem 0; z-index: 1000; backdrop-filter: blur(16px);">
+            <a href="admin_qa.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 1rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem;">❓
+              QA Admin</a>
+            <a href="automation.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 1rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem;">⚙️
+              Automation</a>
+            <a href="knowledge.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 1rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem;">📚
+              Knowledge</a>
+            <a href="analytics.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 1rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem;">📊
+              Analytics</a>
+            <a href="meetings.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 1rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem;">📅
+              Meetings</a>
+          </div>
+        </div>
+        <a href="settings.html"
+          style="padding: 0.5rem 0.75rem; color: #94a3b8; text-decoration: none; font-size: 0.875rem; border-radius: 0.5rem; transition: all 0.2s;">Settings</a>
+      </nav>
+
+      <!-- Title Badge -->
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <span style="font-size: 0.9rem; color: #e2e8f0;">🚀 Titan Premium Analysis</span>
+        <div class="header-badge">✨ 27 Engines</div>
+      </div>
     </div>
-    <div class="header-badge">✨ 27 Engines</div>
   </header>
 
   <main>
@@ -710,6 +769,50 @@
       operations: '#8b5cf6',
       advanced: '#ec4899'
     };
+
+    // ========== MARKDOWN RENDERER FOR GEMMA OUTPUT ==========
+    function renderMarkdown(text) {
+      // Escape HTML first
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      // Headers (## and ###)
+      html = html.replace(/^### (.+)$/gm, '<h4 style="margin: 0.8em 0 0.4em; color: #67e8f9; font-size: 0.95em;">$1</h4>');
+      html = html.replace(/^## (.+)$/gm, '<h3 style="margin: 1em 0 0.5em; color: #06b6d4; font-size: 1.05em;">$1</h3>');
+
+      // Bold (**text** or __text__)
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: #e0f2fe;">$1</strong>');
+      html = html.replace(/__([^_]+)__/g, '<strong style="color: #e0f2fe;">$1</strong>');
+
+      // Italic (*text* or _text_)
+      html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+      // Bullet points (* or -)
+      html = html.replace(/^\s*[\*\-]\s+(.+)$/gm, '<li style="margin: 0.3em 0; padding-left: 0.5em;">$1</li>');
+
+      // Wrap consecutive <li> in <ul>
+      html = html.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, (match) => {
+        return `<ul style="margin: 0.5em 0; padding-left: 1.2em; list-style-type: disc;">${match}</ul>`;
+      });
+
+      // Numbers (1. 2. etc)
+      html = html.replace(/^\s*(\d+)\.\s+(.+)$/gm, '<li style="margin: 0.3em 0;">$2</li>');
+
+      // Code inline (`code`)
+      html = html.replace(/`([^`]+)`/g, '<code style="background: rgba(6, 182, 212, 0.2); padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.9em;">$1</code>');
+
+      // Line breaks (double newline = paragraph, single = br)
+      html = html.replace(/\n\n+/g, '</p><p style="margin: 0.8em 0;">');
+      html = html.replace(/\n/g, '<br>');
+
+      // Wrap in paragraph
+      html = `<div style="line-height: 1.6;">${html}</div>`;
+
+      return html;
+    }
 
     // ========== DASHBOARD VISUALIZATION FUNCTIONS ==========
 
@@ -2779,7 +2882,7 @@ Please answer based on the analysis context. Be specific and reference the actua
         messagesDiv.innerHTML += `
           <div class="followup-msg assistant">
             <span class="msg-label">🤖 Gemma:</span>
-            <span class="msg-text">${answer}</span>
+            <span class="msg-text">${renderMarkdown(answer)}</span>
           </div>
         `;
 
@@ -3051,7 +3154,7 @@ Please answer based on the analysis context. Be specific and reference the actua
         bodyEl.innerHTML = `
           <div class="gemma-summary">
             <strong>🤖 Gemma AI Summary:${durationBadge}</strong>
-            <p>${result.gemmaSummary}</p>
+            <p>${renderMarkdown(result.gemmaSummary)}</p>
             
             <div class="gemma-followup-section" id="${chatId}-container">
               <div class="followup-messages" id="${chatId}-messages"></div>
@@ -3446,7 +3549,7 @@ Please answer based on the analysis context. Be specific and reference the actua
 
       const summary = r.summary || {};
       document.getElementById('hero-title').textContent = summary.headline || 'Analysis Complete';
-      document.getElementById('hero-explanation').textContent = summary.explanation || '';
+      document.getElementById('hero-explanation').innerHTML = renderMarkdown(summary.explanation || '');
       document.getElementById('confidence-text').textContent = summary.confidence === 'high' ? '🟢 High Confidence' : summary.confidence === 'medium' ? '🟡 Medium' : '🔴 Low';
 
       document.getElementById('stat-rows').textContent = (r.row_count || 0).toLocaleString();
@@ -3859,9 +3962,10 @@ Please answer based on the analysis context. Be specific and reference the actua
       // Add explanation
       const trendDirection = avgTrend > 0.5 ? 'upward' : avgTrend < -0.5 ? 'downward' : 'stable';
       const confidenceLevel = confidence > 0.8 ? 'high' : confidence > 0.5 ? 'moderate' : 'low';
-      document.getElementById('prediction-explanation').textContent =
-        `Based on ${bestScore.toFixed(0)}% model accuracy, we project a ${trendDirection} trend with ${confidenceLevel} confidence. ` +
-        `The shaded area shows the prediction uncertainty range (±), which widens over time as predictions become less certain.`;
+      document.getElementById('prediction-explanation').innerHTML = renderMarkdown(
+        `**Based on ${bestScore.toFixed(0)}% model accuracy**, we project a **${trendDirection}** trend with **${confidenceLevel}** confidence. ` +
+        `The shaded area shows the prediction uncertainty range (±), which widens over time as predictions become less certain.`
+      );
     }
 
     // ========== ADVANCED TITAN VISUALIZATIONS ==========
@@ -4986,7 +5090,7 @@ Please answer based on the analysis context. Be specific and reference the actua
       // Set explanation
       const explanationDiv = document.getElementById('forecast-explanation');
       if (explanationDiv) {
-        explanationDiv.textContent = explanationText;
+        explanationDiv.innerHTML = renderMarkdown(explanationText);
       }
 
       // Render insights from backend
@@ -5350,11 +5454,11 @@ Use simple language a business person can understand. No technical jargon.`;
 
         lastGemmaExplanation = explanation;
 
-        // Update UI with explanation
+        // Update UI with explanation (using markdown renderer)
         if (loadingDiv) loadingDiv.style.display = 'none';
         if (textDiv) {
           textDiv.style.display = 'block';
-          textDiv.textContent = explanation;
+          textDiv.innerHTML = renderMarkdown(explanation);
         }
         if (statusEl) statusEl.textContent = 'Complete';
 
@@ -5991,6 +6095,16 @@ Use simple language a business person can understand. No technical jargon.`;
         </div>
       `;
     }
+
+    // Enterprise dropdown hover handler
+    document.querySelectorAll('.nav-dropdown').forEach(dropdown => {
+      dropdown.addEventListener('mouseenter', () => {
+        dropdown.querySelector('.nav-dropdown-menu').style.display = 'block';
+      });
+      dropdown.addEventListener('mouseleave', () => {
+        dropdown.querySelector('.nav-dropdown-menu').style.display = 'none';
+      });
+    });
 
     log('Ready', 'info');
   </script>
