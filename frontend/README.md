@@ -6,10 +6,10 @@ A high-performance, **Zero-Build** Single Page Application (SPA) designed for re
 
 ---
 
-## 🎨 Architectural Decisions
+## Architectural Decisions
 
 ### 1. The "No-Build" Strategy
-Unlike typical React/Vue apps requiring complex toolchains (Webpack, Babel, node_modules hell), this frontend uses **Native ES Modules (ESM)**.
+Unlike typical React/Vue apps requiring complex toolchains (Webpack, Babel, node_modules), this frontend uses **Native ES Modules (ESM)**.
 *   **Benefit:** Zero compilation time. Instant hot-reload.
 *   **Benefit:** Extremely lightweight (Browser caches raw files).
 *   **Why:** Ensures the frontend is permanently viable without "dependency rot" 5 years from now.
@@ -27,13 +27,38 @@ A custom CSS design system (`assets/css/design-tokens.css`) utilizing CSS Variab
 
 ## 🖥️ Dashboard Modules
 
+### Core Pages
 | Module | File | Description |
 | :--- | :--- | :--- |
-| **Live Feed** | `index.html` | Real-time scrolling transcript with speaker identification avatars. |
-| **Cognitive Chat** | `chat.html` | Interface for the Gemma LLM with RAG context injection controls. |
-| **Memory Bank** | `memories.html` | CRUD interface for the Vector Database (FAISS). Allows manual editing of "memories". |
-| **Analytics** | `analysis.html` | Plotly.js visualizations of System 2 (ML Service) outputs. |
-| **Speaker ID** | `speakers.html` | Audio enrollment interface for Voice Biometrics. |
+| **Dashboard** | `index.html` | Main landing page with system overview |
+| **Live Feed** | `transcripts.html` | Real-time scrolling transcript with speaker identification |
+| **Cognitive Chat** | `gemma.html` | Interface for the Gemma LLM with RAG context injection |
+| **Memory Bank** | `memories.html` | CRUD interface for the Vector Database (FAISS) |
+| **Emotions** | `emotions.html` | Speaker emotion tracking and visualization |
+| **Speakers** | `speakers.html` | Audio enrollment interface for Voice Biometrics |
+
+### Analytics & ML
+| Module | File | Description |
+| :--- | :--- | :--- |
+| **Predictions** | `predictions.html` | 36 ML engine interface for data analysis |
+| **Databases** | `databases.html` | Database vectorization and analysis |
+| **Analytics** | `analytics.html` | Business intelligence visualizations |
+| **ML Dashboard** | `ml_dashboard.html` | ML engine monitoring and results |
+
+### Enterprise Features
+| Module | File | Description |
+| :--- | :--- | :--- |
+| **Banking** | `banking.html` | Fiserv DNA integration dashboard |
+| **Salesforce** | `salesforce.html` | Salesforce CRM integration |
+| **Financial** | `financial-dashboard.html` | Financial analytics and forecasting |
+| **Automation** | `automation.html` | n8n workflow automation |
+
+### Settings & Admin
+| Module | File | Description |
+| :--- | :--- | :--- |
+| **Login** | `login.html` | JWT authentication flow |
+| **Settings** | `settings.html` | User and system configuration |
+| **Admin QA** | `admin_qa.html` | Quality assurance and testing |
 
 ---
 

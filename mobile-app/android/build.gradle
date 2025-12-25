@@ -23,6 +23,14 @@ subprojects {
     // put every subproject's build output under ../build/<module>
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 
+    // Provide a mock 'flutter' extension for plugins that expect it (like record_android)
+    // Skip the 'app' module which uses the real Flutter plugin
+    project.beforeEvaluate {
+        if (project.name != 'app' && !project.extensions.findByName('flutter')) {
+            project.extensions.create('flutter', FlutterExtension)
+        }
+    }
+
     // Java 17 bytecode everywhere
     tasks.withType(JavaCompile).configureEach {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -40,13 +48,25 @@ subprojects {
     // If Android extension is present, also set compileOptions
     afterEvaluate {
         def androidExt = extensions.findByName('android')
-        if (androidExt != null && androidExt.hasProperty('compileOptions')) {
-            androidExt.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
-            androidExt.compileOptions.targetCompatibility = JavaVersion.VERSION_17
+        if (androidExt != null) {
+            if (androidExt.hasProperty('compileSdkVersion')) {
+                androidExt.compileSdkVersion = 34
+            }
+            if (androidExt.hasProperty('compileOptions')) {
+                androidExt.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
+                androidExt.compileOptions.targetCompatibility = JavaVersion.VERSION_17
+            }
         }
     }
 }
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
+}
+
+// Mock FlutterExtension for third-party plugins that expect it
+class FlutterExtension {
+    int compileSdkVersion = 34
+    int minSdkVersion = 21
+    int targetSdkVersion = 34
 }

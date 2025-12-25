@@ -1,0 +1,33 @@
+FROM nginx:1.27-alpine
+
+LABEL maintainer="Nemo Server"
+LABEL description="HTTPS Reverse Proxy with TLS termination"
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Create directories
+RUN mkdir -p /var/www/certbot /etc/nginx/ssl
+
+# Copy nginx configuration
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+
+# Create non-root user for runtime
+RUN addgroup -g 1001 nginx-nemo && \
+    adduser -D -u 1001 -G nginx-nemo nginx-nemo && \
+    chown -R nginx-nemo:nginx-nemo /var/cache/nginx /var/log/nginx /var/www/certbot && \
+    touch /var/run/nginx.pid && \
+    chown nginx-nemo:nginx-nemo /var/run/nginx.pid
+
+# SSL certificates mounted at runtime
+# Volume: docker/ssl -> /etc/nginx/ssl
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -k -f https://localhost/health 2>/dev/null || curl -f http://localhost/health 2>/dev/null || exit 1
+
+EXPOSE 80 443
+
+# Note: nginx needs to start as root to bind ports, then drops privileges
+# The worker processes run as nginx user
+CMD ["nginx", "-g", "daemon off;"]

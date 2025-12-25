@@ -1,0 +1,284 @@
+/* =============================================================================
+   NexusAI Design System - Typography
+   Professional typography with fluid scales
+   ============================================================================= */
+
+/* ==================== Base Typography ==================== */
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+body {
+    font-family: var(--nexus-font-sans);
+    font-size: var(--nexus-text-base);
+    font-weight: var(--nexus-font-normal);
+    line-height: var(--nexus-leading-normal);
+    color: var(--nexus-text-primary);
+    background: var(--nexus-bg-dark);
+}
+
+/* ==================== Headings ==================== */
+
+.nexus-h1,
+h1.nexus {
+    font-size: var(--nexus-text-5xl);
+    font-weight: var(--nexus-font-bold);
+    line-height: var(--nexus-leading-tight);
+    letter-spacing: -0.025em;
+    margin: 0;
+}
+
+.nexus-h2,
+h2.nexus {
+    font-size: var(--nexus-text-4xl);
+    font-weight: var(--nexus-font-bold);
+    line-height: var(--nexus-leading-tight);
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+
+.nexus-h3,
+h3.nexus {
+    font-size: var(--nexus-text-3xl);
+    font-weight: var(--nexus-font-semibold);
+    line-height: var(--nexus-leading-tight);
+    letter-spacing: -0.015em;
+    margin: 0;
+}
+
+.nexus-h4,
+h4.nexus {
+    font-size: var(--nexus-text-2xl);
+    font-weight: var(--nexus-font-semibold);
+    line-height: var(--nexus-leading-tight);
+    margin: 0;
+}
+
+.nexus-h5,
+h5.nexus {
+    font-size: var(--nexus-text-xl);
+    font-weight: var(--nexus-font-medium);
+    line-height: var(--nexus-leading-tight);
+    margin: 0;
+}
+
+.nexus-h6,
+h6.nexus {
+    font-size: var(--nexus-text-lg);
+    font-weight: var(--nexus-font-medium);
+    line-height: var(--nexus-leading-normal);
+    margin: 0;
+}
+
+/* ==================== Gradient Text ==================== */
+
+.nexus-text-gradient {
+    background: var(--nexus-gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.nexus-text-gradient-success {
+    background: var(--nexus-gradient-success);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.nexus-text-gradient-financial {
+    background: var(--nexus-gradient-financial);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* ==================== Body Text ==================== */
+
+.nexus-text-lg {
+    font-size: var(--nexus-text-lg);
+    line-height: var(--nexus-leading-relaxed);
+}
+
+.nexus-text-base {
+    font-size: var(--nexus-text-base);
+    line-height: var(--nexus-leading-normal);
+}
+
+.nexus-text-sm {
+    font-size: var(--nexus-text-sm);
+    line-height: var(--nexus-leading-normal);
+}
+
+.nexus-text-xs {
+    font-size: var(--nexus-text-xs);
+    line-height: var(--nexus-leading-normal);
+}
+
+/* ==================== Text Colors ==================== */
+
+.nexus-text-primary {
+    color: var(--nexus-text-primary);
+}
+
+.nexus-text-secondary {
+    color: var(--nexus-text-secondary);
+}
+
+.nexus-text-muted {
+    color: var(--nexus-text-muted);
+}
+
+.nexus-text-faint {
+    color: var(--nexus-text-faint);
+}
+
+.nexus-text-success {
+    color: var(--nexus-success-500);
+}
+
+.nexus-text-warning {
+    color: var(--nexus-warning-500);
+}
+
+.nexus-text-error {
+    color: var(--nexus-error-500);
+}
+
+.nexus-text-info {
+    color: var(--nexus-info-500);
+}
+
+/* ==================== Font Weights ==================== */
+
+.nexus-font-normal {
+    font-weight: var(--nexus-font-normal);
+}
+
+.nexus-font-medium {
+    font-weight: var(--nexus-font-medium);
+}
+
+.nexus-font-semibold {
+    font-weight: var(--nexus-font-semibold);
+}
+
+.nexus-font-bold {
+    font-weight: var(--nexus-font-bold);
+}
+
+/* ==================== Special Text Styles ==================== */
+
+.nexus-mono {
+    font-family: var(--nexus-font-mono);
+}
+
+.nexus-label {
+    font-size: var(--nexus-text-xs);
+    font-weight: var(--nexus-font-semibold);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--nexus-text-muted);
+}
+
+.nexus-caption {
+    font-size: var(--nexus-text-sm);
+    color: var(--nexus-text-muted);
+}
+
+.nexus-lead {
+    font-size: var(--nexus-text-xl);
+    font-weight: var(--nexus-font-normal);
+    color: var(--nexus-text-secondary);
+    line-height: var(--nexus-leading-relaxed);
+}
+
+/* ==================== Links ==================== */
+
+.nexus-link {
+    color: var(--nexus-primary-400);
+    text-decoration: none;
+    transition: color var(--nexus-transition-fast);
+    cursor: pointer;
+}
+
+.nexus-link:hover {
+    color: var(--nexus-primary-300);
+    text-decoration: underline;
+}
+
+.nexus-link:focus-visible {
+    outline: 2px solid var(--nexus-primary-500);
+    outline-offset: 2px;
+    border-radius: var(--nexus-radius-sm);
+}
+
+/* ==================== Lists ==================== */
+
+.nexus-list {
+    padding-left: var(--nexus-space-6);
+    margin: var(--nexus-space-4) 0;
+}
+
+.nexus-list li {
+    margin-bottom: var(--nexus-space-2);
+    color: var(--nexus-text-secondary);
+}
+
+.nexus-list-disc {
+    list-style-type: disc;
+}
+
+.nexus-list-decimal {
+    list-style-type: decimal;
+}
+
+/* ==================== Code ==================== */
+
+.nexus-code {
+    font-family: var(--nexus-font-mono);
+    font-size: 0.875em;
+    background: rgba(6, 182, 212, 0.1);
+    color: var(--nexus-primary-300);
+    padding: 0.125em 0.375em;
+    border-radius: var(--nexus-radius-sm);
+    border: 1px solid rgba(6, 182, 212, 0.2);
+}
+
+.nexus-pre {
+    font-family: var(--nexus-font-mono);
+    font-size: var(--nexus-text-sm);
+    background: var(--nexus-bg-surface);
+    color: var(--nexus-text-secondary);
+    padding: var(--nexus-space-4);
+    border-radius: var(--nexus-radius-lg);
+    border: 1px solid var(--nexus-border-default);
+    overflow-x: auto;
+    white-space: pre;
+}
+
+/* ==================== Truncation ==================== */
+
+.nexus-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nexus-line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.nexus-line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}

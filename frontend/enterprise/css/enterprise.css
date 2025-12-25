@@ -1,0 +1,563 @@
+/* =============================================================================
+   ENTERPRISE LIGHT THEME DESIGN SYSTEM
+   Premium light theme matching Vox Amelior index.html aesthetic
+   Ethereal backgrounds, light glassmorphism, Laser Blue accents
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   CSS Variables / Design Tokens (inherits from vox-amelior.css)
+   ----------------------------------------------------------------------------- */
+:root {
+    /* Light Theme Backgrounds */
+    --ent-bg-primary: #F8FAFC;
+    --ent-bg-secondary: #FFFFFF;
+    --ent-bg-tertiary: #F1F5F9;
+    --ent-bg-card: #FFFFFF;
+
+    /* Light Glassmorphism */
+    --ent-glass-bg: rgba(255, 255, 255, 0.85);
+    --ent-glass-bg-light: rgba(255, 255, 255, 0.6);
+    --ent-glass-border: rgba(0, 0, 0, 0.06);
+    --ent-glass-border-hover: rgba(2, 85, 158, 0.2);
+    --ent-glass-blur: 12px;
+
+    /* Premium Accent Gradient (Laser Blue) */
+    --ent-gradient-hero: linear-gradient(135deg, #02559E 0%, #2B7FD4 50%, #3B82F6 100%);
+    --ent-gradient-card: linear-gradient(180deg, rgba(2, 85, 158, 0.05) 0%, transparent 100%);
+    --ent-gradient-success: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+    --ent-gradient-accent: linear-gradient(135deg, #02559E, #2B7FD4);
+
+    /* Text Colors */
+    --ent-text-primary: #1E293B;
+    --ent-text-secondary: #475569;
+    --ent-text-muted: #64748B;
+    --ent-text-dim: #94A3B8;
+
+    /* Primary Colors (Laser Blue) */
+    --ent-primary: #02559E;
+    --ent-primary-light: #2B7FD4;
+    --ent-primary-dark: #003D73;
+    --ent-primary-subtle: rgba(2, 85, 158, 0.08);
+    --ent-primary-glow: rgba(43, 127, 212, 0.3);
+
+    /* Secondary (Lavender) */
+    --ent-secondary: #9199BE;
+    --ent-secondary-light: #C3C7E4;
+    --ent-accent: #5E6688;
+
+    /* Status Colors */
+    --ent-success: #10B981;
+    --ent-warning: #F59E0B;
+    --ent-danger: #EF4444;
+    --ent-info: #3B82F6;
+
+    /* Shadows (Light theme - subtle) */
+    --ent-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --ent-shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
+    --ent-shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+    --ent-shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 10px 10px -5px rgba(15, 23, 42, 0.04);
+    --ent-shadow-glow: 0 0 20px var(--ent-primary-glow);
+
+    /* Border Radius */
+    --ent-radius-sm: 0.375rem;
+    --ent-radius-md: 10px;
+    --ent-radius-lg: 14px;
+    --ent-radius-xl: 20px;
+    --ent-radius-2xl: 24px;
+    --ent-radius-full: 9999px;
+
+    /* Transitions */
+    --ent-transition-fast: 0.15s ease;
+    --ent-transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    --ent-transition-slow: 0.5s ease;
+}
+
+/* -----------------------------------------------------------------------------
+   Base Styles
+   ----------------------------------------------------------------------------- */
+body.enterprise-light {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--ent-bg-primary);
+    color: var(--ent-text-primary);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* -----------------------------------------------------------------------------
+   Floating Blob Animations (Lavender theme matching index.html)
+   ----------------------------------------------------------------------------- */
+.ent-floating-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+.ent-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+    opacity: 0.4;
+    animation: entBlobFloat 20s infinite ease-in-out;
+}
+
+/* Lilac White */
+.ent-blob-1 {
+    top: 10%;
+    left: 10%;
+    width: 400px;
+    height: 400px;
+    background: #eeecf9;
+    animation-delay: 0s;
+}
+
+/* Cool Lavender */
+.ent-blob-2 {
+    bottom: 20%;
+    right: 10%;
+    width: 300px;
+    height: 300px;
+    background: #bfc2e1;
+    animation-delay: -5s;
+}
+
+/* Slate Blue */
+.ent-blob-3 {
+    top: 40%;
+    left: 60%;
+    width: 200px;
+    height: 200px;
+    background: #9199be;
+    opacity: 0.15;
+    animation-delay: -10s;
+}
+
+@keyframes entBlobFloat {
+
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
+
+    33% {
+        transform: translate(30px, -50px) scale(1.1);
+    }
+
+    66% {
+        transform: translate(-20px, 20px) scale(0.9);
+    }
+}
+
+/* -----------------------------------------------------------------------------
+   Container & Layout
+   ----------------------------------------------------------------------------- */
+.ent-container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+.ent-main-content {
+    padding-top: calc(64px + 3rem);
+    /* Account for fixed nav */
+}
+
+/* -----------------------------------------------------------------------------
+   Glass Cards (Light Theme)
+   ----------------------------------------------------------------------------- */
+.ent-card {
+    background: var(--ent-bg-card);
+    border: 1px solid var(--ent-glass-border);
+    border-radius: var(--ent-radius-xl);
+    padding: 2rem;
+    transition: all var(--ent-transition-normal);
+    position: relative;
+}
+
+.ent-card:hover {
+    border-color: var(--ent-glass-border-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--ent-shadow-lg), 0 0 0 4px var(--ent-primary-subtle);
+}
+
+/* -----------------------------------------------------------------------------
+   Bubble Summary Component (Light Theme)
+   ----------------------------------------------------------------------------- */
+.ent-bubble-summary {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 3rem;
+    background: var(--ent-bg-card);
+}
+
+.ent-bubble-icon {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: var(--ent-gradient-hero);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--ent-shadow-glow);
+}
+
+.ent-bubble-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    background: var(--ent-gradient-hero);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.ent-bubble-description {
+    color: var(--ent-text-secondary);
+    font-size: 1rem;
+    max-width: 300px;
+    margin-bottom: 1.5rem;
+}
+
+.ent-bubble-stats {
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    padding-top: 1rem;
+    border-top: 1px solid var(--ent-glass-border);
+    width: 100%;
+}
+
+.ent-bubble-stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--ent-primary);
+}
+
+.ent-bubble-stat-label {
+    font-size: 0.75rem;
+    color: var(--ent-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* -----------------------------------------------------------------------------
+   Hero Section (Light)
+   ----------------------------------------------------------------------------- */
+.ent-hero {
+    padding: 4rem 2rem;
+    text-align: center;
+    position: relative;
+}
+
+.ent-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    background: var(--ent-bg-card);
+    border: 1px solid var(--ent-glass-border);
+    border-radius: var(--ent-radius-full);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--ent-primary);
+    margin-bottom: 1.5rem;
+    box-shadow: var(--ent-shadow-sm);
+}
+
+.ent-hero-badge-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--ent-primary);
+    border-radius: 50%;
+    animation: entPulse 2s infinite;
+}
+
+@keyframes entPulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(2, 85, 158, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 0 6px rgba(2, 85, 158, 0);
+    }
+}
+
+.ent-hero-title {
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin-bottom: 1rem;
+    color: var(--ent-text-primary);
+}
+
+.ent-hero-title-accent {
+    background: var(--ent-gradient-hero);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.ent-hero-subtitle {
+    font-size: 1.125rem;
+    color: var(--ent-text-secondary);
+    max-width: 600px;
+    margin: 0 auto 2rem;
+    line-height: 1.6;
+}
+
+/* -----------------------------------------------------------------------------
+   Feature Grid
+   ----------------------------------------------------------------------------- */
+.ent-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+    margin-top: 3rem;
+}
+
+.ent-feature-card {
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+}
+
+.ent-feature-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: var(--ent-primary-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    color: var(--ent-primary);
+}
+
+.ent-feature-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: var(--ent-text-primary);
+}
+
+.ent-feature-description {
+    color: var(--ent-text-secondary);
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+}
+
+.ent-feature-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--ent-primary);
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    transition: all var(--ent-transition-fast);
+}
+
+.ent-feature-link:hover {
+    gap: 0.75rem;
+    color: var(--ent-primary-light);
+}
+
+/* -----------------------------------------------------------------------------
+   Buttons
+   ----------------------------------------------------------------------------- */
+.ent-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border: none;
+    border-radius: var(--ent-radius-md);
+    cursor: pointer;
+    transition: all var(--ent-transition-normal);
+    text-decoration: none;
+    font-family: inherit;
+}
+
+.ent-btn-primary {
+    background: var(--ent-primary);
+    color: white;
+    box-shadow: 0 2px 5px rgba(2, 85, 158, 0.2);
+}
+
+.ent-btn-primary:hover {
+    background: var(--ent-primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(2, 85, 158, 0.3);
+}
+
+.ent-btn-accent {
+    background: var(--ent-gradient-accent);
+    color: white;
+    box-shadow: 0 4px 12px rgba(2, 85, 158, 0.3);
+}
+
+.ent-btn-accent:hover {
+    box-shadow: 0 6px 16px rgba(2, 85, 158, 0.4);
+    transform: translateY(-1px);
+    filter: brightness(1.1);
+}
+
+.ent-btn-secondary {
+    background: transparent;
+    color: var(--ent-text-secondary);
+    border: 1px solid var(--ent-glass-border);
+}
+
+.ent-btn-secondary:hover {
+    background: var(--ent-bg-tertiary);
+    border-color: var(--ent-glass-border-hover);
+    color: var(--ent-text-primary);
+}
+
+/* -----------------------------------------------------------------------------
+   Navigation Dropdown
+   ----------------------------------------------------------------------------- */
+.ent-nav-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.ent-nav-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.5rem 1rem;
+    color: var(--ent-text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: var(--ent-radius-md);
+    transition: all var(--ent-transition-normal);
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-family: inherit;
+}
+
+.ent-nav-dropdown-trigger:hover {
+    color: var(--ent-primary);
+    background: var(--ent-bg-tertiary);
+}
+
+.ent-nav-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 200px;
+    background: #FFFFFF;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 0.75rem;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+    padding: 0.5rem 0;
+    z-index: 1000;
+    margin-top: 0.25rem;
+}
+
+.ent-nav-dropdown:hover .ent-nav-dropdown-menu,
+.ent-nav-dropdown:focus-within .ent-nav-dropdown-menu {
+    display: block;
+    animation: entFadeInUp 0.2s ease;
+}
+
+@keyframes entFadeInUp {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+.ent-nav-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    color: var(--ent-text-secondary);
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: all 0.15s ease;
+}
+
+.ent-nav-dropdown-item:hover {
+    background: var(--ent-primary-subtle);
+    color: var(--ent-text-primary);
+}
+
+/* -----------------------------------------------------------------------------
+   Status Indicators
+   ----------------------------------------------------------------------------- */
+.ent-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    border-radius: var(--ent-radius-full);
+}
+
+.ent-status-success {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--ent-success);
+}
+
+.ent-status-warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--ent-warning);
+}
+
+.ent-status-danger {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--ent-danger);
+}
+
+.ent-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* -----------------------------------------------------------------------------
+   Responsive
+   ----------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+    .ent-feature-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ent-bubble-stats {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .ent-hero {
+        padding: 2rem 1rem;
+    }
+}

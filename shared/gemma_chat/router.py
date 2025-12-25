@@ -1,8 +1,10 @@
 """Chat intent classification and summary helpers for Gemma chat drawer."""
+
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 CHAT_SUMMARY_PATTERNS: Sequence[re.Pattern[str]] = [
     re.compile(r"summaris(e|ze) (this|our|the) chat"),
@@ -65,7 +67,25 @@ CHAT_ACTION_PATTERNS = {
     "contextual": [re.compile(r"go beyond the excerpts"), re.compile(r"beyond the excerpts")],
 }
 
-STOPWORDS = {"the", "and", "you", "that", "this", "with", "from", "your", "have", "just", "what", "about", "here", "there", "into", "they", "them"}
+STOPWORDS = {
+    "the",
+    "and",
+    "you",
+    "that",
+    "this",
+    "with",
+    "from",
+    "your",
+    "have",
+    "just",
+    "what",
+    "about",
+    "here",
+    "there",
+    "into",
+    "they",
+    "them",
+}
 FALLBACK_EIGHT_WORDS = [
     "conversation",
     "context",
@@ -78,7 +98,7 @@ FALLBACK_EIGHT_WORDS = [
 ]
 
 
-def classify_chat_intent(message: str, history: Optional[Sequence[Dict[str, str]]] = None) -> str:
+def classify_chat_intent(message: str, history: Sequence[dict[str, str]] | None = None) -> str:
     """Heuristically classify whether a chat question needs artifact or history."""
     text = (message or "").strip().lower()
     if not text:
@@ -125,7 +145,7 @@ def infer_chat_action(message: str) -> str:
     return "general"
 
 
-def _normalize_role(role: Optional[str]) -> str:
+def _normalize_role(role: str | None) -> str:
     if not role:
         return "user"
     role_lower = role.lower()
@@ -136,19 +156,21 @@ def _normalize_role(role: Optional[str]) -> str:
     return "user"
 
 
-def _enumerate_chat_messages(messages: Sequence[Dict[str, str]]) -> List[Dict[str, Any]]:
-    counts: Dict[str, int] = {"user": 0, "assistant": 0, "system": 0}
-    labeled: List[Dict[str, Any]] = []
+def _enumerate_chat_messages(messages: Sequence[dict[str, str]]) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {"user": 0, "assistant": 0, "system": 0}
+    labeled: list[dict[str, Any]] = []
     for msg in messages:
         role = _normalize_role(msg.get("role"))
         counts[role] = counts.get(role, 0) + 1
         prefix = "U" if role == "user" else ("A" if role == "assistant" else "S")
         label = f"{prefix}{counts[role]}"
-        labeled.append({
-            "role": role,
-            "content": (msg.get("content") or "").strip(),
-            "label": label,
-        })
+        labeled.append(
+            {
+                "role": role,
+                "content": (msg.get("content") or "").strip(),
+                "label": label,
+            }
+        )
     return labeled
 
 
@@ -159,7 +181,7 @@ def _shorten(text: str, limit: int = 200) -> str:
     return clean[: limit - 1] + "…"
 
 
-def _get_nth_latest(entries: Sequence[Dict[str, Any]], role: str, n: int) -> Optional[Dict[str, Any]]:
+def _get_nth_latest(entries: Sequence[dict[str, Any]], role: str, n: int) -> dict[str, Any] | None:
     count = 0
     for entry in reversed(entries):
         if entry["role"] == role:
@@ -169,7 +191,7 @@ def _get_nth_latest(entries: Sequence[Dict[str, Any]], role: str, n: int) -> Opt
     return None
 
 
-def _chat_citation(entry: Dict[str, Any], score: float = 1.0) -> Dict[str, Any]:
+def _chat_citation(entry: dict[str, Any], score: float = 1.0) -> dict[str, Any]:
     return {
         "type": "chat",
         "role": entry["role"],
@@ -180,12 +202,14 @@ def _chat_citation(entry: Dict[str, Any], score: float = 1.0) -> Dict[str, Any]:
     }
 
 
-def _score_chat_entries(entries: Sequence[Dict[str, Any]], query: str, top_k: int = 3) -> List[Tuple[Dict[str, Any], float]]:
+def _score_chat_entries(
+    entries: Sequence[dict[str, Any]], query: str, top_k: int = 3
+) -> list[tuple[dict[str, Any], float]]:
     text = (query or "").lower()
     tokens = [tok for tok in re.findall(r"[a-z0-9']+", text) if tok not in STOPWORDS]
     if not tokens:
         return []
-    results: List[Tuple[Dict[str, Any], float]] = []
+    results: list[tuple[dict[str, Any], float]] = []
     for entry in entries:
         content = entry.get("content", "").lower()
         score = sum(1.0 for token in tokens if token in content)
@@ -195,7 +219,7 @@ def _score_chat_entries(entries: Sequence[Dict[str, Any]], query: str, top_k: in
     return results[:top_k]
 
 
-def _summarize_entries(entries: Sequence[Dict[str, Any]], max_items: int = 8) -> Tuple[str, List[Dict[str, Any]]]:
+def _summarize_entries(entries: Sequence[dict[str, Any]], max_items: int = 8) -> tuple[str, list[dict[str, Any]]]:
     slice_entries = list(entries[-max_items:])
     lines = []
     for entry in slice_entries:
@@ -206,7 +230,7 @@ def _summarize_entries(entries: Sequence[Dict[str, Any]], max_items: int = 8) ->
     return summary, slice_entries
 
 
-def _build_eight_word_sentence(entries: Sequence[Dict[str, Any]]) -> Tuple[str, Optional[Dict[str, Any]]]:
+def _build_eight_word_sentence(entries: Sequence[dict[str, Any]]) -> tuple[str, dict[str, Any] | None]:
     """Compose a deterministic eight-word sentence from recent conversation."""
     recent_entries = list(entries[-4:]) or list(entries)
     source_entry = None
@@ -220,7 +244,7 @@ def _build_eight_word_sentence(entries: Sequence[Dict[str, Any]]) -> Tuple[str, 
             source_entry = recent_entries[-1]
     corpus = " ".join(entry["content"] for entry in recent_entries if entry.get("content"))
     tokens = [tok.lower() for tok in re.findall(r"[a-z0-9']+", corpus)]
-    keywords: List[str] = []
+    keywords: list[str] = []
     for token in tokens:
         if token in STOPWORDS or len(token) <= 2:
             continue
@@ -243,10 +267,10 @@ def _build_eight_word_sentence(entries: Sequence[Dict[str, Any]]) -> Tuple[str, 
 
 
 def build_chat_history_answer(
-    history: Sequence[Dict[str, str]],
+    history: Sequence[dict[str, str]],
     question: str,
     summarize: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     entries = _enumerate_chat_messages(history)
     if not entries:
         return {
@@ -289,10 +313,7 @@ def build_chat_history_answer(
         else:
             entry = _get_nth_latest(entries, "user", 1)
             if entry:
-                text = (
-                    "I only have one prior user question. Here it is:\n"
-                    f"[{entry['label']}] {entry['content']}"
-                )
+                text = f"I only have one prior user question. Here it is:\n[{entry['label']}] {entry['content']}"
                 return {
                     "text": text,
                     "citations": [_chat_citation(entry)],
@@ -326,8 +347,10 @@ def build_chat_history_answer(
     for entry, _ in scored:
         prefix = "You asked" if entry["role"] == "user" else "I answered"
         lines.append(f"- [{entry['label']}] {prefix}: {_shorten(entry['content'], 200)}")
-    header = "Here are the most relevant parts of our conversation:" if action != "contextual" else (
-        "Per your request to rely on our chat history, here is what we've covered:" + ""
+    header = (
+        "Here are the most relevant parts of our conversation:"
+        if action != "contextual"
+        else ("Per your request to rely on our chat history, here is what we've covered:" + "")
     )
     answer = header + "\n" + "\n".join(lines)
     return {
@@ -338,7 +361,7 @@ def build_chat_history_answer(
     }
 
 
-def format_chat_history_for_prompt(messages: Sequence[Dict[str, str]], limit: int = 14) -> str:
+def format_chat_history_for_prompt(messages: Sequence[dict[str, str]], limit: int = 14) -> str:
     if not messages:
         return ""
     entries = _enumerate_chat_messages(messages[-limit:])

@@ -141,12 +141,15 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 24),
               _StyledFeatureCard(
-                icon: Icons.record_voice_over_rounded,
-                title: 'Interview Mode',
-                subtitle: 'Practice interview questions with real-time AI feedback.',
-                onTap: () async {
-                  print("HomePage: Starting Interview Mode manually");
-                  await EvenAI.get.startInterviewMode();
+                icon: Icons.spellcheck,
+                title: 'Vocabulary Builder',
+                subtitle: 'Challenge your vocabulary with this fun game.',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const NotificationPage()),
+                  );
                 },
               ),
               Expanded(

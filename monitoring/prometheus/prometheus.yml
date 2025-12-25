@@ -1,0 +1,46 @@
+# Prometheus 3.0 Configuration
+# 2025: Native OTLP receiver enabled
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'nemo-local'
+    env: 'development'
+
+# OTLP receiver for OpenTelemetry metrics
+# Prometheus 3.0 feature: --enable-feature=otlp-write-receiver
+# Services send to http://prometheus:9090/api/v1/otlp/v1/metrics
+
+scrape_configs:
+  # Self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Nemo API Gateway
+  - job_name: 'nemo-gateway'
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # Nemo Gemma Service
+  - job_name: 'nemo-gemma'
+    static_configs:
+      - targets: ['host.docker.internal:8001']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # Nemo ML Service
+  - job_name: 'nemo-ml'
+    static_configs:
+      - targets: ['host.docker.internal:8006']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # Docker containers (if cAdvisor is running)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+    metrics_path: /metrics

@@ -1,17 +1,28 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/controllers/bmp_update_manager.dart';
 import 'package:demo_ai_even/services/proto.dart';
 import 'package:demo_ai_even/utils/utils.dart';
 
+// Debug logging helper
+void _log(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
+
 class FeaturesServices {
   final bmpUpdateManager = BmpUpdateManager();
+  
   Future<void> sendBmp(String imageUrl) async {
     Uint8List bmpData = await Utils.loadBmpImage(imageUrl);
     int initialSeq = 0;
     bool isSuccess = await Proto.sendHeartBeat();
-    print(
-        "${DateTime.now()} testBMP -------startSendBeatHeart----isSuccess---$isSuccess------");
+    if (kDebugMode) {
+      debugPrint(
+          "${DateTime.now()} testBMP -------startSendBeatHeart----isSuccess---$isSuccess------");
+    }
     BleManager.get().startSendBeatHeart();
 
     final results = await Future.wait([
@@ -23,20 +34,20 @@ class FeaturesServices {
     bool successR = results[1];
 
     if (successL) {
-      print("${DateTime.now()} left ble success");
+      _log("${DateTime.now()} left ble success");
     } else {
-      print("${DateTime.now()} left ble fail");
+      _log("${DateTime.now()} left ble fail");
     }
 
     if (successR) {
-      print("${DateTime.now()} right ble success");
+      _log("${DateTime.now()} right ble success");
     } else {
-      print("${DateTime.now()} right ble success");
+      _log("${DateTime.now()} right ble fail");
     }
   }
 
   Future<void> exitBmp() async {
     bool isSuccess = await Proto.exit();
-    print("exitBmp----isSuccess---$isSuccess--");
+    _log("exitBmp----isSuccess---$isSuccess--");
   }
 }

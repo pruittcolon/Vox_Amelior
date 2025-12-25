@@ -9,7 +9,6 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
 
 import soundfile as sf
 
@@ -84,7 +83,7 @@ def _get_wav_duration(path: str) -> float:
         return 0.0
 
 
-def split_audio_into_chunks(wav_path: str, chunk_duration: int = 300) -> Tuple[List[str], float]:
+def split_audio_into_chunks(wav_path: str, chunk_duration: int = 300) -> tuple[list[str], float]:
     """
     Split a WAV file into fixed-length chunks using ffmpeg.
 
@@ -102,7 +101,7 @@ def split_audio_into_chunks(wav_path: str, chunk_duration: int = 300) -> Tuple[L
     num_chunks = math.ceil(duration / chunk_duration)
     logger.info("Splitting audio (%.2fs) into %d chunk(s) of %ds", duration, num_chunks, chunk_duration)
 
-    chunk_paths: List[str] = []
+    chunk_paths: list[str] = []
     temp_dir = tempfile.mkdtemp(prefix="parakeet_chunks_")
 
     for idx in range(num_chunks):

@@ -1,17 +1,19 @@
 """Pydantic schemas for the Email Analyzer module."""
+
 from __future__ import annotations
 
-from typing import List, Optional, Literal, Dict, Any
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
 class EmailQueryFilters(BaseModel):
-    users: Optional[List[str]] = Field(default=None, description="Mailbox owners to filter")
-    participants: Optional[List[str]] = Field(default=None, description="Email participants")
-    labels: Optional[List[str]] = Field(default=None, description="Label filters")
-    start_date: Optional[str] = Field(default=None, description="ISO8601 start date")
-    end_date: Optional[str] = Field(default=None, description="ISO8601 end date")
-    keywords: Optional[str] = Field(default=None, description="Comma separated keywords")
+    users: list[str] | None = Field(default=None, description="Mailbox owners to filter")
+    participants: list[str] | None = Field(default=None, description="Email participants")
+    labels: list[str] | None = Field(default=None, description="Label filters")
+    start_date: str | None = Field(default=None, description="ISO8601 start date")
+    end_date: str | None = Field(default=None, description="ISO8601 end date")
+    keywords: str | None = Field(default=None, description="Comma separated keywords")
     match: Literal["any", "all"] = Field(default="any")
 
 
@@ -35,19 +37,19 @@ class EmailStreamRequest(BaseModel):
 
 
 class EmailCancelRequest(BaseModel):
-    analysis_id: Optional[str] = None
+    analysis_id: str | None = None
 
 
 class EmailSummary(BaseModel):
     summary: str
     tokens_used: int = 128
     gpu_seconds: float = 0.0
-    artifact_id: Optional[str] = None
+    artifact_id: str | None = None
 
 
 class EmailListResponse(BaseModel):
     success: bool = True
-    items: List[Dict[str, Any]]
+    items: list[dict[str, Any]]
     count: int
     offset: int
     has_more: bool
@@ -55,19 +57,19 @@ class EmailListResponse(BaseModel):
 
 class EmailStatsResponse(BaseModel):
     success: bool = True
-    totals: Dict[str, Any]
-    by_day: List[Dict[str, Any]]
-    top_senders: List[Dict[str, Any]]
-    top_threads: List[Dict[str, Any]]
+    totals: dict[str, Any]
+    by_day: list[dict[str, Any]]
+    top_senders: list[dict[str, Any]]
+    top_threads: list[dict[str, Any]]
 
 
 class EmailUsersResponse(BaseModel):
     success: bool = True
-    items: List[Dict[str, Any]]
+    items: list[dict[str, Any]]
     count: int
 
 
 class EmailLabelsResponse(BaseModel):
     success: bool = True
-    items: List[Dict[str, Any]]
+    items: list[dict[str, Any]]
     count: int

@@ -1,9 +1,10 @@
 """Shared helpers for Gemma conversational memory, tone analysis, and meta queries."""
+
 from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 META_QUESTION_PATTERNS = (
     "what questions have i asked",
@@ -31,7 +32,7 @@ QUESTION_HINT_WORDS = (
 
 QUESTION_SPLIT_REGEX = re.compile(r"([^?]+\?)")
 
-QUESTION_TAG_RULES: Dict[str, tuple[str, ...]] = {
+QUESTION_TAG_RULES: dict[str, tuple[str, ...]] = {
     "compliance": ("compliance", "policy", "governance", "regulation"),
     "leadership": ("leadership", "exec", "executive", "brief"),
     "dependencies": ("depend", "dependency", "team", "stakeholder", "partner"),
@@ -41,7 +42,7 @@ QUESTION_TAG_RULES: Dict[str, tuple[str, ...]] = {
     "action": ("should we", "next step", "plan", "action"),
 }
 
-TONE_WARNING_PATTERNS: Dict[str, tuple[str, ...]] = {
+TONE_WARNING_PATTERNS: dict[str, tuple[str, ...]] = {
     "limitation": (
         "i cannot",
         "i can't",
@@ -70,7 +71,7 @@ POSITIVE_TONE_CUES = (
 )
 
 
-def is_meta_question(text: Optional[str]) -> bool:
+def is_meta_question(text: str | None) -> bool:
     """Detect if a prompt is a meta question about prior user questions."""
     if not text:
         return False
@@ -80,14 +81,14 @@ def is_meta_question(text: Optional[str]) -> bool:
     return any(pattern in normalized for pattern in META_QUESTION_PATTERNS)
 
 
-def extract_questions(content: str) -> List[str]:
+def extract_questions(content: str) -> list[str]:
     """Extract up to three question sentences from user input."""
     if not content:
         return []
     normalized = content.strip()
     if not normalized:
         return []
-    questions: List[str] = []
+    questions: list[str] = []
     for match in QUESTION_SPLIT_REGEX.findall(normalized):
         question = match.strip()
         if not question:
@@ -102,9 +103,9 @@ def extract_questions(content: str) -> List[str]:
     return questions[:3]
 
 
-def tag_question(question: str) -> List[str]:
+def tag_question(question: str) -> list[str]:
     """Assign heuristic tags to a question for downstream analytics."""
-    tags: List[str] = []
+    tags: list[str] = []
     normalized = (question or "").lower()
     for tag, keywords in QUESTION_TAG_RULES.items():
         if any(keyword in normalized for keyword in keywords):
@@ -114,7 +115,7 @@ def tag_question(question: str) -> List[str]:
     return sorted(set(tags))
 
 
-def analyze_tone(response_text: str) -> Dict[str, Any]:
+def analyze_tone(response_text: str) -> dict[str, Any]:
     """
     Perform lightweight tone heuristics.
 
@@ -135,7 +136,7 @@ def analyze_tone(response_text: str) -> Dict[str, Any]:
             "summary": "No response text provided.",
         }
     lowered = text.lower()
-    warnings: List[str] = []
+    warnings: list[str] = []
     for label, patterns in TONE_WARNING_PATTERNS.items():
         if any(pattern in lowered for pattern in patterns):
             warnings.append(label)
@@ -168,7 +169,7 @@ def build_reasoning_trace(
     user_prompt: str,
     history_turns: int,
     *,
-    used_citations: Optional[int] = None,
+    used_citations: int | None = None,
 ) -> str:
     """Provide a short narrative describing how the assistant formed its reply."""
     parts = [
@@ -180,7 +181,7 @@ def build_reasoning_trace(
     return " ".join(parts)
 
 
-def build_conversation_health(meta: Dict[str, Any], tone: Dict[str, Any]) -> Dict[str, Any]:
+def build_conversation_health(meta: dict[str, Any], tone: dict[str, Any]) -> dict[str, Any]:
     """Summarize conversation health for diagnostics."""
     turn_count = meta.get("turn_count", 0)
     question_count = meta.get("question_count", 0)

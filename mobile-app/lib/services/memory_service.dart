@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:demo_ai_even/services/app_logger.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -47,8 +49,20 @@ class MemoryService {
         sendTimeout: const Duration(seconds: 60),
       ),
     );
-    AppLogger.instance
-        .log('MemoryService', 'Dio initialized with base $_serverBase');
+    
+    // Bypass self-signed certificate errors for local development
+    // ISO 27002 5.14: TLS bypass ONLY in debug mode
+    if (_serverBase.startsWith('https')) {
+      (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        if (kDebugMode) {
+          client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+        }
+        return client;
+      };
+    }
+    
+    AppLogger.instance.log('MemoryService', 'Dio initialized with base $_serverBase');
   }
 
   Future<bool> checkConnection() async {
@@ -78,9 +92,13 @@ class MemoryService {
     }
     AppLogger.instance.log('MemoryService',
         "Asking question (session: $resolvedSessionId): $question");
-    print("[MEMORY_SERVICE] Making request to: $_serverBase/query");
-    print(
-        "[MEMORY_SERVICE] Request data: {'question': '$question', 'session_id': '$resolvedSessionId'}");
+    if (kDebugMode) {
+      debugPrint("[MEMORY_SERVICE] Making request to: $_serverBase/query");
+    }
+    if (kDebugMode) {
+      debugPrint(
+          "[MEMORY_SERVICE] Request data: {'question': '$question', 'session_id': '$resolvedSessionId'}");
+    }
     try {
       final response = await _dio.post(
         '/query',
@@ -89,13 +107,21 @@ class MemoryService {
           'session_id': resolvedSessionId,
         },
       );
-      print("[MEMORY_SERVICE] Response status: ${response.statusCode}");
-      print("[MEMORY_SERVICE] Response headers: ${response.headers}");
+      if (kDebugMode) {
+        debugPrint("[MEMORY_SERVICE] Response status: ${response.statusCode}");
+      }
+      if (kDebugMode) {
+        debugPrint("[MEMORY_SERVICE] Response headers: ${response.headers}");
+      }
 
       if (response.statusCode == 200) {
         final data = response.data;
-        print("[MEMORY_SERVICE] Raw response data type: ${data.runtimeType}");
-        print("[MEMORY_SERVICE] Raw response data: $data");
+        if (kDebugMode) {
+          debugPrint("[MEMORY_SERVICE] Raw response data type: ${data.runtimeType}");
+        }
+        if (kDebugMode) {
+          debugPrint("[MEMORY_SERVICE] Raw response data: $data");
+        }
 
         // Handle different response formats
         String answer = '';
@@ -107,13 +133,19 @@ class MemoryService {
             final parsedData = jsonDecode(data);
             answer = parsedData['answer'] ?? '';
           } catch (e) {
-            print("[MEMORY_SERVICE] Failed to parse JSON: $e");
+            if (kDebugMode) {
+              debugPrint("[MEMORY_SERVICE] Failed to parse JSON: $e");
+            }
             answer = data; // Use raw string as answer
           }
         }
 
-        print("[MEMORY_SERVICE] Answer from server: '$answer'");
-        print("[MEMORY_SERVICE] Answer length: ${answer.length}");
+        if (kDebugMode) {
+          debugPrint("[MEMORY_SERVICE] Answer from server: '$answer'");
+        }
+        if (kDebugMode) {
+          debugPrint("[MEMORY_SERVICE] Answer length: ${answer.length}");
+        }
         AppLogger.instance.log('MemoryService', 'Received answer: $answer');
 
         final memoryResponse = (data is Map<String, dynamic>)

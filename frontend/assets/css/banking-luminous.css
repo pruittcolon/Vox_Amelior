@@ -1,0 +1,263 @@
+:root {
+    /* ---------------------------------------------------- */
+    /* THEME: FLAWLESS LUMINOUS (Refined Apple/Stripe)      */
+    /* ---------------------------------------------------- */
+
+    /* Core Palette */
+    --canvas-bg: #f5f7fa;
+    --canvas-gradient: linear-gradient(180deg, #fbfcfd 0%, #f2f4f6 100%);
+
+    /* Glass Materials */
+    --glass-1-bg: rgba(255, 255, 255, 0.65);
+    --glass-1-blur: 24px;
+    --glass-1-border: inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 0 0 0.5px rgba(0, 0, 0, 0.03);
+
+    --glass-2-bg: rgba(255, 255, 255, 0.85);
+    --glass-2-blur: 40px;
+    --glass-2-shadow: 0 20px 40px rgba(0, 0, 0, 0.04), 0 8px 16px rgba(0, 0, 0, 0.02);
+    --glass-2-border: inset 0 0 0 1px rgba(255, 255, 255, 0.8), 0 0 0 0.5px rgba(0, 0, 0, 0.03);
+
+    /* Text Colors */
+    --text-primary: #1d1d1f;
+    /* SF Grey 900 */
+    --text-secondary: #6e6e73;
+    /* SF Grey 600 */
+    --text-tertiary: #86868b;
+    /* SF Grey 500 */
+
+    /* Accents */
+    --accent-blue: #007aff;
+
+    /* Typography */
+    --font-stack: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    /* Shapes */
+    --radius-l: 24px;
+    --radius-capsule: 999px;
+
+    /* Animations */
+    --ease-spring: cubic-bezier(0.25, 0.8, 0.25, 1);
+    --ease-apple: cubic-bezier(0.2, 0, 0, 1);
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-stack);
+    background: var(--canvas-gradient);
+    color: var(--text-primary);
+    overflow: hidden;
+    height: 100vh;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------- */
+/* LUMINOUS MATERIALS (Cards)                           */
+/* ---------------------------------------------------- */
+
+.glass-card {
+    background: var(--glass-2-bg);
+    backdrop-filter: blur(var(--glass-2-blur));
+    -webkit-backdrop-filter: blur(var(--glass-2-blur));
+    border-radius: var(--radius-l);
+    box-shadow: var(--glass-2-shadow), var(--glass-2-border);
+    border: none;
+    padding: 2rem;
+    transition: transform 0.4s var(--ease-apple);
+}
+
+.glass-card:hover {
+    transform: translateY(-2px) scale(1.002);
+}
+
+nav.glass-card {
+    background: var(--glass-1-bg);
+    backdrop-filter: blur(var(--glass-1-blur));
+    -webkit-backdrop-filter: blur(var(--glass-1-blur));
+    box-shadow: var(--glass-1-border);
+    border-right: none;
+}
+
+header.glass-card {
+    background: rgba(255, 255, 255, 0.8);
+    padding: 0.75rem 2rem;
+}
+
+/* ---------------------------------------------------- */
+/* SEGMENTED CONTROL (Role Switcher) - The "iOS" Look   */
+/* ---------------------------------------------------- */
+
+.role-switcher {
+    background: #7676801F;
+    /* Apple System Grey Fill */
+    border-radius: 9px;
+    padding: 2px;
+    display: inline-flex;
+    position: relative;
+}
+
+.role-tab {
+    border-radius: 7px;
+    font-family: var(--font-stack);
+    font-weight: 500;
+    font-size: 0.8125rem;
+    /* 13px */
+    letter-spacing: -0.01em;
+    padding: 4px 12px !important;
+    background: transparent;
+    color: #48484a;
+    /* Inactive Text */
+    border: none !important;
+    cursor: pointer;
+    transition: all 0.2s var(--ease-apple);
+    position: relative;
+    z-index: 1;
+}
+
+.role-tab:hover {
+    color: #1d1d1f;
+}
+
+.role-tab.active {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    font-weight: 600;
+    /* The "Physical Thumb" Shadow */
+    box-shadow: 0 3px 1px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* ---------------------------------------------------- */
+/* PRIMARY BUTTONS - The "Stripe" Volume Look           */
+/* ---------------------------------------------------- */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1.5rem;
+    border-radius: var(--radius-capsule);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    /* 15px */
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s var(--ease-apple);
+    overflow: hidden;
+}
+
+.btn-primary {
+    /* Subtle Gradient for Volume */
+    background: linear-gradient(180deg, #3284ff 0%, #007aff 100%);
+    color: white;
+    /* Inner Light Highlight + Drop Shadow */
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        0 2px 4px rgba(0, 0, 0, 0.1),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
+    /* Subtle border definition */
+}
+
+.btn-primary:hover {
+    background: linear-gradient(180deg, #4da0ff 0%, #0071eb 100%);
+    transform: translateY(-1px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+        0 6px 12px rgba(0, 118, 255, 0.25),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+    background: #0062cc;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Secondary: Ghost Style */
+.btn-secondary {
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    /* Visible light border */
+}
+
+.btn-secondary:hover {
+    background: #FFFFFF;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.btn-secondary:active {
+    background: #f5f5f7;
+}
+
+/* ---------------------------------------------------- */
+/* CAPSULE INPUTS (Refined)                             */
+/* ---------------------------------------------------- */
+
+.form-input {
+    width: 100%;
+    padding: 0.8rem 1.25rem;
+    background: #7676801F;
+    /* Matches Segmented Control Track */
+    border: none;
+    border-radius: 12px;
+    font-family: var(--font-stack);
+    font-size: 1rem;
+    color: var(--text-primary);
+    transition: all 0.2s var(--ease-apple);
+}
+
+.form-input:focus {
+    outline: none;
+    background: #FFFFFF;
+    /* Soft Blue Glow Ring */
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+}
+
+/* ---------------------------------------------------- */
+/* TYPOGRAPHY & UTILS                                   */
+/* ---------------------------------------------------- */
+
+.page-title {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--text-primary);
+    margin: 0 0 0.25rem 0;
+}
+
+.page-subtitle {
+    font-size: 1.0625rem;
+    color: var(--text-secondary);
+    letter-spacing: -0.01em;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 2rem;
+}
+
+.col-span-3 {
+    grid-column: span 3;
+}
+
+.col-span-12 {
+    grid-column: span 12;
+}
+
+/* Nav Items */
+.nav-item {
+    border-radius: 10px;
+    padding: 0.6rem 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.nav-item:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--text-primary);
+}
+
+.nav-item.active {
+    background: rgba(0, 122, 255, 0.1) !important;
+    color: var(--accent-blue) !important;
+    font-weight: 600;
+}

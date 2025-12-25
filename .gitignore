@@ -15,6 +15,13 @@ docker/secrets/*
 !docker/secrets/.gitkeep
 !docker/secrets/README.md
 
+# SSL/TLS certificates (Phase 1)
+docker/ssl/*
+!docker/ssl/.gitkeep
+
+# Archive directories (non-destructive backups)
+archive/
+
 # Individual secret files (redundant but explicit)
 *.key
 *.pem
@@ -154,6 +161,8 @@ desktop.ini
 tmp/
 *.cache
 .cache/
+temp_test_data/
+hf_cache/
 
 # Jupyter Notebooks
 # ============================================================================
@@ -174,6 +183,8 @@ site/
 *.db-journal
 *.db-shm
 *.db-wal
+*.db.container
+services/rag-service/*.db*
 
 # Backup Files
 # ============================================================================
@@ -231,3 +242,25 @@ frontend/legacyML/
 # Root npm files (orphaned - playwright only)
 /package.json
 /package-lock.json
+
+# Security - WireGuard config moved to secrets
+phone-wireguard.conf
+
+# PII Documents - DO NOT COMMIT
+Resume.txt
+Job_Description.txt
+Application.txt
+
+# Phase 3 hygiene additions
+*.superbak
+Screenshot*.png
+docker/gateway_instance/frontend_mirror/
+EvenDemoApp-main/
+
+# Test artifacts (Phase 5 cleanup)
+playwright-report/
+test_reports/
+
+# PII Documents - Personal files (not part of repo)
+mobile-app/Application.txt
+mobile-app/Job_Description.txt

@@ -32,6 +32,7 @@ class MainActivity: FlutterActivity(), EventChannel.StreamHandler {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         BleChannelHelper.initChannel(this, flutterEngine)
+        GoogleAssistantChannel(flutterEngine, this).register()
     }
 
     /// Interface - EventChannel.StreamHandler

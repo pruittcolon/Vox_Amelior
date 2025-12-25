@@ -172,14 +172,14 @@ nemo verify
 nemo service all health
 
 # Output:
-# ✓ gateway: healthy
-# ✓ gemma: healthy
-# ✓ gpu-coordinator: healthy
-# ✓ transcription: healthy
-# ✓ rag: healthy
-# ✓ emotion: healthy
-# ✗ ml-service: unhealthy or unreachable
-# ✓ insights: healthy
+# [PASS] gateway: healthy
+# [PASS] gemma: healthy
+# [PASS] gpu-coordinator: healthy
+# [PASS] transcription: healthy
+# [PASS] rag: healthy
+# [PASS] emotion: healthy
+# [FAIL] ml-service: unhealthy or unreachable
+# [PASS] insights: healthy
 ```
 
 ### CI/CD Integration

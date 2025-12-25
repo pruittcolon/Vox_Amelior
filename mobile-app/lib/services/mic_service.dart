@@ -1,11 +1,34 @@
 import 'package:record/record.dart';
+import 'package:audio_session/audio_session.dart';
 
 class MicService {
   final AudioRecorder _recorder = AudioRecorder();
+  bool _sessionConfigured = false;
+
+  /// Configure audio session to not pause other media
+  Future<void> _configureAudioSession() async {
+    if (_sessionConfigured) return;
+    
+    final session = await AudioSession.instance;
+    await session.configure(AudioSessionConfiguration(
+      avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+      avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers |
+          AVAudioSessionCategoryOptions.defaultToSpeaker,
+      avAudioSessionMode: AVAudioSessionMode.voiceChat,
+      androidAudioAttributes: const AndroidAudioAttributes(
+        contentType: AndroidAudioContentType.speech,
+        usage: AndroidAudioUsage.voiceCommunication,
+      ),
+      androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+    ));
+    _sessionConfigured = true;
+  }
 
   /// Record for a fixed number of seconds
   Future<String?> recordForSeconds(int seconds) async {
     if (await _recorder.hasPermission()) {
+      await _configureAudioSession();
+      
       final path =
           '/sdcard/Download/recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
@@ -27,6 +50,8 @@ class MicService {
   /// Start continuous recording
   Future<void> startRecording(String path) async {
     if (await _recorder.hasPermission()) {
+      await _configureAudioSession();
+      
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,

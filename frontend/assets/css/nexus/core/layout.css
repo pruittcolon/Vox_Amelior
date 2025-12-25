@@ -1,0 +1,652 @@
+/* =============================================================================
+   NexusAI Design System - Layout
+   Grid system, containers, and layout utilities
+   ============================================================================= */
+
+/* ==================== Base Reset ==================== */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+}
+
+body {
+    background: var(--nexus-bg-dark);
+    overflow-x: hidden;
+}
+
+/* ==================== Container ==================== */
+
+.nexus-container {
+    width: 100%;
+    max-width: var(--nexus-container-2xl);
+    margin: 0 auto;
+    padding: 0 var(--nexus-space-6);
+}
+
+.nexus-container-sm {
+    max-width: var(--nexus-container-sm);
+}
+
+.nexus-container-md {
+    max-width: var(--nexus-container-md);
+}
+
+.nexus-container-lg {
+    max-width: var(--nexus-container-lg);
+}
+
+.nexus-container-xl {
+    max-width: var(--nexus-container-xl);
+}
+
+/* Full-width bleed */
+.nexus-full-bleed {
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+}
+
+/* ==================== Grid System ==================== */
+
+.nexus-grid {
+    display: grid;
+    gap: var(--nexus-space-6);
+}
+
+/* Column variations */
+.nexus-grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+.nexus-grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.nexus-grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.nexus-grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.nexus-grid-cols-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.nexus-grid-cols-6 {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.nexus-grid-cols-12 {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+/* Auto-fit responsive grid */
+.nexus-grid-auto-fit {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.nexus-grid-auto-fill {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* Gap variations */
+.nexus-gap-2 {
+    gap: var(--nexus-space-2);
+}
+
+.nexus-gap-4 {
+    gap: var(--nexus-space-4);
+}
+
+.nexus-gap-6 {
+    gap: var(--nexus-space-6);
+}
+
+.nexus-gap-8 {
+    gap: var(--nexus-space-8);
+}
+
+.nexus-gap-10 {
+    gap: var(--nexus-space-10);
+}
+
+/* Column span */
+.nexus-col-span-1 {
+    grid-column: span 1;
+}
+
+.nexus-col-span-2 {
+    grid-column: span 2;
+}
+
+.nexus-col-span-3 {
+    grid-column: span 3;
+}
+
+.nexus-col-span-4 {
+    grid-column: span 4;
+}
+
+.nexus-col-span-6 {
+    grid-column: span 6;
+}
+
+.nexus-col-span-full {
+    grid-column: 1 / -1;
+}
+
+/* Row span */
+.nexus-row-span-2 {
+    grid-row: span 2;
+}
+
+.nexus-row-span-3 {
+    grid-row: span 3;
+}
+
+/* ==================== Flexbox ==================== */
+
+.nexus-flex {
+    display: flex;
+}
+
+.nexus-inline-flex {
+    display: inline-flex;
+}
+
+/* Direction */
+.nexus-flex-row {
+    flex-direction: row;
+}
+
+.nexus-flex-col {
+    flex-direction: column;
+}
+
+.nexus-flex-row-reverse {
+    flex-direction: row-reverse;
+}
+
+.nexus-flex-col-reverse {
+    flex-direction: column-reverse;
+}
+
+/* Wrap */
+.nexus-flex-wrap {
+    flex-wrap: wrap;
+}
+
+.nexus-flex-nowrap {
+    flex-wrap: nowrap;
+}
+
+/* Alignment */
+.nexus-items-start {
+    align-items: flex-start;
+}
+
+.nexus-items-center {
+    align-items: center;
+}
+
+.nexus-items-end {
+    align-items: flex-end;
+}
+
+.nexus-items-stretch {
+    align-items: stretch;
+}
+
+/* Justify */
+.nexus-justify-start {
+    justify-content: flex-start;
+}
+
+.nexus-justify-center {
+    justify-content: center;
+}
+
+.nexus-justify-end {
+    justify-content: flex-end;
+}
+
+.nexus-justify-between {
+    justify-content: space-between;
+}
+
+.nexus-justify-around {
+    justify-content: space-around;
+}
+
+.nexus-justify-evenly {
+    justify-content: space-evenly;
+}
+
+/* Grow/Shrink */
+.nexus-flex-1 {
+    flex: 1 1 0%;
+}
+
+.nexus-flex-auto {
+    flex: 1 1 auto;
+}
+
+.nexus-flex-none {
+    flex: none;
+}
+
+/* ==================== Spacing Utilities ==================== */
+
+/* Margin */
+.nexus-m-0 {
+    margin: 0;
+}
+
+.nexus-m-auto {
+    margin: auto;
+}
+
+.nexus-mx-auto {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.nexus-my-auto {
+    margin-top: auto;
+    margin-bottom: auto;
+}
+
+.nexus-mt-4 {
+    margin-top: var(--nexus-space-4);
+}
+
+.nexus-mt-6 {
+    margin-top: var(--nexus-space-6);
+}
+
+.nexus-mt-8 {
+    margin-top: var(--nexus-space-8);
+}
+
+.nexus-mt-10 {
+    margin-top: var(--nexus-space-10);
+}
+
+.nexus-mt-12 {
+    margin-top: var(--nexus-space-12);
+}
+
+.nexus-mt-16 {
+    margin-top: var(--nexus-space-16);
+}
+
+.nexus-mb-4 {
+    margin-bottom: var(--nexus-space-4);
+}
+
+.nexus-mb-6 {
+    margin-bottom: var(--nexus-space-6);
+}
+
+.nexus-mb-8 {
+    margin-bottom: var(--nexus-space-8);
+}
+
+.nexus-mb-10 {
+    margin-bottom: var(--nexus-space-10);
+}
+
+.nexus-mb-12 {
+    margin-bottom: var(--nexus-space-12);
+}
+
+/* Padding */
+.nexus-p-0 {
+    padding: 0;
+}
+
+.nexus-p-4 {
+    padding: var(--nexus-space-4);
+}
+
+.nexus-p-6 {
+    padding: var(--nexus-space-6);
+}
+
+.nexus-p-8 {
+    padding: var(--nexus-space-8);
+}
+
+.nexus-px-4 {
+    padding-left: var(--nexus-space-4);
+    padding-right: var(--nexus-space-4);
+}
+
+.nexus-px-6 {
+    padding-left: var(--nexus-space-6);
+    padding-right: var(--nexus-space-6);
+}
+
+.nexus-px-8 {
+    padding-left: var(--nexus-space-8);
+    padding-right: var(--nexus-space-8);
+}
+
+.nexus-py-4 {
+    padding-top: var(--nexus-space-4);
+    padding-bottom: var(--nexus-space-4);
+}
+
+.nexus-py-6 {
+    padding-top: var(--nexus-space-6);
+    padding-bottom: var(--nexus-space-6);
+}
+
+.nexus-py-8 {
+    padding-top: var(--nexus-space-8);
+    padding-bottom: var(--nexus-space-8);
+}
+
+.nexus-py-12 {
+    padding-top: var(--nexus-space-12);
+    padding-bottom: var(--nexus-space-12);
+}
+
+.nexus-py-16 {
+    padding-top: var(--nexus-space-16);
+    padding-bottom: var(--nexus-space-16);
+}
+
+.nexus-py-20 {
+    padding-top: var(--nexus-space-20);
+    padding-bottom: var(--nexus-space-20);
+}
+
+/* ==================== Positioning ==================== */
+
+.nexus-relative {
+    position: relative;
+}
+
+.nexus-absolute {
+    position: absolute;
+}
+
+.nexus-fixed {
+    position: fixed;
+}
+
+.nexus-sticky {
+    position: sticky;
+}
+
+.nexus-inset-0 {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.nexus-top-0 {
+    top: 0;
+}
+
+.nexus-right-0 {
+    right: 0;
+}
+
+.nexus-bottom-0 {
+    bottom: 0;
+}
+
+.nexus-left-0 {
+    left: 0;
+}
+
+/* Center absolute elements */
+.nexus-center-absolute {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+/* ==================== Width/Height ==================== */
+
+.nexus-w-full {
+    width: 100%;
+}
+
+.nexus-w-screen {
+    width: 100vw;
+}
+
+.nexus-w-auto {
+    width: auto;
+}
+
+.nexus-max-w-full {
+    max-width: 100%;
+}
+
+.nexus-h-full {
+    height: 100%;
+}
+
+.nexus-h-screen {
+    height: 100vh;
+}
+
+.nexus-h-auto {
+    height: auto;
+}
+
+.nexus-min-h-screen {
+    min-height: 100vh;
+}
+
+/* ==================== Display ==================== */
+
+.nexus-block {
+    display: block;
+}
+
+.nexus-inline-block {
+    display: inline-block;
+}
+
+.nexus-inline {
+    display: inline;
+}
+
+.nexus-hidden {
+    display: none;
+}
+
+/* ==================== Overflow ==================== */
+
+.nexus-overflow-hidden {
+    overflow: hidden;
+}
+
+.nexus-overflow-auto {
+    overflow: auto;
+}
+
+.nexus-overflow-x-auto {
+    overflow-x: auto;
+}
+
+.nexus-overflow-y-auto {
+    overflow-y: auto;
+}
+
+/* ==================== Z-Index ==================== */
+
+.nexus-z-0 {
+    z-index: var(--nexus-z-base);
+}
+
+.nexus-z-10 {
+    z-index: 10;
+}
+
+.nexus-z-20 {
+    z-index: 20;
+}
+
+.nexus-z-30 {
+    z-index: 30;
+}
+
+.nexus-z-40 {
+    z-index: 40;
+}
+
+.nexus-z-50 {
+    z-index: 50;
+}
+
+.nexus-z-dropdown {
+    z-index: var(--nexus-z-dropdown);
+}
+
+.nexus-z-sticky {
+    z-index: var(--nexus-z-sticky);
+}
+
+.nexus-z-modal {
+    z-index: var(--nexus-z-modal);
+}
+
+/* ==================== Responsive Breakpoints ==================== */
+
+/* Small screens (tablets) */
+@media (max-width: 768px) {
+    .nexus-container {
+        padding: 0 var(--nexus-space-4);
+    }
+
+    .nexus-sm-hidden {
+        display: none;
+    }
+
+    .nexus-sm-block {
+        display: block;
+    }
+
+    .nexus-sm-flex {
+        display: flex;
+    }
+
+    .nexus-sm-flex-col {
+        flex-direction: column;
+    }
+
+    .nexus-sm-grid-cols-1 {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+    }
+
+    .nexus-sm-grid-cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .nexus-sm-col-span-full {
+        grid-column: 1 / -1;
+    }
+
+    .nexus-sm-text-center {
+        text-align: center;
+    }
+}
+
+/* Medium screens (small laptops) */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .nexus-md-hidden {
+        display: none;
+    }
+
+    .nexus-md-block {
+        display: block;
+    }
+
+    .nexus-md-flex {
+        display: flex;
+    }
+
+    .nexus-md-grid-cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .nexus-md-grid-cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+/* Large screens (desktops) */
+@media (min-width: 1025px) {
+    .nexus-lg-hidden {
+        display: none;
+    }
+
+    .nexus-lg-block {
+        display: block;
+    }
+
+    .nexus-lg-flex {
+        display: flex;
+    }
+
+    .nexus-lg-grid-cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .nexus-lg-grid-cols-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+/* ==================== Page Layout ==================== */
+
+.nexus-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.nexus-main {
+    flex: 1;
+    padding: var(--nexus-space-8) 0;
+}
+
+.nexus-section {
+    padding: var(--nexus-space-16) 0;
+}
+
+.nexus-section-sm {
+    padding: var(--nexus-space-10) 0;
+}
+
+/* Dividers */
+.nexus-divider {
+    height: 1px;
+    background: var(--nexus-border-subtle);
+    border: none;
+    margin: var(--nexus-space-8) 0;
+}
+
+.nexus-divider-vertical {
+    width: 1px;
+    height: 100%;
+    background: var(--nexus-border-subtle);
+}

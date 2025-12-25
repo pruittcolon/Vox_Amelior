@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Dashboard - Vox Amelior</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <link rel="stylesheet" href="assets/css/main.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/design-tokens.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/components.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/animations.css?v=2024110802">
+
+    <!-- Vox Amelior Design System -->
+    <link rel="stylesheet" href="assets/css/vox-amelior.css">
+
+    <script src="assets/js/api.js?v=2024110101"></script>
+    <script src="assets/js/app.js?v=2024110101"></script>
+    <script src="assets/js/auth.js?v=2024110101"></script>
+
+    <style>
+        /* ========================================
+           Premium 2024 FinTech Aesthetic
+           Analytics Dashboard Page
+           ======================================== */
+
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background: #FFFFFF;
+            border: 1px solid rgba(0, 82, 204, 0.08);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+            transition: all 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0, 82, 204, 0.1);
+        }
+
+        .metric-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .metric-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .metric-icon.usage {
+            background: rgba(0, 82, 204, 0.1);
+            color: #0052CC;
+        }
+
+        .metric-icon.efficiency {
+            background: rgba(16, 185, 129, 0.1);
+            color: #059669;
+        }
+
+        .metric-icon.sentiment {
+            background: rgba(245, 158, 11, 0.1);
+            color: #D97706;
+        }
+
+        .metric-icon.roi {
+            background: rgba(236, 72, 153, 0.1);
+            color: #DB2777;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #0052CC, #00A3BF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .metric-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .metric-change {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.5rem;
+            margin-left: 0.5rem;
+        }
+
+        .metric-change.positive {
+            background: rgba(16, 185, 129, 0.1);
+            color: #059669;
+        }
+
+        .metric-change.negative {
+            background: rgba(239, 68, 68, 0.1);
+            color: #DC2626;
+        }
+
+        .report-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            background: #FFFFFF;
+            border: 1px solid rgba(0, 82, 204, 0.08);
+            border-radius: 0.75rem;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+            transition: all 0.2s ease;
+        }
+
+        .report-item:hover {
+            border-color: rgba(0, 82, 204, 0.25);
+            box-shadow: 0 4px 16px rgba(0, 82, 204, 0.08);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navigation (Vox Amelior) -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="index.html" class="vox-nav-link">Dashboard</a>
+                <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="nexus.html" class="vox-nav-link">Analytics</a>
+                <a href="banking.html" class="vox-nav-link">Enterprise</a>
+                <a href="settings.html" class="vox-nav-link">Settings</a>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <span id="current-user" style="color: var(--vox-grey-500); font-size: 0.9rem;"></span>
+                <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
+        <section class="fade-in-up" style="text-align: center; margin-bottom: 2rem;">
+            <h1 style="font-size: 2.5rem; margin-bottom: 1rem;">
+                <i data-lucide="bar-chart-3"
+                    style="width: 40px; height: 40px; color: var(--primary); vertical-align: middle;"></i>
+                Analytics Dashboard
+            </h1>
+            <p class="text-muted">Metrics, trends, and performance insights</p>
+        </section>
+
+        <!-- Metrics Grid -->
+        <section class="analytics-grid fade-in-up delay-100" id="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon usage"><i data-lucide="activity" style="width: 20px; height: 20px;"></i>
+                    </div>
+                    <span class="metric-label">Usage Metrics</span>
+                </div>
+                <div class="metric-value" id="metric-events">0</div>
+                <div class="metric-label">Events (24h) <span class="metric-change positive">↑ Active</span></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon efficiency"><i data-lucide="gauge" style="width: 20px; height: 20px;"></i>
+                    </div>
+                    <span class="metric-label">Efficiency</span>
+                </div>
+                <div class="metric-value" id="metric-reports">0</div>
+                <div class="metric-label">Reports Generated</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon sentiment"><i data-lucide="smile" style="width: 20px; height: 20px;"></i>
+                    </div>
+                    <span class="metric-label">Sentiment</span>
+                </div>
+                <div class="metric-value" id="metric-snapshots">0</div>
+                <div class="metric-label">Snapshots (24h)</div>
+            </div>
+        </section>
+
+        <!-- Actions -->
+        <section class="glass-card fade-in-up delay-200" style="margin-bottom: 2rem;">
+            <h3 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem;">
+                <i data-lucide="zap" style="width: 24px; height: 24px; color: var(--warning);"></i>
+                Quick Actions
+            </h3>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="generateReport()">
+                    <i data-lucide="file-text" style="width: 16px; height: 16px;"></i> Generate Report
+                </button>
+                <button class="btn btn-ghost" onclick="exportData('json')">
+                    <i data-lucide="download" style="width: 16px; height: 16px;"></i> Export JSON
+                </button>
+                <button class="btn btn-ghost" onclick="exportData('csv')">
+                    <i data-lucide="table" style="width: 16px; height: 16px;"></i> Export CSV
+                </button>
+            </div>
+        </section>
+
+        <!-- Reports -->
+        <section class="glass-card fade-in-up delay-300">
+            <h3 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem;">
+                <i data-lucide="file-bar-chart" style="width: 24px; height: 24px; color: var(--primary);"></i>
+                Saved Reports
+            </h3>
+            <div id="reports-list">
+                <p class="text-muted">Loading reports...</p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        document.querySelectorAll('.nav-dropdown').forEach(d => {
+            d.addEventListener('mouseenter', () => d.querySelector('.nav-dropdown-menu').style.display = 'block');
+            d.addEventListener('mouseleave', () => d.querySelector('.nav-dropdown-menu').style.display = 'none');
+        });
+
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/enterprise/analytics/stats');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('metric-events').textContent = data.events_24h || 0;
+                    document.getElementById('metric-reports').textContent = data.reports_count || 0;
+                    document.getElementById('metric-snapshots').textContent = data.snapshots_24h || 0;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadReports() {
+            const container = document.getElementById('reports-list');
+            try {
+                const res = await fetch('/api/enterprise/analytics/reports?limit=10');
+                if (res.ok) {
+                    const data = await res.json();
+                    const items = data.reports || data.items || [];
+                    if (items.length === 0) {
+                        container.innerHTML = '<p class="text-muted">No saved reports yet. Generate one above!</p>';
+                        return;
+                    }
+                    container.innerHTML = items.map(r => `
+            <div class="report-item">
+              <div>
+                <div style="font-weight: 500;">${r.title}</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">${new Date(r.created_at).toLocaleDateString()}</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="viewReport(${r.id})">View</button>
+            </div>
+          `).join('');
+                }
+            } catch (e) { container.innerHTML = '<p class="text-muted">Failed to load reports.</p>'; }
+        }
+
+        async function generateReport() {
+            const title = prompt('Report title:', 'Analytics Report ' + new Date().toLocaleDateString());
+            if (!title) return;
+            try {
+                await fetch(`/api/enterprise/analytics/reports?title=${encodeURIComponent(title)}`, { method: 'POST' });
+                loadReports();
+                loadStats();
+                alert('Report generated!');
+            } catch (e) { alert('Failed to generate report'); }
+        }
+
+        async function exportData(format) {
+            try {
+                const res = await fetch(`/api/enterprise/analytics/export/${format}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const blob = new Blob([format === 'json' ? JSON.stringify(data, null, 2) : data.csv || ''],
+                        { type: format === 'json' ? 'application/json' : 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `analytics_export.${format}`;
+                    a.click();
+                }
+            } catch (e) { alert('Export failed'); }
+        }
+
+        async function viewReport(id) {
+            try {
+                const res = await fetch(`/api/enterprise/analytics/reports/${id}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    alert(`Report: ${data.title}\n\nData: ${JSON.stringify(data.data, null, 2)}`);
+                }
+            } catch (e) { alert('Failed to load report'); }
+        }
+
+        loadStats();
+        loadReports();
+    </script>
+</body>
+
+</html>

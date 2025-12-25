@@ -1,0 +1,495 @@
+/*
+ * Vox Amelior - Premium Design System (Refined)
+ * Ethereal light theme with vibrant Laser Blue accents
+ * Palette: Laser Blue, Cool Lavender, Lilac White
+ */
+
+:root {
+    /* ========================================
+     BRAND COLORS - Laser Blue & Ethereal
+     ======================================== */
+
+    /* Primary Palette - Laser Blue (Vibrant, Electric) */
+    /* Extracted: #02559e / #014e98 */
+    --vox-primary: #02559E;
+    /* The "Laser Blue" */
+    --vox-primary-light: #2B7FD4;
+    /* Lighter, glowing blue for hovers/gradients */
+    --vox-primary-dark: #003D73;
+    /* Deep navy for text/contrast */
+    --vox-primary-subtle: rgba(2, 85, 158, 0.08);
+    --vox-primary-glow: rgba(43, 127, 212, 0.4);
+
+    /* Secondary - Cool Lavender/Periwinkle (Supporting) */
+    --vox-secondary: #9199BE;
+    --vox-secondary-light: #C3C7E4;
+    --vox-secondary-dark: #5E6688;
+    --vox-secondary-subtle: rgba(145, 153, 190, 0.15);
+
+    /* Backgrounds - Crisp Tech White */
+    --vox-white: #FFFFFF;
+    --vox-off-white: #F8FAFC;
+    /* Cool white, less lilac, more tech */
+    --vox-cream: #F1F5F9;
+    /* Slate-tinted white */
+
+    /* Neutrals - Cool Blue-Greys */
+    --vox-grey-50: #F8FAFC;
+    --vox-grey-100: #F1F5F9;
+    --vox-grey-200: #E2E8F0;
+    --vox-grey-300: #CBD5E1;
+    --vox-grey-400: #94A3B8;
+    --vox-grey-500: #64748B;
+    --vox-grey-600: #475569;
+    --vox-grey-700: #334155;
+    --vox-grey-800: #1E293B;
+    --vox-grey-900: #0F172A;
+
+    /* Semantic Colors */
+    --vox-success: #10B981;
+    --vox-warning: #F59E0B;
+    --vox-danger: #EF4444;
+    --vox-info: #3B82F6;
+
+    /* ========================================
+     TYPOGRAPHY
+     ======================================== */
+    --vox-font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+    /* ========================================
+     SPACING & RADIUS
+     ======================================== */
+    --vox-space-1: 0.25rem;
+    --vox-space-2: 0.5rem;
+    --vox-space-3: 0.75rem;
+    --vox-space-4: 1rem;
+    --vox-space-5: 1.25rem;
+    --vox-space-6: 1.5rem;
+    --vox-space-8: 2rem;
+    --vox-space-10: 2.5rem;
+    --vox-space-12: 3rem;
+    --vox-space-16: 4rem;
+    --vox-space-20: 5rem;
+
+    --vox-radius-md: 10px;
+    --vox-radius-lg: 14px;
+    --vox-radius-xl: 20px;
+    --vox-radius-2xl: 24px;
+    --vox-radius-full: 9999px;
+
+    --vox-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --vox-shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
+    --vox-shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+    --vox-shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 10px 10px -5px rgba(15, 23, 42, 0.04);
+    --vox-shadow-glow: 0 0 20px var(--vox-primary-glow);
+
+    /* ========================================
+     TRANSITIONS
+     ======================================== */
+    --vox-transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ========================================
+   BASE STYLES
+   ======================================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--vox-font-primary);
+    background: var(--vox-off-white);
+    color: var(--vox-grey-800);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ========================================
+   NAVIGATION
+   ======================================== */
+.vox-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--vox-grey-200);
+}
+
+.vox-nav-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 var(--vox-space-6);
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.vox-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--vox-space-3);
+    text-decoration: none;
+    color: inherit;
+}
+
+.vox-logo-mark {
+    width: 56px;
+    height: 56px;
+    /* Premium size for better visibility */
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    /* Subtle enhancement for visibility on light backgrounds */
+    background: var(--vox-white);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+.vox-logo-mark img {
+    width: 88%;
+    height: 88%;
+    object-fit: contain;
+}
+
+.vox-logo-text {
+    font-weight: 700;
+    font-size: 1.35rem;
+    color: var(--vox-grey-900);
+    letter-spacing: -0.02em;
+}
+
+.vox-nav-links {
+    display: flex;
+    align-items: center;
+    gap: var(--vox-space-2);
+}
+
+.vox-nav-link {
+    padding: 0.5rem 1rem;
+    color: var(--vox-grey-600);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: var(--vox-radius-md);
+    transition: all var(--vox-transition-base);
+}
+
+.vox-nav-link:hover {
+    color: var(--vox-primary);
+    background: var(--vox-grey-100);
+}
+
+.vox-nav-link.active {
+    color: var(--vox-primary);
+    background: var(--vox-primary-subtle);
+}
+
+/* ========================================
+   BUTTONS
+   ======================================== */
+.vox-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--vox-space-2);
+    padding: 0.625rem 1.25rem;
+    font-family: var(--vox-font-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: var(--vox-radius-md);
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all var(--vox-transition-base);
+}
+
+.vox-btn-primary {
+    background: var(--vox-primary);
+    color: white;
+    box-shadow: 0 2px 5px rgba(2, 85, 158, 0.2);
+}
+
+.vox-btn-primary:hover {
+    background: var(--vox-primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(2, 85, 158, 0.3);
+}
+
+.vox-btn-accent {
+    background: linear-gradient(135deg, var(--vox-primary), var(--vox-primary-dark));
+    color: white;
+    box-shadow: 0 4px 12px rgba(2, 85, 158, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.vox-btn-accent:hover {
+    box-shadow: 0 6px 16px rgba(2, 85, 158, 0.4);
+    transform: translateY(-1px);
+    filter: brightness(1.1);
+}
+
+.vox-btn-ghost {
+    background: transparent;
+    color: var(--vox-grey-600);
+}
+
+.vox-btn-ghost:hover {
+    background: var(--vox-grey-100);
+    color: var(--vox-grey-900);
+}
+
+/* ========================================
+   HERO
+   ======================================== */
+.vox-hero {
+    padding: calc(64px + var(--vox-space-16)) 1rem var(--vox-space-20);
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.vox-hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 10% 20%, var(--vox-primary-subtle) 0%, transparent 50%),
+        radial-gradient(circle at 90% 80%, rgba(145, 153, 190, 0.2) 0%, transparent 50%);
+    pointer-events: none;
+}
+
+.vox-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vox-space-2);
+    padding: 0.375rem 0.75rem;
+    background: white;
+    border: 1px solid var(--vox-grey-200);
+    border-radius: var(--vox-radius-full);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--vox-primary);
+    margin-bottom: var(--vox-space-6);
+    box-shadow: var(--vox-shadow-sm);
+}
+
+.vox-hero-badge-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--vox-primary);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(2, 85, 158, 0.4);
+    }
+
+    70% {
+        box-shadow: 0 0 0 6px rgba(2, 85, 158, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(2, 85, 158, 0);
+    }
+}
+
+.vox-hero-title {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--vox-grey-900);
+    margin-bottom: var(--vox-space-6);
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.vox-hero-accent {
+    background: linear-gradient(135deg, var(--vox-primary-light), var(--vox-primary));
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    padding-bottom: 0.1em;
+    /* fix gradient text cut off */
+}
+
+.vox-hero-subtitle {
+    font-size: 1.125rem;
+    color: var(--vox-grey-600);
+    max-width: 600px;
+    margin: 0 auto var(--vox-space-10);
+    line-height: 1.6;
+}
+
+/* ========================================
+   CARDS
+   ======================================== */
+.vox-card {
+    background: var(--vox-white);
+    border: 1px solid var(--vox-grey-200);
+    border-radius: var(--vox-radius-xl);
+    padding: var(--vox-space-8);
+    transition: all var(--vox-transition-base);
+}
+
+.vox-card:hover {
+    border-color: var(--vox-primary-light);
+    box-shadow: var(--vox-shadow-lg), 0 0 0 4px var(--vox-primary-subtle);
+    transform: translateY(-2px);
+}
+
+.vox-features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--vox-space-6);
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 var(--vox-space-6);
+}
+
+.vox-section-title {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--vox-grey-900);
+    margin-bottom: var(--vox-space-12);
+    letter-spacing: -0.02em;
+}
+
+/* ========================================
+   SLOGAN ANIMATION (High-Fidelity Fixed)
+   ======================================== */
+.slogan-container {
+    font-size: clamp(1.5rem, 5vw, 3rem);
+    font-weight: 600;
+    color: var(--vox-grey-800);
+    margin: 4rem 0;
+    min-height: 80px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: visible;
+    width: 100%;
+}
+
+.slogan-track {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    gap: 0.35em;
+    position: relative;
+    will-change: transform;
+}
+
+.slogan-side {
+    display: inline-block;
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+    transition: opacity 1.2s ease, filter 1.2s ease, transform 1.2s ease;
+    /* Doubled */
+    will-change: transform, opacity, filter;
+}
+
+/* High-Tech Exit Effect */
+.slogan-side.blur-out {
+    opacity: 0;
+    filter: blur(12px);
+    transform: scale(0.9) translateY(10px);
+}
+
+.slogan-core-wrapper {
+    position: relative;
+    display: inline-block;
+    /* Changed from inline-flex */
+    /* Size dictated by the relative child */
+}
+
+/* KEY FIX: Initial text is RELATIVE to occupy space */
+.core-text-initial {
+    position: relative;
+    /* Takes up space, sizes parent */
+    display: inline-block;
+    opacity: 1;
+    transition: opacity 2s ease-out, filter 2s ease-out, transform 2s ease-out;
+    /* Slow fade out */
+}
+
+/* KEY FIX: Final text is ABSOLUTE and HIDDEN */
+.core-text-final {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    /* CRITICAL: Start hidden */
+    color: var(--vox-primary);
+    font-weight: 800;
+    text-shadow: 0 0 20px var(--vox-primary-glow);
+    white-space: nowrap;
+    transition: opacity 1.2s ease-out 0.3s, transform 1.2s ease-out 0.3s;
+    /* Smooth crossfade with stagger */
+}
+
+/* Morph Active State - ENFORCED */
+.morph-active .core-text-initial {
+    opacity: 0 !important;
+    /* No visibility:hidden - let opacity fully transition */
+    filter: blur(3px);
+    transform: translateY(-5px);
+}
+
+.morph-active .core-text-final {
+    opacity: 1 !important;
+    visibility: visible;
+    transform: translate(-50%, -50%) scale(1.02);
+    /* Subtle pop */
+}
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+@media (max-width: 768px) {
+    .vox-features-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .slogan-container {
+        font-size: clamp(1.25rem, 4vw, 2rem);
+        /* Smaller on mobile */
+        height: auto;
+        min-height: 100px;
+        margin: 2rem 0;
+    }
+
+    .slogan-track {
+        flex-wrap: wrap;
+        /* Allow wrapping if absolutely needed, though FLIP tries to keep it single line usually. 
+                          For mobile, FLIP might be tricky if it wraps. 
+                          Let's keep it nowrap but scale down font. */
+        white-space: normal;
+        /* Allow text to wrap naturally if really needed? No, slogan usually specific. */
+        flex-direction: column;
+        /* Stack on very small screens? */
+        gap: 0.5rem;
+    }
+
+    .slogan-core-wrapper {
+        min-width: auto;
+        /* Allow flexible width */
+    }
+}

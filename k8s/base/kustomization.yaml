@@ -9,3 +9,4 @@ resources:
   - deployments.yaml
   - ingress.yaml
   - health-ingress.yaml
+  - hpa.yaml

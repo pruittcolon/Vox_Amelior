@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="NexusAI Enterprise Intelligence Platform - Where Data Meets Decision">
+    <title>NexusAI™ - Enterprise Intelligence Platform</title>
+
+    <!-- Google Fonts - Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Vox Amelior Design System (Light Theme) -->
+    <link rel="stylesheet" href="assets/css/vox-amelior.css">
+
+    <!-- Engine Results Styles -->
+    <link rel="stylesheet" href="assets/css/predictions/predictions-engines.css">
+
+    <!-- Chart Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+
+    <style>
+        /* Progress Bar */
+        .analysis-progress-container {
+            margin: 2rem 0;
+            display: none;
+        }
+
+        .analysis-progress-container.active {
+            display: block;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .progress-title {
+            font-weight: 600;
+            color: var(--vox-grey-700);
+        }
+
+        .progress-stats {
+            font-size: 0.875rem;
+            color: var(--vox-grey-500);
+        }
+
+        .progress-bar-wrapper {
+            height: 12px;
+            background: var(--vox-grey-100);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--vox-primary) 0%, var(--vox-accent) 100%);
+            border-radius: 6px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-bar-fill.animated {
+            background: linear-gradient(90deg, var(--vox-primary), var(--vox-accent), var(--vox-primary));
+            background-size: 200% 100%;
+            animation: progressPulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes progressPulse {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        .progress-engine-name {
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--vox-grey-500);
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed var(--vox-grey-200);
+            border-radius: 1rem;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--vox-grey-50);
+        }
+
+        .upload-area:hover {
+            border-color: var(--vox-primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .upload-area.dragover {
+            border-color: var(--vox-primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .upload-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--vox-grey-800);
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-subtitle {
+            color: var(--vox-grey-500);
+            margin-bottom: 1rem;
+        }
+
+        .upload-formats {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .upload-format {
+            padding: 0.25rem 0.75rem;
+            background: var(--vox-grey-100);
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            color: var(--vox-grey-600);
+        }
+
+        /* Category Cards */
+        .category-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .category-card {
+            background: #FFFFFF;
+            border: 1px solid var(--vox-grey-100);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            text-decoration: none;
+        }
+
+        .category-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .category-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+
+        .category-card[data-category="ml"]::before {
+            background: var(--vox-primary);
+        }
+
+        .category-card[data-category="financial"]::before {
+            background: #f59e0b;
+        }
+
+        .category-card[data-category="advanced"]::before {
+            background: #ec4899;
+        }
+
+        .category-card[data-category="studio"]::before {
+            background: var(--vox-secondary);
+        }
+
+        .category-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .category-card[data-category="ml"] .category-icon {
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .category-card[data-category="financial"] .category-icon {
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        .category-card[data-category="advanced"] .category-icon {
+            background: rgba(236, 72, 153, 0.1);
+        }
+
+        .category-card[data-category="studio"] .category-icon {
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .category-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--vox-grey-900);
+            margin-bottom: 0.5rem;
+        }
+
+        .category-description {
+            color: var(--vox-grey-500);
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin-bottom: 1rem;
+        }
+
+        .category-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .category-tag {
+            padding: 0.25rem 0.75rem;
+            background: var(--vox-grey-50);
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            color: var(--vox-grey-600);
+        }
+
+        .category-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 1rem;
+            border-top: 1px solid var(--vox-grey-100);
+        }
+
+        .category-count {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--vox-primary);
+        }
+
+        .category-arrow {
+            color: var(--vox-grey-400);
+        }
+
+        /* Section Headers */
+        .section-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--vox-primary) 0%, var(--vox-accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .section-subtitle {
+            color: var(--vox-grey-500);
+            font-size: 1.1rem;
+        }
+
+        /* Engine Results Light Theme */
+        .engine-result-card {
+            background: #FFFFFF;
+            border: 1px solid var(--vox-grey-100);
+            border-radius: 0.75rem;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        .engine-card-header {
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            cursor: pointer;
+            background: var(--vox-grey-50);
+            border-bottom: 1px solid var(--vox-grey-100);
+        }
+
+        .engine-card-header h3 {
+            flex: 1;
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--vox-grey-800);
+        }
+
+        .engine-status.pending {
+            color: var(--vox-grey-400);
+        }
+
+        .engine-status.running {
+            color: var(--vox-primary);
+        }
+
+        .engine-status.success {
+            color: var(--vox-success);
+        }
+
+        .engine-status.error {
+            color: var(--vox-error);
+        }
+
+        .engine-card-body {
+            padding: 1.5rem;
+        }
+
+        /* Activity Log */
+        .activity-log {
+            background: var(--vox-grey-50);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+        }
+
+        .log-entry {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--vox-grey-100);
+            color: var(--vox-grey-600);
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-success {
+            color: var(--vox-success);
+        }
+
+        .log-error {
+            color: var(--vox-error);
+        }
+
+        .log-warning {
+            color: #f59e0b;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navigation -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">NexusAI</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="index.html" class="vox-nav-link">Home</a>
+                <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="predictions.html" class="vox-nav-link">Legacy View</a>
+
+                <!-- Enterprise Dropdown -->
+                <div class="vox-nav-dropdown" style="position: relative; display: inline-block;">
+                    <button class="vox-nav-link"
+                        style="background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.25rem; font-family: inherit; font-size: inherit; font-weight: inherit; padding: 0.5rem 1rem;">
+                        Enterprise
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m6 9 6 6 6-6" />
+                        </svg>
+                    </button>
+                    <div class="vox-nav-dropdown-menu"
+                        style="display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); min-width: 200px; background: #FFFFFF; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 0.75rem; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15); padding: 0.5rem 0; z-index: 1000; margin-top: 0.25rem;">
+                        <a href="salesforce.html"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem;">☁️
+                            Salesforce</a>
+                        <a href="analytics.html"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem;">📊
+                            Analytics</a>
+                        <a href="automation.html"
+                            style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem;">⚙️
+                            Automation</a>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem;">
+                <a href="settings.html" class="vox-btn vox-btn-ghost">Settings</a>
+                <a href="nexus.html" class="vox-btn vox-btn-primary">NexusAI</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="vox-hero">
+        <div style="position: relative; z-index: 1;" class="vox-hero-content">
+            <div class="vox-hero-badge">
+                <span class="vox-hero-badge-dot"></span>
+                ✨ 22 AI Engines • Enterprise Grade
+            </div>
+
+            <h1 class="vox-hero-title">
+                Where Data Meets <br>
+                <span class="vox-hero-accent">Decision</span>
+            </h1>
+
+            <p class="vox-hero-subtitle">
+                Upload any database and let our AI engines automatically discover patterns,
+                predict outcomes, and generate actionable business insights.
+            </p>
+
+            <div style="display: flex; justify-content: center; gap: 1rem;">
+                <a href="#quick-start" class="vox-btn vox-btn-accent" style="padding: 1rem 2rem; font-size: 1.1rem;">
+                    🚀 Get Started
+                </a>
+                <a href="predictions.html" class="vox-btn vox-btn-ghost" style="padding: 1rem 2rem; font-size: 1.1rem;">
+                    📊 Classic View
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Quick Start Section -->
+    <section style="max-width: 1200px; margin: 0 auto; padding: 3rem 1.5rem;" id="quick-start">
+        <div class="vox-card" style="padding: 2rem;">
+            <div class="section-header">
+                <h2 class="section-title">⚡ Quick Start</h2>
+                <p class="section-subtitle">Upload your data and run all 22 AI engines with one click</p>
+            </div>
+
+            <!-- Upload Area -->
+            <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+                <div class="upload-icon">📊</div>
+                <div class="upload-title">Drop your database file here</div>
+                <div class="upload-subtitle">or click to browse • Max 50MB</div>
+                <div class="upload-formats">
+                    <span class="upload-format">.csv</span>
+                    <span class="upload-format">.json</span>
+                    <span class="upload-format">.xlsx</span>
+                    <span class="upload-format">.sqlite</span>
+                    <span class="upload-format">.parquet</span>
+                </div>
+            </div>
+            <input type="file" id="file-input"
+                accept=".csv,.tsv,.txt,.json,.jsonl,.ndjson,.xlsx,.xls,.parquet,.db,.sqlite,.sqlite3"
+                style="display: none;">
+
+            <!-- Progress Bar Container -->
+            <div class="analysis-progress-container" id="progress-container">
+                <div class="progress-header">
+                    <span class="progress-title">🧪 Running Full Analysis</span>
+                    <span class="progress-stats" id="progress-stats">0/22 engines complete</span>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar-fill animated" id="progress-bar" style="width: 0%"></div>
+                </div>
+                <div class="progress-engine-name" id="progress-engine">Preparing...</div>
+            </div>
+
+            <!-- Analysis Button -->
+            <div style="text-align: center; margin-top: 2rem;">
+                <button class="vox-btn vox-btn-accent" style="padding: 1rem 3rem; font-size: 1.1rem;" id="analyze-btn"
+                    disabled>
+                    ⚡ Start Full Analysis
+                </button>
+                <p style="margin-top: 0.75rem; color: var(--vox-grey-500); font-size: 0.9rem;">
+                    All 22 engines will analyze your data sequentially with AI summaries
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Analysis Workspaces Section -->
+    <section style="max-width: 1200px; margin: 0 auto; padding: 3rem 1.5rem;">
+        <div class="section-header">
+            <h2 class="section-title">Analysis Workspaces</h2>
+            <p class="section-subtitle">Choose a specialized workspace or <a href="#quick-start"
+                    style="color: var(--vox-primary); text-decoration: underline;">run all engines from the hub</a></p>
+        </div>
+
+        <div class="category-grid">
+            <!-- ML & Analytics -->
+            <div class="category-card" data-category="ml">
+                <div class="category-icon">🤖</div>
+                <h3 class="category-title">ML & Analytics</h3>
+                <p class="category-description">Machine learning models for prediction, clustering, anomaly detection,
+                    and statistical analysis.</p>
+                <div class="category-tags">
+                    <span class="category-tag">Titan AutoML</span>
+                    <span class="category-tag">Clustering</span>
+                    <span class="category-tag">Anomaly</span>
+                    <span class="category-tag">+4 more</span>
+                </div>
+                <div class="category-footer">
+                    <span class="category-count">7 Engines</span>
+                    <span class="category-arrow">→</span>
+                </div>
+            </div>
+
+            <!-- Financial Intelligence -->
+            <div class="category-card" data-category="financial">
+                <div class="category-icon">💰</div>
+                <h3 class="category-title">Financial Intelligence</h3>
+                <p class="category-description">Revenue forecasting, ROI prediction, cost optimization, customer LTV,
+                    and market analysis.</p>
+                <div class="category-tags">
+                    <span class="category-tag">Revenue Forecast</span>
+                    <span class="category-tag">ROI</span>
+                    <span class="category-tag">LTV</span>
+                    <span class="category-tag">+9 more</span>
+                </div>
+                <div class="category-footer">
+                    <span class="category-count">12 Engines</span>
+                    <span class="category-arrow">→</span>
+                </div>
+            </div>
+
+            <!-- Advanced AI Lab -->
+            <div class="category-card" data-category="advanced">
+                <div class="category-icon">🔬</div>
+                <h3 class="category-title">Advanced AI Lab</h3>
+                <p class="category-description">Cutting-edge research engines: RAG evaluation, chaos analysis, and
+                    causal inference.</p>
+                <div class="category-tags">
+                    <span class="category-tag">RAG Evaluation</span>
+                    <span class="category-tag">Chaos Engine</span>
+                    <span class="category-tag">Oracle Causality</span>
+                </div>
+                <div class="category-footer">
+                    <span class="category-count">3 Engines</span>
+                    <span class="category-arrow">→</span>
+                </div>
+            </div>
+
+            <!-- Analysis Studio -->
+            <div class="category-card" data-category="studio">
+                <div class="category-icon">📊</div>
+                <h3 class="category-title">Analysis Studio</h3>
+                <p class="category-description">Compare results across runs, export reports, and dive deep into
+                    cross-engine insights.</p>
+                <div class="category-tags">
+                    <span class="category-tag">Multi-Run Compare</span>
+                    <span class="category-tag">Export PDF</span>
+                    <span class="category-tag">Session History</span>
+                </div>
+                <div class="category-footer">
+                    <span class="category-count">Results Hub</span>
+                    <span class="category-arrow">→</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Engine Results Section (Hidden initially) -->
+    <section style="max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; display: none;" id="all-engines-section">
+        <div class="vox-card" style="padding: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--vox-grey-900); margin: 0;">🧪 Comprehensive
+                    Analysis Results</h2>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="vox-btn vox-btn-ghost" id="stop-btn" onclick="window.NexusUI.stopAnalysis()"
+                        style="display: none;">⏸️ Pause</button>
+                    <button class="vox-btn vox-btn-ghost" id="resume-btn" onclick="window.NexusUI.resumeAnalysis()"
+                        style="display: none;">▶️ Resume</button>
+                </div>
+            </div>
+
+            <div id="all-engines-summary"
+                style="margin-bottom: 1.5rem; padding: 1rem; background: var(--vox-primary-subtle); border-radius: 0.75rem;">
+                <p style="color: var(--vox-grey-700); margin: 0;"><strong>Sequential Execution:</strong> Each engine
+                    runs one at a time showing full results + Gemma summary.</p>
+                <p style="color: var(--vox-grey-500); margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                    Database: <span id="engines-database-name">-</span> |
+                    Progress: <span id="engines-progress">0/22</span> |
+                    Status: <span id="engines-status">Ready</span> |
+                    Time: <span id="engines-total-time">0.0s</span>
+                </p>
+            </div>
+
+            <!-- Engine Category Tabs -->
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                <button class="vox-btn vox-btn-primary" onclick="window.NexusUI.switchCategory('all')">📊 All Engines
+                    (22)</button>
+                <button class="vox-btn vox-btn-ghost" onclick="window.NexusUI.switchCategory('ml')">🤖 ML & Analytics
+                    (7)</button>
+                <button class="vox-btn vox-btn-ghost" onclick="window.NexusUI.switchCategory('financial')">💰 Financial
+                    (12)</button>
+                <button class="vox-btn vox-btn-ghost" onclick="window.NexusUI.switchCategory('advanced')">🔬 Advanced
+                    (3)</button>
+            </div>
+
+            <div id="category-all">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h4 style="margin: 0; color: var(--vox-grey-800);">📊 All Engines</h4>
+                    <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
+                        <span id="all-success-count" style="color: var(--vox-success);">✓ 0</span>
+                        <span id="all-error-count" style="color: var(--vox-error);">✗ 0</span>
+                        <span id="all-pending-count" style="color: var(--vox-grey-400);">⏳ 22</span>
+                    </div>
+                </div>
+                <div id="all-engines-results"></div>
+            </div>
+            <div id="category-ml" style="display: none;">
+                <div id="ml-engines-results"></div>
+            </div>
+            <div id="category-financial" style="display: none;">
+                <div id="financial-engines-results"></div>
+            </div>
+            <div id="category-advanced" style="display: none;">
+                <div id="advanced-engines-results"></div>
+            </div>
+        </div>
+
+        <div class="vox-card" style="padding: 1.5rem; margin-top: 1.5rem;">
+            <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--vox-grey-800); margin: 0 0 1rem 0;">📋 Activity
+                Log</h3>
+            <div class="activity-log" id="log"></div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer style="margin-top: 4rem; padding: 2rem; text-align: center; border-top: 1px solid var(--vox-grey-100);">
+        <p style="color: var(--vox-grey-400); font-size: 0.9rem;">🔮 NexusAI™ Enterprise Intelligence Platform • Powered
+            by 22 AI Engines • © 2024 Vox Amelior</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script>
+        lucide.createIcons();
+
+        // Enterprise Dropdown Hover
+        document.querySelectorAll('.vox-nav-dropdown').forEach(dropdown => {
+            const menu = dropdown.querySelector('.vox-nav-dropdown-menu');
+            dropdown.addEventListener('mouseenter', () => menu.style.display = 'block');
+            dropdown.addEventListener('mouseleave', () => menu.style.display = 'none');
+            menu.querySelectorAll('a').forEach(item => {
+                item.addEventListener('mouseenter', () => item.style.background = 'rgba(99, 102, 241, 0.1)');
+                item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+            });
+        });
+    </script>
+
+    <!-- NexusAI Modular Application -->
+    <script type="module" src="assets/js/nexus/pages/main.js"></script>
+</body>
+
+</html>

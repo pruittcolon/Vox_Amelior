@@ -1,0 +1,122 @@
+# Destination Rules - TLS Settings
+#
+# Configures how Istio proxies connect to services.
+# Ensures all outbound connections use mTLS.
+#
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: default
+  namespace: nemo
+spec:
+  host: "*.nemo.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL  # Use Istio-managed mTLS certificates
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 10s
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+    loadBalancer:
+      simple: ROUND_ROBIN
+
+---
+# API Gateway specific settings
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: api-gateway
+  namespace: nemo
+spec:
+  host: api-gateway.nemo.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 200
+      http:
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 2000
+
+---
+# Gemma Service - higher timeouts for LLM inference
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: gemma-service
+  namespace: nemo
+spec:
+  host: gemma-service.nemo.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 50
+        connectTimeout: 30s
+      http:
+        http1MaxPendingRequests: 50
+        http2MaxRequests: 100
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 30s
+      baseEjectionTime: 60s
+      maxEjectionPercent: 50
+
+---
+# Transcription Service - streaming support
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: transcription-service
+  namespace: nemo
+spec:
+  host: transcription-service.nemo.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 30s
+      http:
+        h2UpgradePolicy: UPGRADE  # Enable HTTP/2 for streaming
+
+---
+# Redis - data store connection settings
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: redis
+  namespace: nemo
+spec:
+  host: redis.nemo.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 500
+        connectTimeout: 5s
+
+---
+# PostgreSQL - database connection settings
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: postgres
+  namespace: nemo
+spec:
+  host: postgres.nemo.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 10s

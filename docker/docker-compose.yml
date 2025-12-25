@@ -1,19 +1,64 @@
 services:
   # ============================================================================
+  # HTTPS Reverse Proxy (TLS Termination)
+  # ============================================================================
+
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    image: nemo-nginx:latest
+    container_name: refactored_nginx
+    restart: unless-stopped
+    ports:
+      - "443:443" # HTTPS (primary)
+      - "80:80" # HTTP (redirects to HTTPS)
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./nginx:/etc/nginx/conf.d:ro
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - nemo_network
+    healthcheck:
+      test: [ "CMD", "curl", "-k", "-f", "https://localhost/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================================
   # Infrastructure Services
   # ============================================================================
 
   redis:
-    image: redis:7-alpine
+    image: redis:7
     container_name: refactored_redis
     restart: unless-stopped
-    # Phase 7: Bind to loopback only for dev (or remove ports entirely for prod)
+    # Phase 4: Enable Redis authentication
+    # NOTE: TLS configuration available in docker/redis/redis-tls.conf
+    # To enable TLS: uncomment tls config volume and update command
+    command: >
+      sh -c "redis-server --requirepass $$(cat /run/secrets/redis_password)"
+    # Bind to all interfaces for Tailscale cluster access (secured by password + Tailscale ACLs)
     ports:
-      - "127.0.0.1:6379:6379"
+      - "0.0.0.0:6379:6379"
     volumes:
       - redis_data:/data
+      # TLS certificates (shared with nginx)
+      # Uncomment to enable TLS:
+      # - ./ssl:/etc/redis/certs:ro
+      # - ./redis/redis-tls.conf:/etc/redis/redis.conf:ro
+    secrets:
+      - redis_password
+    # Container hardening per ISO 27002
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD", "sh", "-c", "redis-cli -a $$(cat /run/secrets/redis_password) ping 2>/dev/null | grep PONG" ]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -21,22 +66,35 @@ services:
       - nemo_network
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15
     container_name: refactored_postgres
     restart: unless-stopped
+    user: "999:999" # Run as postgres user to skip entrypoint root checks (chmod)
     environment:
       POSTGRES_DB: nemo_queue
       # Phase 5: Use secrets for credentials
       POSTGRES_USER_FILE: /run/secrets/postgres_user
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-    # Phase 7: Bind to loopback only for dev (or remove ports entirely for prod)
+    # Bind to all interfaces for Tailscale cluster access (secured by Tailscale ACLs)
     ports:
-      - "127.0.0.1:5432:5432"
+      - "0.0.0.0:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_debian:/var/lib/postgresql/data
+      # Initialize schema for multi-machine support
+      - ./init_postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
     secrets:
       - postgres_user
       - postgres_password
+    # Container hardening per ISO 27002
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Postgres requires these capabilities to function
+      - CHOWN
+      - SETGID
+      - SETUID
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_user)" ]
       interval: 10s
@@ -56,9 +114,11 @@ services:
     container_name: refactored_gpu_coordinator
     restart: unless-stopped
     environment:
+      # Phase 4: Redis authentication - read password from secret
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
       REDIS_URL: redis://redis:6379
       # Use secret for Postgres password via connection string
-      GPU_PAUSE_TIMEOUT: "12.0"
+      GPU_PAUSE_TIMEOUT: "2.0"
       JWT_ONLY: "true"
     # Phase 4: Remove host port mapping - internal only
     # ports:
@@ -67,6 +127,7 @@ services:
       - jwt_secret_primary
       - jwt_secret_previous
       - jwt_secret
+      - redis_password
     depends_on:
       redis:
         condition: service_healthy
@@ -94,13 +155,14 @@ services:
     environment:
       GEMMA_MODEL_PATH: /app/models/gemma-3-4b-it-UD-Q4_K_XL.gguf # 4-bit model (2.4GB) - Production
       GEMMA_GPU_LAYERS: "-1" # ALL layers on GPU
-      GEMMA_CONTEXT_SIZE: "2048" # Reduced to 2k for 6GB GPU with ML service sharing
+      GEMMA_CONTEXT_SIZE: "16384" # 16K context with Q8_0 cache (tested on 6GB GPU)
       GEMMA_BATCH_SIZE: "512" # Batch size for processing
+      GEMMA_CACHE_TYPE: "${GEMMA_CACHE_TYPE:-q8_0}" # KV cache quantization: q8_0 (default), fp16, or q4_0
       GPU_COORDINATOR_URL: http://gpu-coordinator:8002
       RAG_SERVICE_URL: http://rag-service:8004
       JWT_ONLY: "true"
     volumes:
-      - ../models:/app/models:ro
+      - ../models1:/app/models:ro
     secrets:
       - jwt_secret_primary
       - jwt_secret_previous
@@ -138,12 +200,14 @@ services:
     container_name: refactored_transcription
     restart: unless-stopped
     environment:
+      # Phase 4: Redis authentication
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
       REDIS_URL: redis://redis:6379
       EMOTION_SERVICE_URL: http://emotion-service:8005
       RAG_SERVICE_URL: http://rag-service:8004
-      # Parakeet-TDT + Pyannote Diarization Strategy
+      # Parakeet RNNT + Sortformer Diarization (True Streaming)
       TRANSCRIBE_STRATEGY: "parakeet"
-      PARAKEET_MODEL_ID: "nvidia/parakeet-tdt-0.6b-v2"
+      PARAKEET_MODEL_ID: "nvidia/parakeet-rnnt-0.6b" # RNNT for streaming
       PARAKEET_CHUNK_DURATION: "300"
       ENABLE_PYANNOTE: "true"
       # IMPORTANT: Run on CPU to free VRAM for Gemma (GTX 1660 Ti only has 6GB)
@@ -153,7 +217,7 @@ services:
       SORTFORMER_MAX_SPKS: "4"
       SORTFORMER_DEVICE: "cpu" # Start on CPU to avoid OOM with Gemma 10k context
       DIARIZATION_SPK_MAX: "4"
-      START_ON_CPU: "true" # Start on CPU to let Gemma load on GPU first
+      START_ON_CPU: "true" # Start on CPU, GPU coordinator handles handoff
       CUDA_LAUNCH_BLOCKING: "1"
       TORCH_USE_CUDA_DSA: "1"
       PYTORCH_CUDA_ALLOC_CONF: "max_split_size_mb:64"
@@ -163,14 +227,38 @@ services:
       HF_HOME: /app/models # HuggingFace cache directory in image
       JWT_ONLY: "true"
     volumes:
-      - ../models/diar_sortformer_4spk-v1.nemo:/app/models/diar_sortformer_4spk-v1.nemo:ro
+      - ../models1/diar_sortformer_4spk-v1.nemo:/app/models/diar_sortformer_4spk-v1.nemo:ro
       - ../services/transcription-service/src:/app/src
       - ../shared:/app/shared
+      # Enrollment embeddings for speaker identification (Pruitt, Ericah)
+      - ./gateway_instance/enrollment:/gateway_instance/enrollment
+      # Training data collection for speaker model fine-tuning (read-write)
+      - ./gateway_instance/training_data:/gateway_instance/training_data
+      # Verified samples for testing
+      - ./gateway_instance/uploads_removed/pruitt_verified:/gateway_instance/pruitt_verified:ro
+      # Finalfolder with ground-truth labeled samples
+      - ./gateway_instance/Finalfolder:/gateway_instance/Finalfolder:ro
+      # All labeled samples for comprehensive testing
+      - ./gateway_instance/uploads_labeled_full:/gateway_instance/uploads_labeled_full:ro
+      # Verified Pruitt audio for enrollment (from backup, needs VAD)
+      - ./gateway_instance/pruitt_verified_backup:/gateway_instance/pruitt_verified_backup:ro
+      # Verified Ericah audio for testing
+      - ./gateway_instance/uploads_removed/ericah_verified:/gateway_instance/ericah_verified:ro
+      # General uploads for testing "Other" files
+      - ./gateway_instance/uploads:/gateway_instance/uploads:ro
+      # Output folders for classified/sliced audio
+      - ./gateway_instance/decemberpruitt:/gateway_instance/decemberpruitt
+      - ./gateway_instance/decemberericah:/gateway_instance/decemberericah
+      # TV audio slices for training classifier to filter TV audio
+      - ./gateway_instance/tv_sliced:/gateway_instance/tv_sliced:ro
+      # Manual verification dataset
+      - ./gateway_instance/verification_review_200:/gateway_instance/verification_review_200
     secrets:
       - jwt_secret_primary
       - jwt_secret_previous
       - jwt_secret
       - huggingface_token
+      - redis_password
     # Models are pre-downloaded in Docker image during build
     # Phase 4: Remove host port mapping - internal only
     # ports:
@@ -189,6 +277,13 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
     networks:
       - nemo_network
 
@@ -210,13 +305,24 @@ services:
       TRANSCRIPTION_URL: http://transcription-service:8003
       INSIGHTS_URL: http://insights-service:8010
       ML_SERVICE_URL: http://ml-service:8006
+      FISERV_SERVICE_URL: http://fiserv-service:8015
       RATE_LIMIT_ENABLED: "true"
       RATE_LIMIT_DEFAULT: "1000"
       RATE_LIMIT_WINDOW_SEC: "60"
-      ENABLE_DEMO_USERS: "true"
-      ALLOWED_ORIGINS: "http://127.0.0.1,http://localhost"
-      SESSION_COOKIE_SECURE: "false"
+      # Demo users are disabled by default. Override in docker/.env for local dev:
+      #   ENABLE_DEMO_USERS=true
+      #   SECURE_MODE=false
+      ENABLE_DEMO_USERS: "${ENABLE_DEMO_USERS:-false}" # DEV ONLY: enable with SECURE_MODE=false
+      # SECURE_MODE: Blocks unsafe dev flags in production (Phase 0 hardening)
+      # Set to "true" for production after initial account setup
+      SECURE_MODE: "${SECURE_MODE:-true}"
+      # Updated for HTTPS: Include https origins
+      ALLOWED_ORIGINS: "http://127.0.0.1,http://localhost,https://127.0.0.1,https://localhost"
+      # Security: Enable secure cookies when behind HTTPS proxy
+      SESSION_COOKIE_SECURE: "true"
       SESSION_COOKIE_SAMESITE: "lax"
+      # Force HSTS header
+      FORCE_HSTS: "true"
       # Disable canonical host redirects in dev to avoid host/IP mismatches
       CANONICAL_HOST: ""
       # Relax login rate limiting for local dev (still enforced, just higher thresholds)
@@ -224,6 +330,13 @@ services:
       LOGIN_RATE_LIMIT_LIMIT: "1000"
       # DEV ONLY: Allow iframe embedding for VS Code Simple Browser - remove for production!
       ALLOW_FRAMING: "false"
+      # Salesforce CRM Integration
+      SALESFORCE_ENABLED: "${SALESFORCE_ENABLED:-true}"
+      SALESFORCE_CLIENT_ID: "${SALESFORCE_CLIENT_ID:-}"
+      SALESFORCE_CLIENT_SECRET: "${SALESFORCE_CLIENT_SECRET:-}"
+      SALESFORCE_DOMAIN: "${SALESFORCE_DOMAIN:-}"
+      SALESFORCE_API_VERSION: "${SALESFORCE_API_VERSION:-v59.0}"
+
     volumes:
       - ./gateway_instance:/app/instance
       # Mount local frontend for live UI updates in dev (read-only)
@@ -246,10 +359,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # Phase 1: Gateway is the only public-facing service
-    # For production, bind to 127.0.0.1 and use tunnel/reverse proxy
+    # Phase 1: Gateway binds to localhost only - nginx handles public traffic
+    # Access via https://localhost (nginx) instead of http://localhost:8000
     ports:
-      - "0.0.0.0:8000:8000"
+
+      - "8000:8000"
     # Secrets are mounted via a read-only bind to ./secrets for dev
     depends_on:
       gemma-service:
@@ -292,7 +406,8 @@ services:
     volumes:
       - ./rag_instance:/app/instance
       - ./faiss_index:/app/faiss_index
-      - ../models:/app/models
+      - ../services/rag-service/src:/app/src
+      - ../models1:/app/models
       - ../shared:/app/shared
     secrets:
       - jwt_secret_primary
@@ -340,6 +455,42 @@ services:
       - nemo_network
 
   # ============================================================================
+  # N8N Integration Service (Voice Commands & Automation)
+  # ============================================================================
+
+  n8n-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.n8n
+    container_name: refactored_n8n
+    restart: unless-stopped
+    environment:
+      # Voice Monkey API token (for smart home control)
+      VOICE_MONKEY_TOKEN_FILE: /run/secrets/voicemonkey_token
+      # Webhook configuration for n8n automation
+      N8N_WEBHOOK_URL: "${N8N_WEBHOOK_URL:-}"
+      JWT_ONLY: "true"
+    volumes:
+      - ../services/n8n-service/src:/app/src:ro
+      - ../shared:/app/shared:ro
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - voicemonkey_token
+    # Expose port for mobile app access (via WireGuard)
+    ports:
+      - "127.0.0.1:8011:8011"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8011/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - nemo_network
+
+  # ============================================================================
   # Emotion Service (Sentiment Analysis)
   # ============================================================================
 
@@ -354,7 +505,7 @@ services:
       EMOTION_MODEL_PATH: "/app/models/emotion-english-distilroberta-base"
       JWT_ONLY: "true"
     volumes:
-      - ../models:/app/models:ro
+      - ../models1:/app/models:ro
     secrets:
       - jwt_secret_primary
       - jwt_secret_previous
@@ -416,6 +567,45 @@ services:
     networks:
       - nemo_network
 
+  # ============================================================================
+  # Fiserv Banking Hub Service (SCU Integration)
+  # ============================================================================
+
+  fiserv-service:
+    build:
+      context: ../services/fiserv-service
+      dockerfile: Dockerfile
+    container_name: refactored_fiserv
+    restart: unless-stopped
+    environment:
+      # Set to false for real Fiserv API calls (sandbox)
+      FISERV_MOCK_MODE: "false"
+      # Phase 1 Security: Load credentials from Docker secrets
+      FISERV_API_KEY_FILE: /run/secrets/fiserv_api_key
+      FISERV_API_SECRET_FILE: /run/secrets/fiserv_api_secret
+      FISERV_ORG_ID: "999950001"
+      PYTHONUNBUFFERED: "1"
+      JWT_ONLY: "true"
+    volumes:
+      - ../services/fiserv-service/src:/app/src:ro
+      - ../shared:/app/shared:ro
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - fiserv_api_key
+      - fiserv_api_secret
+      - postgres_user
+      - postgres_password
+    # Internal only - accessed via Gateway proxy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8015/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nemo_network
+
 # Phase 5: Define Docker secrets (read from files in docker/secrets/)
 secrets:
   jwt_secret_primary:
@@ -442,6 +632,12 @@ secrets:
     file: ./secrets/huggingface_token
   email_db_key:
     file: ./secrets/email_db_key
+  voicemonkey_token:
+    file: ./secrets/voicemonkey_token
+  fiserv_api_key:
+    file: ./secrets/fiserv_api_key
+  fiserv_api_secret:
+    file: ./secrets/fiserv_api_secret
 
 networks:
   nemo_network:
@@ -450,4 +646,5 @@ networks:
 volumes:
   redis_data:
   postgres_data:
+  postgres_data_debian: # New volume for Debian-based Postgres
   ml_uploads:

@@ -1,179 +1,96 @@
-# Docker Secrets
+# Nemo Server - Docker Secrets
 
-This directory contains sensitive secrets used by Nemo Server services.
-
-## ⚠️ IMPORTANT: Never Commit Secrets
-
-All files in this directory (except this README and .gitkeep) are gitignored. **Never commit actual secret values.**
+> **SECURITY CRITICAL**: This directory contains encrypted secrets. Never commit actual secret files to Git.
 
 ## Required Secrets
 
-Generate all required secrets before starting services:
+The following secret files are required for the Nemo Server to function:
 
-### 1. Encryption Keys (32-byte base64)
+| Secret File | Description | Required |
+|-------------|-------------|----------|
+| `jwt_secret_primary` | Primary JWT signing key (32+ bytes) | Yes |
+| `jwt_secret_previous` | Previous JWT key for rotation (32+ bytes) | Yes |
+| `jwt_secret` | Service-to-service JWT key | Yes |
+| `service_api_key` | **Legacy** - Replaced by JWT authentication | No (deprecated) |
+| `session_key` | Session encryption key (32+ bytes) | Yes |
+| `postgres_user` | PostgreSQL username | Yes |
+| `postgres_password` | PostgreSQL password (24+ chars) | Yes |
+| `users_db_key` | User database encryption key | Yes |
+| `rag_db_key` | RAG database encryption key | Yes |
+| `redis_password` | Redis authentication password | Yes |
+| `huggingface_token` | HuggingFace API token | Optional |
+| `email_db_key` | Email database encryption key | Optional |
 
-```bash
-# Session encryption key
-openssl rand -base64 32 > session_key
+## Setup Instructions
 
-# JWT signing secrets (dual-key rotation ready)
-openssl rand -base64 32 > jwt_secret_primary
-# Seed previous + legacy files with the same value; update during rotation
-cp jwt_secret_primary jwt_secret_previous
-cp jwt_secret_primary jwt_secret
+### Automatic Setup (Recommended)
 
-# User database encryption key
-openssl rand -base64 32 > users_db_key
-
-# RAG database encryption key
-openssl rand -base64 32 > rag_db_key
-```
-
-### 2. Database Credentials
-
-```bash
-# PostgreSQL username
-echo "nemo_user" > postgres_user
-
-# PostgreSQL password (random 16-byte)
-openssl rand -base64 16 > postgres_password
-
-# Redis password (random 16-byte)
-openssl rand -base64 16 > redis_password
-```
-
-### 3. External API Tokens (Optional)
+Run the secret generation script:
 
 ```bash
-# Hugging Face token (for model downloads – REQUIRED in production)
-# Get from: https://huggingface.co/settings/tokens
-echo "hf_your_token_here" > huggingface_token
+cd /path/to/Nemo_Server
+./scripts/setup_secrets.sh
 ```
 
-## Quick Setup Script
+This script will:
+1. Generate cryptographically secure random secrets
+2. Preserve any existing secrets (non-destructive)
+3. Set proper file permissions (600)
+4. Validate secret strength
+
+### Manual Setup
+
+Create each file manually with secure values:
 
 ```bash
-#!/bin/bash
-# generate_secrets.sh
+# Generate a 32-byte random secret
+openssl rand -base64 32 > docker/secrets/jwt_secret_primary
 
-cd "$(dirname "$0")"
+# Generate password
+openssl rand -base64 24 > docker/secrets/postgres_password
 
-echo "Generating Nemo Server secrets..."
-
-# Encryption keys
-openssl rand -base64 32 > session_key
-openssl rand -base64 32 > jwt_secret_primary
-cp jwt_secret_primary jwt_secret_previous
-cp jwt_secret_primary jwt_secret
-openssl rand -base64 32 > users_db_key
-openssl rand -base64 32 > rag_db_key
-
-# Database credentials
-echo "nemo_user" > postgres_user
-openssl rand -base64 16 > postgres_password
-openssl rand -base64 16 > redis_password
-
-# Placeholder for HF token (leave empty in git, populate locally)
-echo "# Add your Hugging Face token here if needed" > huggingface_token
-
-# Set appropriate permissions
-chmod 600 *_key *_password *_secret *_user *_token
-
-echo "✅ Secrets generated successfully!"
-echo ""
-echo "⚠️  Remember to:"
-echo "  1. Add your Hugging Face token to 'huggingface_token' if needed"
-echo "  2. Keep these secrets secure"
-echo "  3. Never commit them to version control"
+# Set permissions (CRITICAL!)
+chmod 600 docker/secrets/*
 ```
 
-> ⚠️ **Never** store the real token in `docker/.env`. The server loads it from `/run/secrets/huggingface_token`, and will refuse to start in production if the secret is missing.
+## Security Requirements
 
-## Usage in Docker Compose
+1. **File Permissions**: All secret files MUST have mode `600` (read/write owner only)
+2. **Never Commit**: All files in this directory are gitignored. Never force-add them.
+3. **Rotation**: Rotate secrets regularly. Use `jwt_secret_previous` for graceful JWT rotation.
+4. **Backup**: Keep encrypted backups of secrets offline.
 
-Secrets are mounted as files in containers at `/run/secrets/{secret_name}`:
+## Pre-flight Checklist
 
-```yaml
-services:
-  api-gateway:
-    secrets:
-      - session_key
-      - jwt_secret_primary
-      - jwt_secret_previous
-      - users_db_key
-    # ...
+Before starting the server, verify:
 
-secrets:
-  session_key:
-    file: ./secrets/session_key
-  jwt_secret_primary:
-    file: ./secrets/jwt_secret_primary
-  jwt_secret_previous:
-    file: ./secrets/jwt_secret_previous
+```bash
+# Check all required secrets exist
+ls -la docker/secrets/
+
+# Verify permissions (should be -rw-------)
+stat -c "%a %n" docker/secrets/*
+
+# Run security verification
+python3 scripts/verify_security.py
 ```
-
-## Reading Secrets in Code
-
-```python
-from shared.security.secrets import get_secret
-from shared.security.service_auth import load_service_jwt_keys
-
-# Read secret from /run/secrets/{name}
-session_key = get_secret("session_key")
-jwt_keys = load_service_jwt_keys("gateway")
-```
-
-## JWT Secret Rotation Runbook
-
-1. **Stage the old key as previous**  
-   ```bash
-   cp docker/secrets/jwt_secret_primary docker/secrets/jwt_secret_previous
-   ```
-2. **Generate a new primary key**  
-   ```bash
-   openssl rand -base64 32 > docker/secrets/jwt_secret_primary
-   cp docker/secrets/jwt_secret_primary docker/secrets/jwt_secret  # keep legacy fallback aligned
-   ```
-3. **Redeploy services** so they read the updated secrets. Existing tokens signed with the old key continue to verify via `jwt_secret_previous`.
-4. **Monitor invalid-signature metrics** for at least one release window. Once confident no clients use the old key, repeat step 1 with the current primary to roll forward.
-
-## Security Best Practices
-
-1. **Generate Strong Secrets**: Use `openssl rand` or similar cryptographic RNG
-2. **Unique Per Environment**: Different secrets for dev/staging/prod
-3. **Rotate Regularly**: Change secrets periodically (especially after team changes)
-4. **Restricted Permissions**: `chmod 600` on secret files
-5. **No Hardcoding**: Never hardcode secrets in code or configs
-6. **Audit Access**: Log and monitor who accesses secrets
 
 ## Troubleshooting
 
-### "Secret not found" Error
+### "Secret file not found" on startup
+- Run `./scripts/setup_secrets.sh` to generate missing secrets
 
-Check that:
-1. Secret file exists in `docker/secrets/`
-2. File is not empty
-3. Docker Compose is reading from correct path
-4. Container has secret mounted (`docker exec <container> ls /run/secrets/`)
+### "Permission denied" errors
+- Run `chmod 600 docker/secrets/*` to fix permissions
 
-### Permission Denied
+### "Invalid secret length" errors
+- Regenerate the specific secret with the required minimum length
 
-```bash
-# Fix permissions
-chmod 600 docker/secrets/*
-chown $USER:$USER docker/secrets/*
-```
+## Migration from Old Secrets
 
-### Missing Secrets on Startup
+If upgrading from a previous version:
 
-Run the generation script:
-```bash
-cd docker/secrets
-bash generate_secrets.sh
-```
-
-Then restart services:
-```bash
-docker compose down
-docker compose up -d
-```
+1. Backup existing secrets to `archive/secrets_backup/`
+2. Run `./scripts/setup_secrets.sh --migrate`
+3. Verify services start correctly
+4. Securely delete old backups after verification

@@ -1,0 +1,336 @@
+/* =============================================================================
+   NexusAI Design System - Buttons
+   Premium button styles with animations
+   ============================================================================= */
+
+/* ==================== Base Button ==================== */
+
+.nexus-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--nexus-space-2);
+    padding: var(--nexus-space-3) var(--nexus-space-5);
+    font-family: var(--nexus-font-sans);
+    font-size: var(--nexus-text-sm);
+    font-weight: var(--nexus-font-medium);
+    line-height: 1.5;
+    border: none;
+    border-radius: var(--nexus-radius-lg);
+    cursor: pointer;
+    text-decoration: none;
+    transition: all var(--nexus-transition-normal);
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.nexus-btn:focus-visible {
+    outline: 2px solid var(--nexus-primary-500);
+    outline-offset: 2px;
+}
+
+.nexus-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* ==================== Button Sizes ==================== */
+
+.nexus-btn-sm {
+    padding: var(--nexus-space-2) var(--nexus-space-3);
+    font-size: var(--nexus-text-xs);
+    border-radius: var(--nexus-radius-md);
+}
+
+.nexus-btn-lg {
+    padding: var(--nexus-space-4) var(--nexus-space-8);
+    font-size: var(--nexus-text-base);
+    border-radius: var(--nexus-radius-xl);
+}
+
+.nexus-btn-xl {
+    padding: var(--nexus-space-5) var(--nexus-space-10);
+    font-size: var(--nexus-text-lg);
+    border-radius: var(--nexus-radius-xl);
+}
+
+/* ==================== Primary Button ==================== */
+
+.nexus-btn-primary {
+    background: var(--nexus-gradient-primary);
+    color: white;
+    box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+}
+
+.nexus-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(6, 182, 212, 0.4);
+}
+
+.nexus-btn-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 10px rgba(6, 182, 212, 0.3);
+}
+
+/* ==================== Secondary Button ==================== */
+
+.nexus-btn-secondary {
+    background: var(--nexus-glass-bg);
+    border: 1px solid var(--nexus-border-default);
+    color: var(--nexus-text-primary);
+    backdrop-filter: var(--nexus-glass-blur);
+}
+
+.nexus-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--nexus-border-strong);
+}
+
+/* ==================== Ghost Button ==================== */
+
+.nexus-btn-ghost {
+    background: transparent;
+    color: var(--nexus-text-secondary);
+}
+
+.nexus-btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--nexus-text-primary);
+}
+
+/* ==================== Outline Button ==================== */
+
+.nexus-btn-outline {
+    background: transparent;
+    border: 1px solid var(--nexus-primary-500);
+    color: var(--nexus-primary-400);
+}
+
+.nexus-btn-outline:hover {
+    background: rgba(6, 182, 212, 0.1);
+    border-color: var(--nexus-primary-400);
+}
+
+/* ==================== Success Button ==================== */
+
+.nexus-btn-success {
+    background: var(--nexus-gradient-success);
+    color: white;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+}
+
+.nexus-btn-success:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+/* ==================== Warning Button ==================== */
+
+.nexus-btn-warning {
+    background: linear-gradient(135deg, var(--nexus-warning-500), var(--nexus-warning-600));
+    color: white;
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+}
+
+.nexus-btn-warning:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+}
+
+/* ==================== Danger Button ==================== */
+
+.nexus-btn-danger {
+    background: linear-gradient(135deg, var(--nexus-error-500), var(--nexus-error-600));
+    color: white;
+    box-shadow: 0 4px 15px rgba(244, 63, 94, 0.3);
+}
+
+.nexus-btn-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(244, 63, 94, 0.4);
+}
+
+/* ==================== Gradient Buttons ==================== */
+
+.nexus-btn-gradient-ml {
+    background: var(--nexus-gradient-ml);
+    color: white;
+}
+
+.nexus-btn-gradient-financial {
+    background: var(--nexus-gradient-financial);
+    color: white;
+}
+
+.nexus-btn-gradient-advanced {
+    background: var(--nexus-gradient-advanced);
+    color: white;
+}
+
+/* ==================== Icon Button ==================== */
+
+.nexus-btn-icon {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: var(--nexus-radius-lg);
+}
+
+.nexus-btn-icon.nexus-btn-sm {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--nexus-radius-md);
+}
+
+.nexus-btn-icon.nexus-btn-lg {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--nexus-radius-xl);
+}
+
+/* ==================== Loading State ==================== */
+
+.nexus-btn-loading {
+    pointer-events: none;
+}
+
+.nexus-btn-loading .nexus-btn-text {
+    opacity: 0;
+}
+
+.nexus-btn-loading::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: nexus-spin 0.8s linear infinite;
+}
+
+/* ==================== Ripple Effect ==================== */
+
+.nexus-btn-ripple {
+    position: relative;
+    overflow: hidden;
+}
+
+.nexus-btn-ripple::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.6s ease, height 0.6s ease;
+}
+
+.nexus-btn-ripple:active::before {
+    width: 300px;
+    height: 300px;
+}
+
+/* ==================== Button Groups ==================== */
+
+.nexus-btn-group {
+    display: inline-flex;
+}
+
+.nexus-btn-group .nexus-btn {
+    border-radius: 0;
+}
+
+.nexus-btn-group .nexus-btn:first-child {
+    border-radius: var(--nexus-radius-lg) 0 0 var(--nexus-radius-lg);
+}
+
+.nexus-btn-group .nexus-btn:last-child {
+    border-radius: 0 var(--nexus-radius-lg) var(--nexus-radius-lg) 0;
+}
+
+.nexus-btn-group .nexus-btn:not(:last-child) {
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ==================== Full Width ==================== */
+
+.nexus-btn-block {
+    width: 100%;
+}
+
+/* ==================== Link Style Button ==================== */
+
+.nexus-btn-link {
+    background: none;
+    padding: 0;
+    color: var(--nexus-primary-400);
+    font-weight: var(--nexus-font-normal);
+}
+
+.nexus-btn-link:hover {
+    text-decoration: underline;
+    color: var(--nexus-primary-300);
+}
+
+/* ==================== Pill Buttons ==================== */
+
+.nexus-btn-pill {
+    border-radius: var(--nexus-radius-full);
+}
+
+/* ==================== Tab-style Buttons ==================== */
+
+.nexus-tab-btn {
+    background: transparent;
+    color: var(--nexus-text-muted);
+    border: none;
+    border-radius: var(--nexus-radius-lg);
+    padding: var(--nexus-space-3) var(--nexus-space-5);
+    font-size: var(--nexus-text-sm);
+    font-weight: var(--nexus-font-medium);
+    cursor: pointer;
+    transition: all var(--nexus-transition-fast);
+}
+
+.nexus-tab-btn:hover {
+    color: var(--nexus-text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.nexus-tab-btn.active {
+    color: var(--nexus-primary-400);
+    background: rgba(6, 182, 212, 0.1);
+}
+
+/* ==================== FAB (Floating Action Button) ==================== */
+
+.nexus-fab {
+    position: fixed;
+    bottom: var(--nexus-space-8);
+    right: var(--nexus-space-8);
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--nexus-gradient-primary);
+    color: white;
+    border: none;
+    box-shadow: var(--nexus-shadow-xl);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    transition: all var(--nexus-transition-normal);
+    z-index: var(--nexus-z-fixed);
+}
+
+.nexus-fab:hover {
+    transform: scale(1.1);
+    box-shadow: 0 8px 30px rgba(6, 182, 212, 0.5);
+}

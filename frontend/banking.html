@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script src="assets/js/remote-config.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Banking - Vox Amelior</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <!-- External Libs (Local) -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="assets/js/libs/three.min.js"></script>
+    <script src="assets/js/libs/gsap.min.js"></script>
+
+    <!-- Premium CSS -->
+    <link rel="stylesheet" href="assets/css/banking-premium.css">
+
+    <!-- Vox Amelior Design System -->
+    <link rel="stylesheet" href="assets/css/vox-amelior.css">
+</head>
+
+<body>
+    <!-- Background Ambient Effects -->
+    <div class="ambient-glow"
+        style="position: fixed; top: -20%; left: -10%; width: 50vw; height: 50vw; background: radial-gradient(circle, rgba(56, 189, 248, 0.15), transparent 70%); filter: blur(60px); z-index: -1;">
+    </div>
+    <div class="ambient-glow"
+        style="position: fixed; bottom: -20%; right: -10%; width: 50vw; height: 50vw; background: radial-gradient(circle, rgba(139, 92, 246, 0.15), transparent 70%); filter: blur(60px); z-index: -1;">
+    </div>
+
+    <!-- Navigation (Vox Amelior) -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="index.html" class="vox-nav-link">Dashboard</a>
+                <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="nexus.html" class="vox-nav-link">Analytics</a>
+                <a href="banking.html" class="vox-nav-link active">Enterprise</a>
+                <a href="settings.html" class="vox-nav-link">Settings</a>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <div class="token-status" id="tokenStatus"
+                    style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--vox-grey-500);">
+                    <div class="token-dot" id="tokenDot"
+                        style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%; box-shadow: 0 0 10px #22c55e;">
+                    </div>
+                    <span id="tokenText">Secure</span>
+                </div>
+                <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Role Switcher Bar -->
+    <div class="glass-card"
+        style="margin: 0 1.5rem 1rem; display: flex; justify-content: center; align-items: center; padding: 0.5rem 1rem; gap: 1rem;">
+        <span style="font-size: 0.85rem; color: var(--text-secondary);">View:</span>
+        <div class="role-switcher segmented-control">
+            <div class="role-slider" id="roleSlider"></div>
+            <button class="role-tab active" data-role="msr" onclick="switchRoleView('msr')">MSR</button>
+            <button class="role-tab" data-role="loan_officer" onclick="switchRoleView('loan_officer')">Loan
+                Officer</button>
+            <button class="role-tab" data-role="fraud_analyst" onclick="switchRoleView('fraud_analyst')">Fraud</button>
+            <button class="role-tab" data-role="executive" onclick="switchRoleView('executive')">Executive</button>
+        </div>
+        <div class="api-usage" style="text-align: right; margin-left: auto;">
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">API Quota</div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="apiCount" style="font-weight: 700; color: var(--text-accent);">--/1000</span>
+                <div style="width: 60px; height: 4px; background: rgba(0,0,0,0.1); border-radius: 2px;">
+                    <div id="apiBar"
+                        style="width: 0%; height: 100%; background: linear-gradient(135deg, #02559e, #457baf); border-radius: 2px;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-layout" style="display: flex; height: calc(100vh - 120px); gap: 1.5rem; padding: 0 1.5rem;">
+
+        <!-- Animated Floating Dock (Sidebar Replacement) -->
+        <nav class="glass-card"
+            style="width: 260px; padding: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; overflow-y: auto;">
+            <div class="sidebar-section">
+                <div class="sidebar-title"
+                    style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; font-weight: 600;">
+                    Core Banking</div>
+                <div class="nav-item active btn btn-secondary btn-glow" onclick="showSection('party', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none;">
+                    <span style="margin-right: 8px;">👤</span> Member Search
+                </div>
+                <div class="nav-item btn btn-secondary" onclick="showSection('account', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none;">
+                    <span style="margin-right: 8px;">🏦</span> Account Lookup
+                </div>
+                <!-- ... other items ... -->
+                <div class="nav-item btn btn-secondary" onclick="showSection('transactions', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none;">
+                    <span style="margin-right: 8px;">💳</span> Transactions
+                </div>
+                <div class="nav-item btn btn-secondary" onclick="showSection('transfers', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none;">
+                    <span style="margin-right: 8px;">💸</span> Transfers
+                </div>
+                <div class="nav-item btn btn-secondary" onclick="showSection('cases', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none;">
+                    <span style="margin-right: 8px;">⚖️</span> Case Management
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title"
+                    style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; margin-top: 1.5rem; font-weight: 600;">
+                    AI Intelligence</div>
+                <div class="nav-item btn btn-secondary" onclick="showSection('anomaly', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none; color: var(--neon-rose);">
+                    <span style="margin-right: 8px;">🛡️</span> Fraud Workstation
+                </div>
+                <div class="nav-item btn btn-secondary" onclick="showSection('ml-profit', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none; color: var(--neon-violet);">
+                    <span style="margin-right: 8px;">🏦</span> Underwriting AI
+                </div>
+                <div class="nav-item btn btn-secondary" onclick="showSection('realtime', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none; color: var(--neon-cyan);">
+                    <span style="margin-right: 8px;">⚡</span> Real-Time Stream
+                </div>
+                <div class="nav-item btn btn-secondary" onclick="showSection('executive-dashboard', event)"
+                    style="width: 100%; justify-content: flex-start; margin-bottom: 0.5rem; border: none; color: var(--neon-amber);">
+                    <span style="margin-right: 8px;">📈</span> Executive View
+                </div>
+            </div>
+
+            <!-- Hidden Sections (Legacy support for JS) -->
+            <div style="display: none;">
+                <div onclick="showSection('stopcheck', event)"></div>
+                <div onclick="showSection('cards', event)"></div>
+                <div onclick="showSection('alerts', event)"></div>
+                <!-- <div onclick="showSection('cases', event)"></div> Replaced by real section -->
+                <div onclick="showSection('reports', event)"></div>
+                <div onclick="showSection('status', event)"></div>
+                <div onclick="showSection('role-insights', event)"></div>
+                <div onclick="showSection('branch-performance', event)"></div>
+                <div onclick="showSection('call-portal', event)"></div>
+                <div onclick="showSection('call-summary', event)"></div>
+                <div onclick="showSection('call-problems', event)"></div>
+                <div onclick="showSection('live-calls', event)"></div>
+                <div onclick="showSection('qa-dashboard', event)"></div>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content" style="flex: 1; overflow-y: auto; padding-right: 0.5rem;">
+
+            <!-- SECTION: Member Search -->
+            <div id="section-party" class="section animate-float">
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+                    <div>
+                        <h1 class="page-title">Member Search</h1>
+                        <p class="page-subtitle">Universal member lookup across all core systems.</p>
+                    </div>
+                </div>
+
+                <!-- 3D Hero Element -->
+                <div id="memberSearchHero" class="viz-3d-container"
+                    style="height: 200px; margin-bottom: 2rem; display: none;"></div>
+
+                <div class="glass-card" style="margin-bottom: 2rem;">
+                    <div class="action-title" style="color: var(--text-primary);">Search Criteria</div>
+                    <div class="form-row"
+                        style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="form-group">
+                            <label class="form-label">Member Name</label>
+                            <input type="text" class="form-input" id="partyName" placeholder="e.g. Smith"
+                                oninput="debouncedTypeahead()">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Phone Number</label>
+                            <input type="text" class="form-input" id="partyPhone" placeholder="e.g. 603-555-1234"
+                                oninput="debouncedTypeahead()">
+                        </div>
+                        <!-- Hidden inputs for compatibility -->
+                        <input type="hidden" id="partyEmail">
+                        <input type="hidden" id="partyAccount">
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="searchParty()">
+                            <span id="partySpinner" style="display: none;">
+                                <div class="spinner"></div>
+                            </span>
+                            Search Member
+                        </button>
+                        <button class="btn btn-secondary" onclick="clearPartyForm()">Clear</button>
+                    </div>
+                </div>
+
+                <div class="results-panel glass-card" style="padding: 0;">
+                    <div class="results-header"
+                        style="background: rgba(255,255,255,0.05); padding: 1rem 1.5rem; border-bottom: 1px solid var(--glass-border);">
+                        <div class="results-title" id="partyResultCount" style="color: var(--text-primary);">0 members
+                            found</div>
+                    </div>
+                    <div class="results-body" id="partyResults" style="color: var(--text-secondary);">
+                        <div class="results-empty">Enter search criteria above</div>
+                    </div>
+                </div>
+
+                <!-- Hidden Member 360 Panel (Restored for JS) -->
+                <div id="member360Panel" style="display: none; margin-top: 2rem;"></div>
+            </div>
+
+            <!-- SECTION: Account Lookup -->
+            <div id="section-account" class="section" style="display: none;">
+                <h1 class="page-title">Account Lookup</h1>
+                <div class="glass-card">
+                    <!-- Content populated by JS -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <input type="text" class="form-input" id="accountId" placeholder="Enter account ID">
+                        </div>
+                        <div class="form-group">
+                            <select class="form-input" id="accountType">
+                                <option value="DDA">DDA (Checking)</option>
+                                <option value="SDA">SDA (Savings)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="lookupAccount()">Lookup</button>
+                </div>
+                <div class="results-panel glass-card" style="margin-top: 2rem;">
+                    <div class="results-body" id="accountResults"></div>
+                </div>
+            </div>
+
+            <!-- SECTION: Transactions -->
+            <div id="section-transactions" class="section" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+                    <div>
+                        <h1 class="page-title">💳 Transaction History</h1>
+                        <p class="page-subtitle">View and analyze account transactions from the core banking system.</p>
+                    </div>
+                </div>
+
+                <!-- Search Controls -->
+                <div class="glass-card" style="margin-bottom: 2rem;">
+                    <div class="action-title">Search Transactions</div>
+                    <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Account ID</label>
+                            <input type="text" class="form-input" id="txAccountId" placeholder="Enter account ID">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Time Period</label>
+                            <select class="form-input" id="txDays">
+                                <option value="7">Last 7 Days</option>
+                                <option value="30" selected>Last 30 Days</option>
+                                <option value="90">Last 90 Days</option>
+                                <option value="365">Last Year</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="listTransactions()">
+                            🔍 Load Transactions
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div class="glass-card">
+                    <div class="action-title">Transaction Results</div>
+                    <div id="txResults" style="min-height: 200px;">
+                        <div class="results-empty">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">📋</div>
+                            <div>Enter an Account ID and click Load</div>
+                            <div style="color: #6b7280; font-size: 0.9rem;">Transaction history will appear here</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Fund Transfers -->
+            <div id="section-transfers" class="section" style="display: none;">
+                <h1 class="page-title">Fund Transfers</h1>
+                <div class="glass-card" style="max-width: 600px;">
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="form-label">From Account</label>
+                        <input type="text" class="form-input" id="transferFrom" placeholder="Source Account ID">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="form-label">To Account</label>
+                        <input type="text" class="form-input" id="transferTo" placeholder="Destination Account ID">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="form-label">Amount</label>
+                        <div style="position: relative;">
+                            <span
+                                style="position: absolute; left: 1rem; top: 12px; color: var(--text-secondary);">$</span>
+                            <input type="number" class="form-input" id="transferAmount" placeholder="0.00"
+                                style="padding-left: 2rem;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 2rem;">
+                        <label class="form-label">Memo</label>
+                        <input type="text" class="form-input" id="transferMemo" placeholder="Optional description">
+                    </div>
+
+                    <button class="btn btn-primary" style="width: 100%;" onclick="executeTransfer()">Submit
+                        Transfer</button>
+
+                    <div id="transferResult" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+
+            <!-- SECTION: Case Management (Restored) -->
+            <div id="section-cases" class="section" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h1 class="page-title">Case Management</h1>
+                    <button class="btn btn-primary" onclick="showCreateCaseModal()">+ New Case</button>
+                </div>
+
+                <!-- Stats Row -->
+                <div class="dashboard-grid" style="padding: 0; margin-bottom: 1.5rem;">
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">Critical</div>
+                        <div class="card-value" id="casesCritical" style="color: var(--neon-rose);">0</div>
+                    </div>
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">High Priority</div>
+                        <div class="card-value" id="casesHigh" style="color: var(--neon-amber);">0</div>
+                    </div>
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">Open Cases</div>
+                        <div class="card-value" id="casesOpen" style="color: var(--text-accent);">0</div>
+                    </div>
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">Resolved</div>
+                        <div class="card-value" id="casesResolved" style="color: var(--neon-emerald);">0</div>
+                    </div>
+                </div>
+
+                <!-- Hidden stats -->
+                <div id="casesAvgTime" style="display: none;"></div>
+
+                <!-- Tools -->
+                <div class="glass-card" style="margin-bottom: 1.5rem;">
+                    <div class="form-row">
+                        <select id="caseTypeFilter" onchange="filterCases()" class="form-input">
+                            <option value="all">All Types</option>
+                            <option value="fraud">Fraud</option>
+                            <option value="dispute">Dispute</option>
+                        </select>
+                        <select id="caseStatusFilter" onchange="filterCases()" class="form-input">
+                            <option value="all">All Status</option>
+                            <option value="open">Open</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                        <select id="casePriorityFilter" onchange="filterCases()" class="form-input">
+                            <option value="all">All Priorities</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                        <input id="caseSearchQuery" onkeyup="filterCases()" class="form-input"
+                            placeholder="Search cases...">
+                    </div>
+                </div>
+
+                <!-- List -->
+                <div class="results-panel glass-card" style="padding: 0;">
+                    <div class="results-header" style="background: rgba(255,255,255,0.05);">
+                        <h3 class="results-title" id="caseQueueTitle" style="color: var(--text-primary);">My Queue</h3>
+                    </div>
+                    <div class="results-body" id="casesList"></div>
+                </div>
+
+                <!-- Case Detail Panel -->
+                <div id="caseDetailPanel" class="glass-card" style="display: none; margin-top: 2rem;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <h2 id="caseDetailTitle">Case Details</h2>
+                        <button class="btn btn-secondary" onclick="closeCaseDetail()">Close</button>
+                    </div>
+                    <div class="dashboard-grid" style="padding: 0; margin-top: 1rem;">
+                        <div class="col-span-8">
+                            <h3 id="caseDetailSubject">Subject</h3>
+                            <p id="caseDetailDescription" style="color: var(--text-secondary);"></p>
+                            <div style="margin-top: 1rem;" id="caseTimeline"></div>
+                        </div>
+                        <div class="col-span-4" style="border-left: 1px solid var(--glass-border); padding-left: 1rem;">
+                            <div class="form-label">Status</div>
+                            <div id="caseDetailStatus" class="alert-badge"></div>
+                            <div class="form-label" style="margin-top: 1rem;">Priority</div>
+                            <div id="caseDetailPriority" class="alert-badge"></div>
+                            <div class="form-label" style="margin-top: 1rem;">Assignee</div>
+                            <div id="caseDetailAssignee"></div>
+                            <div class="form-label" style="margin-top: 1rem;">Member</div>
+                            <div id="caseDetailMember"></div>
+                            <div class="form-label" style="margin-top: 1rem;">Due Date</div>
+                            <div id="caseDetailDue"></div>
+                            <div class="form-label" style="margin-top: 1rem;">Type</div>
+                            <div id="caseDetailType"></div>
+
+                            <div class="btn-group" style="flex-direction: column; margin-top: 2rem;">
+                                <button class="btn btn-primary" onclick="resolveCase()">Resolve</button>
+                                <button class="btn btn-secondary" onclick="addCaseNote()">Add Note</button>
+                                <button class="btn btn-secondary" onclick="assignCase()">Assign</button>
+                                <button class="btn btn-secondary" onclick="escalateCase()">Escalate</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal -->
+                <div id="createCaseModal"
+                    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index:999; align-items: center; justify-content: center;">
+                    <div class="glass-card" style="width: 500px; background: #0f172a;">
+                        <h2>New Case</h2>
+                        <!-- Simplified inputs -->
+                        <input id="newCaseSubject" class="form-input" placeholder="Subject"
+                            style="margin-bottom: 1rem;">
+                        <select id="newCaseType" class="form-input" style="margin-bottom: 1rem;">
+                            <option value="fraud">Fraud</option>
+                        </select>
+                        <select id="newCasePriority" class="form-input" style="margin-bottom: 1rem;">
+                            <option value="medium">Medium</option>
+                        </select>
+                        <input id="newCaseMemberId" class="form-input" placeholder="Member ID"
+                            style="margin-bottom: 1rem;">
+                        <textarea id="newCaseDescription" class="form-input" placeholder="Description"></textarea>
+                        <!-- Hidden fields -->
+                        <input type="hidden" id="newCaseAccountId">
+                        <input type="hidden" id="newCaseAssignee">
+                        <input type="hidden" id="newCaseDueDate">
+
+                        <div class="btn-group" style="margin-top: 1rem;">
+                            <button class="btn btn-primary" onclick="createCase()">Create</button>
+                            <button class="btn btn-secondary" onclick="hideCreateCaseModal()">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Fraud Workstation (Anomaly Detection) -->
+            <div id="section-anomaly" class="section" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+                    <div>
+                        <h1 class="page-title">🔍 Fraud Workstation</h1>
+                        <p class="page-subtitle">Real-time anomaly detection and fraud investigation tools.</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="loadFraudDashboardFromAPI()">
+                        🔄 Refresh Data
+                    </button>
+                </div>
+
+                <!-- Risk Stats Grid -->
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem;">
+                    <div class="glass-card" style="text-align: center; padding: 1.5rem;">
+                        <div id="fraudCriticalCount" style="font-size: 2.5rem; font-weight: bold; color: #ef4444;">0
+                        </div>
+                        <div style="color: #f87171; font-weight: 600;">Critical</div>
+                    </div>
+                    <div class="glass-card" style="text-align: center; padding: 1.5rem;">
+                        <div id="fraudHighCount" style="font-size: 2.5rem; font-weight: bold; color: #f59e0b;">0</div>
+                        <div style="color: #fbbf24; font-weight: 600;">High</div>
+                    </div>
+                    <div class="glass-card" style="text-align: center; padding: 1.5rem;">
+                        <div id="fraudMediumCount" style="font-size: 2.5rem; font-weight: bold; color: #3b82f6;">0</div>
+                        <div style="color: #60a5fa; font-weight: 600;">Medium</div>
+                    </div>
+                    <div class="glass-card" style="text-align: center; padding: 1.5rem;">
+                        <div id="fraudLowCount" style="font-size: 2.5rem; font-weight: bold; color: #10b981;">0</div>
+                        <div style="color: #34d399; font-weight: 600;">Low</div>
+                    </div>
+                </div>
+
+                <!-- Transaction Analysis -->
+                <div class="glass-card" style="margin-bottom: 2rem;">
+                    <div class="action-title">Transaction Analysis</div>
+                    <div style="display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 1rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Account ID</label>
+                            <input type="text" class="form-input" id="fraudAccountId" placeholder="Enter account ID">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Days</label>
+                            <select class="form-input" id="fraudDays">
+                                <option value="7">7 Days</option>
+                                <option value="30" selected>30 Days</option>
+                                <option value="90">90 Days</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="loadHighestRisk('transactions')">
+                            🔍 Analyze
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Highest Risk Transactions -->
+                <div class="glass-card" style="margin-bottom: 2rem;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div class="action-title" style="margin-bottom: 0;">Highest Risk Items</div>
+                        <div>
+                            <button class="btn btn-secondary" onclick="loadHighestRisk('transactions')"
+                                style="margin-right: 0.5rem;">Transactions</button>
+                            <button class="btn btn-secondary" onclick="loadHighestRisk('members')">Members</button>
+                        </div>
+                    </div>
+                    <div id="highestRiskList" style="min-height: 200px;">
+                        <div class="results-empty">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">✅</div>
+                            <div>No High-Risk Transactions</div>
+                            <div style="color: #6b7280; font-size: 0.9rem;">All items are within normal risk parameters
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ML Model Performance -->
+                <div class="glass-card">
+                    <div class="action-title">ML Model Performance</div>
+                    <div id="mlModelMetrics" style="min-height: 100px;">
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.5rem; font-weight: bold; color: var(--neon-emerald);">98.2%
+                                </div>
+                                <div style="color: #6b7280;">Accuracy</div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.5rem; font-weight: bold; color: var(--neon-violet);">0.3%</div>
+                                <div style="color: #6b7280;">False Positive Rate</div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.5rem; font-weight: bold; color: var(--neon-cyan);">12ms</div>
+                                <div style="color: #6b7280;">Avg Response Time</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fraud Tab Navigation -->
+                <div id="fraudTabNav" style="display: none; margin-top: 2rem; margin-bottom: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem;">
+                        <button onclick="showFraudTab('queue')" class="fraud-tab-btn" data-tab="queue"
+                            style="padding: 0.5rem 1rem; background: transparent; border: none; font-weight: 600; color: #6b7280; cursor: pointer;">
+                            🎯 Risk Queue
+                        </button>
+                        <button onclick="showFraudTab('investigate')" class="fraud-tab-btn" data-tab="investigate"
+                            style="padding: 0.5rem 1rem; background: transparent; border: none; font-weight: 600; color: #6b7280; cursor: pointer;">
+                            🔎 Investigation
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Investigation Panel (shown when clicking a risk item) -->
+                <div id="fraud-tab-investigate" style="display: none; margin-top: 1rem;">
+                    <div class="glass-card" style="padding: 2rem;">
+                        <div id="investigationPanel">
+                            <div style="padding: 3rem; text-align: center; color: #6b7280;">
+                                <div style="font-size: 3rem; margin-bottom: 1rem;">🔎</div>
+                                <div style="font-size: 1.1rem; font-weight: 600;">Select a Risk Item</div>
+                                <div style="font-size: 0.9rem;">Click on any item in the Highest Risk list to start an
+                                    investigation</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Real Time (3D Globe) -->
+            <div id="section-realtime" class="section" style="display: none;">
+                <h1 class="page-title">Global Transaction Stream</h1>
+                <p class="page-subtitle">Real-time visualizations of financial activity.</p>
+
+                <div id="globe-container" class="viz-3d-container" style="height: 600px; margin-bottom: 2rem;">
+                    <!-- Three.js Canvas will be injected here -->
+                    <div class="viz-overlay">
+                        <h2 style="color: white; margin: 0;">Live Activity</h2>
+                        <div style="color: var(--neon-emerald);">● 4,203 TPS</div>
+                    </div>
+                </div>
+
+                <!-- Event Feed -->
+                <div class="dashboard-grid">
+                    <div class="glass-card col-span-12">
+                        <div id="eventFeed"
+                            style="font-family: var(--font-mono); color: var(--text-accent); height: 300px; overflow-y: auto;">
+                            <!-- Events -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Loan Officer (Underwriting AI) -->
+            <div id="section-ml-profit" class="section" style="display: none;">
+                <h1 class="page-title">Underwriting Intelligence</h1>
+                <p class="page-subtitle">AI-driven credit risk & profitability analysis.</p>
+
+                <div class="dashboard-grid">
+                    <!-- 3D Risk Visualization -->
+                    <div id="risk-viz-container" class="glass-card col-span-8"
+                        style="height: 400px; padding: 0; position: relative; overflow: hidden;">
+                        <div class="viz-overlay" style="position: absolute; top: 20px; left: 20px; z-index: 10;">
+                            <h3 style="color: var(--text-primary); margin: 0;">Risk vs. LTV Manifold</h3>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">3D Analysis of Portfolio Risk
+                            </div>
+                        </div>
+                        <!-- Canvas injected by JS -->
+                    </div>
+
+                    <!-- Queue Summary -->
+                    <div class="glass-card col-span-4">
+                        <h3>Application Queue</h3>
+                        <div style="font-size: 3rem; font-weight: 700; color: var(--text-primary);"
+                            id="queueCountDisplay">--</div>
+                        <div style="color: var(--text-secondary);">Pending Review</div>
+
+                        <div style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem;"
+                            id="loanQueueContainer">
+                            <!-- Queue Items -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: Executive Dashboard -->
+            <div id="section-executive-dashboard" class="section" style="display: none;">
+                <h1 class="page-title">Executive Overview</h1>
+
+                <div class="dashboard-grid" style="padding: 0; margin-top: 2rem;">
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">Total Assets</div>
+                        <div class="card-value" id="execTotalAssets" style="color: var(--text-primary);">--</div>
+                        <div class="alert-badge success" style="margin-top: 0.5rem;">+4.5% YTD</div>
+                    </div>
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">Net Income</div>
+                        <div class="card-value" style="color: var(--text-primary);">$42.8M</div>
+                        <div class="alert-badge success" style="margin-top: 0.5rem;">+12% YoY</div>
+                    </div>
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">Members</div>
+                        <div class="card-value" id="execMembers" style="color: var(--text-primary);">--</div>
+                    </div>
+                    <div class="glass-card col-span-3">
+                        <div class="card-label">NPS Score</div>
+                        <div class="card-value" id="execNPS" style="color: var(--text-primary);">--</div>
+                    </div>
+
+                    <div class="glass-card col-span-8">
+                        <h3>12-Month Trend</h3>
+                        <div id="execTrendChart" style="height: 300px;"></div>
+                    </div>
+
+                    <div class="glass-card col-span-4">
+                        <h3>Portfolio Mix</h3>
+                        <div id="execLoanPieChart" style="height: 300px;"></div>
+                    </div>
+                </div>
+
+                <!-- Hidden components for Executive JS -->
+                <div id="execROA" style="display:none;"></div>
+                <div id="execNIM" style="display:none;"></div>
+                <div id="execCapital" style="display:none;"></div>
+                <div id="execEfficiency" style="display:none;"></div>
+                <div id="execDelinquency" style="display:none;"></div>
+                <div id="execDeposits" style="display:none;"></div>
+                <div id="execLoans" style="display:none;"></div>
+                <div id="execSegmentList" style="display:none;"></div>
+                <div id="execRiskSummary" style="display:none;"></div>
+                <div id="execAlertsList" style="display:none;"></div>
+            </div>
+
+            <!-- Legacy ID Containers (Visible or Hidden) to prevent JS Errors -->
+            <div style="display: none;">
+                <span id="statTokens"></span><span id="statParty"></span><span id="statAccount"></span><span
+                    id="statTx"></span>
+                <!-- section-transactions moved to proper location above -->
+                <!-- section-anomaly moved to proper location above -->
+                <!-- Old section-ml-profit removed from here -->
+                <div id="section-ml-profit-OLD-REMOVED"></div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Legacy JS Loading (Preserves all existing logic) -->
+    <script src="assets/js/banking_core.js"></script>
+    <script src="assets/js/banking_ui.js"></script>
+    <script src="assets/js/banking_transfers.js"></script>
+    <script src="assets/js/banking_member.js"></script>
+    <script src="assets/js/banking_crosssell.js"></script>
+    <script src="assets/js/banking_lending.js"></script>
+    <script src="assets/js/banking_lending_ai.js"></script>
+    <script src="assets/js/banking_security.js"></script>
+    <script src="assets/js/banking_executive.js"></script>
+    <script src="assets/js/banking_reporting.js"></script>
+    <script src="assets/js/banking_extended.js"></script>
+    <script src="assets/js/banking_cases.js"></script>
+    <script src="assets/js/banking_reports_enterprise.js"></script>
+    <script src="assets/js/banking_realtime.js"></script>
+    <script src="assets/js/banking_loans.js"></script>
+
+    <!-- 3D Visualization Init -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('globe-container');
+            if (container && window.THREE) {
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+                const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                container.appendChild(renderer.domElement);
+
+                // Create Globe
+                const geometry = new THREE.SphereGeometry(2, 32, 32);
+                const material = new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: true, transparent: true, opacity: 0.3 });
+                const sphere = new THREE.Mesh(geometry, material);
+                scene.add(sphere);
+
+                // Add Particles
+                const particlesGeometry = new THREE.BufferGeometry();
+                const particlesCount = 500;
+                const posArray = new Float32Array(particlesCount * 3);
+                for (let i = 0; i < particlesCount * 3; i++) {
+                    posArray[i] = (Math.random() - 0.5) * 10;
+                    posArray[i + 1] = (Math.random() - 0.5) * 10;
+                    posArray[i + 2] = (Math.random() - 0.5) * 10;
+                }
+                particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+                const particlesMaterial = new THREE.PointsMaterial({ size: 0.05, color: 0x8b5cf6, transparent: true, opacity: 0.8 });
+                const particlesMesh = new THREE.Points(particlesGeometry, particlesMaterial);
+                scene.add(particlesMesh);
+
+                camera.position.z = 5;
+
+                function animate() {
+                    requestAnimationFrame(animate);
+                    sphere.rotation.y += 0.005;
+                    particlesMesh.rotation.y -= 0.001;
+                    particlesMesh.rotation.x += 0.0005;
+                    renderer.render(scene, camera);
+                }
+                animate();
+
+                // Handle Resize
+                window.addEventListener('resize', () => {
+                    if (container.clientWidth > 0 && container.clientHeight > 0) {
+                        camera.aspect = container.clientWidth / container.clientHeight;
+                        camera.updateProjectionMatrix();
+                        renderer.setSize(container.clientWidth, container.clientHeight);
+                    }
+                });
+            } else {
+                console.warn('Three.js not loaded or container missing');
+            }
+        });
+    </script>
+</body>
+
+</html>

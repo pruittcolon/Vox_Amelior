@@ -7,11 +7,12 @@ This directory contains Kubernetes manifests for deploying the Nemo platform on 
 ```
 k8s/
 ├── base/                    # Base manifests (kustomize)
-│   ├── deployments.yaml     # All 10 service deployments
+│   ├── deployments.yaml     # All 11 service deployments
 │   ├── services.yaml        # ClusterIP service definitions
 │   ├── secrets.yaml         # Secret references (DO NOT commit real secrets)
 │   ├── namespace.yaml       # nemo namespace
 │   ├── nvidia-device-plugin.yaml  # GPU support with time-slicing
+│   ├── network-policies.yaml      # Default-deny + service allow rules
 │   ├── nginx-ingress.yaml   # Ingress controller
 │   ├── ingress.yaml         # Routing rules
 │   └── kustomization.yaml   # Kustomize config
@@ -86,26 +87,26 @@ kubectl port-forward svc/api-gateway 8000:8000 -n nemo
 
 ---
 
-## 🏗️ Services Overview
+## Services Overview
 
 | Service | Port | Description | GPU |
 |---------|------|-------------|-----|
-| **api-gateway** | 8000 | Central entry point, auth, routing | ❌ |
-| **gemma-service** | 8001 | Gemma 3-4B LLM inference | ✅ |
-| **gpu-coordinator** | 8002 | GPU semaphore & task scheduling | ❌ |
-| **transcription-service** | 8003 | ASR + Speaker Diarization (Parakeet) | ✅* |
-| **rag-service** | 8004 | Vector DB & semantic search | ❌ |
-| **emotion-service** | 8005 | Sentiment analysis | ❌ |
-| **ml-service** | 8006 | AutoML & System 2 validation | ❌ |
-| **insights-service** | 8010 | Business analytics | ❌ |
-| **redis** | 6379 | Caching & semaphore locks | ❌ |
-| **postgres** | 5432 | Persistent storage | ❌ |
+| **api-gateway** | 8000 | Central entry point, auth, routing | No |
+| **gemma-service** | 8001 | Gemma 3-4B LLM inference | Yes |
+| **gpu-coordinator** | 8002 | GPU semaphore & task scheduling | No |
+| **transcription-service** | 8003 | ASR + Speaker Diarization (Parakeet) | Yes* |
+| **rag-service** | 8004 | Vector DB & semantic search | No |
+| **emotion-service** | 8005 | Sentiment analysis | No |
+| **ml-service** | 8006 | AutoML & System 2 validation | No |
+| **insights-service** | 8010 | Business analytics | No |
+| **redis** | 6379 | Caching & semaphore locks | No |
+| **postgres** | 5432 | Persistent storage | No |
 
 *Transcription uses GPU via coordinator handoff (starts on CPU).
 
 ---
 
-## 🎮 GPU Sharing Architecture
+## GPU Sharing Architecture
 
 Since consumer GPUs (6-8GB VRAM) can't run multiple AI models simultaneously, we use:
 
@@ -140,6 +141,32 @@ Required secrets:
 - `session_key` (32-byte base64)
 - `jwt_secret_primary` / `jwt_secret_previous` / `jwt_secret`
 - `users_db_key` (encryption key)
+- `redis_password` (Redis authentication)
+
+---
+
+## 🔐 Network Policies
+
+The cluster implements **default-deny** policies with explicit service-to-service allow rules:
+
+### Default Deny
+```yaml
+# All ingress to nemo namespace is denied by default
+# Only explicitly allowed traffic passes
+```
+
+### Service Allow Rules
+| From | To | Port | Purpose |
+|------|-----|------|---------|
+| nginx | api-gateway | 8000 | Reverse proxy |
+| api-gateway | gemma-service | 8001 | LLM inference |
+| api-gateway | transcription | 8003 | ASR processing |
+| api-gateway | rag-service | 8004 | Semantic search |
+| api-gateway | emotion-service | 8005 | Sentiment |
+| api-gateway | insights-service | 8010 | Analytics |
+| gpu-coordinator | redis | 6379 | Lock management |
+| transcription | redis | 6379 | Pause/resume |
+| rag-service | postgres | 5432 | Data storage |
 
 ---
 

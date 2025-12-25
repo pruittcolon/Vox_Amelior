@@ -3,18 +3,18 @@ Centralized Configuration
 Includes TEST_MODE for security testing
 """
 
-import os
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 
 class SecurityConfig:
     """Security configuration"""
-    
+
     # Test mode flag (NEVER enable in production!)
     TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
-    
+
     # Security features - controlled by TEST_MODE
     ENABLE_DB_ENCRYPTION = not TEST_MODE
     ENABLE_SERVICE_AUTH = not TEST_MODE
@@ -22,19 +22,19 @@ class SecurityConfig:
     ENABLE_AUDIT_LOGGING = True  # Always on
     ENABLE_CSRF = not TEST_MODE
     ENABLE_IP_WHITELIST = not TEST_MODE
-    
+
     # CSRF settings
     CSRF_COOKIE_NAME = os.getenv("CSRF_COOKIE_NAME", "ws_csrf")
     CSRF_HEADER_NAME = os.getenv("CSRF_HEADER_NAME", "X-CSRF-Token")
-    
+
     # Session settings
     SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "ws_session")
     SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
     SESSION_DURATION_SECONDS = int(os.getenv("SESSION_DURATION_SECONDS", "86400"))  # 24 hours
-    
+
     # Audit settings
     AUDIT_RETENTION_DAYS = int(os.getenv("AUDIT_RETENTION_DAYS", "90"))
-    
+
     # Warn if TEST_MODE is enabled
     if TEST_MODE:
         logger.warning("")
@@ -53,7 +53,7 @@ class SecurityConfig:
 
 class DatabaseConfig:
     """Database configuration"""
-    
+
     # PostgreSQL (for task persistence)
     POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
     try:
@@ -63,7 +63,7 @@ class DatabaseConfig:
     POSTGRES_DB = os.getenv("POSTGRES_DB", "nemo_queue")
     POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
-    
+
     @classmethod
     def get_postgres_url(cls) -> str:
         """Get PostgreSQL connection URL"""
@@ -72,7 +72,7 @@ class DatabaseConfig:
 
 class RedisConfig:
     """Redis configuration"""
-    
+
     REDIS_HOST = os.getenv("REDIS_HOST", "redis")
     try:
         REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -80,7 +80,7 @@ class RedisConfig:
         REDIS_PORT = 6379
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
-    
+
     @classmethod
     def get_redis_url(cls) -> str:
         """Get Redis connection URL"""
@@ -91,7 +91,7 @@ class RedisConfig:
 
 class ServiceConfig:
     """Service URLs and ports"""
-    
+
     GPU_COORDINATOR_URL = os.getenv("GPU_COORDINATOR_URL", "http://gpu-coordinator:8002")
     GEMMA_SERVICE_URL = os.getenv("GEMMA_SERVICE_URL", "http://gemma-service:8001")
     RAG_SERVICE_URL = os.getenv("RAG_SERVICE_URL", "http://rag-service:8004")
@@ -99,11 +99,12 @@ class ServiceConfig:
     EMOTION_SERVICE_URL = os.getenv("EMOTION_SERVICE_URL", "http://emotion-service:8005")
     API_SERVICE_URL = os.getenv("API_SERVICE_URL", "http://api-service:8000")
 
+
 class RAGConfig:
     """RAG Service specific configuration"""
+
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     DB_PATH = os.getenv("DB_PATH", "/app/instance/rag.db")
     FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "/app/faiss_index/index.bin")
     HF_HOME = os.getenv("HF_HOME", "/app/models")
     RAG_ENABLE_SEMANTIC = os.getenv("RAG_ENABLE_SEMANTIC", "true").lower() == "true"
-

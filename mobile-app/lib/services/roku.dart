@@ -1,5 +1,13 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+// Debug logging helper
+void _log(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 class RokuRemote {
   // --- Configuration ---
@@ -10,8 +18,10 @@ class RokuRemote {
   // --- Constructor ---
   RokuRemote() {
     if (_baseUrl.isEmpty) {
-      print(
-          "ERROR: ROKU_BASE_URL is not set in .env file. Roku remote will not work.");
+      if (kDebugMode) {
+        debugPrint(
+            "ERROR: ROKU_BASE_URL is not set in .env file. Roku remote will not work.");
+      }
     }
     _dio = Dio(BaseOptions(baseUrl: _baseUrl));
   }
@@ -22,15 +32,17 @@ class RokuRemote {
     try {
       final response = await _dio.post('/keypress/$key');
       if (response.statusCode == 200) {
-        print('Roku command "$key" sent successfully.');
+        _log('Roku command "$key" sent successfully.');
         return true;
       } else {
-        print(
-            'Failed to send Roku command "$key". Status: ${response.statusCode}');
+        if (kDebugMode) {
+          debugPrint(
+              'Failed to send Roku command "$key". Status: ${response.statusCode}');
+        }
         return false;
       }
     } catch (e) {
-      print('Error sending Roku command "$key": $e');
+      _log('Error sending Roku command "$key": $e');
       return false;
     }
   }

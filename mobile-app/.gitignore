@@ -14,6 +14,9 @@ android/app/.cxx/
 .env.*
 !.env.example
 
+# OAuth credentials (NEVER commit these)
+assets/secrets/
+
 # Optional local interview content (keep private)
 assets/interview/resume.txt
 assets/interview/projects.txt

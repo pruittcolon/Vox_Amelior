@@ -3,24 +3,26 @@ Gemma Advanced Analysis Module
 Analyzes conversation transcripts for patterns, fallacies, emotional triggers
 Saves all responses to /app/instance/gemma_responses/ for record-keeping
 """
+
+import inspect
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-import inspect
+from typing import Any
+
 import httpx
-import logging
 
 
 class GemmaAnalyzer:
     """Handles advanced conversation analysis using Gemma AI"""
-    
+
     def __init__(
         self,
         rag_url: str,
         data_dir: str = "/app/instance/gemma_responses",
-        default_prompt_template: Optional[str] = None,
+        default_prompt_template: str | None = None,
     ):
         self.rag_url = rag_url
         self.data_dir = Path(data_dir)
@@ -33,7 +35,7 @@ class GemmaAnalyzer:
         except Exception:
             self.model_context_window = 2048
 
-    def _load_default_prompt(self, override: Optional[str]) -> str:
+    def _load_default_prompt(self, override: str | None) -> str:
         """
         Determine the default prompt template in this precedence order:
           1. Explicit override passed to the constructor
@@ -89,19 +91,19 @@ Provide your analysis in clear, structured sections."""
 
     async def fetch_transcripts(
         self,
-        speakers: Optional[List[str]] = None,
-        emotions: Optional[List[str]] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        speakers: list[str] | None = None,
+        emotions: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 20,
-        headers: Optional[Dict[str, str]] = None,
-        keywords: Optional[str] = None,
+        headers: dict[str, str] | None = None,
+        keywords: str | None = None,
         match: str = "any",
         search_type: str = "keyword",
         context_lines: int = 3,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Fetch transcript segments from RAG service using /transcripts/query with graceful fallback."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "limit": limit,
             "offset": 0,
             "sort_by": "created_at",
@@ -138,8 +140,11 @@ Provide your analysis in clear, structured sections."""
                 if items:
                     return items[:limit]
         except httpx.HTTPStatusError as exc:
-            self._logger.warning("/transcripts/query failed (%s): %s; falling back to /transcripts/recent",
-                                 getattr(exc.response, 'status_code', 'n/a'), str(exc))
+            self._logger.warning(
+                "/transcripts/query failed (%s): %s; falling back to /transcripts/recent",
+                getattr(exc.response, "status_code", "n/a"),
+                str(exc),
+            )
         except Exception as exc:
             self._logger.warning("/transcripts/query error: %s; falling back to /transcripts/recent", exc)
 
@@ -159,7 +164,7 @@ Provide your analysis in clear, structured sections."""
             self._logger.error("Fallback /transcripts/recent failed: %s", exc)
             return []
 
-        segs_out: List[Dict[str, Any]] = []
+        segs_out: list[dict[str, Any]] = []
         speakers_set = {s.lower() for s in (speakers or [])}
         emotions_set = {e.lower() for e in (emotions or [])}
         kw_list = [k.strip().lower() for k in (keywords or "").split(",") if k.strip()]
@@ -182,42 +187,46 @@ Provide your analysis in clear, structured sections."""
                         continue
                     if not require_all and not hits:
                         continue
-                context_before: List[Dict[str, Any]] = []
+                context_before: list[dict[str, Any]] = []
                 if ctx:
                     start_idx = max(0, idx - ctx)
                     for j in range(start_idx, idx):
                         prev = segs[j]
-                        context_before.append({
-                            "speaker": prev.get("speaker"),
-                            "text": prev.get("text"),
-                            "emotion": prev.get("emotion") or tr.get("dominant_emotion"),
-                        })
-                segs_out.append({
-                    "segment_id": seg.get("id") or f"fallback-{tr.get('job_id','job')}-{idx}",
-                    "transcript_id": tr.get("id"),
-                    "job_id": tr.get("job_id"),
-                    "speaker": seg.get("speaker"),
-                    "emotion": seg.get("emotion") or tr.get("dominant_emotion"),
-                    "text": text_val,
-                    "created_at": created,
-                    "start_time": seg.get("start_time"),
-                    "end_time": seg.get("end_time"),
-                    "context_before": context_before,
-                })
+                        context_before.append(
+                            {
+                                "speaker": prev.get("speaker"),
+                                "text": prev.get("text"),
+                                "emotion": prev.get("emotion") or tr.get("dominant_emotion"),
+                            }
+                        )
+                segs_out.append(
+                    {
+                        "segment_id": seg.get("id") or f"fallback-{tr.get('job_id', 'job')}-{idx}",
+                        "transcript_id": tr.get("id"),
+                        "job_id": tr.get("job_id"),
+                        "speaker": seg.get("speaker"),
+                        "emotion": seg.get("emotion") or tr.get("dominant_emotion"),
+                        "text": text_val,
+                        "created_at": created,
+                        "start_time": seg.get("start_time"),
+                        "end_time": seg.get("end_time"),
+                        "context_before": context_before,
+                    }
+                )
                 if len(segs_out) >= limit:
                     return segs_out
         return segs_out[:limit]
-    
-    def format_transcripts_for_analysis(self, transcripts: List[Dict[str, Any]]) -> str:
+
+    def format_transcripts_for_analysis(self, transcripts: list[dict[str, Any]]) -> str:
         """Format transcripts into readable text for Gemma"""
         formatted_lines = []
-        
+
         for i, t in enumerate(transcripts, 1):
             speaker = t.get("speaker") or t.get("primary_speaker") or "Unknown"
             text = t.get("text") or t.get("full_text") or t.get("snippet") or ""
             emotion = t.get("emotion") or t.get("dominant_emotion") or "neutral"
             timestamp = t.get("created_at") or t.get("timestamp") or ""
-            
+
             formatted_lines.append(f"--- Transcript {i} ---")
             formatted_lines.append(f"Speaker: {speaker}")
             formatted_lines.append(f"Emotion: {emotion}")
@@ -233,7 +242,7 @@ Provide your analysis in clear, structured sections."""
                     ce = ctx.get("emotion") or ""
                     formatted_lines.append(f"  - {cs}{' (' + ce + ')' if ce else ''}: {ct}")
             formatted_lines.append(f"Text: {text}")
-            
+
             # Add segments if available
             segments = t.get("segments") or []
             if segments and isinstance(segments, list):
@@ -245,24 +254,24 @@ Provide your analysis in clear, structured sections."""
                         seg_emotion = seg.get("emotion") or "neutral"
                         if seg_text:
                             formatted_lines.append(f"  {j}. [{seg_speaker}] ({seg_emotion}): {seg_text}")
-            
+
             formatted_lines.append("")  # Blank line between transcripts
-        
+
         return "\n".join(formatted_lines)
-    
+
     def save_response(
         self,
         analysis_type: str,
-        filters: Dict[str, Any],
+        filters: dict[str, Any],
         custom_prompt: str,
         transcripts_count: int,
         gemma_response: str,
         model: str,
-        processing_time: float
+        processing_time: float,
     ) -> str:
         """Save Gemma response to file and return filepath"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         # Create filename from filters
         filter_parts = []
         if filters.get("speakers"):
@@ -271,11 +280,11 @@ Provide your analysis in clear, structured sections."""
             filter_parts.append(f"emotions_{'-'.join(filters['emotions'][:2])}")
         if filters.get("start_date"):
             filter_parts.append(f"from_{filters['start_date']}")
-        
+
         filter_summary = "_".join(filter_parts) if filter_parts else "all"
         filename = f"{timestamp}_{analysis_type}_{filter_summary}.json"
         filepath = self.data_dir / filename
-        
+
         # Prepare data
         data = {
             "timestamp": datetime.now().isoformat(),
@@ -285,27 +294,27 @@ Provide your analysis in clear, structured sections."""
             "transcripts_analyzed": transcripts_count,
             "gemma_response": gemma_response,
             "model": model,
-            "processing_time_seconds": round(processing_time, 2)
+            "processing_time_seconds": round(processing_time, 2),
         }
-        
+
         # Save to file
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        
+
         return str(filepath)
-    
+
     async def run_analysis(
         self,
         llm_callable,
-        filters: Dict[str, Any],
-        custom_prompt: Optional[str] = None,
+        filters: dict[str, Any],
+        custom_prompt: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.3,
-        service_headers: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
+        service_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Run comprehensive analysis with custom prompt
-        
+
         Args:
             llm_callable: The Gemma LLM function to call
             filters: Dict with speakers, emotions, start_date, end_date, limit
@@ -313,13 +322,15 @@ Provide your analysis in clear, structured sections."""
             max_tokens: Max tokens for Gemma response
             temperature: Temperature for Gemma generation
             service_headers: Service auth headers for RAG requests
-        
+
         Returns:
             Dict with analysis results and saved file path
         """
         start_time = datetime.now()
-        
-        self._logger.info("run_analysis filters=%s custom_prompt=%s limit=%s", filters, bool(custom_prompt), filters.get("limit", 20))
+
+        self._logger.info(
+            "run_analysis filters=%s custom_prompt=%s limit=%s", filters, bool(custom_prompt), filters.get("limit", 20)
+        )
         # Fetch transcripts
         transcripts = await self.fetch_transcripts(
             speakers=filters.get("speakers"),
@@ -333,14 +344,11 @@ Provide your analysis in clear, structured sections."""
             search_type=filters.get("search_type", "keyword"),
             context_lines=filters.get("context_lines", 3),
         )
-        
+
         if not transcripts:
             self._logger.warning("No transcripts found for filters=%s", filters)
-            return {
-                "success": False,
-                "error": "No transcripts found matching the filters"
-            }
-        
+            return {"success": False, "error": "No transcripts found matching the filters"}
+
         # Format transcripts
         formatted_transcripts = self.format_transcripts_for_analysis(transcripts)
 
@@ -367,9 +375,7 @@ Provide your analysis in clear, structured sections."""
             # Keep the last portion of the transcripts (most recent context)
             trimmed_transcripts = formatted_transcripts[-allowed_chars:]
             # Add a small header to indicate truncation
-            trimmed_transcripts = (
-                "[TRUNCATED: only the most recent transcripts included]\n" + trimmed_transcripts
-            )
+            trimmed_transcripts = "[TRUNCATED: only the most recent transcripts included]\n" + trimmed_transcripts
             final_prompt = prompt_template.replace("{transcripts}", trimmed_transcripts)
             self._logger.info(
                 "Prompt trimmed from %s tokens to %s (context window %s)",
@@ -382,24 +388,22 @@ Provide your analysis in clear, structured sections."""
             self._logger.debug("Prompt size %s tokens within context window %s", estimated_tokens, model_context_window)
 
         # Call Gemma
-        response = llm_callable(
-            prompt=final_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature
-        )
+        response = llm_callable(prompt=final_prompt, max_tokens=max_tokens, temperature=temperature)
         if inspect.isawaitable(response):
             response = await response
-        
+
         # Extract response text
         gemma_text = ""
         model_name = "gemma-3-4b-it"
-        
+
         if isinstance(response, dict):
-            gemma_text = response.get("text") or response.get("response") or response.get("choices", [{}])[0].get("text", "")
+            gemma_text = (
+                response.get("text") or response.get("response") or response.get("choices", [{}])[0].get("text", "")
+            )
             model_name = response.get("model") or model_name
         else:
             gemma_text = str(response)
-        
+
         # Calculate processing time
         processing_time = (datetime.now() - start_time).total_seconds()
         self._logger.info(
@@ -417,9 +421,9 @@ Provide your analysis in clear, structured sections."""
             transcripts_count=len(transcripts),
             gemma_response=gemma_text,
             model=model_name,
-            processing_time=processing_time
+            processing_time=processing_time,
         )
-        
+
         return {
             "success": True,
             "analysis": gemma_text,
@@ -428,5 +432,5 @@ Provide your analysis in clear, structured sections."""
             "model": model_name,
             "saved_to": saved_file,
             "filters_applied": filters,
-            "prompt_used": final_prompt[:200] + "..." if len(final_prompt) > 200 else final_prompt
+            "prompt_used": final_prompt[:200] + "..." if len(final_prompt) > 200 else final_prompt,
         }

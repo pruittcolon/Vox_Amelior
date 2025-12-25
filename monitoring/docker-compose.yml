@@ -1,0 +1,94 @@
+# Nemo Server Monitoring Stack
+# 2025 LGTM Stack: Loki, Grafana, Tempo, Mimir/Prometheus
+
+version: "3.8"
+
+services:
+  # ============================================================
+  # Prometheus 3.0 - Metrics (with native OTLP receiver)
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:v3.0.0
+    container_name: nemo_prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--enable-feature=otlp-write-receiver' # 2025: Native OTLP
+    ports:
+      - "9090:9090"
+    networks:
+      - nemo_monitoring
+    restart: unless-stopped
+
+  # ============================================================
+  # Grafana 11 - Visualization
+  # ============================================================
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: nemo_grafana
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - nemo_monitoring
+    restart: unless-stopped
+
+  # ============================================================
+  # Loki 3.0 - Logs
+  # ============================================================
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: nemo_loki
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    networks:
+      - nemo_monitoring
+    restart: unless-stopped
+
+  # ============================================================
+  # Tempo 2.6 - Traces
+  # ============================================================
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: nemo_tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./tempo/tempo-config.yml:/etc/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "3200:3200" # Tempo API
+    networks:
+      - nemo_monitoring
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
+
+
+networks:
+  nemo_monitoring:
+    name: nemo_monitoring
+    driver: bridge

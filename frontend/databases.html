@@ -1,150 +1,163 @@
-<title>Nemo Server - LLM Vectorization</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
-    rel="stylesheet">
-<script src="https://unpkg.com/lucide@latest"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<link rel="stylesheet" href="assets/css/main.css?v=2024111201">
-<link rel="stylesheet" href="assets/css/design-tokens.css?v=2024111201">
-<link rel="stylesheet" href="assets/css/components.css?v=2024111201">
-<link rel="stylesheet" href="assets/css/animations.css?v=2024111201">
-<link rel="stylesheet" href="assets/css/analyzer.css?v=2024111201">
-<style>
-    /* Premium Glassmorphism Theme */
-    .suite-hero {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 3rem 2rem;
-        border-radius: 24px;
-        margin-bottom: 2rem;
-        box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
-        animation: pulse-glow 3s ease-in-out infinite;
-    }
+<!DOCTYPE html>
+<html lang="en">
 
-    @keyframes pulse-glow {
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:;">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <title>LLM Vectorization - Vox Amelior</title>
 
-        0%,
-        100% {
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+    <link rel="stylesheet" href="assets/css/main.css?v=2024111201">
+    <link rel="stylesheet" href="assets/css/design-tokens.css?v=2024111201">
+    <link rel="stylesheet" href="assets/css/components.css?v=2024111201">
+    <link rel="stylesheet" href="assets/css/animations.css?v=2024111201">
+    <link rel="stylesheet" href="assets/css/analyzer.css?v=2024111201">
+
+    <!-- Vox Amelior Design System -->
+    <link rel="stylesheet" href="assets/css/vox-amelior.css">
+
+    <style>
+        /* Premium Glassmorphism Theme */
+        .suite-hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 3rem 2rem;
+            border-radius: 24px;
+            margin-bottom: 2rem;
             box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
+            animation: pulse-glow 3s ease-in-out infinite;
         }
 
-        50% {
-            box-shadow: 0 25px 70px rgba(102, 126, 234, 0.6);
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 25px 70px rgba(102, 126, 234, 0.6);
+            }
         }
-    }
 
-    .upload-zone {
-        border: 3px dashed var(--glass-border);
-        border-radius: 16px;
-        padding: 3rem;
-        text-align: center;
-        background: rgba(255, 255, 255, 0.03);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        cursor: pointer;
-    }
-
-    .upload-zone:hover,
-    .upload-zone.drag-over {
-        border-color: #8b5cf6;
-        background: rgba(139, 92, 246, 0.1);
-        transform: translateY(-4px);
-        box-shadow: 0 12px 40px rgba(139, 92, 246, 0.3);
-    }
-
-    .progress-pipeline {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin: 2rem 0;
-    }
-
-    .pipeline-step {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid var(--glass-border);
-        border-radius: 12px;
-        padding: 1.5rem;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .pipeline-step::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 0%;
-        height: 4px;
-        background: linear-gradient(90deg, #8b5cf6, #3b82f6);
-        transition: width 0.5s ease;
-    }
-
-    .pipeline-step.active::before {
-        width: 100%;
-    }
-
-    .pipeline-step.complete {
-        background: rgba(34, 197, 94, 0.1);
-        border-color: rgba(34, 197, 94, 0.4);
-    }
-
-    .results-column {
-        max-height: 600px;
-        overflow-y: auto;
-    }
-
-    .spinner {
-        width: 20px;
-        height: 20px;
-        border: 3px solid rgba(255, 255, 255, 0.3);
-        border-top-color: #8b5cf6;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        to {
-            transform: rotate(360deg);
+        .upload-zone {
+            border: 3px dashed var(--glass-border);
+            border-radius: 16px;
+            padding: 3rem;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.03);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
         }
-    }
-</style>
-<script src="assets/js/api.js?v=2024111201"></script>
-<script src="assets/js/app.js?v=2024110101"></script>
-<script src="assets/js/auth.js?v=2024110101"></script>
+
+        .upload-zone:hover,
+        .upload-zone.drag-over {
+            border-color: #8b5cf6;
+            background: rgba(139, 92, 246, 0.1);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(139, 92, 246, 0.3);
+        }
+
+        .progress-pipeline {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .pipeline-step {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pipeline-step::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0%;
+            height: 4px;
+            background: linear-gradient(90deg, #8b5cf6, #3b82f6);
+            transition: width 0.5s ease;
+        }
+
+        .pipeline-step.active::before {
+            width: 100%;
+        }
+
+        .pipeline-step.complete {
+            background: rgba(34, 197, 94, 0.1);
+            border-color: rgba(34, 197, 94, 0.4);
+        }
+
+        .results-column {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #8b5cf6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+
+    <script src="assets/js/api.js?v=2024111201"></script>
+    <script src="assets/js/app.js?v=2024110101"></script>
+    <script src="assets/js/auth.js?v=2024110101"></script>
 </head>
 
 <body class="gemma-theme">
 
-    <header class="glass-header">
-        <div class="container">
-            <div class="flex-between">
-                <div class="flex">
-                    <h1
-                        style="font-size: 1.5rem; margin: 0; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                        💎 LLM Vectorization
-                    </h1>
+    <!-- Navigation (Vox Amelior) -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="assets/images/logo.png" alt="Vox Amelior Logo">
                 </div>
-                <nav class="nav">
-                    <a href="index.html" class="nav-link">Dashboard</a>
-                    <a href="search.html" class="nav-link">Search</a>
-                    <a href="gemma.html" class="nav-link">AI Insights</a>
-                    <a href="databases.html" class="nav-link active">LLM Vectorization</a>
-                    <a href="predictions.html" class="nav-link">ML Service</a>
-                    <a href="settings.html" class="nav-link">Settings</a>
-                </nav>
-                <div class="flex" style="gap: 1rem; align-items: center;">
-                    <span id="current-user" style="color: var(--text-secondary); font-size: 0.9rem;"></span>
-                    <button id="logout-btn" class="glass-button" style="display:none;" title="Logout">
-                        <i data-lucide="log-out" style="width:18px;height:18px;"></i>
-                    </button>
-                    <button class="glass-button" data-toggle-theme>
-                        <i data-lucide="moon" style="width:18px;height:18px;"></i>
-                    </button>
-                    <div id="api-status"></div>
-                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="index.html" class="vox-nav-link">Dashboard</a>
+                <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="nexus.html" class="vox-nav-link">Analytics</a>
+                <a href="databases.html" class="vox-nav-link active">Vectorization</a>
+                <a href="settings.html" class="vox-nav-link">Settings</a>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <span id="current-user" style="color: var(--vox-grey-500); font-size: 0.9rem;"></span>
+                <div id="api-status"></div>
+                <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
             </div>
         </div>
-    </header>
+    </nav>
+
 
     <main class="container" style="padding-top:2rem;padding-bottom:2rem;">
         <!-- Hero Section -->
@@ -172,9 +185,11 @@
             <div class="upload-zone" id="upload-zone">
                 <i data-lucide="database" style="width:64px;height:64px;margin-bottom:1rem;color:#8b5cf6;"></i>
                 <h3>Drag & Drop Your Database</h3>
-                <p class="text-muted">Supports: SQLite (.db, .sqlite), CSV (.csv), JSON (.json)</p>
+                <p class="text-muted">Supports: CSV, Excel, JSON, Parquet, SQLite</p>
                 <p class="text-muted" style="font-size:0.85rem;">Max size: 100MB</p>
-                <input type="file" id="file-input" accept=".csv,.db,.sqlite,.json" style="display:none;">
+                <input type="file" id="file-input"
+                    accept=".csv,.tsv,.txt,.json,.jsonl,.ndjson,.xlsx,.xls,.parquet,.db,.sqlite,.sqlite3"
+                    style="display:none;">
                 <button class="btn btn-primary" style="margin-top:1rem;"
                     onclick="document.getElementById('file-input').click()">
                     <i data-lucide="folder-open" style="width:18px;height:18px;"></i>
@@ -369,7 +384,7 @@
                         <i data-lucide="refresh-cw" style="width:18px;height:18px;"></i>
                         Test Again
                     </button>
-                    <a href="predictions.html" class="btn btn-primary"
+                    <a href="nexus.html" class="btn btn-primary"
                         style="display: inline-flex; align-items: center; gap: 0.5rem;">
                         <i data-lucide="arrow-right" style="width:18px;height:18px;"></i>
                         Go to Full ML Service
@@ -464,6 +479,17 @@
             return null;
         }
 
+        // Extract error message from API response
+        function extractErrorMessage(detail, fallback = 'Unknown error') {
+            if (!detail) return fallback;
+            if (typeof detail === 'string') return detail;
+            if (typeof detail === 'object') {
+                // API gateway returns {service, status, request_id, message}
+                return detail.message || detail.error || detail.detail || JSON.stringify(detail);
+            }
+            return String(detail);
+        }
+
         async function startAnalysis() {
             if (!currentDatabase) {
                 alert('Please select a database file first');
@@ -492,7 +518,7 @@
                 });
                 const uploadData = await uploadRes.json();
 
-                if (!uploadRes.ok) throw new Error(uploadData.detail || 'Upload failed');
+                if (!uploadRes.ok) throw new Error(extractErrorMessage(uploadData.detail, 'Upload failed'));
 
                 uploadedFilename = uploadData.filename;
                 uploadStatus.textContent = '✓ Uploaded';
@@ -526,7 +552,7 @@
                 });
                 const vecData = await vecRes.json();
 
-                if (!vecRes.ok) throw new Error(vecData.detail || 'Vectorization failed');
+                if (!vecRes.ok) throw new Error(extractErrorMessage(vecData.detail, 'Vectorization failed'));
 
                 // Poll for completion
                 const jobId = vecData.job_id;
@@ -544,7 +570,7 @@
                         completed = true;
                         vecStatus.textContent = '✓ Vectorized';
                     } else if (statusData.status === 'failed') {
-                        throw new Error(statusData.error || 'Vectorization failed');
+                        throw new Error(extractErrorMessage(statusData.error, 'Vectorization failed'));
                     } else {
                         // Update progress
                         const progress = statusData.progress || {};
@@ -644,9 +670,15 @@
 
         async function runModelTest(model, useVectorization) {
             // Call analytics endpoint - it will auto-detect the best target column
+            const csrfToken = getCsrfToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (csrfToken) {
+                headers['X-CSRF-Token'] = csrfToken;
+            }
+
             const response = await fetch(`/analytics/premium/${model.endpoint}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 credentials: 'include',
                 body: JSON.stringify({
                     filename: uploadedFilename,
@@ -657,7 +689,7 @@
 
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.detail || `${model.name} test failed`);
+                throw new Error(extractErrorMessage(error.detail, `${model.name} test failed`));
             }
 
             const data = await response.json();

@@ -14,6 +14,12 @@ class LogEntry {
     required this.message,
     required this.isError,
   });
+
+  /// Format as ISO timestamp with milliseconds
+  String get formattedTimestamp => timestamp.toIso8601String();
+
+  @override
+  String toString() => '[$formattedTimestamp] [$tag] $message';
 }
 
 class AppLogger {
@@ -33,7 +39,27 @@ class AppLogger {
       message: message,
       isError: isError,
     );
-    debugPrint('[][] ');
+    
+    // Actually output the log with proper formatting
+    final prefix = isError ? '❌' : '📋';
+    debugPrint('$prefix [${entry.formattedTimestamp}] [$tag] $message');
+    
+    if (!_controller.isClosed) {
+      _controller.add(entry);
+    }
+  }
+
+  /// Log with timing category
+  void logTiming(String tag, String message, int durationMs) {
+    final entry = LogEntry(
+      timestamp: DateTime.now(),
+      tag: 'TIMING:$tag',
+      message: '$message (${durationMs}ms)',
+      isError: false,
+    );
+    
+    debugPrint('⏱️ [${entry.formattedTimestamp}] [$tag] $message (${durationMs}ms)');
+    
     if (!_controller.isClosed) {
       _controller.add(entry);
     }

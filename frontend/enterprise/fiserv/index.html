@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Fiserv Banking Integration - AI-powered member analytics, fraud detection, and transaction monitoring.">
+    <title>Fiserv Banking - Vox Amelior Enterprise</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Design Systems -->
+    <link rel="stylesheet" href="../../assets/css/vox-amelior.css">
+    <link rel="stylesheet" href="../css/enterprise.css">
+    <link rel="stylesheet" href="../css/animations.css">
+</head>
+
+<body class="enterprise-light">
+    <!-- Floating Blobs -->
+    <div class="ent-floating-layer">
+        <div class="ent-blob ent-blob-1"></div>
+        <div class="ent-blob ent-blob-2"></div>
+        <div class="ent-blob ent-blob-3"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="../../index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="../../assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="../../index.html" class="vox-nav-link">Dashboard</a>
+                <a href="../../gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="../../predictions.html" class="vox-nav-link">Analytics</a>
+
+                <!-- Enterprise Dropdown -->
+                <div class="ent-nav-dropdown">
+                    <button class="ent-nav-dropdown-trigger" style="color: var(--vox-primary);">
+                        Enterprise <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+                    </button>
+                    <div class="ent-nav-dropdown-menu">
+                        <a href="../index.html" class="ent-nav-dropdown-item">
+                            <span>🏢</span> Overview
+                        </a>
+                        <a href="../salesforce/index.html" class="ent-nav-dropdown-item">
+                            <span>☁️</span> Salesforce CRM
+                        </a>
+                        <a href="index.html" class="ent-nav-dropdown-item"
+                            style="background: var(--ent-primary-subtle);">
+                            <span>🏦</span> Fiserv Banking
+                        </a>
+                    </div>
+                </div>
+
+                <a href="../../settings.html" class="vox-nav-link">Settings</a>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <div class="ent-status ent-status-success" id="apiStatus">
+                    <span class="ent-status-dot"></span>
+                    <span id="apiStatusText">Connecting...</span>
+                </div>
+                <a href="../../login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="ent-main-content">
+        <div class="ent-container">
+
+            <!-- Breadcrumb -->
+            <div style="margin-bottom: 2rem;">
+                <a href="../index.html"
+                    style="color: var(--ent-text-muted); text-decoration: none; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+                    <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i>
+                    Back to Enterprise
+                </a>
+            </div>
+
+            <!-- Hero with Bubble Summary -->
+            <section
+                style="display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; align-items: center; margin-bottom: 4rem;">
+
+                <!-- Left: Info -->
+                <div>
+                    <div class="ent-hero-badge" style="margin-bottom: 1rem;">
+                        <span class="ent-hero-badge-dot"></span>
+                        Fiserv Integration
+                    </div>
+
+                    <h1 class="ent-hero-title" style="text-align: left;">
+                        <span class="ent-hero-title-accent">Core Banking</span><br>
+                        Intelligence
+                    </h1>
+
+                    <p
+                        style="color: var(--ent-text-secondary); font-size: 1.1rem; line-height: 1.7; margin-bottom: 2rem;">
+                        Experience Fiserv's philosophy: <strong>Know Me</strong>, <strong>Value Me</strong>,
+                        <strong>Make it Easy for Me</strong>. Our AI-powered integration transforms raw
+                        banking data into actionable member insights.
+                    </p>
+
+                    <div style="display: flex; gap: 1rem;">
+                        <a href="../../banking.html" class="ent-btn ent-btn-accent">
+                            <i data-lucide="layout-dashboard" style="width: 18px; height: 18px;"></i>
+                            Open Full Dashboard
+                        </a>
+                        <button class="ent-btn ent-btn-secondary" onclick="refreshData()">
+                            <i data-lucide="refresh-cw" style="width: 18px; height: 18px;"></i>
+                            Refresh Data
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: Bubble Summary Card -->
+                <div class="ent-card ent-bubble-summary hover-lift">
+                    <div class="ent-bubble-icon" style="animation: pulseGlow 2s ease-in-out infinite;">🏦</div>
+                    <h3 class="ent-bubble-title">Fiserv Core</h3>
+                    <p class="ent-bubble-description">
+                        Real-time member and transaction data from your core banking system.
+                    </p>
+                    <div class="ent-bubble-stats">
+                        <div class="ent-bubble-stat">
+                            <div class="ent-bubble-stat-value" id="statMembers">--</div>
+                            <div class="ent-bubble-stat-label">Members</div>
+                        </div>
+                        <div class="ent-bubble-stat">
+                            <div class="ent-bubble-stat-value" id="statAccounts">--</div>
+                            <div class="ent-bubble-stat-label">Accounts</div>
+                        </div>
+                        <div class="ent-bubble-stat">
+                            <div class="ent-bubble-stat-value" id="statTransactions">--</div>
+                            <div class="ent-bubble-stat-label">Daily TXN</div>
+                        </div>
+                    </div>
+
+                    <!-- Mini Transaction Graph -->
+                    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--ent-glass-border);">
+                        <div
+                            style="font-size: 0.75rem; color: var(--ent-text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                            7-Day Transaction Volume</div>
+                        <svg id="txnGraph" width="100%" height="60" viewBox="0 0 280 60" preserveAspectRatio="none">
+                            <defs>
+                                <linearGradient id="txnGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stop-color="var(--ent-primary)" stop-opacity="0.4" />
+                                    <stop offset="100%" stop-color="var(--ent-primary)" stop-opacity="0.05" />
+                                </linearGradient>
+                            </defs>
+                            <!-- Area fill -->
+                            <path id="txnArea" fill="url(#txnGradient)"
+                                d="M0,50 L40,35 L80,40 L120,28 L160,32 L200,22 L240,18 L280,15 L280,60 L0,60 Z"
+                                style="opacity: 0; animation: fadeInUp 0.5s ease forwards; animation-delay: 0.5s;" />
+                            <!-- Line -->
+                            <path id="txnLine" fill="none" stroke="var(--ent-primary)" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round"
+                                d="M0,50 L40,35 L80,40 L120,28 L160,32 L200,22 L240,18 L280,15"
+                                style="stroke-dasharray: 400; stroke-dashoffset: 400; animation: drawLine 1.5s ease forwards; animation-delay: 0.3s;" />
+                            <!-- Data points -->
+                            <g id="txnPoints"
+                                style="opacity: 0; animation: fadeInScale 0.3s ease forwards; animation-delay: 1s;">
+                                <circle cx="0" cy="50" r="3" fill="var(--ent-bg-card)" stroke="var(--ent-primary)"
+                                    stroke-width="2" />
+                                <circle cx="40" cy="35" r="3" fill="var(--ent-bg-card)" stroke="var(--ent-primary)"
+                                    stroke-width="2" />
+                                <circle cx="80" cy="40" r="3" fill="var(--ent-bg-card)" stroke="var(--ent-primary)"
+                                    stroke-width="2" />
+                                <circle cx="120" cy="28" r="3" fill="var(--ent-bg-card)" stroke="var(--ent-primary)"
+                                    stroke-width="2" />
+                                <circle cx="160" cy="32" r="3" fill="var(--ent-bg-card)" stroke="var(--ent-primary)"
+                                    stroke-width="2" />
+                                <circle cx="200" cy="22" r="3" fill="var(--ent-bg-card)" stroke="var(--ent-primary)"
+                                    stroke-width="2" />
+                                <circle cx="240" cy="18" r="3" fill="var(--ent-bg-card)" stroke="var(--ent-primary)"
+                                    stroke-width="2" />
+                                <circle cx="280" cy="15" r="4" fill="var(--ent-success)" stroke="white"
+                                    stroke-width="2" />
+                            </g>
+                        </svg>
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--ent-text-muted); margin-top: 0.25rem;">
+                            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- Feature Grid -->
+            <section>
+                <h2
+                    style="font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem; color: var(--ent-text-primary);">
+                    Banking Capabilities
+                </h2>
+                <p style="color: var(--ent-text-secondary); margin-bottom: 1.5rem;">
+                    Enterprise-grade banking tools powered by Fiserv
+                </p>
+
+                <div class="ent-feature-grid" style="grid-template-columns: repeat(3, 1fr);">
+
+                    <!-- Member Search -->
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon">
+                            <i data-lucide="user-search" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--ent-text-primary);">Member
+                            Search</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                            Universal lookup across name, phone, SSN, and account numbers.
+                        </p>
+                        <a href="../../banking.html#section-party" class="ent-feature-link">
+                            Search Now <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+                        </a>
+                    </div>
+
+                    <!-- Fraud Detection -->
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon"
+                            style="background: rgba(239, 68, 68, 0.1); color: var(--ent-danger);">
+                            <i data-lucide="shield-alert" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--ent-text-primary);">Fraud
+                            Detection</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                            ML-powered anomaly detection with real-time alerting.
+                        </p>
+                        <a href="../../banking.html#section-cases" class="ent-feature-link">
+                            View Alerts <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+                        </a>
+                    </div>
+
+                    <!-- Transactions -->
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon"
+                            style="background: rgba(16, 185, 129, 0.1); color: var(--ent-success);">
+                            <i data-lucide="receipt" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--ent-text-primary);">
+                            Transaction History</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                            Full transaction ledger with filtering and export capabilities.
+                        </p>
+                        <a href="../../banking.html#section-account" class="ent-feature-link">
+                            Browse <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+                        </a>
+                    </div>
+
+                    <!-- Transfers -->
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon"
+                            style="background: rgba(59, 130, 246, 0.1); color: var(--ent-info);">
+                            <i data-lucide="send" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--ent-text-primary);">Fund
+                            Transfers</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                            Internal and external transfers with compliance checks.
+                        </p>
+                        <a href="../../banking.html#section-transfers" class="ent-feature-link">
+                            Transfer <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+                        </a>
+                    </div>
+
+                    <!-- Case Management -->
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
+                            <i data-lucide="scale" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--ent-text-primary);">Case
+                            Management</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                            Dispute resolution and fraud case tracking workflow.
+                        </p>
+                        <a href="../../banking.html#section-cases" class="ent-feature-link">
+                            View Cases <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+                        </a>
+                    </div>
+
+                    <!-- Executive Dashboard -->
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon"
+                            style="background: rgba(245, 158, 11, 0.1); color: var(--ent-warning);">
+                            <i data-lucide="trending-up" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--ent-text-primary);">
+                            Executive View</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                            High-level KPIs and portfolio performance metrics.
+                        </p>
+                        <a href="../../banking.html#section-executive-dashboard" class="ent-feature-link">
+                            Dashboard <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+                        </a>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- Member Insights Analytics -->
+            <section style="margin-top: 4rem;">
+                <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; color: var(--ent-text-primary);">
+                    Member Insights
+                </h2>
+
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem;">
+                    <!-- Account Distribution Chart -->
+                    <div class="ent-card hover-lift" style="padding: 1.5rem;">
+                        <h4 style="font-weight: 600; margin-bottom: 1rem; color: var(--ent-text-primary);">Account Type
+                            Distribution</h4>
+                        <div
+                            style="display: flex; align-items: flex-end; justify-content: space-around; height: 120px; padding-top: 10px;">
+                            <div style="text-align: center;">
+                                <div
+                                    style="width: 40px; height: 65%; background: linear-gradient(180deg, var(--ent-primary) 0%, #3B82F6 100%); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: barGrow 0.8s ease forwards; animation-delay: 0.2s;">
+                                </div>
+                                <span
+                                    style="font-size: 0.7rem; color: var(--ent-text-muted); margin-top: 0.5rem; display: block;">Checking</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <div
+                                    style="width: 40px; height: 85%; background: linear-gradient(180deg, var(--ent-success) 0%, #059669 100%); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: barGrow 0.8s ease forwards; animation-delay: 0.4s;">
+                                </div>
+                                <span
+                                    style="font-size: 0.7rem; color: var(--ent-text-muted); margin-top: 0.5rem; display: block;">Savings</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <div
+                                    style="width: 40px; height: 45%; background: linear-gradient(180deg, var(--ent-warning) 0%, #D97706 100%); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: barGrow 0.8s ease forwards; animation-delay: 0.6s;">
+                                </div>
+                                <span
+                                    style="font-size: 0.7rem; color: var(--ent-text-muted); margin-top: 0.5rem; display: block;">Loans</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <div
+                                    style="width: 40px; height: 30%; background: linear-gradient(180deg, #8B5CF6 0%, #6D28D9 100%); border-radius: 4px 4px 0 0; transform-origin: bottom; animation: barGrow 0.8s ease forwards; animation-delay: 0.8s;">
+                                </div>
+                                <span
+                                    style="font-size: 0.7rem; color: var(--ent-text-muted); margin-top: 0.5rem; display: block;">Credit</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Engagement Score Gauge -->
+                    <div class="ent-card hover-lift" style="padding: 1.5rem;">
+                        <h4 style="font-weight: 600; margin-bottom: 1rem; color: var(--ent-text-primary);">Member
+                            Engagement Score</h4>
+                        <div style="display: flex; align-items: center; gap: 2rem;">
+                            <svg width="100" height="100" viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="42" fill="none" stroke="var(--ent-bg-tertiary)"
+                                    stroke-width="10" />
+                                <circle cx="50" cy="50" r="42" fill="none" stroke="url(#gaugeGrad)" stroke-width="10"
+                                    stroke-dasharray="198" stroke-dashoffset="60" stroke-linecap="round"
+                                    transform="rotate(-90 50 50)" style="animation: drawLine 1.5s ease forwards;" />
+                                <defs>
+                                    <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                        <stop offset="0%" stop-color="var(--ent-success)" />
+                                        <stop offset="100%" stop-color="var(--ent-primary)" />
+                                    </linearGradient>
+                                </defs>
+                                <text x="50" y="55" text-anchor="middle"
+                                    style="font-size: 18px; font-weight: 700; fill: var(--ent-text-primary);">72%</text>
+                            </svg>
+                            <div>
+                                <div
+                                    style="font-size: 0.85rem; color: var(--ent-text-secondary); margin-bottom: 0.75rem;">
+                                    <span style="color: var(--ent-success);">▲ 8%</span> from last month
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem;">
+                                        <span
+                                            style="width: 8px; height: 8px; border-radius: 50%; background: var(--ent-success);"></span>
+                                        Active: 68%
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem;">
+                                        <span
+                                            style="width: 8px; height: 8px; border-radius: 50%; background: var(--ent-warning);"></span>
+                                        At-Risk: 22%
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem;">
+                                        <span
+                                            style="width: 8px; height: 8px; border-radius: 50%; background: var(--ent-danger);"></span>
+                                        Dormant: 10%
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- API Status Section -->
+            <section style="margin-top: 4rem;">
+                <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; color: var(--ent-text-primary);">
+                    System Status
+                </h2>
+
+                <div class="ent-card" style="padding: 1.5rem;">
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem;">
+                        <div>
+                            <div
+                                style="font-size: 0.75rem; color: var(--ent-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+                                Fiserv Core API</div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="ent-status-dot" style="background: var(--ent-success);"></span>
+                                <span style="font-weight: 600; color: var(--ent-text-primary);"
+                                    id="fiservStatus">Checking...</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div
+                                style="font-size: 0.75rem; color: var(--ent-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+                                ML Service</div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="ent-status-dot" style="background: var(--ent-success);"></span>
+                                <span style="font-weight: 600; color: var(--ent-text-primary);"
+                                    id="mlStatus">Checking...</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div
+                                style="font-size: 0.75rem; color: var(--ent-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+                                Last Sync</div>
+                            <div style="font-weight: 600; color: var(--ent-text-primary);" id="lastSync">--</div>
+                        </div>
+                        <div>
+                            <div
+                                style="font-size: 0.75rem; color: var(--ent-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+                                Latency</div>
+                            <div style="font-weight: 600; font-family: 'JetBrains Mono', monospace; color: var(--ent-text-primary);"
+                                id="latency">--ms</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer style="margin-top: 5rem; padding: 2rem; text-align: center; border-top: 1px solid var(--ent-glass-border);">
+        <p style="color: var(--ent-text-muted); font-size: 0.9rem;">
+            &copy; 2024 Vox Amelior. Fiserv Banking Integration.
+        </p>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+
+        const API_BASE = window.location.origin;
+
+        async function checkStatus() {
+            const startTime = Date.now();
+
+            try {
+                const fiservResp = await fetch(`${API_BASE}/fiserv/health`);
+                const latency = Date.now() - startTime;
+                document.getElementById('latency').textContent = `${latency}ms`;
+
+                if (fiservResp.ok) {
+                    document.getElementById('fiservStatus').textContent = 'Operational';
+                    document.getElementById('apiStatusText').textContent = 'Connected';
+                } else {
+                    document.getElementById('fiservStatus').textContent = 'Unavailable';
+                    document.getElementById('fiservStatus').style.color = 'var(--ent-warning)';
+                }
+            } catch (e) {
+                document.getElementById('fiservStatus').textContent = 'Offline';
+                document.getElementById('fiservStatus').style.color = 'var(--ent-danger)';
+                document.getElementById('apiStatusText').textContent = 'Disconnected';
+                document.getElementById('apiStatus').className = 'ent-status ent-status-danger';
+            }
+
+            try {
+                const mlResp = await fetch(`${API_BASE}/api/v1/ml/health`);
+                document.getElementById('mlStatus').textContent = mlResp.ok ? 'Operational' : 'Degraded';
+            } catch (e) {
+                document.getElementById('mlStatus').textContent = 'Offline';
+                document.getElementById('mlStatus').style.color = 'var(--ent-danger)';
+            }
+
+            document.getElementById('lastSync').textContent = new Date().toLocaleTimeString();
+        }
+
+        async function loadStats() {
+            try {
+                const statsResp = await fetch(`${API_BASE}/fiserv/stats`);
+                if (statsResp.ok) {
+                    const stats = await statsResp.json();
+                    document.getElementById('statMembers').textContent = formatNumber(stats.total_members || 0);
+                    document.getElementById('statAccounts').textContent = formatNumber(stats.total_accounts || 0);
+                    document.getElementById('statTransactions').textContent = formatNumber(stats.daily_transactions || 0);
+                    return;
+                }
+            } catch (e) { }
+
+            // Demo fallback with animation
+            animateCounter('statMembers', 0, 125420, 1500);
+            animateCounter('statAccounts', 0, 287650, 1500);
+            animateCounter('statTransactions', 0, 4203, 1500);
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function animateCounter(elementId, start, end, duration) {
+            const element = document.getElementById(elementId);
+            const startTime = performance.now();
+
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easeOut = 1 - Math.pow(1 - progress, 3);
+                const current = Math.floor(start + (end - start) * easeOut);
+                element.textContent = formatNumber(current);
+                if (progress < 1) requestAnimationFrame(update);
+            }
+            requestAnimationFrame(update);
+        }
+
+        function refreshData() {
+            checkStatus();
+            loadStats();
+            loadTransactionGraph();
+        }
+
+        // Load real transaction graph data from Fiserv API
+        async function loadTransactionGraph() {
+            try {
+                // Try to get real transaction history from Fiserv
+                const resp = await fetch(`${API_BASE}/api/v1/fiserv/transactions/weekly`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.daily_volumes && data.daily_volumes.length >= 7) {
+                        updateGraph(data.daily_volumes);
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.log('Transaction graph fallback:', e);
+            }
+
+            // Fallback: Use stats-based estimates
+            try {
+                const statsResp = await fetch(`${API_BASE}/api/v1/fiserv/stats`);
+                if (statsResp.ok) {
+                    const stats = await statsResp.json();
+                    const dailyBase = stats.daily_transactions || 4000;
+                    // Generate realistic variation (+/- 20%)
+                    const volumes = [];
+                    for (let i = 0; i < 7; i++) {
+                        volumes.push(Math.floor(dailyBase * (0.8 + Math.random() * 0.4)));
+                    }
+                    updateGraph(volumes);
+                    return;
+                }
+            } catch (e) { }
+
+            // Final fallback: static demo data
+            updateGraph([3200, 4100, 3800, 4500, 4200, 4800, 5200]);
+        }
+
+        function updateGraph(volumes) {
+            // Normalize to SVG height (0-60, inverted)
+            const max = Math.max(...volumes);
+            const min = Math.min(...volumes);
+            const range = max - min || 1;
+
+            const points = volumes.map((v, i) => {
+                const x = i * 40;
+                const y = 55 - ((v - min) / range) * 40;  // Map to 15-55 range
+                return { x, y };
+            });
+
+            // Build path strings
+            const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+            const areaPath = linePath + ` L280,60 L0,60 Z`;
+
+            // Update SVG elements
+            document.getElementById('txnLine').setAttribute('d', linePath);
+            document.getElementById('txnArea').setAttribute('d', areaPath);
+
+            // Update data points
+            const pointsGroup = document.getElementById('txnPoints');
+            pointsGroup.innerHTML = points.map((p, i) => {
+                const isLast = i === points.length - 1;
+                return `<circle cx="${p.x}" cy="${p.y}" r="${isLast ? 4 : 3}" 
+                    fill="${isLast ? 'var(--ent-success)' : 'var(--ent-bg-card)'}" 
+                    stroke="${isLast ? 'white' : 'var(--ent-primary)'}" stroke-width="2" />`;
+            }).join('');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            checkStatus();
+            loadStats();
+            loadTransactionGraph();
+            setInterval(checkStatus, 30000);
+        });
+    </script>
+</body>
+
+</html>

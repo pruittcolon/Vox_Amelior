@@ -1,0 +1,411 @@
+# Lightweight Configuration - No Gemma, No Transcription
+# Saves ~4GB VRAM and significant CPU by excluding heavy AI services
+#
+# Usage:
+#   docker compose -f docker-compose.light.yml up -d
+#   OR use: ./start-light.sh
+#
+# What's INCLUDED:
+#   ✅ API Gateway, RAG, Emotion, Insights, ML, Fiserv, N8N
+#   ✅ Banking dashboard fully functional
+#   ✅ All Fiserv API integrations
+#   ✅ ML engines (cross-sell, churn, loan pricing)
+#
+# What's EXCLUDED:
+#   ❌ Gemma Service (LLM chat)
+#   ❌ Transcription Service (speech-to-text)
+#   ❌ Nginx (HTTPS proxy - use HTTP directly)
+
+services:
+  # ============================================================================
+  # Infrastructure Services
+  # ============================================================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: refactored_redis
+    restart: unless-stopped
+    command: >
+      sh -c "redis-server --requirepass $$(cat /run/secrets/redis_password)"
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    secrets:
+      - redis_password
+    healthcheck:
+      test: [ "CMD", "sh", "-c", "redis-cli -a $$(cat /run/secrets/redis_password) ping 2>/dev/null | grep PONG" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - nemo_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: refactored_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nemo_queue
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    secrets:
+      - postgres_user
+      - postgres_password
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_user)" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # GPU Coordinator (for ML service CPU fallback handling)
+  # ============================================================================
+
+  gpu-coordinator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.queue
+    container_name: refactored_gpu_coordinator
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_URL: redis://redis:6379
+      GPU_PAUSE_TIMEOUT: "2.0"
+      JWT_ONLY: "true"
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - redis_password
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8002/health').read()" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # API Gateway - NO GEMMA/TRANSCRIPTION DEPENDENCIES
+  # ============================================================================
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    image: refactored-gateway:latest
+    container_name: refactored_gateway
+    restart: unless-stopped
+    environment:
+      # DISABLED - These services are not running in light mode
+      GEMMA_URL: ""
+      TRANSCRIPTION_URL: ""
+      # ENABLED services
+      RAG_URL: http://rag-service:8004
+      EMOTION_URL: http://emotion-service:8005
+      INSIGHTS_URL: http://insights-service:8010
+      ML_SERVICE_URL: http://ml-service:8006
+      FISERV_SERVICE_URL: http://fiserv-service:8015
+      # Rate limiting
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_DEFAULT: "1000"
+      RATE_LIMIT_WINDOW_SEC: "60"
+      # Enable demo users for dev (use .env to override)
+      ENABLE_DEMO_USERS: "${ENABLE_DEMO_USERS:-true}"
+      SECURE_MODE: "${SECURE_MODE:-false}"
+      ALLOWED_ORIGINS: "http://127.0.0.1,http://localhost,https://127.0.0.1,https://localhost"
+      SESSION_COOKIE_SECURE: "false" # No HTTPS in light mode
+      SESSION_COOKIE_SAMESITE: "lax"
+      FORCE_HSTS: "false"
+      CANONICAL_HOST: ""
+      LOGIN_RATE_LIMIT_WINDOW: "60"
+      LOGIN_RATE_LIMIT_LIMIT: "1000"
+      ALLOW_FRAMING: "false"
+    volumes:
+      - ./gateway_instance:/app/instance
+      - ../frontend:/app/frontend:ro
+      - ../services/api-gateway/src:/app/src:ro
+      - ../shared:/app/shared:ro
+      - ml_uploads:/app/data/uploads
+    secrets:
+      - session_key
+      - users_db_key
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:8000:8000"
+    # FIXED: Only depend on services that ARE running
+    depends_on:
+      rag-service:
+        condition: service_healthy
+      emotion-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # RAG Service (Memory & Vector Search)
+  # ============================================================================
+
+  rag-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rag
+    image: refactored-rag-service:latest
+    container_name: refactored_rag
+    restart: unless-stopped
+    environment:
+      EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+      DB_PATH: "/app/instance/rag.db"
+      FAISS_INDEX_PATH: "/app/faiss_index/index.bin"
+      HF_HOME: "/app/models"
+      JWT_ONLY: "true"
+      EMAIL_ANALYZER_ENABLED: "true"
+      EMAIL_DB_ENCRYPTION: "true"
+      EMAIL_DB_KEY_FILE: /run/secrets/email_db_key
+      EMAIL_DB_PATH: /app/instance/email.db
+    volumes:
+      - ./rag_instance:/app/instance
+      - ./faiss_index:/app/faiss_index
+      - ../models1:/app/models
+      - ../shared:/app/shared
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - rag_db_key
+      - email_db_key
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8004/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # Insights / Analytics Service
+  # ============================================================================
+
+  insights-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.insights
+    container_name: refactored_insights
+    restart: unless-stopped
+    environment:
+      INSIGHTS_DB_PATH: /app/instance/rag.db
+    volumes:
+      - ./rag_instance:/app/instance
+      - ../shared:/app/shared
+    secrets:
+      - rag_db_key
+    depends_on:
+      rag-service:
+        condition: service_healthy
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # Emotion Service (Sentiment Analysis)
+  # ============================================================================
+
+  emotion-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.emotion
+    image: refactored-emotion-service:latest
+    container_name: refactored_emotion
+    restart: unless-stopped
+    environment:
+      EMOTION_MODEL_PATH: "/app/models/emotion-english-distilroberta-base"
+      JWT_ONLY: "true"
+    volumes:
+      - ../models1:/app/models:ro
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import requests; r = requests.get('http://localhost:8005/health'); exit(0 if r.json().get('status') == 'healthy' and r.json().get('classifier_loaded') else 1)" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # ML Service (Universal ML Agent) - CPU Only in light mode
+  # ============================================================================
+
+  ml-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ml
+    container_name: refactored_ml_service
+    restart: unless-stopped
+    environment:
+      GATEWAY_URL: http://api-gateway:8000
+      UPLOAD_DIR: /app/data/uploads
+      GPU_COORDINATOR_URL: http://gpu-coordinator:8002
+      GPU_ENABLED: "false" # Force CPU mode
+      GPU_REQUEST_TIMEOUT: "15"
+      GPU_FALLBACK_TO_CPU: "true"
+    volumes:
+      - ../services/ml-service/src:/app/src
+      - ../shared:/app/shared
+      - ml_uploads:/app/data/uploads
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      gpu-coordinator:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8006/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # Fiserv Banking Hub Service
+  # ============================================================================
+
+  fiserv-service:
+    build:
+      context: ../services/fiserv-service
+      dockerfile: Dockerfile
+    container_name: refactored_fiserv
+    restart: unless-stopped
+    environment:
+      FISERV_MOCK_MODE: "false"
+      # Phase 1 Security: Load credentials from Docker secrets
+      FISERV_API_KEY_FILE: /run/secrets/fiserv_api_key
+      FISERV_API_SECRET_FILE: /run/secrets/fiserv_api_secret
+      FISERV_ORG_ID: "999950001"
+      PYTHONUNBUFFERED: "1"
+      JWT_ONLY: "true"
+    volumes:
+      - ../services/fiserv-service/src:/app/src:ro
+      - ../shared:/app/shared:ro
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - fiserv_api_key
+      - fiserv_api_secret
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8015/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nemo_network
+
+  # ============================================================================
+  # N8N Integration Service
+  # ============================================================================
+
+  n8n-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.n8n
+    container_name: refactored_n8n
+    restart: unless-stopped
+    environment:
+      VOICE_MONKEY_TOKEN_FILE: /run/secrets/voicemonkey_token
+      N8N_WEBHOOK_URL: "${N8N_WEBHOOK_URL:-}"
+      JWT_ONLY: "true"
+    volumes:
+      - ../services/n8n-service/src:/app/src:ro
+      - ../shared:/app/shared:ro
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - voicemonkey_token
+    ports:
+      - "127.0.0.1:8011:8011"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8011/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - nemo_network
+
+# Secrets (same as full compose)
+secrets:
+  jwt_secret_primary:
+    file: ./secrets/jwt_secret_primary
+  jwt_secret_previous:
+    file: ./secrets/jwt_secret_previous
+  jwt_secret:
+    file: ./secrets/jwt_secret
+  session_key:
+    file: ./secrets/session_key
+  postgres_user:
+    file: ./secrets/postgres_user
+  postgres_password:
+    file: ./secrets/postgres_password
+  users_db_key:
+    file: ./secrets/users_db_key
+  rag_db_key:
+    file: ./secrets/rag_db_key
+  redis_password:
+    file: ./secrets/redis_password
+  email_db_key:
+    file: ./secrets/email_db_key
+  voicemonkey_token:
+    file: ./secrets/voicemonkey_token
+  fiserv_api_key:
+    file: ./secrets/fiserv_api_key
+  fiserv_api_secret:
+    file: ./secrets/fiserv_api_secret
+
+networks:
+  nemo_network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:
+  ml_uploads:

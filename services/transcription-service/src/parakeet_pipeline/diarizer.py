@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import List, Optional
 
 import torch
 
@@ -28,9 +27,9 @@ class PyannoteDiarizer:
 
     def __init__(
         self,
-        access_token: Optional[str] = None,
+        access_token: str | None = None,
         device: str = "cpu",
-        num_speakers: Optional[int] = None,
+        num_speakers: int | None = None,
     ) -> None:
         self.token = (
             access_token
@@ -78,7 +77,7 @@ class PyannoteDiarizer:
         except Exception as exc:
             logger.error("Failed to move Pyannote pipeline to %s: %s", target_device, exc)
 
-    def diarize(self, audio_path: str) -> List[SpeakerSegment]:
+    def diarize(self, audio_path: str) -> list[SpeakerSegment]:
         if not self.pipeline:
             return []
 
@@ -91,7 +90,7 @@ class PyannoteDiarizer:
             logger.error("Pyannote diarization failed: %s", exc)
             return []
 
-        segments: List[SpeakerSegment] = []
+        segments: list[SpeakerSegment] = []
         for turn, _, speaker in diarization.itertracks(yield_label=True):
             speaker_label = str(speaker)
             if not speaker_label.startswith("speaker_"):
@@ -110,8 +109,8 @@ class PyannoteDiarizer:
 
 
 def assign_speakers(
-    transcript_segments: List["ParakeetSegmentProtocol"],
-    speaker_segments: List[SpeakerSegment],
+    transcript_segments: list[ParakeetSegmentProtocol],
+    speaker_segments: list[SpeakerSegment],
 ) -> None:
     """
     Annotate transcription segments with speaker labels based on overlap.
@@ -155,4 +154,4 @@ class ParakeetSegmentProtocol:
 
     start: float
     end: float
-    speaker: Optional[str]
+    speaker: str | None

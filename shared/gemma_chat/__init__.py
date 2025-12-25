@@ -1,10 +1,5 @@
 """Utilities for Gemma chat intent routing and summaries."""
-from .router import (
-    classify_chat_intent,
-    infer_chat_action,
-    build_chat_history_answer,
-    format_chat_history_for_prompt,
-)
+
 from .conversation_utils import (
     analyze_tone,
     build_conversation_health,
@@ -12,6 +7,12 @@ from .conversation_utils import (
     extract_questions,
     is_meta_question,
     tag_question,
+)
+from .router import (
+    build_chat_history_answer,
+    classify_chat_intent,
+    format_chat_history_for_prompt,
+    infer_chat_action,
 )
 
 __all__ = [

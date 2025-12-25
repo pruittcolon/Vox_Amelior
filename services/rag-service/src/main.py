@@ -5,38 +5,35 @@ Provides semantic search across transcripts with speaker, emotion, and audio met
 Enables natural language queries like "what did they say about wireless signal?"
 """
 
-import os
 import json
-import sqlite3
-import uuid
-import threading
-import re
-from collections import defaultdict
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Set
-from contextlib import asynccontextmanager
-from pathlib import Path
 import logging
+import os
+import re
+import sqlite3
+import sys
+import threading
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-import numpy as np
 import faiss
-from sentence_transformers import SentenceTransformer
+import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
-import sys
+from sentence_transformers import SentenceTransformer
+from starlette.middleware.base import BaseHTTPMiddleware
+
 from shared.crypto.db_encryption import create_encrypted_db
 
 # Add shared modules to path
-sys.path.insert(0, '/app')
-sys.path.insert(0, '/app/src')
+sys.path.insert(0, "/app")
+sys.path.insert(0, "/app/src")
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -46,7 +43,6 @@ logger = logging.getLogger(__name__)
 JWT_ONLY = os.getenv("JWT_ONLY", "false").lower() in {"1", "true", "yes"}
 DB_PATH = Path(os.getenv("DB_PATH", "/app/instance/rag.db"))
 FAISS_INDEX_PATH = Path(os.getenv("FAISS_INDEX_PATH", "/app/faiss_index/index.bin"))
-from src.config import RAGConfig
 from src.personalization import PersonalizationManager
 
 # Constants
@@ -81,67 +77,73 @@ FILLER_PATTERNS = [
 # DATA MODELS
 # ============================================================================
 
+
 class TranscriptSegment(BaseModel):
     """Single segment of a transcript"""
+
     text: str
     speaker: str
     start_time: float
     end_time: float
-    emotion: Optional[str] = None
-    emotion_confidence: Optional[float] = None
-    emotion_scores: Optional[Dict[str, float]] = None
-    audio_metrics: Optional[Dict[str, float]] = None  # pitch, energy, speaking_rate, etc.
+    emotion: str | None = None
+    emotion_confidence: float | None = None
+    emotion_scores: dict[str, float] | None = None
+    audio_metrics: dict[str, float] | None = None  # pitch, energy, speaking_rate, etc.
 
 
 class TranscriptIndexRequest(BaseModel):
     """Request to index a full transcript"""
+
     job_id: str
     session_id: str
     full_text: str
     audio_duration: float
-    segments: List[TranscriptSegment]
+    segments: list[TranscriptSegment]
 
 
 class SemanticSearchRequest(BaseModel):
     """Request for semantic search"""
+
     query: str
     top_k: int = 5
-    doc_type: Optional[str] = None  # 'transcript_segment' or 'memory'
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    last_n_transcripts: Optional[int] = None
-    speakers: Optional[List[str]] = None
-    bias_emotions: Optional[List[str]] = None
+    doc_type: str | None = None  # 'transcript_segment' or 'memory'
+    start_date: str | None = None
+    end_date: str | None = None
+    last_n_transcripts: int | None = None
+    speakers: list[str] | None = None
+    bias_emotions: list[str] | None = None
 
 
 class MemoryAddRequest(BaseModel):
     """Request to add a memory/note"""
+
     title: str
     body: str
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 # ============================================================================
 # RAG SERVICE CLASS
 # ============================================================================
 
+
 class RAGService:
     """
     Vector-based RAG service with FAISS indexing
-    
+
     Features:
     - Semantic search with sentence-transformers
     - FAISS vector index for fast similarity search
     - Full metadata storage (speaker, emotion, audio metrics)
     - Persistent storage (SQLite + FAISS)
     """
-    
+
     def __init__(
         self,
         db_path: Path,
         faiss_index_path: Path,
         embedding_model_name: str = EMBEDDING_MODEL,
-        db_encryption_key: Optional[str] = None,
+        db_encryption_key: str | None = None,
     ):
         self.db_path = db_path
         self.faiss_index_path = faiss_index_path
@@ -153,14 +155,12 @@ class RAGService:
 
         # FAISS index and document store
         self.faiss_index = None
-        self.document_store: Dict[str, Dict[str, Any]] = {}
+        self.document_store: dict[str, dict[str, Any]] = {}
 
         # Personalization Manager
         models_path = os.getenv("HF_HOME", "/app/models")
         self.personalizer = PersonalizationManager(
-            db_path=str(self.db_path),
-            db_key=db_encryption_key,
-            models_path=models_path
+            db_path=str(self.db_path), db_key=db_encryption_key, models_path=models_path
         )
 
         # Database (SQLCipher if key provided)
@@ -187,34 +187,37 @@ class RAGService:
             logger.info("[RAG] Semantic indexing disabled via RAG_ENABLE_SEMANTIC=false")
         else:
             logger.info("[RAG] Semantic indexing enabled (lazy init)")
-        
+
         logger.info("RAG Service initialized successfully")
         logger.info(f"[RAG] Using emotion column: {self.emotion_column}")
-    
+
     def _init_directories(self):
         """Ensure required directories exist"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.faiss_index_path.parent.mkdir(parents=True, exist_ok=True)
         logger.info(f"Directories initialized: {self.db_path.parent}, {self.faiss_index_path.parent}")
-    
+
     def _init_embedding_model(self):
         """Initialize SentenceTransformer for embeddings"""
         try:
             logger.info(f"Loading embedding model: {self.embedding_model_name}")
-            
+
             # Set cache folder to use models directory
             import os
+
             cache_folder = os.getenv("HF_HOME", "/app/models")
             os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_folder
-            
+
             # Load model (will use cache if available, download if not)
-            self.embedding_model = SentenceTransformer(self.embedding_model_name, device='cpu', cache_folder=cache_folder)
-            
+            self.embedding_model = SentenceTransformer(
+                self.embedding_model_name, device="cpu", cache_folder=cache_folder
+            )
+
             logger.info(f"Embedding model loaded successfully (CPU) from cache: {cache_folder}")
         except Exception as e:
             logger.error(f"Failed to load embedding model: {e}")
             raise
-    
+
     def _init_database(self):
         """Initialize SQLite database schema"""
         with self.lock:
@@ -223,11 +226,13 @@ class RAGService:
                 module_name = getattr(conn.__class__, "__module__", "")
                 if module_name.startswith("pysqlcipher3") or module_name.startswith("sqlcipher3"):
                     import sys as _sys
+
                     mod = _sys.modules.get(module_name)
-                    row_cls = getattr(mod, 'Row', None)
+                    row_cls = getattr(mod, "Row", None)
                     if row_cls is not None:
                         conn.row_factory = row_cls
                     else:
+
                         def _dict_factory(cursor, row):
                             out = {}
                             desc = getattr(cursor, "description", None) or []
@@ -235,6 +240,7 @@ class RAGService:
                                 name = col[0] if isinstance(col, (list, tuple)) else str(col)
                                 out[name] = row[idx]
                             return out
+
                         conn.row_factory = _dict_factory
                 else:
                     conn.row_factory = sqlite3.Row
@@ -244,7 +250,7 @@ class RAGService:
                 except Exception:
                     pass
             cur = conn.cursor()
-            
+
             # Transcript records (full transcript metadata)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS transcript_records (
@@ -257,7 +263,7 @@ class RAGService:
                     created_at TEXT
                 )
             """)
-            
+
             # Transcript segments (individual segments with ALL metadata)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS transcript_segments (
@@ -280,7 +286,7 @@ class RAGService:
                 )
             """)
             self._ensure_segment_column_extensions(cur)
-            
+
             # Memories table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS memories (
@@ -339,21 +345,21 @@ class RAGService:
                 CREATE INDEX IF NOT EXISTS idx_chunks_created
                 ON analysis_artifact_chunks(created_at)
             """)
-            
+
             # Indexes for performance
             cur.execute("CREATE INDEX IF NOT EXISTS idx_segments_transcript ON transcript_segments(transcript_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_segments_speaker ON transcript_segments(speaker)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_segments_timestamp ON transcript_segments(start_time)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_segments_doc_id ON transcript_segments(doc_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_memories_doc_id ON memories(doc_id)")
-            
+
             conn.commit()
             conn.commit()
             try:
                 self.db_path.chmod(0o600)
             except Exception:
                 pass
-            
+
             logger.info("Database schema initialized")
 
     def _detect_schema(self):
@@ -388,6 +394,7 @@ class RAGService:
         try:
             module_name = getattr(conn.__class__, "__module__", "")
             if module_name.startswith("pysqlcipher3") or module_name.startswith("sqlcipher3"):
+
                 class _CompatRow(dict):
                     __slots__ = ("_sequence",)
 
@@ -423,12 +430,12 @@ class RAGService:
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     @staticmethod
-    def _normalize_filter_list(value: Optional[Any]) -> List[str]:
+    def _normalize_filter_list(value: Any | None) -> list[str]:
         if not value:
             return []
         if isinstance(value, (str, bytes)):
             return [str(value)]
-        normalized: List[str] = []
+        normalized: list[str] = []
         iterable = value if isinstance(value, (list, tuple, set)) else [value]
         for item in iterable:
             if isinstance(item, dict):
@@ -443,7 +450,7 @@ class RAGService:
         return normalized
 
     @staticmethod
-    def _trim_text(value: Optional[str], max_chars: int = 1200) -> str:
+    def _trim_text(value: str | None, max_chars: int = 1200) -> str:
         if not value:
             return ""
         if len(value) <= max_chars:
@@ -464,7 +471,7 @@ class RAGService:
             return default
 
     @staticmethod
-    def _format_timestamp_value(value: Any) -> Optional[str]:
+    def _format_timestamp_value(value: Any) -> str | None:
         if value in (None, "", 0):
             return None
         try:
@@ -481,11 +488,13 @@ class RAGService:
                 text = str(value).strip()
                 return text or None
 
-    def _build_segment_filters(self, filters: Dict[str, Any], *, include_text_constraint: bool = True) -> Tuple[List[str], List[Any]]:
-        conditions: List[str] = []
+    def _build_segment_filters(
+        self, filters: dict[str, Any], *, include_text_constraint: bool = True
+    ) -> tuple[list[str], list[Any]]:
+        conditions: list[str] = []
         if include_text_constraint:
             conditions.extend(["ts.text IS NOT NULL", "ts.text != ''"])
-        params: List[Any] = []
+        params: list[Any] = []
 
         speakers = self._normalize_filter_list(filters.get("speakers"))
         if speakers:
@@ -542,7 +551,7 @@ class RAGService:
 
         return conditions, params
 
-    def count_transcripts_filtered(self, filters: Dict[str, Any]) -> int:
+    def count_transcripts_filtered(self, filters: dict[str, Any]) -> int:
         search_type = (filters.get("search_type") or "keyword").lower()
         keywords = [k.strip() for k in str(filters.get("keywords", "")).split(",") if k.strip()]
 
@@ -552,11 +561,11 @@ class RAGService:
             results = self.search_semantic(
                 query=query,
                 top_k=top_k,
-                doc_type='transcript_segment',
-                start_date=filters.get('start_date_utc') or filters.get('start_date'),
-                end_date=filters.get('end_date_utc') or filters.get('end_date'),
-                speakers=self._normalize_filter_list(filters.get('speakers')),
-                bias_emotions=self._normalize_filter_list(filters.get('emotions')),
+                doc_type="transcript_segment",
+                start_date=filters.get("start_date_utc") or filters.get("start_date"),
+                end_date=filters.get("end_date_utc") or filters.get("end_date"),
+                speakers=self._normalize_filter_list(filters.get("speakers")),
+                bias_emotions=self._normalize_filter_list(filters.get("emotions")),
             )
             count = len(results or [])
             logger.info(f"[RAG] Semantic count for '{query}' -> {count}")
@@ -573,7 +582,19 @@ class RAGService:
                 where_clause = " AND ".join(conditions) if conditions else "1=1"
                 logger.info(
                     "[RAG] count filters=%s join=%s where=%s params=%s",
-                    {k: filters.get(k) for k in ("limit", "speakers", "emotions", "start_date", "end_date", "keywords", "search_type", "match")},
+                    {
+                        k: filters.get(k)
+                        for k in (
+                            "limit",
+                            "speakers",
+                            "emotions",
+                            "start_date",
+                            "end_date",
+                            "keywords",
+                            "search_type",
+                            "match",
+                        )
+                    },
                     join_type,
                     where_clause,
                     params,
@@ -595,7 +616,7 @@ class RAGService:
             logger.error(f"[RAG] Failed to count transcripts: {e}")
             return 0
 
-    def query_transcripts_filtered(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+    def query_transcripts_filtered(self, filters: dict[str, Any]) -> dict[str, Any]:
         limit = max(1, min(int(filters.get("limit", 20) or 20), 200))
         offset = max(0, int(filters.get("offset", 0) or 0))
         context_lines = max(0, min(int(filters.get("context_lines", 3) or 0), 10))
@@ -612,23 +633,26 @@ class RAGService:
 
         if keywords and search_type == "semantic":
             query = ", ".join(keywords)
-            results = self.search_semantic(
-                query=query,
-                top_k=limit,
-                doc_type='transcript_segment',
-                start_date=filters.get('start_date_utc') or filters.get('start_date'),
-                end_date=filters.get('end_date_utc') or filters.get('end_date'),
-                speakers=self._normalize_filter_list(filters.get('speakers')),
-                bias_emotions=self._normalize_filter_list(filters.get('emotions')),
-            ) or []
-            items: List[Dict[str, Any]] = []
+            results = (
+                self.search_semantic(
+                    query=query,
+                    top_k=limit,
+                    doc_type="transcript_segment",
+                    start_date=filters.get("start_date_utc") or filters.get("start_date"),
+                    end_date=filters.get("end_date_utc") or filters.get("end_date"),
+                    speakers=self._normalize_filter_list(filters.get("speakers")),
+                    bias_emotions=self._normalize_filter_list(filters.get("emotions")),
+                )
+                or []
+            )
+            items: list[dict[str, Any]] = []
             with self.lock:
                 conn = self._connect()
                 cur = conn.cursor()
                 for result in results:
-                    metadata = result.get('metadata') or {}
-                    transcript_id = metadata.get('transcript_id')
-                    seq = metadata.get('seq')
+                    metadata = result.get("metadata") or {}
+                    transcript_id = metadata.get("transcript_id")
+                    seq = metadata.get("seq")
                     if transcript_id is None or seq is None:
                         continue
                     # Context before
@@ -643,14 +667,18 @@ class RAGService:
                         (transcript_id, seq, context_lines),
                     )
                     context_rows = cur.fetchall()
-                    context = [
-                        {
-                            "speaker": row['speaker'],
-                            "text": self._trim_text(row['text']),
-                            "emotion": row['emotion'],
-                        }
-                        for row in reversed(context_rows)
-                    ] if context_lines else []
+                    context = (
+                        [
+                            {
+                                "speaker": row["speaker"],
+                                "text": self._trim_text(row["text"]),
+                                "emotion": row["emotion"],
+                            }
+                            for row in reversed(context_rows)
+                        ]
+                        if context_lines
+                        else []
+                    )
 
                     # Context after
                     cur.execute(
@@ -664,29 +692,35 @@ class RAGService:
                         (transcript_id, seq, context_lines),
                     )
                     after_rows = cur.fetchall()
-                    context_after = [
-                        {
-                            "speaker": row['speaker'],
-                            "text": self._trim_text(row['text']),
-                            "emotion": row['emotion'],
-                        }
-                        for row in after_rows
-                    ] if context_lines else []
+                    context_after = (
+                        [
+                            {
+                                "speaker": row["speaker"],
+                                "text": self._trim_text(row["text"]),
+                                "emotion": row["emotion"],
+                            }
+                            for row in after_rows
+                        ]
+                        if context_lines
+                        else []
+                    )
 
-                    items.append({
-                        "segment_id": metadata.get('segment_id'),
-                        "transcript_id": transcript_id,
-                        "job_id": metadata.get('job_id'),
-                        "speaker": metadata.get('speaker'),
-                        "emotion": metadata.get('emotion'),
-                        "text": self._trim_text(result.get('text')),
-                        "score": result.get('score'),
-                        "created_at": metadata.get('created_at'),
-                        "start_time": metadata.get('start_time'),
-                        "end_time": metadata.get('end_time'),
-                        "context_before": context,
-                        "context_after": context_after,
-                    })
+                    items.append(
+                        {
+                            "segment_id": metadata.get("segment_id"),
+                            "transcript_id": transcript_id,
+                            "job_id": metadata.get("job_id"),
+                            "speaker": metadata.get("speaker"),
+                            "emotion": metadata.get("emotion"),
+                            "text": self._trim_text(result.get("text")),
+                            "score": result.get("score"),
+                            "created_at": metadata.get("created_at"),
+                            "start_time": metadata.get("start_time"),
+                            "end_time": metadata.get("end_time"),
+                            "context_before": context,
+                            "context_after": context_after,
+                        }
+                    )
 
             def _timestamp_value(value: Any) -> float:
                 if value in (None, ""):
@@ -701,7 +735,7 @@ class RAGService:
                 except Exception:
                     return 0.0
 
-            def _sort_key(item: Dict[str, Any]) -> Any:
+            def _sort_key(item: dict[str, Any]) -> Any:
                 if sort_by == "speaker":
                     return (item.get("speaker") or "").lower()
                 if sort_by == "emotion":
@@ -740,7 +774,19 @@ class RAGService:
                 cur = conn.cursor()
                 logger.info(
                     "[RAG] query filters=%s join=%s where=%s params=%s limit=%s offset=%s",
-                    {k: filters.get(k) for k in ("limit", "speakers", "emotions", "start_date", "end_date", "keywords", "search_type", "match")},
+                    {
+                        k: filters.get(k)
+                        for k in (
+                            "limit",
+                            "speakers",
+                            "emotions",
+                            "start_date",
+                            "end_date",
+                            "keywords",
+                            "search_type",
+                            "match",
+                        )
+                    },
                     join_type,
                     where_clause,
                     params,
@@ -762,7 +808,7 @@ class RAGService:
                 )
                 rows = cur.fetchall()
 
-                items: List[Dict[str, Any]] = []
+                items: list[dict[str, Any]] = []
                 for row in rows:
                     if context_lines:
                         # Context before
@@ -774,14 +820,14 @@ class RAGService:
                             ORDER BY seq DESC
                             LIMIT ?
                             """,
-                            (row['transcript_id'], row['seq'], context_lines),
+                            (row["transcript_id"], row["seq"], context_lines),
                         )
                         context_rows = cur.fetchall()
                         context = [
                             {
-                                "speaker": ctx['speaker'],
-                                "text": self._trim_text(ctx['text']),
-                                "emotion": ctx['emotion'],
+                                "speaker": ctx["speaker"],
+                                "text": self._trim_text(ctx["text"]),
+                                "emotion": ctx["emotion"],
                             }
                             for ctx in reversed(context_rows)
                         ]
@@ -794,14 +840,14 @@ class RAGService:
                             ORDER BY seq ASC
                             LIMIT ?
                             """,
-                            (row['transcript_id'], row['seq'], context_lines),
+                            (row["transcript_id"], row["seq"], context_lines),
                         )
                         after_rows = cur.fetchall()
                         context_after = [
                             {
-                                "speaker": ctx['speaker'],
-                                "text": self._trim_text(ctx['text']),
-                                "emotion": ctx['emotion'],
+                                "speaker": ctx["speaker"],
+                                "text": self._trim_text(ctx["text"]),
+                                "emotion": ctx["emotion"],
                             }
                             for ctx in after_rows
                         ]
@@ -809,23 +855,26 @@ class RAGService:
                         context = []
                         context_after = []
 
-                    items.append({
-                        "segment_id": row['id'],
-                        "transcript_id": row['transcript_id'],
-                        "job_id": row['job_id'],
-                        "speaker": row['speaker'],
-                        "emotion": row['emotion'],
-                        "emotion_confidence": row.get('emotion_confidence'),
-                        "text": self._trim_text(row['text']),
-                        "created_at": row['created_at'],
-                        "start_time": row['start_time'],
-                        "end_time": row['end_time'],
-                        "context_before": context,
-                        "context_after": context_after,
-                    })
+                    items.append(
+                        {
+                            "segment_id": row["id"],
+                            "transcript_id": row["transcript_id"],
+                            "job_id": row["job_id"],
+                            "speaker": row["speaker"],
+                            "emotion": row["emotion"],
+                            "emotion_confidence": row.get("emotion_confidence"),
+                            "text": self._trim_text(row["text"]),
+                            "created_at": row["created_at"],
+                            "start_time": row["start_time"],
+                            "end_time": row["end_time"],
+                            "context_before": context,
+                            "context_after": context_after,
+                        }
+                    )
 
-
-            logger.info(f"[RAG] query_transcripts_filtered -> {len(items)} items (total={total}) sort_by={sort_by} order={order} limit={limit} offset={offset}")
+            logger.info(
+                f"[RAG] query_transcripts_filtered -> {len(items)} items (total={total}) sort_by={sort_by} order={order} limit={limit} offset={offset}"
+            )
             has_more = (offset + len(items)) < total if isinstance(total, int) else (len(items) == limit)
             next_offset = offset + len(items)
             return {
@@ -841,7 +890,7 @@ class RAGService:
             logger.error(f"[RAG] Failed to query transcripts: {e}")
             return {"items": [], "count": 0, "total": 0}
 
-    def get_transcript_time_range(self) -> Dict[str, Any]:
+    def get_transcript_time_range(self) -> dict[str, Any]:
         """Return dataset coverage stats so the UI can guide users when filters return zero rows."""
         with self.lock:
             conn = self._connect()
@@ -892,13 +941,13 @@ class RAGService:
         )
         return payload
 
-    def get_unique_speakers(self) -> List[str]:
+    def get_unique_speakers(self) -> list[str]:
         """Return sorted list of unique speakers across stored transcripts."""
         try:
             with self.lock:
                 conn = self._connect()
                 cur = conn.cursor()
-                speakers: Set[str] = set()
+                speakers: set[str] = set()
 
                 # Primary source: individual transcript segments
                 cur.execute(
@@ -929,27 +978,26 @@ class RAGService:
                             exc,
                         )
 
-
             sorted_speakers = sorted(speakers, key=lambda s: s.lower())
             logger.info(f"[RAG] get_unique_speakers -> {len(sorted_speakers)} speakers")
             return sorted_speakers
         except Exception as e:
             logger.error(f"[RAG] Failed to get speakers: {e}")
             return []
-    
+
     def _init_faiss_index(self):
         """Initialize or load FAISS index"""
         try:
             if self.faiss_index_path.exists():
                 logger.info(f"Loading existing FAISS index from {self.faiss_index_path}")
                 self.faiss_index = faiss.read_index(str(self.faiss_index_path))
-                
+
                 # Load document store
                 doc_store_path = Path(str(self.faiss_index_path) + ".docs")
                 if doc_store_path.exists():
-                    with open(doc_store_path, 'r', encoding='utf-8') as f:
+                    with open(doc_store_path, encoding="utf-8") as f:
                         self.document_store = json.load(f)
-                
+
                 logger.info(f"FAISS index loaded with {self.faiss_index.ntotal} documents")
             else:
                 logger.info("Creating new FAISS index (IndexFlatIP for cosine similarity)")
@@ -965,11 +1013,11 @@ class RAGService:
 
     def archive_analysis_artifact(
         self,
-        artifact_id: Optional[str],
-        analysis_id: Optional[str],
-        title: Optional[str],
+        artifact_id: str | None,
+        analysis_id: str | None,
+        title: str | None,
         body: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
         index_body: bool = False,
     ) -> str:
         if not body:
@@ -1014,12 +1062,12 @@ class RAGService:
             logger.warning(f"[RAG] Failed to chunk artifact {artifact_id}: {exc}")
         return artifact_id
 
-    def _chunk_artifact_body(self, body: str, chunk_chars: int = 900, overlap_chars: int = 150) -> List[str]:
+    def _chunk_artifact_body(self, body: str, chunk_chars: int = 900, overlap_chars: int = 150) -> list[str]:
         text = (body or "").strip()
         if not text:
             return []
         paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-        chunks: List[str] = []
+        chunks: list[str] = []
         buffer = ""
         for para in paragraphs:
             candidate = f"{buffer}\n{para}".strip() if buffer else para
@@ -1083,7 +1131,7 @@ class RAGService:
                 )
             conn.commit()
 
-    def list_artifact_chunks(self, artifact_id: str, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+    def list_artifact_chunks(self, artifact_id: str, limit: int = 20, offset: int = 0) -> dict[str, Any]:
         if not artifact_id:
             return {"items": [], "count": 0, "has_more": False}
         limit = max(1, min(int(limit), 200))
@@ -1112,19 +1160,24 @@ class RAGService:
             }
             for row in rows
         ]
-        return {"items": items, "count": len(items), "has_more": len(items) == limit, "next_offset": offset + len(items)}
+        return {
+            "items": items,
+            "count": len(items),
+            "has_more": len(items) == limit,
+            "next_offset": offset + len(items),
+        }
 
     def search_artifact_chunks(
         self,
         query: str,
-        artifact_ids: Optional[List[str]] = None,
+        artifact_ids: list[str] | None = None,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if not query:
             return []
         limit = max(1, min(int(limit), 100))
         token = f"%{self._escape_like(query.lower())}%"
-        params: List[Any] = []
+        params: list[Any] = []
         where = ["LOWER(chunk_text) LIKE ? ESCAPE '\\\\'"]
         params.append(token)
         if artifact_ids:
@@ -1134,7 +1187,7 @@ class RAGService:
         query_sql = f"""
             SELECT artifact_id, seq, chunk_text, substr(chunk_text, 1, 600) AS preview, created_at
             FROM analysis_artifact_chunks
-            WHERE {' AND '.join(where)}
+            WHERE {" AND ".join(where)}
             ORDER BY created_at DESC
             LIMIT ?
         """
@@ -1155,10 +1208,10 @@ class RAGService:
             for row in rows
         ]
 
-    def list_analysis_artifacts(self, limit: int = 50, offset: int = 0, user_id: Optional[str] = None) -> Dict[str, Any]:
+    def list_analysis_artifacts(self, limit: int = 50, offset: int = 0, user_id: str | None = None) -> dict[str, Any]:
         limit = max(1, min(int(limit), 200))
         offset = max(0, int(offset))
-        logger.info('[RAG] list_analysis_artifacts limit=%s offset=%s user_id=%s', limit, offset, user_id)
+        logger.info("[RAG] list_analysis_artifacts limit=%s offset=%s user_id=%s", limit, offset, user_id)
         with self.lock:
             conn = self._connect()
             cur = conn.cursor()
@@ -1217,10 +1270,10 @@ class RAGService:
                 }
             )
         has_more = len(items) == limit
-        logger.info('[RAG] list_analysis_artifacts -> %s items (has_more=%s)', len(items), has_more)
+        logger.info("[RAG] list_analysis_artifacts -> %s items (has_more=%s)", len(items), has_more)
         return {"items": items, "count": len(items), "has_more": has_more, "next_offset": offset + len(items)}
 
-    def get_analysis_artifact(self, artifact_id: str) -> Optional[Dict[str, Any]]:
+    def get_analysis_artifact(self, artifact_id: str) -> dict[str, Any] | None:
         if not artifact_id:
             return None
         with self.lock:
@@ -1256,7 +1309,7 @@ class RAGService:
             "created_at": created,
         }
 
-    def search_analysis_artifacts(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def search_analysis_artifacts(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         if not query:
             return []
         limit = max(1, min(int(limit), 100))
@@ -1292,67 +1345,66 @@ class RAGService:
         if self.faiss_index is None:
             self._init_faiss_index()
             self._load_existing_data()
-    
+
     def _load_existing_data(self):
         """Load existing segments/memories from database into FAISS"""
         try:
             with self.lock:
                 conn = self._connect()
                 cur = conn.cursor()
-                
+
                 # Load transcript segments
                 cur.execute("SELECT * FROM transcript_segments WHERE doc_id IS NOT NULL")
                 segments = cur.fetchall()
-                
+
                 embeddings_to_add = []
                 for seg in segments:
-                    doc_id = seg['doc_id']
+                    doc_id = seg["doc_id"]
                     if doc_id not in self.document_store:
                         # Reconstruct document metadata
                         self.document_store[doc_id] = {
-                            'id': doc_id,
-                            'text': seg['text'],
-                            'type': 'transcript_segment',
-                            'segment_id': seg['id'],
-                            'transcript_id': seg['transcript_id'],
-                            'speaker': seg['speaker'],
-                            'start_time': seg['start_time'],
-                            'end_time': seg['end_time'],
-                            'emotion': seg['emotion'],
-                            'emotion_confidence': seg['emotion_confidence'],
-                            'emotion_scores': json.loads(seg['emotion_scores']) if seg['emotion_scores'] else None,
-                            'audio_metrics': json.loads(seg['audio_metrics']) if seg['audio_metrics'] else None,
-                            'created_at': seg['created_at']
+                            "id": doc_id,
+                            "text": seg["text"],
+                            "type": "transcript_segment",
+                            "segment_id": seg["id"],
+                            "transcript_id": seg["transcript_id"],
+                            "speaker": seg["speaker"],
+                            "start_time": seg["start_time"],
+                            "end_time": seg["end_time"],
+                            "emotion": seg["emotion"],
+                            "emotion_confidence": seg["emotion_confidence"],
+                            "emotion_scores": json.loads(seg["emotion_scores"]) if seg["emotion_scores"] else None,
+                            "audio_metrics": json.loads(seg["audio_metrics"]) if seg["audio_metrics"] else None,
+                            "created_at": seg["created_at"],
                         }
-                        
+
                         # Decode embedding
-                        if seg['embedding']:
-                            embedding = np.frombuffer(seg['embedding'], dtype=np.float32)
+                        if seg["embedding"]:
+                            embedding = np.frombuffer(seg["embedding"], dtype=np.float32)
                             embeddings_to_add.append(embedding)
-                
+
                 # Load memories
                 cur.execute("SELECT * FROM memories WHERE doc_id IS NOT NULL")
                 memories = cur.fetchall()
-                
+
                 for mem in memories:
-                    doc_id = mem['doc_id']
+                    doc_id = mem["doc_id"]
                     if doc_id not in self.document_store:
                         self.document_store[doc_id] = {
-                            'id': doc_id,
-                            'text': f"{mem['title']}\n{mem['body']}",
-                            'type': 'memory',
-                            'memory_id': mem['memory_id'],
-                            'title': mem['title'],
-                            'body': mem['body'],
-                            'metadata': json.loads(mem['metadata']) if mem['metadata'] else {},
-                            'created_at': mem['created_at']
+                            "id": doc_id,
+                            "text": f"{mem['title']}\n{mem['body']}",
+                            "type": "memory",
+                            "memory_id": mem["memory_id"],
+                            "title": mem["title"],
+                            "body": mem["body"],
+                            "metadata": json.loads(mem["metadata"]) if mem["metadata"] else {},
+                            "created_at": mem["created_at"],
                         }
-                        
-                        if mem['embedding']:
-                            embedding = np.frombuffer(mem['embedding'], dtype=np.float32)
+
+                        if mem["embedding"]:
+                            embedding = np.frombuffer(mem["embedding"], dtype=np.float32)
                             embeddings_to_add.append(embedding)
-                
-                
+
                 # Add embeddings to FAISS
                 if embeddings_to_add:
                     embeddings_array = np.vstack(embeddings_to_add)
@@ -1360,12 +1412,13 @@ class RAGService:
                     logger.info(f"Loaded {len(embeddings_to_add)} documents into FAISS index")
                 else:
                     logger.info("No existing documents to load")
-                    
+
         except Exception as e:
             logger.error(f"Failed to load existing data: {e}")
             import traceback
+
             traceback.print_exc()
-    
+
     def get_embedding(self, text: str) -> np.ndarray:
         """Generate embedding for text"""
         try:
@@ -1377,58 +1430,56 @@ class RAGService:
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
             return np.zeros(self.embedding_dim, dtype=np.float32)
-    
+
     def index_transcript(
-        self,
-        job_id: str,
-        session_id: str,
-        full_text: str,
-        audio_duration: float,
-        segments: List[Dict[str, Any]]
+        self, job_id: str, session_id: str, full_text: str, audio_duration: float, segments: list[dict[str, Any]]
     ) -> int:
         """
         Index a full transcript with all segments and metadata
-        
+
         Returns transcript_id
         """
         with self.lock:
             try:
                 conn = self._connect()
                 cur = conn.cursor()
-                
+
                 timestamp = datetime.utcnow().isoformat()
-                
+
                 # Store transcript record
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT OR REPLACE INTO transcript_records
                     (job_id, session_id, full_text, audio_duration, timestamp, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, (job_id, session_id, full_text, audio_duration, timestamp, timestamp))
-                
+                """,
+                    (job_id, session_id, full_text, audio_duration, timestamp, timestamp),
+                )
+
                 transcript_id = cur.lastrowid
                 if transcript_id == 0:
                     # If REPLACE happened, get existing ID
                     cur.execute("SELECT id FROM transcript_records WHERE job_id = ?", (job_id,))
                     transcript_id = cur.fetchone()[0]
-                
+
                 # Clear old segments if replacing
                 cur.execute("SELECT doc_id FROM transcript_segments WHERE transcript_id = ?", (transcript_id,))
                 old_doc_ids = [row[0] for row in cur.fetchall()]
                 for doc_id in old_doc_ids:
                     if doc_id in self.document_store:
                         del self.document_store[doc_id]
-                
+
                 cur.execute("DELETE FROM transcript_segments WHERE transcript_id = ?", (transcript_id,))
-                
+
                 # Store segments and index in FAISS
                 embeddings_to_add = []
-                last_end_by_speaker: Dict[str, float] = {}
+                last_end_by_speaker: dict[str, float] = {}
                 for idx, seg in enumerate(segments):
                     doc_id = f"seg_{job_id}_{idx}_{uuid.uuid4().hex[:8]}"
-                    text = seg.get('text', '')
-                    emotion_value = seg.get('emotion', seg.get('dominant_emotion'))
+                    text = seg.get("text", "")
+                    emotion_value = seg.get("emotion", seg.get("dominant_emotion"))
                     features = self._compute_segment_features(seg, last_end_by_speaker)
-                    
+
                     # Generate embedding only if semantics enabled
                     embedding = None
                     if os.getenv("RAG_ENABLE_SEMANTIC", "true").lower() in {"1", "true", "yes"}:
@@ -1438,35 +1489,36 @@ class RAGService:
                             embeddings_to_add.append(embedding)
                         except Exception as _e:
                             logger.warning(f"[RAG] Embedding generation skipped: {_e}")
-                    
+
                     # Store in document store
                     self.document_store[doc_id] = {
-                        'id': doc_id,
-                        'text': text,
-                        'type': 'transcript_segment',
-                        'job_id': job_id,
-                        'transcript_id': transcript_id,
-                        'seq': idx,
-                        'speaker': seg.get('speaker'),
-                        'start_time': seg.get('start_time'),
-                        'end_time': seg.get('end_time'),
-                        'emotion': emotion_value,
-                        'emotion_confidence': seg.get('emotion_confidence'),
-                        'emotion_scores': seg.get('emotion_scores'),
-                        'audio_metrics': seg.get('audio_metrics'),
-                        'word_count': features["word_count"],
-                        'filler_count': features["filler_count"],
-                        'pace_wpm': features["pace_wpm"],
-                        'pause_ms': features["pause_ms"],
-                        'pitch_mean': features["pitch_mean"],
-                        'pitch_std': features["pitch_std"],
-                        'volume_rms': features["volume_rms"],
-                        'volume_peak': features["volume_peak"],
-                        'created_at': timestamp
+                        "id": doc_id,
+                        "text": text,
+                        "type": "transcript_segment",
+                        "job_id": job_id,
+                        "transcript_id": transcript_id,
+                        "seq": idx,
+                        "speaker": seg.get("speaker"),
+                        "start_time": seg.get("start_time"),
+                        "end_time": seg.get("end_time"),
+                        "emotion": emotion_value,
+                        "emotion_confidence": seg.get("emotion_confidence"),
+                        "emotion_scores": seg.get("emotion_scores"),
+                        "audio_metrics": seg.get("audio_metrics"),
+                        "word_count": features["word_count"],
+                        "filler_count": features["filler_count"],
+                        "pace_wpm": features["pace_wpm"],
+                        "pause_ms": features["pause_ms"],
+                        "pitch_mean": features["pitch_mean"],
+                        "pitch_std": features["pitch_std"],
+                        "volume_rms": features["volume_rms"],
+                        "volume_peak": features["volume_peak"],
+                        "created_at": timestamp,
                     }
-                    
+
                     # Store in database
-                    cur.execute(f"""
+                    cur.execute(
+                        f"""
                         INSERT INTO transcript_segments
                         (transcript_id, seq, text, speaker, start_time, end_time,
                          speaker_confidence, {self.emotion_column}, emotion_confidence, emotion_scores,
@@ -1474,37 +1526,39 @@ class RAGService:
                          word_count, filler_count, pace_wpm, pause_ms,
                          pitch_mean, pitch_std, volume_rms, volume_peak)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        transcript_id,
-                        idx,
-                        text,
-                        seg.get('speaker'),
-                        seg.get('start_time'),
-                        seg.get('end_time'),
-                        seg.get('speaker_confidence'),
-                        emotion_value,
-                        seg.get('emotion_confidence'),
-                        json.dumps(seg.get('emotion_scores')) if seg.get('emotion_scores') else None,
-                        json.dumps(seg.get('audio_metrics')) if seg.get('audio_metrics') else None,
-                        (embedding.tobytes() if embedding is not None else None),
-                        doc_id,
-                        timestamp,
-                        features["word_count"],
-                        features["filler_count"],
-                        features["pace_wpm"],
-                        features["pause_ms"],
-                        features["pitch_mean"],
-                        features["pitch_std"],
-                        features["volume_rms"],
-                        features["volume_peak"],
-                    ))
-                
+                    """,
+                        (
+                            transcript_id,
+                            idx,
+                            text,
+                            seg.get("speaker"),
+                            seg.get("start_time"),
+                            seg.get("end_time"),
+                            seg.get("speaker_confidence"),
+                            emotion_value,
+                            seg.get("emotion_confidence"),
+                            json.dumps(seg.get("emotion_scores")) if seg.get("emotion_scores") else None,
+                            json.dumps(seg.get("audio_metrics")) if seg.get("audio_metrics") else None,
+                            (embedding.tobytes() if embedding is not None else None),
+                            doc_id,
+                            timestamp,
+                            features["word_count"],
+                            features["filler_count"],
+                            features["pace_wpm"],
+                            features["pause_ms"],
+                            features["pitch_mean"],
+                            features["pitch_std"],
+                            features["volume_rms"],
+                            features["volume_peak"],
+                        ),
+                    )
+
                 # Add all embeddings to FAISS
                 if embeddings_to_add:
                     embeddings_array = np.vstack(embeddings_to_add)
                     self.faiss_index.add(embeddings_array)
                     logger.info(f"Indexed {len(embeddings_to_add)} segments for job {job_id}")
-                
+
                 conn.commit()
 
                 # Save FAISS index
@@ -1515,6 +1569,7 @@ class RAGService:
             except Exception as e:
                 logger.error(f"Failed to index transcript: {e}")
                 import traceback
+
                 traceback.print_exc()
                 conn.rollback()
                 raise
@@ -1541,9 +1596,9 @@ class RAGService:
 
     def _compute_segment_features(
         self,
-        segment: Dict[str, Any],
-        last_end_by_speaker: Dict[str, float],
-    ) -> Dict[str, Optional[float]]:
+        segment: dict[str, Any],
+        last_end_by_speaker: dict[str, float],
+    ) -> dict[str, float | None]:
         """Derive speech metrics for a segment."""
         text = segment.get("text") or ""
         tokens = WORD_REGEX.findall(text)
@@ -1589,26 +1644,26 @@ class RAGService:
             "volume_rms": volume_rms,
             "volume_peak": volume_peak,
         }
-    
+
     def search_semantic(
         self,
         query: str,
         top_k: int = 5,
-        doc_type: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        last_n_transcripts: Optional[int] = None,
-        speakers: Optional[List[str]] = None,
-        bias_emotions: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        doc_type: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        last_n_transcripts: int | None = None,
+        speakers: list[str] | None = None,
+        bias_emotions: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Semantic search using FAISS vector similarity
-        
+
         Args:
             query: Natural language query
             top_k: Number of results to return
             doc_type: Filter by 'transcript_segment' or 'memory' (optional)
-        
+
         Returns:
             List of results with text, metadata, and similarity score
         """
@@ -1620,11 +1675,11 @@ class RAGService:
             # Ensure model/index ready, then embed
             self._ensure_semantic_ready()
             query_embedding = self.get_embedding(query)
-            
+
             # Search FAISS index (get more candidates for filtering)
             candidate_limit = max(20, top_k * 3)
             D, I = self.faiss_index.search(query_embedding.reshape(1, -1), candidate_limit)
-            
+
             # Hydrate results from document store
             filtered_results = []
             doc_ids = list(self.document_store.keys())
@@ -1657,7 +1712,7 @@ class RAGService:
                 allowed_transcript_ids = self._get_recent_transcript_ids(last_n_transcripts)
                 logger.info(f"[RAG] Limiting search to last {len(allowed_transcript_ids)} transcripts")
 
-            def parse_created_at(value: Optional[str]) -> Optional[datetime]:
+            def parse_created_at(value: str | None) -> datetime | None:
                 if not value:
                     return None
                 try:
@@ -1670,23 +1725,23 @@ class RAGService:
                             return datetime.strptime(value, "%Y-%m-%d")
                         except ValueError:
                             return None
-            
+
             for score, idx in zip(D[0], I[0]):
                 if idx < 0 or idx >= len(doc_ids):
                     continue
-                
+
                 doc_id = doc_ids[idx]
                 doc = self.document_store.get(doc_id)
-                
+
                 if not doc:
                     continue
-                
+
                 # Filter by doc_type if specified
-                if doc_type and doc.get('type') != doc_type:
+                if doc_type and doc.get("type") != doc_type:
                     continue
 
-                metadata = {k: v for k, v in doc.items() if k not in ['id', 'text', 'type']}
-                created_at_raw = metadata.get('created_at')
+                metadata = {k: v for k, v in doc.items() if k not in ["id", "text", "type"]}
+                created_at_raw = metadata.get("created_at")
                 created_at_dt = parse_created_at(created_at_raw)
 
                 # Date filtering
@@ -1696,39 +1751,42 @@ class RAGService:
                     continue
 
                 # last_n transcripts filter (transcript segments only)
-                if allowed_transcript_ids is not None and doc.get('type') == 'transcript_segment':
-                    transcript_id = metadata.get('transcript_id')
+                if allowed_transcript_ids is not None and doc.get("type") == "transcript_segment":
+                    transcript_id = metadata.get("transcript_id")
                     if transcript_id not in allowed_transcript_ids:
                         continue
 
                 # speaker filter (transcript segments only)
-                if speakers_set and doc.get('type') == 'transcript_segment':
-                    speaker_value = (metadata.get('speaker') or '').lower()
+                if speakers_set and doc.get("type") == "transcript_segment":
+                    speaker_value = (metadata.get("speaker") or "").lower()
                     if speaker_value not in speakers_set:
                         continue
 
                 adjusted_score = float(score)
-                if bias_set and doc.get('type') == 'transcript_segment':
-                    emotion_value = (metadata.get('emotion') or '').lower()
+                if bias_set and doc.get("type") == "transcript_segment":
+                    emotion_value = (metadata.get("emotion") or "").lower()
                     if emotion_value in bias_set:
                         adjusted_score += 0.05
 
-                filtered_results.append({
-                    'id': doc['id'],
-                    'text': doc['text'],
-                    'type': doc['type'],
-                    'metadata': metadata,
-                    'score': adjusted_score
-                })
-            
-            filtered_results.sort(key=lambda r: r['score'], reverse=True)
+                filtered_results.append(
+                    {
+                        "id": doc["id"],
+                        "text": doc["text"],
+                        "type": doc["type"],
+                        "metadata": metadata,
+                        "score": adjusted_score,
+                    }
+                )
+
+            filtered_results.sort(key=lambda r: r["score"], reverse=True)
             final_results = filtered_results[:top_k]
             logger.info(f"Semantic search for '{query}' returned {len(final_results)} filtered results")
             return final_results
-            
+
         except Exception as e:
             logger.error(f"Semantic search failed: {e}")
             import traceback
+
             traceback.print_exc()
             return []
 
@@ -1738,143 +1796,144 @@ class RAGService:
             with self.lock:
                 conn = self._connect()
                 cur = conn.cursor()
-                cur.execute(
-                    "SELECT id FROM transcript_records ORDER BY created_at DESC LIMIT ?",
-                    (limit,)
-                )
+                cur.execute("SELECT id FROM transcript_records ORDER BY created_at DESC LIMIT ?", (limit,))
                 rows = cur.fetchall()
                 return {row[0] for row in rows}
         except Exception as e:
             logger.error(f"[RAG] Failed to load recent transcript ids: {e}")
             return set()
-    
-    def add_memory(
-        self,
-        title: str,
-        body: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> str:
+
+    def add_memory(self, title: str, body: str, metadata: dict[str, Any] | None = None) -> str:
         """Add a memory/note to the system"""
         with self.lock:
             try:
                 memory_id = str(uuid.uuid4())
                 doc_id = f"mem_{memory_id}"
                 timestamp = datetime.utcnow().isoformat()
-                
+
                 # Generate embedding
                 text = f"{title}\n{body}"
                 embedding = self.get_embedding(text)
-                
+
                 # Store in document store
                 self.document_store[doc_id] = {
-                    'id': doc_id,
-                    'text': text,
-                    'type': 'memory',
-                    'memory_id': memory_id,
-                    'title': title,
-                    'body': body,
-                    'metadata': metadata or {},
-                    'created_at': timestamp
+                    "id": doc_id,
+                    "text": text,
+                    "type": "memory",
+                    "memory_id": memory_id,
+                    "title": title,
+                    "body": body,
+                    "metadata": metadata or {},
+                    "created_at": timestamp,
                 }
-                
+
                 # Store in database
                 conn = self._connect()
                 cur = conn.cursor()
-                
-                cur.execute("""
+
+                cur.execute(
+                    """
                     INSERT INTO memories
                     (memory_id, title, body, metadata, embedding, doc_id, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    memory_id,
-                    title,
-                    body,
-                    json.dumps(metadata) if metadata else None,
-                    embedding.tobytes(),
-                    doc_id,
-                    timestamp
-                ))
-                
+                """,
+                    (
+                        memory_id,
+                        title,
+                        body,
+                        json.dumps(metadata) if metadata else None,
+                        embedding.tobytes(),
+                        doc_id,
+                        timestamp,
+                    ),
+                )
+
                 conn.commit()
-                
+
                 # Add to FAISS
                 self.faiss_index.add(embedding.reshape(1, -1))
                 self._save_faiss_index()
-                
+
                 logger.info(f"Memory added: {memory_id}")
                 return memory_id
-                
+
             except Exception as e:
                 logger.error(f"Failed to add memory: {e}")
                 raise
-    
-    def get_transcript(self, job_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_transcript(self, job_id: str) -> dict[str, Any] | None:
         """Get full transcript by job_id"""
         try:
             conn = self._connect()
             cur = conn.cursor()
-            
+
             # Get transcript record
             cur.execute("SELECT * FROM transcript_records WHERE job_id = ?", (job_id,))
             record = cur.fetchone()
-            
+
             if not record:
                 return None
-            
+
             # Get segments
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT * FROM transcript_segments 
                 WHERE transcript_id = ? 
                 ORDER BY seq
-            """, (record['id'],))
+            """,
+                (record["id"],),
+            )
             segments = cur.fetchall()
-            
-            
+
             return {
-                'job_id': record['job_id'],
-                'session_id': record['session_id'],
-                'full_text': record['full_text'],
-                'audio_duration': record['audio_duration'],
-                'timestamp': record['timestamp'],
-                'created_at': record['created_at'],
-                'segments': [
+                "job_id": record["job_id"],
+                "session_id": record["session_id"],
+                "full_text": record["full_text"],
+                "audio_duration": record["audio_duration"],
+                "timestamp": record["timestamp"],
+                "created_at": record["created_at"],
+                "segments": [
                     {
-                        'seq': seg['seq'],
-                        'text': seg['text'],
-                        'speaker': seg['speaker'],
-                        'start_time': seg['start_time'],
-                        'end_time': seg['end_time'],
-                        'emotion': seg['emotion'],
-                        'emotion_confidence': seg['emotion_confidence'],
-                        'emotion_scores': json.loads(seg['emotion_scores']) if seg['emotion_scores'] else None,
-                        'audio_metrics': json.loads(seg['audio_metrics']) if seg['audio_metrics'] else None
+                        "seq": seg["seq"],
+                        "text": seg["text"],
+                        "speaker": seg["speaker"],
+                        "start_time": seg["start_time"],
+                        "end_time": seg["end_time"],
+                        "emotion": seg["emotion"],
+                        "emotion_confidence": seg["emotion_confidence"],
+                        "emotion_scores": json.loads(seg["emotion_scores"]) if seg["emotion_scores"] else None,
+                        "audio_metrics": json.loads(seg["audio_metrics"]) if seg["audio_metrics"] else None,
                     }
                     for seg in segments
-                ]
+                ],
             }
         except Exception as e:
             logger.error(f"Failed to get transcript: {e}")
             return None
-    
-    def get_recent_transcripts(self, limit: int = 10) -> List[Dict[str, Any]]:
+
+    def get_recent_transcripts(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent transcripts for UI with speaker and emotion data"""
         try:
             conn = self._connect()
             cur = conn.cursor()
-            
+
             # Only get transcripts with actual text content
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT * FROM transcript_records 
                 WHERE full_text IS NOT NULL AND full_text != ''
                 ORDER BY created_at DESC 
                 LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
             records = cur.fetchall()
-            
+
             results = []
             for rec in records:
                 # Get segments for this transcript
-                cur.execute(f"""
+                cur.execute(
+                    f"""
                     SELECT speaker, {self.emotion_column} AS emotion, text, emotion_confidence, 
                            emotion_scores, start_time, end_time,
                            word_count, filler_count, pace_wpm, pause_ms,
@@ -1882,63 +1941,63 @@ class RAGService:
                     FROM transcript_segments 
                     WHERE transcript_id = ? 
                     ORDER BY seq
-                """, (rec['id'],))
+                """,
+                    (rec["id"],),
+                )
                 segments = cur.fetchall()
-                
+
                 # Extract unique speakers and dominant emotion
-                speakers = list(set([seg['speaker'] for seg in segments if seg['speaker']]))
-                emotions = [seg['emotion'] for seg in segments if seg['emotion']]
+                speakers = list(set([seg["speaker"] for seg in segments if seg["speaker"]]))
+                emotions = [seg["emotion"] for seg in segments if seg["emotion"]]
                 dominant_emotion = max(set(emotions), key=emotions.count) if emotions else None
-                
-                results.append({
-                    'job_id': rec['job_id'],
-                    'session_id': rec['session_id'],
-                    'full_text': rec['full_text'],  # Return full text, let frontend handle truncation
-                    'audio_duration': rec['audio_duration'],
-                    'timestamp': rec['timestamp'],
-                    'created_at': rec['created_at'],
-                    'speakers': speakers,
-                    'dominant_emotion': dominant_emotion,
-                    'segment_count': len(segments),
-                    'segments': [
-                        {
-                            'speaker': seg['speaker'],
-                            'emotion': seg['emotion'],
-                            'text': seg['text'],
-                            'emotion_confidence': seg['emotion_confidence'],
-                            'start_time': seg['start_time'],
-                            'end_time': seg['end_time'],
-                            'word_count': seg['word_count'],
-                            'filler_count': seg['filler_count'],
-                            'pace_wpm': seg['pace_wpm'],
-                            'pause_ms': seg['pause_ms'],
-                            'pitch_mean': seg['pitch_mean'],
-                            'pitch_std': seg['pitch_std'],
-                            'volume_rms': seg['volume_rms'],
-                            'volume_peak': seg['volume_peak'],
-                        }
-                        for seg in segments
-                    ]
-                })
-            
+
+                results.append(
+                    {
+                        "job_id": rec["job_id"],
+                        "session_id": rec["session_id"],
+                        "full_text": rec["full_text"],  # Return full text, let frontend handle truncation
+                        "audio_duration": rec["audio_duration"],
+                        "timestamp": rec["timestamp"],
+                        "created_at": rec["created_at"],
+                        "speakers": speakers,
+                        "dominant_emotion": dominant_emotion,
+                        "segment_count": len(segments),
+                        "segments": [
+                            {
+                                "speaker": seg["speaker"],
+                                "emotion": seg["emotion"],
+                                "text": seg["text"],
+                                "emotion_confidence": seg["emotion_confidence"],
+                                "start_time": seg["start_time"],
+                                "end_time": seg["end_time"],
+                                "word_count": seg["word_count"],
+                                "filler_count": seg["filler_count"],
+                                "pace_wpm": seg["pace_wpm"],
+                                "pause_ms": seg["pause_ms"],
+                                "pitch_mean": seg["pitch_mean"],
+                                "pitch_std": seg["pitch_std"],
+                                "volume_rms": seg["volume_rms"],
+                                "volume_peak": seg["volume_peak"],
+                            }
+                            for seg in segments
+                        ],
+                    }
+                )
+
             logger.info("[RAG] get_recent_transcripts -> %s transcripts (limit=%s)", len(results), limit)
             return results
         except Exception as e:
             logger.error(f"Failed to get recent transcripts: {e}")
             return []
 
-    def get_emotion_stats(
-        self,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def get_emotion_stats(self, start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
         """Aggregate emotion counts across transcript segments"""
         try:
             conn = self._connect()
             cur = conn.cursor()
 
             conditions = [f"ts.{self.emotion_column} IS NOT NULL", f"ts.{self.emotion_column} != ''"]
-            params: List[Any] = []
+            params: list[Any] = []
 
             if start_date:
                 start_iso = f"{start_date}T00:00:00"
@@ -1981,7 +2040,7 @@ class RAGService:
             )
             trend_rows = cur.fetchall()
 
-            timeline_map: Dict[str, Dict[str, int]] = {}
+            timeline_map: dict[str, dict[str, int]] = {}
             for row in trend_rows:
                 day = row.get("day")
                 emotion = row.get("emotion")
@@ -1995,107 +2054,106 @@ class RAGService:
                 for day, counts in sorted(timeline_map.items(), key=lambda item: item[0])
             ]
 
-
             return {
                 "total_analyzed": total_analyzed,
-                "emotions": [
-                    {"emotion": row["emotion"], "count": row["count"]}
-                    for row in rows
-                ],
+                "emotions": [{"emotion": row["emotion"], "count": row["count"]} for row in rows],
                 "timeline": timeline,
             }
         except Exception as e:
             logger.error(f"[RAG] Failed to compute emotion stats: {e}")
             return {"total_analyzed": 0, "emotions": [], "timeline": []}
-    
-    def list_memories(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+
+    def list_memories(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """List all memories with pagination"""
         logger.info(f"📋 [MEMORY-LIST] Listing memories (limit={limit}, offset={offset})")
-        
+
         try:
             conn = self._connect()
             cur = conn.cursor()
-            
+
             # Check if table exists
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'")
             if not cur.fetchone():
                 logger.warning("⚠️ [MEMORY-LIST] Table 'memories' does not exist")
                 return []
-            
+
             # Get paginated memories
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT memory_id, title, body, metadata, created_at 
                 FROM memories 
                 ORDER BY created_at DESC 
                 LIMIT ? OFFSET ?
-            """, (limit, offset))
-            
+            """,
+                (limit, offset),
+            )
+
             memories = cur.fetchall()
-            
+
             result = [
                 {
-                    'memory_id': mem['memory_id'],
-                    'title': mem['title'],
-                    'body': mem['body'],
-                    'metadata': json.loads(mem['metadata']) if mem['metadata'] else {},
-                    'created_at': mem['created_at']
+                    "memory_id": mem["memory_id"],
+                    "title": mem["title"],
+                    "body": mem["body"],
+                    "metadata": json.loads(mem["metadata"]) if mem["metadata"] else {},
+                    "created_at": mem["created_at"],
                 }
                 for mem in memories
             ]
-            
+
             logger.info(f"✅ [MEMORY-LIST] Returning {len(result)} memories")
             return result
-            
+
         except Exception as e:
             logger.error(f"❌ [MEMORY-LIST] Failed: {e}")
             import traceback
+
             traceback.print_exc()
             return []
-    
-    def search_memories(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+
+    def search_memories(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Search memories using semantic search"""
         logger.info(f"🔍 [MEMORY-SEARCH] Query: '{query}' (limit={limit})")
-        
+
         try:
             # Use semantic search with type filter
-            results = self.search_semantic(
-                query=query,
-                top_k=limit,
-                doc_type='memory'
-            )
-            
+            results = self.search_semantic(query=query, top_k=limit, doc_type="memory")
+
             # Convert to memory format
             memories = []
             for result in results:
-                metadata = result.get('metadata', {})
-                memories.append({
-                    'memory_id': metadata.get('memory_id'),
-                    'title': metadata.get('title'),
-                    'body': metadata.get('body'),
-                    'score': result.get('score'),
-                    'metadata': metadata.get('metadata', {}),
-                    'created_at': metadata.get('created_at')
-                })
-            
+                metadata = result.get("metadata", {})
+                memories.append(
+                    {
+                        "memory_id": metadata.get("memory_id"),
+                        "title": metadata.get("title"),
+                        "body": metadata.get("body"),
+                        "score": result.get("score"),
+                        "metadata": metadata.get("metadata", {}),
+                        "created_at": metadata.get("created_at"),
+                    }
+                )
+
             logger.info(f"✅ [MEMORY-SEARCH] Returning {len(memories)} results")
             return memories
-            
+
         except Exception as e:
             logger.error(f"❌ [MEMORY-SEARCH] Failed: {e}")
             import traceback
+
             traceback.print_exc()
             return []
-    
+
     def _save_faiss_index(self):
         """Save FAISS index and document store to disk"""
         try:
             faiss.write_index(self.faiss_index, str(self.faiss_index_path))
-            
+
             # Save document store
             doc_store_path = Path(str(self.faiss_index_path) + ".docs")
-            with open(doc_store_path, 'w', encoding='utf-8') as f:
+            with open(doc_store_path, "w", encoding="utf-8") as f:
                 json.dump(self.document_store, f)
-            
+
             logger.debug("FAISS index and document store saved")
         except Exception as e:
             logger.error(f"Failed to save FAISS index: {e}")
@@ -2130,15 +2188,8 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
             logger.error(f"❌ JWT rejected: {exc} path={request.url.path}")
             return JSONResponse(status_code=401, content={"detail": "Invalid service token"})
 
-        # Replay protection (log + short circuit on failure)
-        from shared.security.service_auth import get_replay_protector
-        import time as _t
-
-        ttl = max(10, int(payload.get("expires_at", 0) - _t.time()) + 10)
-        ok, reason = get_replay_protector().check_and_store(payload.get("request_id", ""), ttl)
-        if not ok:
-            logger.error(f"❌ JWT replay blocked: reason={reason}")
-            return JSONResponse(status_code=401, content={"detail": "Replay detected"})
+        # Note: Replay protection is already handled inside verify_token()
+        # No need for additional check here
 
         rid_short = str(payload.get("request_id", ""))[:8]
         logger.info(f"✅ JWT OK s={payload.get('service_id')} aud=internal rid={rid_short} path={request.url.path}")
@@ -2149,13 +2200,19 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     """Lifespan context manager"""
     global rag_service, service_auth
-    
+
     logger.info("Starting RAG Service with FAISS vector search...")
-    
+
+    # ISO 27002: Fail-closed security check
+    from shared.security.startup_checks import assert_secure_mode
+
+    assert_secure_mode()  # Blocks startup if SECURE_MODE=true with unsafe flags
+
     # Initialize service auth (Phase 3)
     try:
-        from shared.security.secrets import get_secret
+        from shared.security.secrets_manager import get_secret
         from shared.security.service_auth import get_service_auth, load_service_jwt_keys
+
         jwt_keys = load_service_jwt_keys("rag-service")
         service_auth = get_service_auth(service_id="rag-service", service_secret=jwt_keys)
         logger.info(
@@ -2185,8 +2242,8 @@ async def lifespan(app: FastAPI):
 
     if EMAIL_ANALYZER_ENABLED:
         try:
-            from modules.email.db import initialize_database  # type: ignore
             from modules.email import routes as email_routes  # type: ignore
+            from modules.email.db import initialize_database  # type: ignore
 
             logger.info("[EMAIL] Initializing encrypted email analyzer database within RAG service...")
             initialize_database()
@@ -2196,17 +2253,14 @@ async def lifespan(app: FastAPI):
             logger.error(f"[EMAIL] ❌ Failed to initialize email analyzer: {exc}")
     else:
         logger.info("[EMAIL] Email analyzer disabled via EMAIL_ANALYZER_ENABLED=false")
-    
+
     yield
-    
+
     logger.info("RAG Service shutting down...")
 
 
 app = FastAPI(
-    title="RAG Service",
-    version="2.0.0",
-    description="Vector-based RAG with FAISS semantic search",
-    lifespan=lifespan
+    title="RAG Service", version="2.0.0", description="Vector-based RAG with FAISS semantic search", lifespan=lifespan
 )
 
 # Add JWT middleware (Phase 2: Permissive)
@@ -2217,13 +2271,14 @@ app.add_middleware(ServiceAuthMiddleware)
 # API ENDPOINTS
 # ============================================================================
 
+
 @app.get("/health")
-def health() -> Dict[str, Any]:
+def health() -> dict[str, Any]:
     """Health check endpoint"""
     docs = 0
     try:
-        if rag_service and getattr(rag_service, 'faiss_index', None) is not None:
-            docs = int(getattr(rag_service.faiss_index, 'ntotal', 0) or 0)
+        if rag_service and getattr(rag_service, "faiss_index", None) is not None:
+            docs = int(getattr(rag_service.faiss_index, "ntotal", 0) or 0)
     except Exception:
         docs = 0
     return {
@@ -2232,7 +2287,7 @@ def health() -> Dict[str, Any]:
         "version": "2.0.0",
         "faiss_documents": docs,
         "embedding_model": EMBEDDING_MODEL,
-        "embedding_dim": EMBEDDING_DIM
+        "embedding_dim": EMBEDDING_DIM,
     }
 
 
@@ -2243,24 +2298,24 @@ def index_transcript(
     """Index a full transcript with segments and metadata"""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
+
     try:
         # Convert Pydantic models to dicts
         segments_dict = [seg.model_dump() for seg in request.segments]
-        
+
         transcript_id = rag_service.index_transcript(
             job_id=request.job_id,
             session_id=request.session_id,
             full_text=request.full_text,
             audio_duration=request.audio_duration,
-            segments=segments_dict
+            segments=segments_dict,
         )
-        
+
         return {
             "success": True,
             "transcript_id": transcript_id,
             "job_id": request.job_id,
-            "segments_indexed": len(request.segments)
+            "segments_indexed": len(request.segments),
         }
     except Exception as e:
         logger.error(f"Failed to index transcript: {e}")
@@ -2274,7 +2329,7 @@ def search_semantic(
     """Semantic search using vector similarity"""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
+
     try:
         results = rag_service.search_semantic(
             query=request.query,
@@ -2284,15 +2339,10 @@ def search_semantic(
             end_date=request.end_date,
             last_n_transcripts=request.last_n_transcripts,
             speakers=request.speakers,
-            bias_emotions=request.bias_emotions
+            bias_emotions=request.bias_emotions,
         )
-        
-        return {
-            "success": True,
-            "query": request.query,
-            "results": results,
-            "count": len(results)
-        }
+
+        return {"success": True, "query": request.query, "results": results, "count": len(results)}
     except Exception as e:
         logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2305,18 +2355,11 @@ def add_memory(
     """Add a memory/note"""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
+
     try:
-        memory_id = rag_service.add_memory(
-            title=request.title,
-            body=request.body,
-            metadata=request.metadata
-        )
-        
-        return {
-            "success": True,
-            "memory_id": memory_id
-        }
+        memory_id = rag_service.add_memory(title=request.title, body=request.body, metadata=request.metadata)
+
+        return {"success": True, "memory_id": memory_id}
     except Exception as e:
         logger.error(f"Failed to add memory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2329,12 +2372,12 @@ def get_transcript(
     """Get full transcript by job_id"""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
+
     transcript = rag_service.get_transcript(job_id)
-    
+
     if not transcript:
         raise HTTPException(status_code=404, detail="Transcript not found")
-    
+
     return {"success": True, "transcript": transcript}
 
 
@@ -2345,15 +2388,11 @@ def get_recent_transcripts(
     """Get recent transcripts"""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
+
     transcripts = rag_service.get_recent_transcripts(limit=limit)
     logger.info("[RAG] /transcripts/recent API -> %s transcripts (limit=%s)", len(transcripts), limit)
-    
-    return {
-        "success": True,
-        "transcripts": transcripts,
-        "count": len(transcripts)
-    }
+
+    return {"success": True, "transcripts": transcripts, "count": len(transcripts)}
 
 
 @app.get("/transcripts/speakers")
@@ -2386,7 +2425,7 @@ def get_transcript_time_range():
 
 
 @app.post("/transcripts/count")
-def count_transcripts_endpoint(request: Dict[str, Any]):
+def count_transcripts_endpoint(request: dict[str, Any]):
     """Count transcript segments matching filters."""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
@@ -2401,7 +2440,7 @@ def count_transcripts_endpoint(request: Dict[str, Any]):
 
 
 @app.post("/transcripts/query")
-def query_transcripts_endpoint(request: Dict[str, Any]):
+def query_transcripts_endpoint(request: dict[str, Any]):
     """Query transcript segments with context for Gemma analyzer."""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
@@ -2423,7 +2462,7 @@ def query_transcripts_endpoint(request: Dict[str, Any]):
 
 
 @app.post("/analysis/archive")
-def archive_analysis_endpoint(request: Dict[str, Any]):
+def archive_analysis_endpoint(request: dict[str, Any]):
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
 
@@ -2449,7 +2488,7 @@ def archive_analysis_endpoint(request: Dict[str, Any]):
 
 
 @app.get("/analysis/list")
-def list_analysis_endpoint(limit: int = 50, offset: int = 0, user_id: Optional[str] = None):
+def list_analysis_endpoint(limit: int = 50, offset: int = 0, user_id: str | None = None):
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     try:
@@ -2477,7 +2516,7 @@ def get_analysis_endpoint(artifact_id: str):
 
 
 @app.post("/analysis/search")
-def search_analysis_endpoint(request: Dict[str, Any]):
+def search_analysis_endpoint(request: dict[str, Any]):
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     query = (request or {}).get("query", "").strip()
@@ -2504,7 +2543,7 @@ def list_artifact_chunks_endpoint(artifact_id: str, limit: int = 20, offset: int
 
 
 @app.post("/analysis/chunks/search")
-def search_artifact_chunks_endpoint(request: Dict[str, Any]):
+def search_artifact_chunks_endpoint(request: dict[str, Any]):
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     query = (request or {}).get("query", "").strip()
@@ -2519,9 +2558,11 @@ def search_artifact_chunks_endpoint(request: Dict[str, Any]):
         logger.error(f"[RAG] search_artifact_chunks_endpoint failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to search chunks")
 
+
 # ============================================================================
 # Memory Endpoints
 # ============================================================================
+
 
 @app.get("/memory/list")
 def list_memories(
@@ -2531,20 +2572,16 @@ def list_memories(
     """List all memories with pagination"""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
+
     memories = rag_service.list_memories(limit=limit, offset=offset)
-    
-    return {
-        "success": True,
-        "memories": memories,
-        "count": len(memories)
-    }
+
+    return {"success": True, "memories": memories, "count": len(memories)}
 
 
 @app.get("/memory/emotions/stats")
 def memory_emotion_stats(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ):
     """Return aggregated emotion statistics across transcripts"""
     if not rag_service:
@@ -2559,8 +2596,9 @@ def memory_emotion_stats(
         **stats,
     }
 
+
 @app.post("/memory/search")
-async def search_memories(request: Dict[str, Any]):
+async def search_memories(request: dict[str, Any]):
     """Search memories by text/metadata"""
     try:
         query = request.get("query")
@@ -2570,6 +2608,7 @@ async def search_memories(request: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Memory search failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/personalize")
 async def trigger_personalization():
@@ -2581,34 +2620,298 @@ async def trigger_personalization():
         logger.error(f"Personalization trigger failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/memory/stats")
-def get_memory_stats(
-):
+def get_memory_stats():
     """Get memory statistics"""
     if not rag_service:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
-    
+
     # Count memories from database
     try:
         conn = rag_service._connect()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) as count FROM memories WHERE body IS NOT NULL AND body != ''")
         total_memories = cur.fetchone()[0]
-        
+
         return {
             "success": True,
             "total_memories": total_memories,
-            "faiss_documents": rag_service.faiss_index.ntotal if rag_service.faiss_index else 0
+            "faiss_documents": rag_service.faiss_index.ntotal if rag_service.faiss_index else 0,
         }
     except Exception as e:
         logger.error(f"Failed to get memory stats: {e}")
         return {
             "success": True,
             "total_memories": 0,
-            "faiss_documents": rag_service.faiss_index.ntotal if rag_service.faiss_index else 0
+            "faiss_documents": rag_service.faiss_index.ntotal if rag_service.faiss_index else 0,
         }
+
+
+
+# ============================================================================
+# Emotion Analytics Endpoints (Real Data)
+# ============================================================================
+
+@app.get("/emotions/stats")
+def get_emotion_stats(period: str = "today", user_id: str = None) -> dict[str, Any]:
+    """Get emotion statistics for the specified period from real transcript data."""
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not initialized")
+        
+    try:
+        # Determine time filter
+        now = datetime.utcnow()
+        if period == "today":
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == "week":
+            start_date = now - timedelta(days=7)
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+        else: # all
+            start_date = datetime(2000, 1, 1)
+            
+        start_iso = start_date.isoformat()
+        
+        with rag_service.lock:
+            conn = rag_service._connect()
+            cur = conn.cursor()
+            
+            # Count distinct emotions
+            cur.execute(f"""
+                SELECT ts.{rag_service.emotion_column} as emotion, COUNT(*) as count
+                FROM transcript_segments ts
+                JOIN transcript_records tr ON ts.transcript_id = tr.id
+                WHERE tr.created_at >= ?
+                GROUP BY ts.{rag_service.emotion_column}
+            """, (start_iso,))
+            
+            rows = cur.fetchall()
+            
+        # Aggregate results
+        totals = {}
+        total_count = 0
+        
+        for row in rows:
+            emotion = (row["emotion"] or "neutral").lower()
+            count = row["count"]
+            totals[emotion] = totals.get(emotion, 0) + count
+            total_count += count
+            
+        # Organize into standard structure
+        summary = {
+            "period": period,
+            "total_analyzed": total_count,
+            "joy_count": totals.get("joy", 0),
+            "negative_count": sum(totals.get(e, 0) for e in ["anger", "sadness", "fear", "disgust"]),
+            "emotion_totals": totals
+        }
+        
+        # Add averages (pace/pitch) if available in audio_metrics
+        # This would require JSON parsing of audio_metrics column which is complex in SQLite
+        # For formatted display, we return placeholders or simplified aggs if possible
+        summary["avg_pace_wpm"] = 0 # Placeholder for now as it requires complex JSON extraction
+        summary["avg_pitch_mean"] = 0
+        
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Failed to get emotion stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/emotions/analytics")
+def get_emotion_analytics(period: str = "today", user_id: str = None) -> dict[str, Any]:
+    """Get detailed analytics including timeline and speaker stats from real data."""
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not initialized")
+
+    try:
+        now = datetime.utcnow()
+        if period == "today":
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            group_format = "%Y-%m-%dT%H:00:00" # SQLite specific formatting might be needed
+            freq = "hour"
+        elif period == "week":
+            start_date = now - timedelta(days=7)
+            group_format = "%Y-%m-%d"
+            freq = "day"
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+            group_format = "%Y-%m-%d"
+            freq = "day"
+        else:
+            start_date = datetime(2000, 1, 1)
+            group_format = "%Y-%m"
+            freq = "month"
+
+        start_iso = start_date.isoformat()
+        
+        with rag_service.lock:
+            conn = rag_service._connect()
+            cur = conn.cursor()
+            
+            # Timeline data
+            # Requires parsing timestamps. Assuming ISO format in DB.
+            # Using basic substring/metric aggregation
+            if freq == "hour":
+                time_expr = "substr(tr.created_at, 1, 13) || ':00'"
+            elif freq == "day":
+                time_expr = "substr(tr.created_at, 1, 10)"
+            else:
+                time_expr = "substr(tr.created_at, 1, 7)"
+                
+            cur.execute(f"""
+                SELECT {time_expr} as time_bucket, 
+                       ts.{rag_service.emotion_column} as emotion, 
+                       COUNT(*) as count
+                FROM transcript_segments ts
+                JOIN transcript_records tr ON ts.transcript_id = tr.id
+                WHERE tr.created_at >= ?
+                GROUP BY time_bucket, ts.{rag_service.emotion_column}
+                ORDER BY time_bucket
+            """, (start_iso,))
+            
+            timeline_rows = cur.fetchall()
+            
+            # Speaker stats
+            cur.execute(f"""
+                SELECT ts.speaker, 
+                       ts.{rag_service.emotion_column} as emotion,
+                       COUNT(*) as count
+                FROM transcript_segments ts
+                JOIN transcript_records tr ON ts.transcript_id = tr.id
+                WHERE tr.created_at >= ?
+                GROUP BY ts.speaker, ts.{rag_service.emotion_column}
+            """, (start_iso,))
+            
+            speaker_rows = cur.fetchall()
+
+        # Process Timeline
+        timeline_map = {}
+        for row in timeline_rows:
+            bucket = row["time_bucket"]
+            emotion = (row["emotion"] or "neutral").lower()
+            count = row["count"]
+            
+            if bucket not in timeline_map:
+                timeline_map[bucket] = {"joy": 0, "sadness": 0, "anger": 0, "neutral": 0, "fear": 0}
+            timeline_map[bucket][emotion] = timeline_map[bucket].get(emotion, 0) + count
+            
+        sorted_buckets = sorted(timeline_map.keys())
+        formatted_timeline = {
+            "labels": sorted_buckets,
+            "emotions": {
+                "joy": [timeline_map[b].get("joy", 0) for b in sorted_buckets],
+                "anger": [timeline_map[b].get("anger", 0) for b in sorted_buckets],
+                "sadness": [timeline_map[b].get("sadness", 0) for b in sorted_buckets],
+                "neutral": [timeline_map[b].get("neutral", 0) for b in sorted_buckets]
+            }
+        }
+        
+        # Process Speakers
+        speakers_map = {}
+        for row in speaker_rows:
+            speaker = row["speaker"]
+            emotion = (row["emotion"] or "neutral").lower()
+            count = row["count"]
+            
+            if speaker not in speakers_map:
+                speakers_map[speaker] = {"total": 0, "emotions": {}}
+            
+            speakers_map[speaker]["total"] += count
+            speakers_map[speaker]["emotions"][emotion] = speakers_map[speaker]["emotions"].get(emotion, 0) + count
+            
+        formatted_speakers = []
+        for speaker, data in speakers_map.items():
+            # Find dominant emotion
+            dominant = max(data["emotions"].items(), key=lambda x: x[1])[0] if data["emotions"] else "neutral"
+            formatted_speakers.append({
+                "speaker": speaker,
+                "segments": data["total"],
+                "dominant_emotion": dominant,
+                "speech_metrics": {"pace_wpm": 0, "pitch_mean": 0} # Placeholders
+            })
+            
+        formatted_speakers.sort(key=lambda x: x["segments"], reverse=True)
+
+        # Get stats summary again for convenience
+        stats = get_emotion_stats(period)
+
+        return {
+            "summary": stats,
+            "timeline": formatted_timeline,
+            "speakers": formatted_speakers
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get emotion analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/emotions/moments")
+def get_emotional_moments(
+    limit: int = 20, 
+    offset: int = 0, 
+    emotion: str = None, 
+    speaker: str = None,
+    user_id: str = None
+) -> dict[str, Any]:
+    """Get real emotional moments from transcript segments."""
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not initialized")
+        
+    try:
+        conditions = []
+        params = []
+        
+        if emotion and emotion != 'all':
+            conditions.append(f"lower(ts.{rag_service.emotion_column}) = ?")
+            params.append(emotion.lower())
+            
+        if speaker:
+            conditions.append("lower(ts.speaker) = ?")
+            params.append(speaker.lower())
+            
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        
+        with rag_service.lock:
+            conn = rag_service._connect()
+            cur = conn.cursor()
+            
+            # Select relevant segments
+            # Sort by confidence + recency
+            query = f"""
+                SELECT ts.text, ts.speaker, ts.{rag_service.emotion_column} as emotion, 
+                       ts.emotion_confidence, tr.created_at, ts.id
+                FROM transcript_segments ts
+                JOIN transcript_records tr ON ts.transcript_id = tr.id
+                {where_clause}
+                ORDER BY tr.created_at DESC, ts.emotion_confidence DESC
+                LIMIT ? OFFSET ?
+            """
+            cur.execute(query, params + [limit, offset])
+            rows = cur.fetchall()
+            
+        moments = []
+        for row in rows:
+            moments.append({
+                "id": str(row["id"]),
+                "timestamp": row["created_at"],
+                "speaker": row["speaker"],
+                "emotion": row["emotion"],
+                "text": row["text"],
+                "confidence": row["emotion_confidence"] or 0.0
+            })
+            
+        return {"moments": moments, "count": len(moments)}
+        
+    except Exception as e:
+        logger.error(f"Failed to get moments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
     import uvicorn
+    # Port 8004 matches docker-compose RAG_URL config
     uvicorn.run(app, host="0.0.0.0", port=8004, log_level="info")
+

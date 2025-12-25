@@ -174,7 +174,7 @@ class WhisperAPI {
     // Try localStorage first (for iframe contexts like VS Code Simple Browser)
     const storedCsrf = this.getStoredCsrf();
     if (storedCsrf) return storedCsrf;
-    
+
     // Fall back to cookies
     const tryNames = [
       this.csrfCookieName || 'ws_csrf',
@@ -684,26 +684,34 @@ class WhisperAPI {
   }
 
   /**
+   * Release GPU session - moves Gemma back to CPU
+   * Called when Gemma page closes to free GPU for transcription
+   */
+  async gemmaReleaseSession() {
+    return await this.post('/gemma/release-session', {});
+  }
+
+  /**
    * Synchronous Gemma chat (simple generate)
    * NOTE: Call gemmaWarmup() first for fast GPU inference!
    */
   async gemmaChat(message) {
     // Use /gemma/generate endpoint
-    const response = await this.post('/gemma/generate', { 
-      prompt: message, 
+    const response = await this.post('/gemma/generate', {
+      prompt: message,
       max_tokens: 200,
-      temperature: 0.7 
+      temperature: 0.7
     });
     // Return in format expected by UI: { response: "text" }
     return { response: response.text };
   }
-  
+
   /**
    * Gemma generate (basic completion)
    */
   async gemmaGenerate(prompt, maxTokens = 200) {
-    return await this.post('/gemma/generate', { 
-      prompt, 
+    return await this.post('/gemma/generate', {
+      prompt,
       max_tokens: maxTokens,
       temperature: 0.7
     });
@@ -851,7 +859,7 @@ class WhisperAPI {
         const chunk = decoder.decode(value, { stream: true });
         if (onEvent) onEvent(chunk);
       }
-    }).catch(() => {});
+    }).catch(() => { });
     return () => controller.abort();
   }
 

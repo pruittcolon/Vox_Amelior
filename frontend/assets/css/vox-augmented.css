@@ -1,0 +1,666 @@
+/*
+ * Vox Augmented - Premium Design System
+ * A clean, minimal, light-themed design inspired by Notion, Linear, Stripe
+ * Avoids typical AI-generated dark blue/purple clichés
+ */
+
+:root {
+    /* ========================================
+     BRAND COLORS - Warm, Human, Premium
+     ======================================== */
+
+    /* Primary Palette - Warm Coral/Orange (unique, not typical AI blue) */
+    --vox-primary: #FF6B35;
+    --vox-primary-light: #FF8F65;
+    --vox-primary-dark: #E55A2B;
+    --vox-primary-subtle: rgba(255, 107, 53, 0.08);
+
+    /* Secondary - Warm Teal (complementary, not cold) */
+    --vox-secondary: #2EC4B6;
+    --vox-secondary-light: #5DD3C8;
+    --vox-secondary-dark: #25A99D;
+    --vox-secondary-subtle: rgba(46, 196, 182, 0.08);
+
+    /* Neutrals - Warm greys, not cold blue-greys */
+    --vox-white: #FFFFFF;
+    --vox-off-white: #FAFAFA;
+    --vox-cream: #F7F6F3;
+    --vox-grey-50: #F5F5F4;
+    --vox-grey-100: #E7E5E4;
+    --vox-grey-200: #D6D3D1;
+    --vox-grey-300: #A8A29E;
+    --vox-grey-400: #78716C;
+    --vox-grey-500: #57534E;
+    --vox-grey-600: #44403C;
+    --vox-grey-700: #292524;
+    --vox-grey-800: #1C1917;
+    --vox-grey-900: #0C0A09;
+
+    /* Semantic Colors */
+    --vox-success: #22C55E;
+    --vox-warning: #F59E0B;
+    --vox-danger: #EF4444;
+    --vox-info: #3B82F6;
+
+    /* ========================================
+     TYPOGRAPHY
+     ======================================== */
+    --vox-font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --vox-font-display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+    /* ========================================
+     SPACING
+     ======================================== */
+    --vox-space-1: 0.25rem;
+    --vox-space-2: 0.5rem;
+    --vox-space-3: 0.75rem;
+    --vox-space-4: 1rem;
+    --vox-space-5: 1.25rem;
+    --vox-space-6: 1.5rem;
+    --vox-space-8: 2rem;
+    --vox-space-10: 2.5rem;
+    --vox-space-12: 3rem;
+    --vox-space-16: 4rem;
+    --vox-space-20: 5rem;
+    --vox-space-24: 6rem;
+
+    /* ========================================
+     BORDERS & SHADOWS
+     ======================================== */
+    --vox-radius-sm: 6px;
+    --vox-radius-md: 10px;
+    --vox-radius-lg: 14px;
+    --vox-radius-xl: 20px;
+    --vox-radius-2xl: 28px;
+    --vox-radius-full: 9999px;
+
+    --vox-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --vox-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+    --vox-shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
+    --vox-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.1);
+
+    /* ========================================
+     TRANSITIONS
+     ======================================== */
+    --vox-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --vox-transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --vox-transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ========================================
+   BASE STYLES
+   ======================================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--vox-font-primary);
+    background: var(--vox-white);
+    color: var(--vox-grey-800);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ========================================
+   NAVIGATION
+   ======================================== */
+.vox-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--vox-grey-100);
+}
+
+.vox-nav-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 var(--vox-space-6);
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.vox-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--vox-space-3);
+    text-decoration: none;
+    color: inherit;
+}
+
+.vox-logo-mark {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--vox-primary), var(--vox-primary-dark));
+    border-radius: var(--vox-radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 800;
+    font-size: 1.1rem;
+}
+
+.vox-logo-text {
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: var(--vox-grey-900);
+}
+
+.vox-nav-links {
+    display: flex;
+    align-items: center;
+    gap: var(--vox-space-1);
+}
+
+.vox-nav-link {
+    padding: var(--vox-space-2) var(--vox-space-4);
+    color: var(--vox-grey-500);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: var(--vox-radius-md);
+    transition: all var(--vox-transition-fast);
+}
+
+.vox-nav-link:hover {
+    color: var(--vox-grey-900);
+    background: var(--vox-grey-50);
+}
+
+.vox-nav-link.active {
+    color: var(--vox-primary);
+    background: var(--vox-primary-subtle);
+}
+
+.vox-nav-cta {
+    display: flex;
+    align-items: center;
+    gap: var(--vox-space-3);
+}
+
+/* ========================================
+   BUTTONS
+   ======================================== */
+.vox-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--vox-space-2);
+    padding: var(--vox-space-3) var(--vox-space-5);
+    font-family: var(--vox-font-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: var(--vox-radius-md);
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all var(--vox-transition-fast);
+}
+
+.vox-btn-primary {
+    background: var(--vox-grey-900);
+    color: white;
+}
+
+.vox-btn-primary:hover {
+    background: var(--vox-grey-700);
+    transform: translateY(-1px);
+}
+
+.vox-btn-accent {
+    background: linear-gradient(135deg, var(--vox-primary), var(--vox-primary-dark));
+    color: white;
+    box-shadow: 0 4px 14px rgba(255, 107, 53, 0.25);
+}
+
+.vox-btn-accent:hover {
+    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.35);
+    transform: translateY(-2px);
+}
+
+.vox-btn-ghost {
+    background: transparent;
+    color: var(--vox-grey-600);
+}
+
+.vox-btn-ghost:hover {
+    background: var(--vox-grey-50);
+    color: var(--vox-grey-900);
+}
+
+.vox-btn-lg {
+    padding: var(--vox-space-4) var(--vox-space-8);
+    font-size: 1rem;
+    border-radius: var(--vox-radius-lg);
+}
+
+/* ========================================
+   HERO SECTION
+   ======================================== */
+.vox-hero {
+    padding: calc(64px + var(--vox-space-20)) var(--vox-space-6) var(--vox-space-20);
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.vox-hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse at 30% 20%, var(--vox-primary-subtle) 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 80%, var(--vox-secondary-subtle) 0%, transparent 50%);
+    pointer-events: none;
+}
+
+.vox-hero-content {
+    position: relative;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.vox-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vox-space-2);
+    padding: var(--vox-space-2) var(--vox-space-4);
+    background: var(--vox-cream);
+    border: 1px solid var(--vox-grey-200);
+    border-radius: var(--vox-radius-full);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--vox-grey-600);
+    margin-bottom: var(--vox-space-8);
+}
+
+.vox-hero-badge-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--vox-success);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.vox-hero-title {
+    font-size: clamp(2.5rem, 6vw, 4rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    color: var(--vox-grey-900);
+    margin-bottom: var(--vox-space-6);
+}
+
+.vox-hero-accent {
+    color: var(--vox-primary);
+}
+
+.vox-hero-subtitle {
+    font-size: 1.25rem;
+    color: var(--vox-grey-500);
+    max-width: 600px;
+    margin: 0 auto var(--vox-space-10);
+    line-height: 1.7;
+}
+
+.vox-hero-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--vox-space-4);
+    flex-wrap: wrap;
+}
+
+/* ========================================
+   SLOGAN ANIMATION
+   ======================================== */
+.vox-slogan {
+    margin-top: var(--vox-space-16);
+    padding: var(--vox-space-8);
+    background: var(--vox-cream);
+    border-radius: var(--vox-radius-2xl);
+    border: 1px solid var(--vox-grey-100);
+}
+
+.vox-slogan-line {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--vox-grey-700);
+    margin-bottom: var(--vox-space-2);
+}
+
+.vox-slogan-word {
+    display: inline-block;
+    position: relative;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.vox-slogan-word.transform {
+    color: var(--vox-primary);
+    font-weight: 800;
+}
+
+.vox-slogan-arrow {
+    display: inline-block;
+    margin: 0 var(--vox-space-2);
+    color: var(--vox-grey-300);
+}
+
+/* ========================================
+   FEATURES SECTION
+   ======================================== */
+.vox-section {
+    padding: var(--vox-space-24) var(--vox-space-6);
+}
+
+.vox-section-dark {
+    background: var(--vox-grey-900);
+    color: var(--vox-white);
+}
+
+.vox-container {
+    max-width: 1280px;
+    margin: 0 auto;
+}
+
+.vox-section-header {
+    text-align: center;
+    max-width: 600px;
+    margin: 0 auto var(--vox-space-16);
+}
+
+.vox-section-label {
+    display: inline-block;
+    padding: var(--vox-space-1) var(--vox-space-3);
+    background: var(--vox-primary-subtle);
+    color: var(--vox-primary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-radius: var(--vox-radius-sm);
+    margin-bottom: var(--vox-space-4);
+}
+
+.vox-section-title {
+    font-size: 2.5rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--vox-space-4);
+}
+
+.vox-section-subtitle {
+    font-size: 1.125rem;
+    color: var(--vox-grey-500);
+    line-height: 1.7;
+}
+
+/* ========================================
+   FEATURE CARDS
+   ======================================== */
+.vox-features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--vox-space-6);
+}
+
+.vox-feature-card {
+    background: var(--vox-white);
+    border: 1px solid var(--vox-grey-100);
+    border-radius: var(--vox-radius-xl);
+    padding: var(--vox-space-8);
+    transition: all var(--vox-transition-base);
+}
+
+.vox-feature-card:hover {
+    border-color: var(--vox-grey-200);
+    box-shadow: var(--vox-shadow-lg);
+    transform: translateY(-4px);
+}
+
+.vox-feature-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--vox-radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: var(--vox-space-5);
+    font-size: 1.5rem;
+}
+
+.vox-feature-icon.primary {
+    background: var(--vox-primary-subtle);
+}
+
+.vox-feature-icon.secondary {
+    background: var(--vox-secondary-subtle);
+}
+
+.vox-feature-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: var(--vox-space-3);
+    color: var(--vox-grey-900);
+}
+
+.vox-feature-desc {
+    font-size: 0.9375rem;
+    color: var(--vox-grey-500);
+    line-height: 1.6;
+}
+
+/* ========================================
+   STATS ROW
+   ======================================== */
+.vox-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--vox-space-8);
+    padding: var(--vox-space-12) 0;
+    border-top: 1px solid var(--vox-grey-100);
+    border-bottom: 1px solid var(--vox-grey-100);
+}
+
+.vox-stat {
+    text-align: center;
+}
+
+.vox-stat-value {
+    font-size: 3rem;
+    font-weight: 800;
+    color: var(--vox-grey-900);
+    letter-spacing: -0.03em;
+}
+
+.vox-stat-label {
+    font-size: 0.875rem;
+    color: var(--vox-grey-500);
+    margin-top: var(--vox-space-2);
+}
+
+/* ========================================
+   PRODUCT CARDS
+   ======================================== */
+.vox-products-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--vox-space-6);
+}
+
+.vox-product-card {
+    background: var(--vox-cream);
+    border-radius: var(--vox-radius-2xl);
+    padding: var(--vox-space-10);
+    position: relative;
+    overflow: hidden;
+    transition: all var(--vox-transition-base);
+}
+
+.vox-product-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--vox-shadow-xl);
+}
+
+.vox-product-tag {
+    display: inline-block;
+    padding: var(--vox-space-1) var(--vox-space-3);
+    background: var(--vox-white);
+    border-radius: var(--vox-radius-full);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--vox-grey-600);
+    margin-bottom: var(--vox-space-4);
+}
+
+.vox-product-title {
+    font-size: 1.75rem;
+    font-weight: 800;
+    margin-bottom: var(--vox-space-3);
+    color: var(--vox-grey-900);
+}
+
+.vox-product-desc {
+    font-size: 1rem;
+    color: var(--vox-grey-600);
+    line-height: 1.6;
+    margin-bottom: var(--vox-space-6);
+}
+
+/* ========================================
+   CTA SECTION
+   ======================================== */
+.vox-cta {
+    background: linear-gradient(135deg, var(--vox-primary), var(--vox-primary-dark));
+    color: white;
+    padding: var(--vox-space-20) var(--vox-space-6);
+    text-align: center;
+    border-radius: var(--vox-radius-2xl);
+    margin: var(--vox-space-24) var(--vox-space-6);
+}
+
+.vox-cta-title {
+    font-size: 2.5rem;
+    font-weight: 800;
+    margin-bottom: var(--vox-space-4);
+}
+
+.vox-cta-subtitle {
+    font-size: 1.125rem;
+    opacity: 0.9;
+    margin-bottom: var(--vox-space-8);
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.vox-btn-white {
+    background: white;
+    color: var(--vox-primary);
+}
+
+.vox-btn-white:hover {
+    background: var(--vox-cream);
+    transform: translateY(-2px);
+}
+
+/* ========================================
+   FOOTER
+   ======================================== */
+.vox-footer {
+    padding: var(--vox-space-12) var(--vox-space-6);
+    border-top: 1px solid var(--vox-grey-100);
+}
+
+.vox-footer-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.vox-footer-text {
+    color: var(--vox-grey-400);
+    font-size: 0.875rem;
+}
+
+/* ========================================
+   ANIMATIONS
+   ======================================== */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.vox-animate-fade-in-up {
+    animation: fadeInUp 0.6s ease forwards;
+}
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+@media (max-width: 1024px) {
+    .vox-features-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .vox-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .vox-nav-links {
+        display: none;
+    }
+
+    .vox-features-grid,
+    .vox-products-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .vox-stats {
+        grid-template-columns: 1fr;
+        gap: var(--vox-space-6);
+    }
+
+    .vox-hero-title {
+        font-size: 2.5rem;
+    }
+
+    .vox-footer-inner {
+        flex-direction: column;
+        gap: var(--vox-space-4);
+        text-align: center;
+    }
+}

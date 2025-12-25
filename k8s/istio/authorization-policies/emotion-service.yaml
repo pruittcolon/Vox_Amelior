@@ -1,0 +1,45 @@
+# Emotion Service Authorization Policy
+#
+# Emotion Service can ONLY be accessed by:
+# - API Gateway (for sentiment analysis requests)
+# - Transcription Service (for real-time emotion analysis)
+#
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: emotion-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: emotion-service
+  action: ALLOW
+  rules:
+    # Allow API Gateway for emotion analysis
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/api-gateway"]
+      to:
+        - operation:
+            ports: ["8005"]
+            methods: ["GET", "POST"]
+            paths: ["/analyze", "/emotions", "/health", "/v1/*"]
+    
+    # Allow Transcription Service for real-time analysis
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/transcription-service"]
+      to:
+        - operation:
+            ports: ["8005"]
+            methods: ["POST"]
+            paths: ["/analyze", "/batch", "/v1/*"]
+    
+    # Allow health checks
+    - from:
+        - source:
+            namespaces: ["nemo"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/health", "/metrics"]

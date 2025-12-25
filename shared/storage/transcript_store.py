@@ -10,7 +10,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def _ensure_tables(cur: sqlite3.Cursor) -> None:
@@ -65,7 +65,7 @@ def _ensure_tables(cur: sqlite3.Cursor) -> None:
 def store_transcript_fallback(
     db_path: Path,
     text: str,
-    segments: List[Dict[str, Any]],
+    segments: list[dict[str, Any]],
     job_id: str,
     session_id: str,
     audio_duration: float,
@@ -94,9 +94,9 @@ def store_transcript_fallback(
             """,
             (job_id, session_id, text, audio_duration, timestamp, timestamp),
         )
-        transcript_id = cur.lastrowid or cur.execute(
-            "SELECT id FROM transcript_records WHERE job_id = ?", (job_id,)
-        ).fetchone()[0]
+        transcript_id = (
+            cur.lastrowid or cur.execute("SELECT id FROM transcript_records WHERE job_id = ?", (job_id,)).fetchone()[0]
+        )
 
         # Remove any previous segments for this transcript to avoid duplicates
         cur.execute("DELETE FROM transcript_segments WHERE transcript_id = ?", (transcript_id,))

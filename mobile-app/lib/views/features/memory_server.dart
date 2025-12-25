@@ -4,8 +4,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:demo_ai_even/services/asr_http_service.dart';
+import 'package:demo_ai_even/services/asr_streaming_service.dart';
 import 'package:demo_ai_even/services/app_logger.dart';
 import 'package:demo_ai_even/services/memory_service.dart';
+import 'package:demo_ai_even/services/chat_service.dart';
+import 'package:demo_ai_even/services/transcript_buffer_service.dart';
+import 'package:demo_ai_even/services/alexa_service.dart';
+import 'package:demo_ai_even/services/n8n_service.dart';
+import 'package:demo_ai_even/services/web_search_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 
@@ -20,7 +26,10 @@ class _MemoryServerPageState extends State<MemoryServerPage>
     with TickerProviderStateMixin {
   // --- Services and Controllers ---
   final AsrHttpService _asr = AsrHttpService.I;
+  final AsrStreamingService _asrStreaming = AsrStreamingService.I;
   final MemoryService _memoryService = MemoryService.instance;
+  final ChatService _chatService = ChatService.instance;
+  final TranscriptBufferService _transcriptBuffer = TranscriptBufferService.instance;
   final TextEditingController _questionController = TextEditingController();
   final TextEditingController _sessionController =
       TextEditingController(text: 'mobile-session');
@@ -32,10 +41,23 @@ class _MemoryServerPageState extends State<MemoryServerPage>
   final List<LogEntry> _logs = [];
   final List<String> _segmentEvents = [];
   String _segmentStatus = 'Idle';
+  
+  // Diarization timer and buffer
+  Timer? _diarizationTimer;
+  int _diarizationCountdown = 30;
+  StringBuffer _continuousBuffer = StringBuffer();  // Accumulates text until diarization
+  DateTime? _bufferStartTime;
+  
+  // Smart home debounce (prevent duplicate triggers)
+  DateTime? _lastSmartHomeCommand;
+  String? _lastSmartHomeCommandText;
+  static const Duration _smartHomeDebounce = Duration(seconds: 10);
 
   StreamSubscription<AsrEvent>? _asrSubscription;
+  StreamSubscription<AsrStreamEvent>? _streamingSubscription;
   StreamSubscription<LogEntry>? _logSubscription;
   bool _isRunning = false;
+  bool _useRealtime = true;  // WebSocket streaming for real-time transcription
   bool _isConnected = false;
   bool _isLoading = false;
   String _statusMessage = 'Checking connection...';
@@ -57,7 +79,10 @@ class _MemoryServerPageState extends State<MemoryServerPage>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
 
+    // Subscribe to both ASR services (only one will be active at a time)
     _asrSubscription = _asr.stream.listen(_handleEvent);
+    _streamingSubscription = _asrStreaming.stream.listen(_handleStreamingEvent);
+    
     _logSubscription = AppLogger.instance.stream.listen((entry) {
       if (!mounted) return;
       setState(() {
@@ -77,15 +102,17 @@ class _MemoryServerPageState extends State<MemoryServerPage>
   @override
   void dispose() {
     _asrSubscription?.cancel();
+    _streamingSubscription?.cancel();
     _logSubscription?.cancel();
+    _diarizationTimer?.cancel();  // Cancel diarization countdown
     _asr.stop();
+    _asrStreaming.stop();
     _tabController.dispose();
     _questionController.dispose();
     _sessionController.dispose();
     super.dispose();
   }
 
-  // --- Event Handling & Business Logic (Unchanged) ---
   void _handleEvent(AsrEvent event) {
     if (!mounted) return;
     setState(() {
@@ -99,6 +126,18 @@ class _MemoryServerPageState extends State<MemoryServerPage>
       }
 
       final trimmed = event.text.trim();
+      
+      // Store transcript for robot mode (skip system messages)
+      if (event.speaker.toUpperCase() != 'SYSTEM' && trimmed.isNotEmpty) {
+        _transcriptBuffer.addTranscript(trimmed, speaker: event.speaker);
+        
+        // Check for "ask the robot" trigger
+        final lower = trimmed.toLowerCase();
+        if (_isRobotTrigger(lower)) {
+          _handleRobotQuery(trimmed);
+        }
+      }
+      
       if (_isSegmentUpdate(event, trimmed)) {
         final message = trimmed.isEmpty ? event.text : trimmed;
         _segmentStatus = message.isEmpty ? 'Processing segment...' : message;
@@ -112,6 +151,362 @@ class _MemoryServerPageState extends State<MemoryServerPage>
       _lines.add(_Line(trimmed.isEmpty ? event.text : trimmed, event.speaker,
           emotion: event.emotion));
     });
+  }
+  
+  /// Start the 30-second diarization countdown timer
+  void _startDiarizationTimer() {
+    _diarizationTimer?.cancel();
+    _diarizationCountdown = 30;
+    _bufferStartTime = DateTime.now();
+    
+    _diarizationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _diarizationCountdown = 30 - DateTime.now().difference(_bufferStartTime!).inSeconds;
+        if (_diarizationCountdown < 0) _diarizationCountdown = 0;
+        _segmentStatus = 'Diarization in $_diarizationCountdown s';
+      });
+    });
+  }
+  
+  /// Handle events from real-time WebSocket streaming service
+  void _handleStreamingEvent(AsrStreamEvent event) {
+    if (!mounted) return;
+    
+    if (event.isError || event.isSystem) {
+      setState(() {
+        if (_lines.length >= 400) {
+          _lines.removeAt(0);
+        }
+        _lines.add(_Line(event.text, event.speaker, isError: event.isError));
+      });
+      return;
+    }
+    
+    final text = event.text.trim();
+    if (text.isEmpty) return;
+    
+    // Store transcript for robot mode
+    _transcriptBuffer.addTranscript(text, speaker: event.speaker);
+    
+    // Check for "ask the robot" trigger
+    final lower = text.toLowerCase();
+    if (_isRobotTrigger(lower)) {
+      _handleRobotQuery(text);
+    }
+    
+    // Check for smart home commands (kitchen light off, etc.)
+    if (_isSmartHomeCommand(lower)) {
+      _handleSmartHomeCommand(lower);
+    }
+    
+    setState(() {
+      if (event.isDiarizationUpdate) {
+        // DIARIZATION ARRIVED - add speaker-labeled line
+        // Remove any "BUFFERING" placeholder if it exists
+        if (_lines.isNotEmpty && _lines.last.speaker == 'BUFFERING...') {
+          _lines.removeLast();
+        }
+        
+        // Add diarized segment with speaker label
+        if (_lines.length >= 400) {
+          _lines.removeAt(0);
+        }
+        _lines.add(_Line(
+          text,
+          event.speaker,
+          emotion: event.emotion,
+        ));
+        
+        _segmentStatus = 'Speaker: ${event.speaker}';
+        
+        // Reset timer and buffer for next cycle
+        _diarizationCountdown = 30;
+        _bufferStartTime = DateTime.now();
+        _continuousBuffer.clear();  // Clear buffer for next accumulation
+      } else {
+        // TRANSCRIPT - accumulate on continuous line
+        // Start timer on first transcript if not running
+        if (_bufferStartTime == null) {
+          _startDiarizationTimer();
+        }
+        
+        // Append to continuous buffer
+        if (_continuousBuffer.isEmpty) {
+          _continuousBuffer.write(text);
+        } else {
+          _continuousBuffer.write(' $text');
+        }
+        
+        // Update or create the buffer line
+        final bufferText = _continuousBuffer.toString();
+        if (_lines.isNotEmpty && _lines.last.speaker == 'BUFFERING...') {
+          // Update existing buffer line
+          _lines.last = _Line(bufferText, 'BUFFERING...');
+        } else {
+          // Add new buffer line
+          if (_lines.length >= 400) {
+            _lines.removeAt(0);
+          }
+          _lines.add(_Line(bufferText, 'BUFFERING...'));
+        }
+      }
+    });
+  }
+  /// Check if the text contains a robot trigger phrase
+  /// Supports: standard, double, triple, 100 variants
+  bool _isRobotTrigger(String lower) {
+    // 100 variants (most specific)
+    if (lower.contains('100 ask') || 
+        lower.contains('100 robot') ||
+        lower.contains('one hundred ask') ||
+        lower.contains('one hundred robot') ||
+        lower.contains('hundred ask') ||
+        lower.contains('hundred robot') ||
+        lower.contains('1 hundred ask') ||
+        lower.contains('1 hundred robot')) {
+      return true;
+    }
+    // Triple variants
+    if (lower.contains('triple ask') || lower.contains('triple robot')) {
+      return true;
+    }
+    // Double variants
+    if (lower.contains('double ask') || lower.contains('double robot')) {
+      return true;
+    }
+    // Standard variants
+    return lower.contains('ask the robot') ||
+           lower.contains('ask robot') ||
+           lower.contains('hey robot') ||
+           (lower.startsWith('robot') && lower.length > 6);
+  }
+  
+  /// Check if text contains a smart home command keyword
+  /// Simple keyword detection - n8n-service handles the actual pattern matching
+  bool _isSmartHomeCommand(String text) {
+    final lower = text.toLowerCase();
+    // Check for light/TV related keywords
+    return lower.contains('light') || 
+           lower.contains('lights') ||
+           lower.contains('lite') ||  // transcription error
+           lower.contains('tv off') ||
+           lower.contains('tv on');
+  }
+  
+  /// Handle smart home commands via n8n-service
+  /// Sends transcript to n8n which handles command matching and VoiceMonkey triggering
+  Future<void> _handleSmartHomeCommand(String text) async {
+    // Debounce: prevent duplicate triggers within 10 seconds
+    final now = DateTime.now();
+    if (_lastSmartHomeCommand != null &&
+        now.difference(_lastSmartHomeCommand!) < _smartHomeDebounce) {
+      print("🏠 Smart Home: Ignoring duplicate (debounce ${now.difference(_lastSmartHomeCommand!).inSeconds}s < 10s)");
+      return;
+    }
+    
+    // Also check if we're sending the same command again
+    final commandKey = text.replaceAll(RegExp(r'[^a-z\s]'), '').trim();
+    if (_lastSmartHomeCommandText == commandKey) {
+      print("🏠 Smart Home: Ignoring repeated command '$commandKey'");
+      return;
+    }
+    
+    // Mark command as triggered for debounce
+    _lastSmartHomeCommand = now;
+    _lastSmartHomeCommandText = commandKey;
+    
+    print("🏠 Smart Home: Sending to n8n -> '$text'");
+    _showSnackBar('🏠 Processing...', isError: false);
+    
+    final n8nService = N8nService.instance;
+    
+    // Check if n8n is configured
+    if (!n8nService.isConfigured) {
+      print("🏠 Smart Home: N8n service not configured");
+      _showSnackBar('❌ N8n not configured', isError: true);
+      return;
+    }
+    
+    try {
+      // Send to n8n-service - it handles command matching and VoiceMonkey triggering
+      final result = await n8nService.processTranscript(
+        text: text,
+        speaker: 'user',
+      );
+      
+      if (mounted) {
+        if (result.hasTriggeredCommands) {
+          print("🏠 Smart Home: ✅ N8n triggered ${result.voiceCommandsTriggered} command(s)");
+          _showSnackBar('✅ Sent', isError: false);
+        } else if (result.success) {
+          print("🏠 Smart Home: N8n processed, no commands matched");
+          // Don't show error - the text might just not be a command
+        } else {
+          print("🏠 Smart Home: ❌ N8n error: ${result.errorMessage}");
+          _showSnackBar('❌ ${result.errorMessage ?? 'Error'}', isError: true);
+        }
+      }
+    } catch (e) {
+      print("🏠 Smart Home Error: $e");
+      _showSnackBar('❌ Error: $e', isError: true);
+    }
+  }
+  
+  /// Handle "ask the robot" queries with web search integration
+  /// Supports: standard (20), double (40), triple (60), 100 context lines
+  Future<void> _handleRobotQuery(String transcript) async {
+    final lower = transcript.toLowerCase();
+    
+    // Determine context lines based on trigger
+    int contextLines = 20; // default
+    String triggerType = 'standard';
+    
+    // Check triggers in order of specificity
+    if (lower.contains('100 ') || lower.contains('one hundred') || 
+        lower.contains('hundred ') || lower.contains('1 hundred')) {
+      contextLines = 100;
+      triggerType = '100';
+    } else if (lower.contains('triple')) {
+      contextLines = 60;
+      triggerType = 'triple';
+    } else if (lower.contains('double')) {
+      contextLines = 40;
+      triggerType = 'double';
+    }
+    
+    // Extract question from trigger phrase - remove all variants
+    String question = lower;
+    final allTriggers = [
+      '100 ask the robot', '100 ask robot', '100 robot',
+      'one hundred ask the robot', 'one hundred ask robot', 'one hundred robot',
+      'hundred ask the robot', 'hundred ask robot', 'hundred robot',
+      '1 hundred ask the robot', '1 hundred ask robot', '1 hundred robot',
+      'triple ask the robot', 'triple ask robot', 'triple robot',
+      'double ask the robot', 'double ask robot', 'double robot',
+      'ask the robot', 'ask robot', 'hey robot', 'robot',
+    ];
+    
+    for (final phrase in allTriggers) {
+      if (question.contains(phrase)) {
+        question = question.replaceFirst(phrase, '').trim();
+        break;
+      }
+    }
+    question = question.replaceAll(RegExp(r'^[,.\s]+'), '').trim();
+    
+    if (question.isEmpty) {
+      question = "What is the disagreement about and who is correct?";
+    }
+    
+    // Get conversation context
+    final conversationContext = _transcriptBuffer.getFormattedConversation(contextLines);
+    final transcriptCount = _transcriptBuffer.length;
+    
+    print("🤖 Robot Query ($triggerType): '$question' with $contextLines context lines ($transcriptCount available)");
+    
+    // Show processing indicator
+    _showSnackBar('🤖 Processing ($triggerType mode)...', isError: false);
+    
+    // Fetch web search context
+    String webContext = "";
+    try {
+      print("🌐 Robot: Fetching web search context...");
+      webContext = await WebSearchService.instance.sendWebSearchRequest(question);
+      print("🌐 Robot: Got web context (${webContext.length} chars)");
+    } catch (e) {
+      print("🌐 Robot: Web search failed, continuing without: $e");
+    }
+    
+    // Build the improved prompt that handles noisy ASR transcriptions
+    final systemPrompt = '''You are a knowledgeable assistant analyzing a real-time conversation.
+
+IMPORTANT - ABOUT THIS TRANSCRIPTION:
+• This is AI-generated speech-to-text which may contain errors
+• Common issues: homophones ("their/there"), mishearing ("kitchen/chicken"), garbled words
+• Recent entries may not have speaker labels (diarization runs every 30 seconds)
+• Entries marked "[Speaker TBD]" or "UNKNOWN" are not yet diarized
+• Use context and best judgment to infer the intended meaning
+
+YOUR TASK:
+Focus on answering the question accurately. The TRUTH matters more than who said what.
+If speakers disagree, determine the factually correct answer using:
+1. Your knowledge base
+2. The web search context provided (if available)
+3. Logical reasoning
+
+CONVERSATION CONTEXT ($contextLines lines):
+---
+$conversationContext
+---
+
+${webContext.isNotEmpty ? '''
+CURRENT WEB INFORMATION:
+---
+$webContext
+---
+''' : ''}
+
+RESPONSE GUIDELINES:
+• Keep answers under 100 words (displayed on smart glasses)
+• Be direct and factual
+• If the web provides more current information, prefer it
+• Don't mention transcription quality issues in your response''';
+    
+    try {
+      final answer = await _chatService.sendChatRequestWithPrompt(
+        question,
+        systemPrompt,
+      );
+      
+      print("🤖 Robot Answer: $answer");
+      
+      // Show the answer
+      if (mounted) {
+        _showRobotAnswer(question, answer);
+      }
+    } catch (e) {
+      print("🤖 Robot Error: $e");
+      _showSnackBar('Robot query failed: $e', isError: true);
+    }
+  }
+  
+  /// Display the robot's answer in a dialog
+  void _showRobotAnswer(String question, String answer) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cardColor,
+        title: const Row(
+          children: [
+            Icon(Icons.smart_toy, color: accentColor),
+            SizedBox(width: 8),
+            Text('Robot Answer', style: TextStyle(color: textColor)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Q: $question', 
+                style: const TextStyle(color: subtitleColor, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 16),
+              Text(answer, style: const TextStyle(color: textColor, fontSize: 16)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK', style: TextStyle(color: accentColor)),
+          ),
+        ],
+      ),
+    );
   }
 
   bool _isSegmentUpdate(AsrEvent event, String text) {
@@ -135,11 +530,17 @@ class _MemoryServerPageState extends State<MemoryServerPage>
   Future<void> _startAsr() async {
     if (_isRunning) return;
     try {
-      await _asr.start();
+      if (_useRealtime) {
+        // Use WebSocket streaming for real-time (~500ms latency)
+        await _asrStreaming.start();
+      } else {
+        // Use HTTP chunked uploads (5s chunks)
+        await _asr.start();
+      }
       if (mounted) {
         setState(() {
           _isRunning = true;
-          _segmentStatus = 'Streaming started';
+          _segmentStatus = _useRealtime ? 'Real-time streaming' : 'HTTP streaming started';
         });
       }
     } catch (e) {
@@ -149,7 +550,11 @@ class _MemoryServerPageState extends State<MemoryServerPage>
 
   Future<void> _stopAsr() async {
     if (!_isRunning) return;
-    await _asr.stop();
+    if (_useRealtime) {
+      await _asrStreaming.stop();
+    } else {
+      await _asr.stop();
+    }
     if (mounted) {
       setState(() {
         _isRunning = false;
@@ -1564,13 +1969,13 @@ class ConversationMessage {
 }
 
 class _Line {
-  // ... Unchanged ...
   final String text;
   final String speaker;
   final bool isError;
+  final bool isPartial;  // For real-time streaming partial results
   final Map<String, dynamic>? emotion;
 
-  const _Line(this.text, this.speaker, {this.isError = false, this.emotion});
+  const _Line(this.text, this.speaker, {this.isError = false, this.isPartial = false, this.emotion});
 }
 
 class TranscriptRecord {

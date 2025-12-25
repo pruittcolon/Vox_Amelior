@@ -1,68 +1,70 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:;">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:;">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
-  <title>Nemo Server - About</title>
-  
+  <title>About - Vox Amelior</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  
+
   <script src="https://unpkg.com/lucide@latest"></script>
-  
+
   <link rel="stylesheet" href="assets/css/design-tokens.css?v=2024110802">
   <link rel="stylesheet" href="assets/css/main.css">
   <link rel="stylesheet" href="assets/css/components.css">
   <link rel="stylesheet" href="assets/css/animations.css">
-  
+
+  <!-- Vox Amelior Design System -->
+  <link rel="stylesheet" href="assets/css/vox-amelior.css">
+
   <script src="assets/js/api.js"></script>
   <script src="assets/js/app.js"></script>
   <script src="assets/js/auth.js"></script>
 </head>
+
 <body class="gemma-theme">
 
-  <header class="glass-header">
-    <div class="container">
-      <div class="flex-between">
-        <div class="flex">
-          <h1 style="font-size: 1.5rem; margin: 0; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-            🎙️ Nemo Server
-          </h1>
+  <!-- Navigation (Vox Amelior) -->
+  <nav class="vox-nav">
+    <div class="vox-nav-inner">
+      <a href="index.html" class="vox-logo">
+        <div class="vox-logo-mark">
+          <img src="assets/images/logo.png" alt="Vox Amelior Logo">
         </div>
-        
-        <nav class="nav">
-          <a href="index.html" class="nav-link">Dashboard</a>
-          <a href="search.html" class="nav-link">Search</a>
-          <a href="emotions.html" class="nav-link">Emotions</a>
-          <a href="memories.html" class="nav-link">Memories</a>
-          <a href="gemma.html" class="nav-link">AI Insights</a>
-          <a href="databases.html" class="nav-link">LLM Vectorization</a>
-          <a href="predictions.html" class="nav-link">ML Service</a>
-          <a href="settings.html" class="nav-link">Settings</a>
-        </nav>
-        
-        <div class="flex">
-          <button class="glass-button" data-toggle-theme>
-            <i data-lucide="moon" style="width: 18px; height: 18px;"></i>
-          </button>
-          <div id="api-status"></div>
-        </div>
+        <span class="vox-logo-text">Vox Amelior</span>
+      </a>
+
+      <div class="vox-nav-links">
+        <a href="index.html" class="vox-nav-link">Dashboard</a>
+        <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+        <a href="nexus.html" class="vox-nav-link">Analytics</a>
+        <a href="banking.html" class="vox-nav-link">Enterprise</a>
+        <a href="settings.html" class="vox-nav-link">Settings</a>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <div id="api-status"></div>
+        <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
       </div>
     </div>
-  </header>
+  </nav>
 
   <main class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
-    
+
     <section class="fade-in-up" style="text-align: center; margin-bottom: 3rem;">
-      <h1 style="font-size: 3rem; margin-bottom: 1rem; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-        Nemo Server
+      <h1
+        style="font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #02559e, #457baf); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+        Vox Amelior
       </h1>
-      <p class="text-muted" style="font-size: 1.125rem;">Enterprise Memory Intelligence System</p>
+      <p class="text-muted" style="font-size: 1.125rem;">Enterprise Voice Intelligence System</p>
       <div style="margin-top: 1rem;">
-        <span class="badge badge-primary">Version 3.2 REFACTORED</span>
+        <span class="badge badge-primary" style="background: #02559e; color: white;">Version 4.0</span>
       </div>
     </section>
 
@@ -112,13 +114,13 @@
         <div class="stat-value">30</div>
         <div class="stat-label">API Endpoints</div>
       </div>
-      
+
       <div class="stat-card">
         <i data-lucide="zap" style="width: 32px; height: 32px; color: var(--success); margin-bottom: 1rem;"></i>
         <div class="stat-value">~6GB</div>
         <div class="stat-label">Total VRAM Usage</div>
       </div>
-      
+
       <div class="stat-card">
         <i data-lucide="layers" style="width: 32px; height: 32px; color: var(--warning); margin-bottom: 1rem;"></i>
         <div class="stat-value">5</div>
@@ -161,7 +163,7 @@
           </li>
         </ul>
       </div>
-      
+
       <div class="glass-card">
         <h3 style="margin-bottom: 1.5rem;">Technology Stack</h3>
         <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
@@ -211,11 +213,13 @@
       <div class="glass-card">
         <h3 style="margin-bottom: 1.5rem;">System Health</h3>
         <div id="health-info">
-          <div class="flex-between" style="padding: 1rem; background: var(--glass); border-radius: var(--radius-md); margin-bottom: 0.5rem;">
+          <div class="flex-between"
+            style="padding: 1rem; background: var(--glass); border-radius: var(--radius-md); margin-bottom: 0.5rem;">
             <span><strong>API Status:</strong></span>
             <span id="health-status" class="badge badge-success">Checking...</span>
           </div>
-          <div class="flex-between" style="padding: 1rem; background: var(--glass); border-radius: var(--radius-md); margin-bottom: 0.5rem;">
+          <div class="flex-between"
+            style="padding: 1rem; background: var(--glass); border-radius: var(--radius-md); margin-bottom: 0.5rem;">
             <span><strong>GPU Available:</strong></span>
             <span id="gpu-status" class="badge">Checking...</span>
           </div>
@@ -230,7 +234,7 @@
   </main>
 
   <footer style="text-align: center; padding: 3rem 0; color: var(--text-tertiary);">
-    <p style="font-size: 0.875rem;">Nemo Server &copy; 2024 | Built with 💜 for enterprise AI</p>
+    <p style="font-size: 0.875rem;">Vox Amelior &copy; 2024 | Built with 💙 for enterprise AI</p>
   </footer>
 
   <script>
@@ -240,7 +244,7 @@
     async function loadHealth() {
       try {
         const health = await api.health();
-        
+
         const statusEl = document.getElementById('health-status');
         if (health.status === 'ok' || health.status === 'healthy') {
           statusEl.className = 'badge badge-success';
@@ -249,15 +253,15 @@
           statusEl.className = 'badge badge-danger';
           statusEl.textContent = 'Error';
         }
-        
+
         // GPU status (mock for now)
         document.getElementById('gpu-status').className = 'badge badge-success';
         document.getElementById('gpu-status').textContent = 'Available';
-        
+
         // Models status (mock for now)
         document.getElementById('models-status').className = 'badge badge-success';
         document.getElementById('models-status').textContent = '5/5 Loaded';
-        
+
       } catch (error) {
         document.getElementById('health-status').className = 'badge badge-danger';
         document.getElementById('health-status').textContent = 'Offline';
@@ -268,4 +272,5 @@
   </script>
 
 </body>
+
 </html>

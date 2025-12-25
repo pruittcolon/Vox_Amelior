@@ -3,10 +3,14 @@
 fastapi==0.110.3
 uvicorn[standard]==0.30.6
 pydantic==2.7.1
+pydantic-settings>=2.0.0  # Centralized env var config
 python-multipart==0.0.9
 
 # HTTP Client for proxying to backend services
 httpx==0.27.0
+
+# WebSocket client for real-time streaming proxy
+websockets>=12.0
 
 # Authentication & Security
 bcrypt==4.1.2
@@ -19,6 +23,17 @@ numpy>=1.26.0
 soundfile>=0.12.1
 librosa>=0.10.1
 
+# PostgreSQL async client (for Call Intelligence Platform)
+asyncpg>=0.29.0
 
 
 
+
+
+# Salesforce CDC Dependencies
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+# salesforce-pubsub-api-client>=1.0.0  # Commented out: package not found on PyPI - CDC feature not implemented yet
+
+# Salesforce Analytics Dependencies
+pandas>=2.0.0

@@ -230,7 +230,14 @@ Returns:
 ## Environment Variables
 
 - `REDIS_URL`: Redis connection URL (default: `redis://redis:6379`)
-- `SERVICE_API_KEY`: Service authentication key
+- `REDIS_PASSWORD_FILE`: Path to Redis password secret (default: `/run/secrets/redis_password`)
+- `REDIS_PASSWORD`: Fallback Redis password from environment
+- `JWT_SECRET`: Shared secret for S2S authentication
+- `JWT_ONLY`: Enforce JWT authentication (default: `true`)
+
+## Authentication
+
+Requires Service-to-Service (S2S) JWT authentication via the `X-Service-Token` header, signed with the shared `JWT_SECRET`. All endpoints are protected; requests without valid JWT are rejected with 401.
 
 ## Running
 
@@ -251,10 +258,6 @@ The service automatically:
 4. Processes queue on resume
 
 No manual intervention required!
-
-
-
-
 
 
 

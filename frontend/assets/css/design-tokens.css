@@ -1,74 +1,293 @@
+/**
+ * Premium Enterprise Design Tokens
+ * Service Credit Union Inspired - Billion Dollar Quality
+ * 
+ * Design Philosophy:
+ * - Clean white backgrounds for trust and professionalism
+ * - Enterprise blue accents (#0052CC family)
+ * - Ample white space and breathing room
+ * - Subtle shadows instead of dark glassmorphism
+ * - Modern typography with Inter + Space Grotesk
+ */
+
 :root {
-  /* Cosmic space palette */
-  --space-950: #010512;
-  --space-900: #050819;
-  --space-850: #0a1024;
-  --space-800: #0f152f;
-  --space-700: #161d3f;
+  /* ================================================
+     ENTERPRISE BLUE PALETTE
+     ================================================ */
+  --blue-50: #E6F0FF;
+  --blue-100: #CCE0FF;
+  --blue-200: #99C2FF;
+  --blue-300: #66A3FF;
+  --blue-400: #3385FF;
+  --blue-500: #0052CC;
+  /* Primary Brand Blue */
+  --blue-600: #0047B3;
+  --blue-700: #003D99;
+  --blue-800: #003380;
+  --blue-900: #002966;
 
-  /* Accent spectrum */
-  --accent-primary: #7f6bff;
-  --accent-secondary: #12c2e9;
-  --accent-tertiary: #f6d365;
-  --accent-success: #7af4c0;
-  --accent-danger: #ff6b6b;
-  --accent-warning: #ffaf4b;
+  /* Secondary Accent - Cyan/Teal */
+  --cyan-400: #00B8D9;
+  --cyan-500: #00A3BF;
+  --cyan-600: #008DA6;
 
-  /* Surfaces */
-  --surface-panel: rgba(15, 22, 40, 0.85);
-  --surface-panel-strong: rgba(20, 28, 52, 0.92);
-  --surface-panel-muted: rgba(25, 35, 60, 0.65);
-  --surface-glow: rgba(127, 107, 255, 0.12);
-  --border-glass: rgba(148, 163, 184, 0.35);
-  --border-subtle: rgba(129, 142, 173, 0.2);
-  --shadow-panel: 0 18px 48px rgba(3, 7, 18, 0.55);
+  /* ================================================
+     NEUTRAL GRAYS (Light Theme)
+     ================================================ */
+  --gray-25: #FCFCFD;
+  --gray-50: #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
 
-  /* Typography */
+  /* ================================================
+     PRIMARY SEMANTIC COLORS
+     ================================================ */
+  --primary: #0052CC;
+  --primary-dark: #003D99;
+  --primary-light: #4C9AFF;
+  --primary-hover: #0047B3;
+  --primary-active: #003D99;
+
+  --secondary: #00A3BF;
+  --secondary-dark: #008DA6;
+  --secondary-light: #00C7E6;
+
+  /* Status Colors - Enterprise Palette */
+  --success: #22C55E;
+  --success-light: #86EFAC;
+  --success-dark: #16A34A;
+
+  --danger: #EF4444;
+  --danger-light: #FCA5A5;
+  --danger-dark: #DC2626;
+
+  --warning: #F59E0B;
+  --warning-light: #FCD34D;
+  --warning-dark: #D97706;
+
+  --info: #3B82F6;
+  --info-light: #93C5FD;
+  --info-dark: #2563EB;
+
+  /* ================================================
+     BACKGROUND COLORS (Light Theme)
+     ================================================ */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F8FAFC;
+  --bg-tertiary: #F1F5F9;
+  --bg-accent: #E6F0FF;
+  /* Light blue tint */
+
+  /* ================================================
+     SURFACE & CARD COLORS
+     ================================================ */
+  --surface-card: rgba(255, 255, 255, 0.98);
+  --surface-elevated: #FFFFFF;
+  --surface-overlay: rgba(255, 255, 255, 0.95);
+  --surface-hover: rgba(0, 82, 204, 0.04);
+  --surface-active: rgba(0, 82, 204, 0.08);
+
+  /* ================================================
+     TEXT COLORS
+     ================================================ */
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-tertiary: #64748B;
+  --text-muted: #94A3B8;
+  --text-disabled: #CBD5E1;
+  --text-inverse: #FFFFFF;
+  --text-link: #0052CC;
+  --text-link-hover: #003D99;
+
+  /* High contrast for headers */
+  --text-high: #0F172A;
+  --text-mid: #475569;
+  --text-low: #64748B;
+  --text-faint: #94A3B8;
+
+  /* ================================================
+     BORDER COLORS
+     ================================================ */
+  --border-default: #E2E8F0;
+  --border-subtle: #F1F5F9;
+  --border-strong: #CBD5E1;
+  --border-focus: #0052CC;
+  --border-glass: rgba(226, 232, 240, 0.8);
+  --glass-border: var(--border-default);
+
+  /* ================================================
+     SHADOWS (Premium Enterprise)
+     ================================================ */
+  --shadow-xs: 0 1px 2px rgba(0, 20, 60, 0.04);
+  --shadow-sm: 0 2px 4px rgba(0, 20, 60, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 20, 60, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 20, 60, 0.10);
+  --shadow-xl: 0 16px 48px rgba(0, 20, 60, 0.12);
+  --shadow-2xl: 0 24px 64px rgba(0, 20, 60, 0.16);
+
+  /* Card-specific shadows */
+  --shadow-card: 0 1px 3px rgba(0, 20, 60, 0.06), 0 4px 16px rgba(0, 20, 60, 0.04);
+  --shadow-card-hover: 0 4px 12px rgba(0, 20, 60, 0.08), 0 8px 32px rgba(0, 20, 60, 0.06);
+  --shadow-panel: 0 4px 24px rgba(0, 20, 60, 0.08);
+  --shadow-glass: var(--shadow-card);
+
+  /* Focus ring */
+  --shadow-focus: 0 0 0 3px rgba(0, 82, 204, 0.15);
+
+  /* ================================================
+     GRADIENTS (Premium Blue)
+     ================================================ */
+  --gradient-primary: linear-gradient(135deg, #0052CC 0%, #00A3BF 100%);
+  --gradient-primary-soft: linear-gradient(135deg, #E6F0FF 0%, #E0F7FA 100%);
+  --gradient-success: linear-gradient(135deg, #22C55E 0%, #16A34A 100%);
+  --gradient-danger: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  --gradient-warning: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  --gradient-hero: linear-gradient(135deg, #0052CC 0%, #00A3BF 50%, #0052CC 100%);
+
+  /* Subtle background gradients */
+  --gradient-bg-subtle: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  --gradient-bg-accent: linear-gradient(180deg, #E6F0FF 0%, #FFFFFF 100%);
+
+  /* ================================================
+     TYPOGRAPHY
+     ================================================ */
   --font-display: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: var(--font-body);
   --font-numeric: 'IBM Plex Mono', 'Fira Code', Menlo, monospace;
+  --font-mono: var(--font-numeric);
 
-  /* Text hues */
-  --text-high: #f4f7ff;
-  --text-mid: #b8c1dd;
-  --text-low: #7f89aa;
-  --text-faint: #5c6486;
+  /* ================================================
+     SPACING
+     ================================================ */
+  --spacing-0: 0;
+  --spacing-1: 0.25rem;
+  /* 4px */
+  --spacing-2: 0.5rem;
+  /* 8px */
+  --spacing-3: 0.75rem;
+  /* 12px */
+  --spacing-4: 1rem;
+  /* 16px */
+  --spacing-5: 1.25rem;
+  /* 20px */
+  --spacing-6: 1.5rem;
+  /* 24px */
+  --spacing-8: 2rem;
+  /* 32px */
+  --spacing-10: 2.5rem;
+  /* 40px */
+  --spacing-12: 3rem;
+  /* 48px */
+  --spacing-16: 4rem;
+  /* 64px */
 
-  /* Utility tokens */
-  --radius-base: 0.9rem;
-  --radius-xl: 1.5rem;
-  --radius-pill: 999px;
   --gap-lg: 2rem;
   --gap-xl: 3rem;
+
+  /* ================================================
+     BORDER RADIUS
+     ================================================ */
+  --radius-none: 0;
+  --radius-sm: 0.25rem;
+  /* 4px */
+  --radius-base: 0.5rem;
+  /* 8px */
+  --radius-md: 0.625rem;
+  /* 10px */
+  --radius-lg: 0.75rem;
+  /* 12px */
+  --radius-xl: 1rem;
+  /* 16px */
+  --radius-2xl: 1.25rem;
+  /* 20px */
+  --radius-3xl: 1.5rem;
+  /* 24px */
+  --radius-pill: 9999px;
+  --radius-full: 50%;
+
+  /* ================================================
+     TRANSITIONS
+     ================================================ */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-soft: 260ms cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Legacy variable bridges */
-  --primary: var(--accent-primary);
-  --secondary: var(--accent-secondary);
-  --success: var(--accent-success);
-  --danger: var(--accent-danger);
-  --warning: var(--accent-warning);
-  --glass: var(--surface-panel);
-  --glass-strong: var(--surface-panel-strong);
-  --glass-border: var(--border-glass);
-  --text-primary: var(--text-high);
-  --text-secondary: var(--text-mid);
-  --text-tertiary: var(--text-low);
-  --font-sans: var(--font-body);
-  --font-mono: var(--font-numeric);
-  --gradient-primary: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  --gradient-success: linear-gradient(135deg, #7af4c0, #17c964);
-  --gradient-danger: linear-gradient(135deg, #ff6b6b, #f43f5e);
+  /* ================================================
+     LEGACY VARIABLE BRIDGES
+     (Maintain backwards compatibility)
+     ================================================ */
+  --white: #FFFFFF;
+  --black: #000000;
+  --glass: var(--surface-card);
+  --glass-strong: var(--surface-elevated);
+  --glass-dark: rgba(0, 20, 60, 0.04);
+
+  /* Accent spectrum (legacy names) */
+  --accent-primary: var(--primary);
+  --accent-secondary: var(--secondary);
+  --accent-tertiary: var(--warning);
+  --accent-success: var(--success);
+  --accent-danger: var(--danger);
+  --accent-warning: var(--warning);
+
+  /* Space palette remapped to light theme */
+  --space-950: var(--gray-900);
+  --space-900: var(--gray-800);
+  --space-850: var(--gray-700);
+  --space-800: var(--gray-600);
+  --space-700: var(--gray-500);
+
+  /* Surface panel (legacy) */
+  --surface-panel: var(--surface-card);
+  --surface-panel-strong: var(--surface-elevated);
+  --surface-panel-muted: rgba(248, 250, 252, 0.9);
+  --surface-glow: rgba(0, 82, 204, 0.08);
+  --border-subtle: var(--border-default);
 }
 
-body.gemma-theme {
-  background-color: var(--space-900);
-  background-image: radial-gradient(circle at 15% 15%, rgba(127, 107, 255, 0.25), transparent 45%),
-    radial-gradient(circle at 80% 0%, rgba(18, 194, 233, 0.35), transparent 40%),
-    linear-gradient(160deg, var(--space-900), var(--space-800));
-  color: var(--text-high);
+/* ================================================
+   LIGHT THEME BODY (Default)
+   ================================================ */
+body {
+  background-color: var(--bg-secondary);
+  background-image: var(--gradient-bg-subtle);
+  color: var(--text-primary);
   font-family: var(--font-body);
-  position: relative;
+}
+
+/* Premium subtle background pattern */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(0, 82, 204, 0.03), transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(0, 163, 191, 0.03), transparent 50%);
+  z-index: -1;
+}
+
+/* ================================================
+   GEMMA THEME (Override for Gemma page)
+   Now uses light theme too
+   ================================================ */
+body.gemma-theme {
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(circle at 15% 15%, rgba(0, 82, 204, 0.05), transparent 45%),
+    radial-gradient(circle at 85% 10%, rgba(0, 163, 191, 0.05), transparent 40%),
+    var(--gradient-bg-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-body);
 }
 
 body.gemma-theme::before {
@@ -76,6 +295,6 @@ body.gemma-theme::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 0%, rgba(127, 107, 255, 0.12), transparent 65%);
+  background: radial-gradient(circle at 50% 0%, rgba(0, 82, 204, 0.04), transparent 65%);
   z-index: -1;
 }

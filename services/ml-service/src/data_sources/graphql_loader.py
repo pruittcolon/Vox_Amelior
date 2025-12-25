@@ -1,17 +1,16 @@
+from typing import Any
+
 import pandas as pd
 import requests
-from typing import List, Dict, Optional, Any, Union
+
 
 class GraphQLLoader:
     """
     Universal GraphQL Loader.
     Fetches data from a GraphQL endpoint and converts it to a pandas DataFrame.
     """
-    
-    def __init__(self, 
-                 endpoint: str, 
-                 headers: Optional[Dict[str, str]] = None,
-                 auth: Optional[Any] = None):
+
+    def __init__(self, endpoint: str, headers: dict[str, str] | None = None, auth: Any | None = None):
         """
         Initialize GraphQL client.
         :param endpoint: GraphQL API endpoint URL.
@@ -45,49 +44,46 @@ class GraphQLLoader:
             print(f"Connection failed: {e}")
             return False
 
-    def execute_query(self, query: str, variables: Optional[Dict] = None) -> Dict[str, Any]:
+    def execute_query(self, query: str, variables: dict | None = None) -> dict[str, Any]:
         """
         Execute a raw GraphQL query and return the JSON response.
         """
-        payload = {'query': query}
+        payload = {"query": query}
         if variables:
-            payload['variables'] = variables
-            
+            payload["variables"] = variables
+
         response = self.session.post(self.endpoint, json=payload, timeout=30)
         response.raise_for_status()
-        
+
         result = response.json()
-        if 'errors' in result:
+        if "errors" in result:
             raise Exception(f"GraphQL Errors: {result['errors']}")
-            
+
         return result
 
-    def fetch_data(self, 
-                   query: str, 
-                   variables: Optional[Dict] = None, 
-                   data_key: Optional[str] = None) -> pd.DataFrame:
+    def fetch_data(self, query: str, variables: dict | None = None, data_key: str | None = None) -> pd.DataFrame:
         """
         Fetch data using a GraphQL query and return as DataFrame.
-        
+
         :param query: The GraphQL query string.
         :param variables: Optional variables for the query.
         :param data_key: Key in the 'data' object where the list of records is located.
                          Supports dot notation (e.g. 'users', 'organization.members').
         """
         result = self.execute_query(query, variables)
-        
-        data = result.get('data', {})
-        
+
+        data = result.get("data", {})
+
         # Extract data using data_key if provided
         if data_key:
-            keys = data_key.split('.')
+            keys = data_key.split(".")
             for k in keys:
                 if isinstance(data, dict) and k in data:
                     data = data[k]
                 else:
                     print(f"Warning: Key '{k}' not found in response data.")
                     return pd.DataFrame()
-        
+
         # Normalize data
         if isinstance(data, list):
             return pd.DataFrame(data)

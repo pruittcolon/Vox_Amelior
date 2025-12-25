@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Salesforce Agentic Cockpit - AI-powered CRM intelligence with smart deal prioritization.">
+    <title>Salesforce Agentic Cockpit - Vox Amelior Enterprise</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Design Systems -->
+    <link rel="stylesheet" href="../../assets/css/vox-amelior.css">
+    <link rel="stylesheet" href="../css/enterprise.css">
+    <link rel="stylesheet" href="../css/animations.css">
+
+    <style>
+        /* Salesforce Cockpit - Light Theme */
+        .sf-cockpit-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr 350px;
+            min-height: calc(100vh - 64px);
+            gap: 0;
+        }
+
+        /* Left Panel: Navigation */
+        .sf-nav-panel {
+            background: var(--ent-bg-card);
+            border-right: 1px solid var(--ent-glass-border);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .sf-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--ent-text-primary);
+        }
+
+        .sf-nav-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .sf-nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            border-radius: var(--ent-radius-md);
+            color: var(--ent-text-secondary);
+            cursor: pointer;
+            transition: all var(--ent-transition-normal);
+            border: none;
+            background: none;
+            font-family: inherit;
+            font-size: 0.9rem;
+            width: 100%;
+            text-align: left;
+        }
+
+        .sf-nav-item:hover {
+            background: var(--ent-bg-tertiary);
+            color: var(--ent-text-primary);
+        }
+
+        .sf-nav-item.active {
+            background: var(--ent-primary-subtle);
+            color: var(--ent-primary);
+        }
+
+        .sf-context-widget {
+            margin-top: auto;
+            background: var(--ent-bg-tertiary);
+            padding: 1rem;
+            border-radius: var(--ent-radius-lg);
+            border: 1px solid var(--ent-glass-border);
+        }
+
+        .sf-context-widget h4 {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--ent-text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        /* Center Panel: Smart Feed */
+        .sf-feed-panel {
+            padding: 2rem;
+            overflow-y: auto;
+            background: var(--ent-bg-primary);
+        }
+
+        .sf-feed-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .sf-feed-title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--ent-text-primary);
+        }
+
+        .sf-feed-date {
+            color: var(--ent-text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .sf-feed-stream {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-width: 700px;
+        }
+
+        /* Smart Task Card */
+        .sf-task-card {
+            background: var(--ent-bg-card);
+            border: 1px solid var(--ent-glass-border);
+            border-radius: var(--ent-radius-lg);
+            padding: 1.25rem;
+            display: grid;
+            grid-template-columns: 48px 1fr auto;
+            gap: 1rem;
+            transition: all var(--ent-transition-normal);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .sf-task-card:hover {
+            border-color: var(--ent-glass-border-hover);
+            box-shadow: var(--ent-shadow-md);
+            transform: translateY(-1px);
+        }
+
+        .sf-task-card::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            border-radius: 4px 0 0 4px;
+        }
+
+        .sf-task-card.urgent::before {
+            background: var(--ent-danger);
+        }
+
+        .sf-task-card.opportunity::before {
+            background: var(--ent-success);
+        }
+
+        .sf-task-card.risk::before {
+            background: var(--ent-warning);
+        }
+
+        .sf-task-card.task::before {
+            background: var(--ent-primary);
+        }
+
+        .sf-task-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: var(--ent-bg-tertiary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .sf-task-content h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--ent-text-primary);
+        }
+
+        .sf-task-content p {
+            font-size: 0.9rem;
+            color: var(--ent-text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .sf-task-meta {
+            font-size: 0.8rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--ent-primary);
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .sf-task-actions {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        /* Right Panel: Agent Assistant */
+        .sf-agent-panel {
+            background: var(--ent-bg-card);
+            border-left: 1px solid var(--ent-glass-border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sf-agent-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--ent-glass-border);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .sf-agent-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--ent-gradient-hero);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .sf-agent-info h4 {
+            font-weight: 600;
+            color: var(--ent-text-primary);
+        }
+
+        .sf-agent-info span {
+            font-size: 0.8rem;
+            color: var(--ent-text-muted);
+        }
+
+        .sf-chat-container {
+            flex: 1;
+            padding: 1.25rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: var(--ent-bg-tertiary);
+        }
+
+        .sf-message {
+            max-width: 85%;
+            padding: 0.75rem 1rem;
+            border-radius: var(--ent-radius-lg);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .sf-message.bot {
+            background: var(--ent-bg-card);
+            border: 1px solid var(--ent-glass-border);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            color: var(--ent-text-primary);
+        }
+
+        .sf-message.user {
+            background: var(--ent-primary);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+            color: white;
+        }
+
+        .sf-input-area {
+            padding: 1.25rem;
+            border-top: 1px solid var(--ent-glass-border);
+            background: var(--ent-bg-card);
+        }
+
+        .sf-chat-input {
+            width: 100%;
+            background: var(--ent-bg-tertiary);
+            border: 1px solid var(--ent-glass-border);
+            padding: 0.75rem 1rem;
+            border-radius: var(--ent-radius-md);
+            color: var(--ent-text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+        }
+
+        .sf-chat-input:focus {
+            outline: none;
+            border-color: var(--ent-primary);
+            box-shadow: 0 0 0 3px var(--ent-primary-subtle);
+        }
+
+        .sf-chat-input::placeholder {
+            color: var(--ent-text-muted);
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .sf-cockpit-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .sf-nav-panel,
+            .sf-agent-panel {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body class="enterprise-light">
+    <!-- Floating Blobs (subtle) -->
+    <div class="ent-floating-layer" style="opacity: 0.3;">
+        <div class="ent-blob ent-blob-1"></div>
+        <div class="ent-blob ent-blob-2"></div>
+    </div>
+
+    <!-- Top Navigation -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="../../index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="../../assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <span style="color: var(--vox-grey-300); margin: 0 0.5rem;">|</span>
+            <span style="color: var(--vox-primary); font-weight: 600; font-size: 0.9rem;">
+                ☁️ Salesforce Agentic Cockpit
+            </span>
+
+            <div class="vox-nav-links" style="margin-left: auto;">
+                <a href="../../index.html" class="vox-nav-link">Dashboard</a>
+                <a href="../../gemma.html" class="vox-nav-link">AI Insights</a>
+                <a href="../../predictions.html" class="vox-nav-link">ML Service</a>
+
+                <!-- Enterprise Dropdown -->
+                <div class="ent-nav-dropdown">
+                    <button class="ent-nav-dropdown-trigger" style="color: var(--vox-primary);">
+                        Enterprise <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+                    </button>
+                    <div class="ent-nav-dropdown-menu">
+                        <a href="../index.html" class="ent-nav-dropdown-item">
+                            <span>🏢</span> Overview
+                        </a>
+                        <a href="index.html" class="ent-nav-dropdown-item"
+                            style="background: var(--ent-primary-subtle);">
+                            <span>☁️</span> Salesforce CRM
+                        </a>
+                        <a href="../fiserv/index.html" class="ent-nav-dropdown-item">
+                            <span>🏦</span> Fiserv Banking
+                        </a>
+                    </div>
+                </div>
+
+                <a href="../../settings.html" class="vox-nav-link">Settings</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Cockpit Grid -->
+    <div class="sf-cockpit-grid">
+
+        <!-- Left: Navigation Panel -->
+        <nav class="sf-nav-panel">
+            <div class="sf-brand">
+                <i data-lucide="zap" style="color: var(--ent-primary); width: 20px; height: 20px;"></i>
+                Agentic CRM
+            </div>
+
+            <div class="sf-nav-menu">
+                <button class="sf-nav-item active">
+                    <i data-lucide="layout-dashboard" style="width: 18px; height: 18px;"></i>
+                    Cockpit
+                </button>
+                <button class="sf-nav-item">
+                    <i data-lucide="target" style="width: 18px; height: 18px;"></i>
+                    Opportunities
+                </button>
+                <button class="sf-nav-item">
+                    <i data-lucide="users" style="width: 18px; height: 18px;"></i>
+                    Leads
+                </button>
+                <button class="sf-nav-item">
+                    <i data-lucide="bar-chart-2" style="width: 18px; height: 18px;"></i>
+                    Analytics
+                </button>
+            </div>
+
+            <div class="sf-context-widget">
+                <h4>Pipeline Health</h4>
+                <div style="font-size: 1.25rem; font-weight: 700; color: var(--ent-success);" id="pipelineHealth">
+                    Analyzing...</div>
+                <div style="font-size: 0.85rem; color: var(--ent-text-secondary); margin-top: 0.25rem;"
+                    id="pipelineValue">$-- Weighted</div>
+            </div>
+        </nav>
+
+        <!-- Center: Smart Feed -->
+        <main class="sf-feed-panel">
+            <div class="sf-feed-header">
+                <div>
+                    <div class="sf-feed-title">Execution Mode</div>
+                    <div class="sf-feed-date" id="feedDate">Loading...</div>
+                </div>
+                <button class="ent-btn ent-btn-primary" onclick="refreshFeed()">
+                    <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                    Refresh Analysis
+                </button>
+            </div>
+
+            <div class="sf-feed-stream" id="feed-container">
+                <!-- Loading State -->
+                <div style="text-align: center; color: var(--ent-text-secondary); padding: 3rem;">
+                    <div
+                        style="width: 32px; height: 32px; border: 3px solid var(--ent-bg-tertiary); border-top-color: var(--ent-primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;">
+                    </div>
+                    <p>Agent is analyzing your pipeline...</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right: Agent Assistant -->
+        <aside class="sf-agent-panel">
+            <div class="sf-agent-header">
+                <div class="sf-agent-avatar" style="animation: pulseGlow 2s ease-in-out infinite;">
+                    <i data-lucide="bot" style="width: 20px; height: 20px;"></i>
+                </div>
+                <div class="sf-agent-info">
+                    <h4>Gemma Agent</h4>
+                    <span id="agentStatus">
+                        <span class="ent-status-dot" id="agentStatusDot"
+                            style="background: var(--ent-warning); width: 8px; height: 8px; display: inline-block; border-radius: 50%; margin-right: 4px;"></span>
+                        <span id="agentStatusText">Connecting...</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="sf-chat-container" id="chat-messages">
+                <div class="sf-message bot">
+                    Hello! I've analyzed your Salesforce data. You have 3 deals at risk of stalling and 2 hot leads to
+                    contact.
+                </div>
+            </div>
+
+            <div class="sf-input-area">
+                <input type="text" class="sf-chat-input" placeholder="Ask Gemma to draft emails, summarize deals..."
+                    onkeypress="if(event.key === 'Enter') handleChat(this)">
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        lucide.createIcons();
+        const API_BASE = window.location.origin;
+
+        // Spin animation
+        const style = document.createElement('style');
+        style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+        document.head.appendChild(style);
+
+        // Set current date
+        document.getElementById('feedDate').textContent = new Date().toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric'
+        }) + ' • 4 High-Priority Actions';
+
+        // --- Data Loading ---
+
+        // Get CSRF token from cookies (per ML_ENGINES_README.md)
+        function getCsrfToken() {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'ws_csrf') {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        // Helper: Safely fetch JSON with proper error handling and CSRF token
+        async function fetchJSON(url, options = {}) {
+            const csrfToken = getCsrfToken();
+
+            // Merge headers with CSRF token (required for POST requests)
+            const headers = {
+                ...options.headers,
+                ...(csrfToken && { 'X-CSRF-Token': csrfToken })
+            };
+
+            const response = await fetch(url, {
+                ...options,
+                headers,
+                credentials: 'include'  // Required for CSRF cookies
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Unknown error');
+                throw new Error(`API ${response.status}: ${errorText.substring(0, 100)}`);
+            }
+            return response.json();
+        }
+
+        async function refreshFeed() {
+            const container = document.getElementById('feed-container');
+            container.innerHTML = `
+                <div style="text-align: center; color: var(--ent-text-secondary); padding: 3rem;">
+                    <div style="width: 32px; height: 32px; border: 3px solid var(--ent-bg-tertiary); border-top-color: var(--ent-primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
+                    <p>Agent is analyzing your pipeline...</p>
+                </div>
+            `;
+
+            try {
+                // Fetch opportunities and leads with proper error handling
+                const [opps, leads] = await Promise.all([
+                    fetchJSON(`${API_BASE}/api/v1/salesforce/opportunities?limit=50`),
+                    fetchJSON(`${API_BASE}/api/v1/salesforce/leads?limit=50`)
+                ]);
+
+                const totalValue = (opps.records || []).reduce((sum, o) => sum + (o.Amount || 0), 0);
+                document.getElementById('pipelineValue').textContent = `$${(totalValue / 1000000).toFixed(1)}M Weighted`;
+                document.getElementById('pipelineHealth').textContent = 'Healthy';
+                document.getElementById('pipelineHealth').style.color = 'var(--ent-success)';
+
+                // Store context for AI chat
+                salesforceContext = {
+                    leads: (leads.records || []).slice(0, 10),
+                    opportunities: (opps.records || []).slice(0, 10),
+                    summary: {
+                        total_pipeline: totalValue,
+                        lead_count: (leads.records || []).length,
+                        opp_count: (opps.records || []).length,
+                        hot_leads: (leads.records || []).filter(l => l.Score > 80).length,
+                        at_risk: (opps.records || []).filter(o => o.Health === 'Red').length
+                    }
+                };
+
+                // Fetch smart feed with proper error handling
+                const feedItems = await fetchJSON(`${API_BASE}/api/v1/salesforce/analytics/smart-feed`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        leads: leads.records || [],
+                        opportunities: opps.records || []
+                    })
+                });
+
+                renderFeed(feedItems);
+
+            } catch (e) {
+                console.error("Salesforce API error:", e);
+                container.innerHTML = `
+                    <div style="text-align: center; color: var(--ent-warning); padding: 3rem;">
+                        <div style="font-size: 48px; margin-bottom: 1rem;">⚠️</div>
+                        <h3 style="margin-bottom: 0.5rem; color: var(--ent-text-primary);">Unable to Load Pipeline Data</h3>
+                        <p style="color: var(--ent-text-secondary); margin-bottom: 1rem;">${e.message || 'Check Salesforce connection in Settings.'}</p>
+                        <button class="ent-btn ent-btn-outline" onclick="refreshFeed()">Retry</button>
+                    </div>
+                `;
+                document.getElementById('pipelineValue').textContent = 'Connection Error';
+                document.getElementById('pipelineHealth').textContent = 'Disconnected';
+                document.getElementById('pipelineHealth').style.color = 'var(--ent-danger)';
+            }
+        }
+
+        function renderFeed(items) {
+            const container = document.getElementById('feed-container');
+            container.innerHTML = items.map((item, index) => `
+                <div class="sf-task-card ${item.type} stagger-item" style="animation-delay: ${index * 0.1}s">
+                    <div class="sf-task-icon">${getIconForType(item.type)}</div>
+                    <div class="sf-task-content">
+                        <h3>${item.title}</h3>
+                        <p>${item.description}</p>
+                        <div class="sf-task-meta">
+                            <span>IMPACT: ${item.impact}</span>
+                        </div>
+                    </div>
+                    <div class="sf-task-actions">
+                        <button class="ent-btn ent-btn-primary btn-ripple" style="padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="executeTaskAction(event, '${item.action_type}', '${item.id}')">
+                            ${item.action_label}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getIconForType(type) {
+            const map = { 'urgent': '🔥', 'risk': '⚠️', 'opportunity': '📈', 'task': '✅' };
+            return map[type] || '📋';
+        }
+
+        async function executeTaskAction(e, type, id) {
+            e.stopPropagation();
+            const btn = e.target.closest('button');
+            const card = btn.closest('.sf-task-card');
+            const originalLabel = btn.innerHTML;
+
+            // Show loading state
+            btn.innerHTML = '<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Working...';
+            btn.disabled = true;
+
+            const chat = document.getElementById('chat-messages');
+            chat.innerHTML += `
+                <div class="sf-message bot stagger-item">
+                    Executing <strong>${type}</strong> action for task ${id}...
+                </div>
+            `;
+            chat.scrollTop = chat.scrollHeight;
+
+            try {
+                // Call the real execute-action endpoint with CSRF token
+                const result = await fetchJSON(`${API_BASE}/api/v1/salesforce/analytics/execute-action`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: type,
+                        task_id: id,
+                        related_id: id
+                    })
+                });
+
+                btn.innerHTML = '✅ Done';
+                btn.style.background = 'var(--ent-success)';
+                card.style.opacity = '0.5';
+                card.style.transform = 'translateX(10px)';
+
+                chat.innerHTML += `
+                    <div class="sf-message bot stagger-item">
+                        ✅ ${result.message || 'Action completed successfully!'} 
+                        ${result.output ? `<br><em>${result.output}</em>` : ''}
+                    </div>
+                `;
+            } catch (err) {
+                console.error('Action failed:', err);
+                btn.innerHTML = '❌ Failed';
+                btn.style.background = 'var(--ent-danger)';
+                btn.disabled = false;
+                setTimeout(() => { btn.innerHTML = originalLabel; btn.style.background = ''; }, 3000);
+
+                chat.innerHTML += `
+                    <div class="sf-message bot stagger-item" style="border-left: 3px solid var(--ent-danger);">
+                        ⚠️ Action failed. Please try again or check API connection.
+                    </div>
+                `;
+            }
+
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        // Store loaded data for context
+        let salesforceContext = { leads: [], opportunities: [], summary: {} };
+
+        async function handleChat(input) {
+            const text = input.value;
+            input.value = '';
+
+            const chat = document.getElementById('chat-messages');
+            chat.innerHTML += `<div class="sf-message user stagger-item">${text}</div>`;
+
+            const typingId = 'typing-' + Date.now();
+            chat.innerHTML += `<div class="sf-message bot" id="${typingId}"><span class="skeleton" style="display: inline-block; width: 120px; height: 1em;"></span></div>`;
+            chat.scrollTop = chat.scrollHeight;
+
+            try {
+                // Use the REAL unified-insights endpoint with CSRF token
+                const data = await fetchJSON(`${API_BASE}/api/enterprise/unified-insights`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: text,
+                        salesforce_context: salesforceContext,
+                        fiserv_context: null,
+                        member_id: null
+                    })
+                });
+
+                document.getElementById(typingId).remove();
+
+                // Show sources if available
+                const sourcesHtml = data.sources?.length
+                    ? `<div style="font-size: 0.7rem; color: var(--ent-text-muted); margin-top: 0.5rem;">Sources: ${data.sources.join(', ')}</div>`
+                    : '';
+
+                chat.innerHTML += `<div class="sf-message bot stagger-item">${data.answer}${sourcesHtml}</div>`;
+            } catch (e) {
+                console.log('Chat fallback:', e);
+                document.getElementById(typingId).textContent = "AI temporarily offline. Review dashboards directly.";
+            }
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        // getDemoFeed() function removed - no hardcoded demo data allowed
+
+        // Real-time API status check
+        async function checkAgentStatus() {
+            const dot = document.getElementById('agentStatusDot');
+            const text = document.getElementById('agentStatusText');
+
+            try {
+                // Check both Gemma and Salesforce health (GET requests, CSRF not required but credentials needed)
+                const [gemmaResp, sfResp] = await Promise.all([
+                    fetch(`${API_BASE}/api/gemma/health`, { method: 'GET', credentials: 'include' }).catch(() => null),
+                    fetch(`${API_BASE}/health`, { method: 'GET', credentials: 'include' }).catch(() => null)
+                ]);
+
+                const gemmaOk = gemmaResp?.ok;
+                const sfOk = sfResp?.ok;
+
+                if (gemmaOk && sfOk) {
+                    dot.style.background = 'var(--ent-success)';
+                    text.textContent = 'Active • All Systems';
+                } else if (sfOk) {
+                    dot.style.background = 'var(--ent-warning)';
+                    text.textContent = 'Limited • AI Offline';
+                } else {
+                    dot.style.background = 'var(--ent-danger)';
+                    text.textContent = 'Disconnected';
+                }
+            } catch (e) {
+                dot.style.background = 'var(--ent-danger)';
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshFeed();
+            checkAgentStatus();
+            // Refresh status every 30 seconds
+            setInterval(checkAgentStatus, 30000);
+        });
+    </script>
+</body>
+
+</html>

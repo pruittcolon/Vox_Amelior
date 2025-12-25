@@ -2,21 +2,34 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:demo_ai_even/services/auth_service.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Service to handle transcription using the local WhisperServer (main3.py)
 class WhisperServerService {
   final String _serverBaseUrl =
       dotenv.env['WHISPER_SERVER_BASE']?.trim() ?? 'http://127.0.0.1:8000';
-  final Dio _dio = Dio();
+  late final Dio _dio;
   final int _chunkSecs =
       int.tryParse(dotenv.env['WHISPER_CHUNK_SECS'] ?? '') ?? 30;
-  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
-  AndroidOptions _androidOptions() => const AndroidOptions(encryptedSharedPreferences: true);
-  IOSOptions _iosOptions() => const IOSOptions(accessibility: KeychainAccessibility.first_unlock);
+
+  WhisperServerService() {
+    _dio = Dio();
+    // Bypass self-signed certificate errors for local development
+    // ISO 27002 5.14: TLS bypass ONLY in debug mode
+    if (_serverBaseUrl.startsWith('https')) {
+      (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        if (kDebugMode) {
+          client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+        }
+        return client;
+      };
+    }
+  }
 
   StreamController<List<int>>? _audioStreamController;
   Completer<String>? _transcriptCompleter;
@@ -25,11 +38,14 @@ class WhisperServerService {
 
   /// Starts a new streaming transcription session with WhisperServer
   Future<String> startStreaming() {
-    print("WhisperServerService: Starting stream...");
+    if (kDebugMode) {
+      debugPrint("WhisperServerService: Starting stream...");
+    }
 
     if (_serverBaseUrl.isEmpty) {
-      print(
-          "WhisperServerService: ERROR - WHISPER_SERVER_BASE not set in .env file.");
+      if (kDebugMode) {
+        debugPrint("WhisperServerService: ERROR - WHISPER_SERVER_BASE not set in .env file.");
+      }
       return Future.value('');
     }
 
@@ -87,7 +103,9 @@ class WhisperServerService {
         await tempFile.delete();
       }
     } catch (e) {
-      print("WhisperServerService: Error processing audio chunk: $e");
+      if (kDebugMode) {
+        debugPrint("WhisperServerService: Error processing audio chunk: $e");
+      }
     }
   }
 
@@ -139,45 +157,22 @@ class WhisperServerService {
   /// Sends audio file to WhisperServer for transcription
   Future<void> _sendToWhisperServer(File audioFile) async {
     try {
-      // Get authentication token and CSRF token from storage
-      String? sessionToken;
-      String? csrfToken;
-      try {
-        sessionToken = await _secureStorage.read(
-          key: 'session_token',
-          aOptions: _androidOptions(),
-          iOptions: _iosOptions(),
-        );
-        csrfToken = await _secureStorage.read(
-          key: 'csrf_token',
-          aOptions: _androidOptions(),
-          iOptions: _iosOptions(),
-        );
-        sessionToken ??= AuthService.instance.sessionToken;
-      } catch (e) {
-        print("WhisperServerService: Could not load session token: $e");
-      }
-
       final formData = FormData.fromMap({
         'audio':
             await MultipartFile.fromFile(audioFile.path, filename: 'audio.wav'),
         'job_id': DateTime.now().millisecondsSinceEpoch.toString(),
       });
 
-      // Build headers with optional authentication and CSRF
-      final headers = <String, dynamic>{};
-      if (sessionToken != null && sessionToken.isNotEmpty) {
-        headers['Cookie'] = 'ws_session=$sessionToken';
-        print("WhisperServerService: Using authenticated session");
-        // Add CSRF token header for POST requests
-        if (csrfToken != null && csrfToken.isNotEmpty) {
-          headers['X-CSRF-Token'] = csrfToken;
-          print("WhisperServerService: Added CSRF token");
-        } else {
-          print("WhisperServerService: WARNING - No CSRF token found");
+      // Build headers with optional authentication
+      final headers = AuthService.instance.getAuthHeaders();
+      if (headers.isNotEmpty) {
+        if (kDebugMode) {
+          debugPrint("WhisperServerService: Using authenticated session");
         }
       } else {
-        print("WhisperServerService: No session token found, making unauthenticated request");
+        if (kDebugMode) {
+          debugPrint("WhisperServerService: No session token found, making unauthenticated request");
+        }
       }
 
       final response = await _dio.post(
@@ -194,12 +189,16 @@ class WhisperServerService {
       if (response.statusCode == 200 && response.data != null) {
         final transcript = _extractTranscript(response.data);
         if (transcript.isNotEmpty && !_transcriptCompleter!.isCompleted) {
-          print("WhisperServerService: Received transcript: '$transcript'");
+          if (kDebugMode) {
+            debugPrint("WhisperServerService: Received transcript: '$transcript'");
+          }
           _transcriptCompleter!.complete(transcript);
         }
       }
     } catch (e) {
-      print("WhisperServerService: Error sending to WhisperServer: $e");
+      if (kDebugMode) {
+        debugPrint("WhisperServerService: Error sending to WhisperServer: $e");
+      }
       if (!_transcriptCompleter!.isCompleted) {
         _transcriptCompleter!.completeError(e);
       }
@@ -244,14 +243,18 @@ class WhisperServerService {
 
       return '';
     } catch (e) {
-      print("WhisperServerService: Error extracting transcript: $e");
+      if (kDebugMode) {
+        debugPrint("WhisperServerService: Error extracting transcript: $e");
+      }
       return '';
     }
   }
 
   /// Stops the audio stream and signals to WhisperServer to finalize the transcript
   Future<void> stopStreaming() async {
-    print("WhisperServerService: Stopping stream...");
+    if (kDebugMode) {
+      debugPrint("WhisperServerService: Stopping stream...");
+    }
 
     _chunkTimer?.cancel();
     _chunkTimer = null;
@@ -273,24 +276,7 @@ class WhisperServerService {
   /// Checks if WhisperServer is available
   Future<bool> isServerAvailable() async {
     try {
-      // Get authentication token from storage
-      String? sessionToken;
-      try {
-        sessionToken = await _secureStorage.read(
-          key: 'session_token',
-          aOptions: _androidOptions(),
-          iOptions: _iosOptions(),
-        );
-        sessionToken ??= AuthService.instance.sessionToken;
-      } catch (e) {
-        print("WhisperServerService: Could not load session token for health check: $e");
-      }
-
-      // Build headers with optional authentication
-      final headers = <String, dynamic>{};
-      if (sessionToken != null && sessionToken.isNotEmpty) {
-        headers['Cookie'] = 'ws_session=$sessionToken';
-      }
+      final headers = AuthService.instance.getAuthHeaders();
 
       final response = await _dio.get('$_serverBaseUrl/health',
           options: Options(
@@ -299,7 +285,9 @@ class WhisperServerService {
           ));
       return response.statusCode == 200;
     } catch (e) {
-      print("WhisperServerService: Server not available: $e");
+      if (kDebugMode) {
+        debugPrint("WhisperServerService: Server not available: $e");
+      }
       return false;
     }
   }
