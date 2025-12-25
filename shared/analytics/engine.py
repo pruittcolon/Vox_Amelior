@@ -1,12 +1,13 @@
 import logging
 import sqlite3
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any
 
-from shared.crypto.db_encryption import create_encrypted_db, EncryptedDatabase
+from shared.crypto.db_encryption import EncryptedDatabase, create_encrypted_db
 
 
 class AnalyticsEngine:
@@ -16,13 +17,13 @@ class AnalyticsEngine:
         self,
         db_path: str,
         *,
-        encryption_key: Optional[str] = None,
-        use_encryption: Optional[bool] = None,
+        encryption_key: str | None = None,
+        use_encryption: bool | None = None,
     ):
         self.db_path = Path(db_path)
         self.lock = Lock()
         self.logger = logging.getLogger("analytics")
-        self._encrypted_db: Optional[EncryptedDatabase] = None
+        self._encrypted_db: EncryptedDatabase | None = None
         desired_encryption = use_encryption if use_encryption is not None else bool(encryption_key)
         if desired_encryption:
             try:
@@ -49,9 +50,9 @@ class AnalyticsEngine:
             "pause_ms",
             "word_count",
         ]
-        self._emotion_column: Optional[str] = None
-        self._table_columns: Dict[str, Set[str]] = {}
-        self._metric_meta: Dict[str, Dict[str, Optional[str]]] = {
+        self._emotion_column: str | None = None
+        self._table_columns: dict[str, set[str]] = {}
+        self._metric_meta: dict[str, dict[str, str | None]] = {
             "pace_wpm": {"unit": "wpm"},
             "pitch_mean": {"unit": "Hz"},
             "volume_rms": {"unit": "rms"},
@@ -88,6 +89,7 @@ class AnalyticsEngine:
                     return
             except Exception:
                 pass
+
             def _dict_factory(cursor, row):
                 out = {}
                 description = getattr(cursor, "description", None) or []
@@ -103,7 +105,7 @@ class AnalyticsEngine:
         except Exception:
             conn.row_factory = None
 
-    def _get_table_columns(self, table: str, conn: Optional[sqlite3.Connection] = None) -> Set[str]:
+    def _get_table_columns(self, table: str, conn: sqlite3.Connection | None = None) -> set[str]:
         cached = self._table_columns.get(table)
         if cached is not None:
             return cached
@@ -131,13 +133,13 @@ class AnalyticsEngine:
             self._table_columns[table] = columns
         return columns
 
-    def _get_segment_columns(self, conn: Optional[sqlite3.Connection] = None) -> Set[str]:
+    def _get_segment_columns(self, conn: sqlite3.Connection | None = None) -> set[str]:
         return self._get_table_columns("transcript_segments", conn)
 
-    def _get_record_columns(self, conn: Optional[sqlite3.Connection] = None) -> Set[str]:
+    def _get_record_columns(self, conn: sqlite3.Connection | None = None) -> set[str]:
         return self._get_table_columns("transcript_records", conn)
 
-    def _missing_tables(self, conn: sqlite3.Connection) -> Set[str]:
+    def _missing_tables(self, conn: sqlite3.Connection) -> set[str]:
         try:
             cur = conn.cursor()
             cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -148,7 +150,7 @@ class AnalyticsEngine:
         required = {"transcript_records", "transcript_segments"}
         return required - names
 
-    def _detect_emotion_column(self, segment_columns: Optional[Set[str]] = None) -> Optional[str]:
+    def _detect_emotion_column(self, segment_columns: set[str] | None = None) -> str | None:
         columns = segment_columns or self._get_segment_columns()
         if not columns:
             return None
@@ -163,15 +165,15 @@ class AnalyticsEngine:
         return None
 
     @staticmethod
-    def _detect_record_date_column(record_columns: Set[str]) -> Optional[str]:
+    def _detect_record_date_column(record_columns: set[str]) -> str | None:
         if "created_at" in record_columns:
             return "created_at"
         if "timestamp" in record_columns:
             return "timestamp"
         return None
 
-    def _base_metric_ranges(self, metrics: Sequence[str]) -> Dict[str, Dict[str, Optional[float]]]:
-        ranges: Dict[str, Dict[str, Optional[float]]] = {}
+    def _base_metric_ranges(self, metrics: Sequence[str]) -> dict[str, dict[str, float | None]]:
+        ranges: dict[str, dict[str, float | None]] = {}
         for metric in metrics:
             meta = self._metric_meta.get(metric, {})
             ranges[metric] = {
@@ -185,8 +187,8 @@ class AnalyticsEngine:
         self,
         cursor: sqlite3.Cursor,
         metrics: Sequence[str],
-        segment_columns: Set[str],
-    ) -> Dict[str, Dict[str, Optional[float]]]:
+        segment_columns: set[str],
+    ) -> dict[str, dict[str, float | None]]:
         ranges = self._base_metric_ranges(metrics)
         for metric in metrics:
             if metric not in segment_columns:
@@ -213,7 +215,7 @@ class AnalyticsEngine:
         return ranges
 
     @staticmethod
-    def _build_date_range(start: Optional[str], end: Optional[str], max_days: int = 120) -> List[str]:
+    def _build_date_range(start: str | None, end: str | None, max_days: int = 120) -> list[str]:
         if not start or not end:
             return []
         try:
@@ -234,17 +236,17 @@ class AnalyticsEngine:
         return dates
 
     @staticmethod
-    def _normalize_list(values: Sequence[Optional[float]]) -> List[Optional[float]]:
+    def _normalize_list(values: Sequence[float | None]) -> list[float | None]:
         return [None if v is None else float(v) for v in values]
 
     def empty_payload(
         self,
-        metrics: Optional[Sequence[str]] = None,
+        metrics: Sequence[str] | None = None,
         *,
-        fallback_reason: Optional[str] = None,
-        error: Optional[str] = None,
-        metric_ranges: Optional[Dict[str, Dict[str, Optional[float]]]] = None,
-    ) -> Dict[str, Any]:
+        fallback_reason: str | None = None,
+        error: str | None = None,
+        metric_ranges: dict[str, dict[str, float | None]] | None = None,
+    ) -> dict[str, Any]:
         metric_list = list(metrics) if metrics else self._default_metrics
         return self._build_empty_payload(
             metric_list,
@@ -257,14 +259,14 @@ class AnalyticsEngine:
         self,
         metrics: Sequence[str],
         *,
-        fallback_reason: Optional[str] = None,
-        error: Optional[str] = None,
-        metric_ranges: Optional[Dict[str, Dict[str, Optional[float]]]] = None,
-    ) -> Dict[str, Any]:
+        fallback_reason: str | None = None,
+        error: str | None = None,
+        metric_ranges: dict[str, dict[str, float | None]] | None = None,
+    ) -> dict[str, Any]:
         metric_list = list(metrics) or self._default_metrics
         speech_series = {metric: [] for metric in metric_list}
         ranges = metric_ranges or self._base_metric_ranges(metric_list)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "summary": {
                 "emotion_totals": {},
                 "joy_count": 0,
@@ -295,19 +297,19 @@ class AnalyticsEngine:
     def query_signals(
         self,
         *,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        speakers: Optional[List[str]] = None,
-        emotions: Optional[List[str]] = None,
-        metrics: Optional[List[str]] = None,
-    ) -> Dict[str, any]:
+        start_date: str | None = None,
+        end_date: str | None = None,
+        speakers: list[str] | None = None,
+        emotions: list[str] | None = None,
+        metrics: list[str] | None = None,
+    ) -> dict[str, any]:
         """Aggregate multi-dimensional analytics for the dashboard."""
         allowed_metrics = set(self._default_metrics)
         range_metrics = list(self._default_metrics)
         requested_metrics = metrics or self._default_metrics
-        metric_ranges: Dict[str, Dict[str, Optional[float]]] = self._base_metric_ranges(range_metrics)
-        normalized_metrics: List[str] = []
-        seen: Set[str] = set()
+        metric_ranges: dict[str, dict[str, float | None]] = self._base_metric_ranges(range_metrics)
+        normalized_metrics: list[str] = []
+        seen: set[str] = set()
         for metric in requested_metrics:
             if not metric:
                 continue
@@ -320,12 +322,12 @@ class AnalyticsEngine:
         speaker_filter = {s.lower() for s in speakers} if speakers else set()
         emotion_filter = {e.lower() for e in emotions} if emotions else set()
 
-        metrics_with_columns: List[str] = []
+        metrics_with_columns: list[str] = []
         emotion_rows: Sequence[sqlite3.Row] = []
         speech_rows: Sequence[sqlite3.Row] = []
         speaker_rows: Sequence[sqlite3.Row] = []
         speaker_emotion_rows: Sequence[sqlite3.Row] = []
-        segment_columns: Set[str] = set()
+        segment_columns: set[str] = set()
 
         with self.lock:
             conn = self._connect()
@@ -361,7 +363,7 @@ class AnalyticsEngine:
                     )
 
                 conditions = []
-                params: List[Any] = []
+                params: list[Any] = []
                 if start_date:
                     conditions.append(f"tr.{date_column} >= ?")
                     params.append(f"{start_date}T00:00:00")
@@ -460,7 +462,7 @@ class AnalyticsEngine:
             finally:
                 conn.close()
 
-        speaker_emotions: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        speaker_emotions: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         for row in speaker_emotion_rows:
             speaker_name = row["speaker"]
             emotion_name = row["emotion"]
@@ -468,7 +470,7 @@ class AnalyticsEngine:
                 continue
             speaker_emotions[speaker_name][emotion_name] += row["count"]
 
-        emotion_totals: Dict[str, int] = defaultdict(int)
+        emotion_totals: dict[str, int] = defaultdict(int)
         date_set = set()
         for row in emotion_rows:
             if not row["emotion"]:
@@ -487,7 +489,7 @@ class AnalyticsEngine:
             dates = sorted(date_set)
         date_index = {date: idx for idx, date in enumerate(dates)}
 
-        emotion_series: Dict[str, List[int]] = {}
+        emotion_series: dict[str, list[int]] = {}
         for row in emotion_rows:
             day = row["day"]
             emotion = row["emotion"] or "unknown"
@@ -496,9 +498,7 @@ class AnalyticsEngine:
             series = emotion_series.setdefault(emotion, [0] * len(dates))
             series[date_index[day]] = row["count"]
 
-        speech_series: Dict[str, List[Optional[float]]] = {
-            metric: [None] * len(dates) for metric in normalized_metrics
-        }
+        speech_series: dict[str, list[float | None]] = {metric: [None] * len(dates) for metric in normalized_metrics}
         for row in speech_rows:
             day = row["day"]
             if not day or day not in date_index:
@@ -509,7 +509,7 @@ class AnalyticsEngine:
                 speech_series[metric][idx] = float(value) if value is not None else None
 
         # Speaker profiles with emotion mix
-        speaker_profiles: List[Dict[str, Any]] = []
+        speaker_profiles: list[dict[str, Any]] = []
         for row in speaker_rows:
             speaker_name = row["speaker"]
             if not speaker_name:
@@ -530,7 +530,7 @@ class AnalyticsEngine:
         total_segments = sum(row["segments"] for row in speaker_rows if row["segments"])
         speaker_field_names = set(speaker_rows[0].keys()) if speaker_rows else set()
 
-        def _weighted_avg(key: str) -> Optional[float]:
+        def _weighted_avg(key: str) -> float | None:
             if not total_segments:
                 return None
             if key not in speaker_field_names:
@@ -548,9 +548,7 @@ class AnalyticsEngine:
             return numerator / weight
 
         joy_count = emotion_totals.get("joy", 0)
-        negative_count = sum(
-            emotion_totals.get(label, 0) for label in ("anger", "sadness", "fear")
-        )
+        negative_count = sum(emotion_totals.get(label, 0) for label in ("anger", "sadness", "fear"))
         total_analyzed = sum(emotion_totals.values())
         summary = {
             "emotion_totals": dict(emotion_totals),
@@ -580,14 +578,14 @@ class AnalyticsEngine:
     def query_segments(
         self,
         *,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        speakers: Optional[List[str]] = None,
-        emotions: Optional[List[str]] = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        speakers: list[str] | None = None,
+        emotions: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
         order: str = "desc",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         limit = max(1, min(int(limit or 50), 500))
         offset = max(0, int(offset or 0))
         order = "ASC" if str(order).lower() == "asc" else "DESC"
@@ -611,7 +609,7 @@ class AnalyticsEngine:
 
                 emotion_column = self._detect_emotion_column(segment_columns)
                 conditions = []
-                params: List[Any] = []
+                params: list[Any] = []
                 if start_date:
                     conditions.append(f"tr.{date_column} >= ?")
                     params.append(f"{start_date}T00:00:00")
@@ -635,9 +633,7 @@ class AnalyticsEngine:
                     else:
                         metric_selects.append(f"NULL AS {metric}")
                 metric_projection = ",\n                       ".join(metric_selects)
-                emotion_projection = (
-                    f"LOWER(ts.{emotion_column}) AS emotion" if emotion_column else "NULL AS emotion"
-                )
+                emotion_projection = f"LOWER(ts.{emotion_column}) AS emotion" if emotion_column else "NULL AS emotion"
                 created_output_column = "created_at" if "created_at" in record_columns else date_column
 
                 base_query = (
@@ -674,7 +670,7 @@ class AnalyticsEngine:
                 rows = cur.fetchall()
 
                 metric_names = list(self._default_metrics)
-                items: List[Dict[str, Any]] = []
+                items: list[dict[str, Any]] = []
                 for row in rows:
                     metrics = {}
                     for metric in metric_names:

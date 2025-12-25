@@ -1,0 +1,484 @@
+openapi: 3.1.0
+info:
+  title: Nemo Server API
+  version: 1.0.0
+  description: |
+    Privacy-first cognitive AI platform providing real-time transcription,
+    LLM chat, semantic search, and ML predictions.
+
+    ## Authentication
+    All protected endpoints require a Bearer token obtained from `/api/auth/login`.
+
+    ## Rate Limiting
+    Authentication endpoints are rate-limited to 10 requests per minute.
+  contact:
+    email: api@nemoserver.dev
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://api.nemoserver.dev
+    description: Production (if deployed)
+
+tags:
+  - name: Authentication
+    description: User authentication and session management
+  - name: Gemma
+    description: LLM text generation and chat
+  - name: Search
+    description: Semantic search and memory retrieval
+  - name: Transcription
+    description: Real-time and batch transcription
+  - name: Analytics
+    description: Emotion and signal analytics
+  - name: ML
+    description: Machine learning predictions (27 engines)
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns service health status. No authentication required.
+      tags: [System]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, healthy]
+                  version:
+                    type: string
+
+  /api/auth/login:
+    post:
+      summary: Authenticate user
+      description: Authenticate with username and password to receive session token.
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 50
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  session_token:
+                    type: [string, "null"]
+                  csrf_token:
+                    type: [string, "null"]
+                  username:
+                    type: string
+        '401':
+          description: Invalid credentials
+
+  /api/auth/logout:
+    post:
+      summary: End session
+      description: Invalidate the current session token.
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Logout successful
+        '204':
+          description: Session ended (no content)
+
+  /api/gemma/generate:
+    post:
+      summary: Generate text
+      description: Generate text using the Gemma LLM.
+      tags: [Gemma]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  description: Input prompt for generation
+                max_tokens:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 2048
+                temperature:
+                  type: number
+                  default: 0.7
+                  minimum: 0.0
+                  maximum: 2.0
+      responses:
+        '200':
+          description: Generated text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  tokens_used:
+                    type: integer
+
+  /api/gemma/chat:
+    post:
+      summary: Chat conversation
+      description: Multi-turn chat with Gemma LLM.
+      tags: [Gemma]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                        enum: [user, assistant, system]
+                      content:
+                        type: string
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+
+  /api/search/semantic:
+    post:
+      summary: Semantic search
+      description: Search transcripts and memories using semantic similarity.
+      tags: [Search]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                top_k:
+                  type: integer
+                  default: 10
+                  minimum: 1
+                  maximum: 100
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        score:
+                          type: number
+                        timestamp:
+                          type: string
+                          format: date-time
+
+  /api/transcripts/recent:
+    get:
+      summary: Get recent transcripts
+      description: Retrieve recent transcription records.
+      tags: [Transcription]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: List of transcripts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transcripts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        text:
+                          type: string
+                        speaker:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+
+  /api/analytics/signals:
+    get:
+      summary: Get emotion signals
+      description: Retrieve aggregated emotion analytics.
+      tags: [Analytics]
+      responses:
+        '200':
+          description: Analytics summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    properties:
+                      total_analyzed:
+                        type: integer
+                      emotions:
+                        type: object
+                        additionalProperties:
+                          type: number
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Session token from /api/auth/login
+    
+    CSRFToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: CSRF token for mutating requests
+
+  schemas:
+    # Error Schemas
+    Error:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Additional error details
+        request_id:
+          type: string
+          description: Request ID for tracing
+
+    ValidationError:
+      type: object
+      properties:
+        error_code:
+          type: string
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+        field_errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    # Pagination Schema
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Current page number (1-indexed)
+        page_size:
+          type: integer
+          description: Items per page
+        total_items:
+          type: integer
+          description: Total number of items
+        total_pages:
+          type: integer
+          description: Total number of pages
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number (1-indexed)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    
+    PageSizeParam:
+      name: page_size
+      in: query
+      description: Items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    
+    IdempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      description: Unique key for idempotent operations
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    UnauthorizedError:
+      description: Missing or invalid authentication
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "UNAUTHORIZED"
+            message: "Authentication required"
+    
+    ForbiddenError:
+      description: Insufficient permissions or invalid CSRF token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "FORBIDDEN"
+            message: "Invalid CSRF token or insufficient permissions"
+    
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "NOT_FOUND"
+            message: "Resource not found"
+    
+    RateLimitError:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Request limit per window
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Remaining requests in window
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+          description: Unix timestamp when limit resets
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "RATE_LIMITED"
+            message: "Too many requests, please retry after 60 seconds"
+    
+    ValidationErrorResponse:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+    
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error_code: "INTERNAL_ERROR"
+            message: "An unexpected error occurred"
+            request_id: "abc123-456-def"
+
+  headers:
+    X-Request-ID:
+      description: Unique request identifier for tracing
+      schema:
+        type: string
+    X-RateLimit-Limit:
+      description: Request limit per window
+      schema:
+        type: integer
+    X-RateLimit-Remaining:
+      description: Remaining requests in current window
+      schema:
+        type: integer
+

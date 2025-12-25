@@ -79,7 +79,12 @@ GET /health
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JWT_ONLY` | `false` | Enforce JWT service authentication |
+| `JWT_ONLY` | `true` | Enforce JWT service authentication |
+
+## Authentication
+Requires **Service-to-Service (S2S) Authentication**.
+- **Header**: `X-Service-Token: <signed_jwt>`
+- **Internal Only**: Requests without valid JWT are rejected (401).
 
 ## Model
 

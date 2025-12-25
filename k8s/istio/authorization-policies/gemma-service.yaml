@@ -1,0 +1,56 @@
+# Gemma Service Authorization Policy
+#
+# Gemma (LLM) can ONLY be accessed by:
+# - API Gateway (for user requests)
+# - ML Service (for System 2 verification)
+# - GPU Coordinator (for lock management)
+#
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: gemma-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: gemma-service
+  action: ALLOW
+  rules:
+    # Allow API Gateway to call Gemma for LLM inference
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/api-gateway"]
+      to:
+        - operation:
+            ports: ["8001"]
+            methods: ["POST", "GET"]
+            paths: ["/generate", "/chat", "/health", "/v1/*"]
+    
+    # Allow ML Service to call Gemma for scoring/verification
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/ml-service"]
+      to:
+        - operation:
+            ports: ["8001"]
+            methods: ["POST"]
+            paths: ["/generate", "/score", "/v1/*"]
+    
+    # Allow GPU Coordinator to manage GPU locks
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/gpu-coordinator"]
+      to:
+        - operation:
+            ports: ["8001"]
+            methods: ["POST", "GET"]
+            paths: ["/gpu/*", "/pause", "/resume", "/health"]
+    
+    # Allow health checks
+    - from:
+        - source:
+            namespaces: ["nemo"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/health", "/metrics"]

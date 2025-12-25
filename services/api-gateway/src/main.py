@@ -1,59 +1,60 @@
 """
-API Gateway Service
-Handles authentication, routing, and frontend serving
+API Gateway Service - Slim Refactored Version
+==============================================
+Handles authentication, routing, and frontend serving.
+
+This is a clean refactored version that delegates all routes to domain-specific routers.
+The original main.py (~4000 lines) has been decomposed into:
+- Core: This file (imports, config, middleware, lifespan, router includes)
+- Routers: src/routers/*.py (domain-specific API routes)
+- Middleware: Middlewares are defined inline here for simplicity
+
+Phase 5.7+ Refactor: December 2024
 """
+
 import base64
+import json
+import logging
 import os
-import re
 import secrets
 import sys
-import json
-from pathlib import Path
-from typing import Dict, Any, Optional, List
-from contextlib import asynccontextmanager
-import logging
-import hashlib
-import uuid
-from datetime import datetime, timedelta
-from urllib.parse import urlencode
-
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Cookie, Header, File, UploadFile, Form, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response as StarletteResponse
-from starlette.responses import StreamingResponse as StarletteStreamingResponse
 import time
-import asyncio
-from pydantic import BaseModel, field_validator
-import httpx
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
-# Add parent directories to path
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+
 # Add root directory to path to access shared modules
-# __file__ is /app/src/main.py, so parent.parent gives us /app
 root_dir = str(Path(__file__).parent.parent)
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-# Import auth modules
+# =============================================================================
+# Auth Module Import (Fail-Closed)
+# =============================================================================
 try:
-    # Import explicitly from src.auth to avoid shadowing by /app/auth in Docker builds.
     from src.auth.auth_manager import AuthManager
-    from src.auth.permissions import require_auth, Session
+    from src.auth.permissions import Session, require_auth
+
     _auth_loaded = True
 except ImportError as e:
     _auth_import_error = str(e)
     _auth_loaded = False
     AuthManager = None
     Session = None
-    # FAIL-CLOSED: Do not create dummy auth - will raise at startup
     require_auth = None
 
-# Configure logging
+# =============================================================================
+# Logging Configuration
+# =============================================================================
 try:
     from shared.logging.structured import setup_structured_logging
-    # Default to INFO, enable based on env var (default true for this phase)
+
     if os.getenv("STRUCTURED_LOGGING", "true").lower() in ("true", "1", "yes"):
         setup_structured_logging("api-gateway")
         logger = logging.getLogger(__name__)
@@ -61,154 +62,80 @@ try:
     else:
         raise ImportError("Structured logging disabled via env")
 except (ImportError, Exception) as e:
-    # Fallback
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     logger = logging.getLogger(__name__)
     logger.info(f"Standard logging enabled (Structured logging skipped: {e})")
 
-# Log auth import status after logger is configured
 if _auth_loaded:
     logger.info("Auth modules loaded")
 else:
     logger.warning("Auth import failed: %s", _auth_import_error)
 
-from src.config import SecurityConfig as SecConf
-from shared.analysis.fallback_store import AnalysisFallbackStore
-from shared.logging.safe_logging import header_presence, token_presence
-# shared.audit imported conditionally below when AUDIT_ENABLED
-
+# =============================================================================
 # Configuration
+# =============================================================================
+from src.config import SecurityConfig as SecConf
+
+from shared.analysis.fallback_store import AnalysisFallbackStore
+
+# Service URLs
 GEMMA_URL = os.getenv("GEMMA_URL", "http://gemma-service:8001")
 RAG_URL = os.getenv("RAG_URL", "http://rag-service:8004")
 EMOTION_URL = os.getenv("EMOTION_URL", "http://emotion-service:8005")
 TRANSCRIPTION_URL = os.getenv("TRANSCRIPTION_URL", "http://transcription-service:8003")
 INSIGHTS_URL = os.getenv("INSIGHTS_URL", "http://insights-service:8010")
 ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://localhost:8006")
-# Feature toggles
-EMAIL_ANALYZER_ENABLED = os.getenv("EMAIL_ANALYZER_ENABLED", "true").lower() in {"1", "true", "yes"}
+
 # Security & CORS
-ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1,http://localhost").split(",") if o.strip()]
-# Centralized cookie and CSRF names to prevent drift
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1,http://localhost").split(",") if o.strip()
+]
 SESSION_COOKIE_NAME = SecConf.SESSION_COOKIE_NAME
 CSRF_COOKIE_NAME = SecConf.CSRF_COOKIE_NAME
-CSRF_HEADER_NAME = SecConf.CSRF_HEADER_NAME
-SESSION_COOKIE_SECURE = SecConf.SESSION_COOKIE_SECURE
-SESSION_COOKIE_SAMESITE = getattr(SecConf, "SESSION_COOKIE_SAMESITE", "lax")
-MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))
-MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
-# Speaker identifier validation pattern (lowercase alphanumerics, hyphen, underscore)
-SPEAKER_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,64}$")
-# Frontend is at /app/frontend in container
-# Use local instance dir if /app/instance fails (for local dev)
+
+# Directories
 APP_INSTANCE_DIR = Path(os.getenv("APP_INSTANCE_DIR", "/app/instance"))
 try:
     APP_INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
-except Exception as exc:
-    # Fallback to local directory
-    logger.warning("Failed to create APP_INSTANCE_DIR %s: %s. Falling back to ./instance", APP_INSTANCE_DIR, exc)
+except Exception:
     APP_INSTANCE_DIR = Path("instance")
     APP_INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
 
-FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).parent.parent.parent.parent.parent / "frontend"
+FRONTEND_DIR = (
+    Path("/app/frontend")
+    if Path("/app/frontend").exists()
+    else Path(__file__).parent.parent.parent.parent.parent / "frontend"
+)
 FAVICON_PATH = FRONTEND_DIR / "assets" / "images" / "icons" / "favicon.png"
-CANONICAL_HOST = os.getenv("CANONICAL_HOST", "localhost").strip()
-CANONICAL_PORT = os.getenv("CANONICAL_PORT", "").strip()
-LEGACY_ANALYSIS_FALLBACK_FILE = Path(os.getenv("ANALYSIS_FALLBACK_FILE", str(APP_INSTANCE_DIR / "analysis_fallback.json")))
+
+# Fallback store for analysis
 ANALYSIS_FALLBACK_DIR = Path(os.getenv("ANALYSIS_FALLBACK_DIR", str(APP_INSTANCE_DIR / "analysis_fallback")))
-ANALYSIS_FALLBACK_MAX_ARTIFACTS = int(os.getenv("ANALYSIS_FALLBACK_MAX_ARTIFACTS", "200"))
 fallback_store = AnalysisFallbackStore(
     base_dir=ANALYSIS_FALLBACK_DIR,
-    legacy_file=LEGACY_ANALYSIS_FALLBACK_FILE,
-    max_per_user=ANALYSIS_FALLBACK_MAX_ARTIFACTS,
+    legacy_file=APP_INSTANCE_DIR / "analysis_fallback.json",
+    max_per_user=200,
 )
 
-# Global auth manager and service auth
+# Rate limiting
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() in {"1", "true", "yes"}
+
+# =============================================================================
+# Global State
+# =============================================================================
 auth_manager = None
 service_auth = None
-# Login rate limiting parameters (tunable via env)
-_LOGIN_WINDOW = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW", "60"))
-_LOGIN_LIMIT = int(os.getenv("LOGIN_RATE_LIMIT_LIMIT", "5"))
-login_attempts: Dict[str, Dict[str, Any]] = {"window": _LOGIN_WINDOW, "limit": _LOGIN_LIMIT, "ips": {}}
-# Registration rate limiting parameters (tunable via env)
-_REGISTER_WINDOW = int(os.getenv("REGISTER_RATE_LIMIT_WINDOW", "60"))
-_REGISTER_LIMIT = int(os.getenv("REGISTER_RATE_LIMIT_LIMIT", "5"))
-register_attempts: Dict[str, Dict[str, Any]] = {"window": _REGISTER_WINDOW, "limit": _REGISTER_LIMIT, "ips": {}}
-personality_jobs: Dict[str, Dict[str, Any]] = {}
-analysis_jobs: Dict[str, Dict[str, Any]] = {}
+personality_jobs: dict[str, dict[str, Any]] = {}
+analysis_jobs: dict[str, dict[str, Any]] = {}
 
 
-def _is_admin(session: Optional[Session]) -> bool:
-    return bool(session and getattr(session, "role", "").lower() == "admin")
-
-
-def _require_user_id(session: Optional[Session]) -> str:
-    user_id = getattr(session, "user_id", None)
-    if not user_id:
-        raise HTTPException(status_code=403, detail="Authenticated user required for fallback storage")
-    return str(user_id)
-
-
-def _persist_fallback_artifact(payload: Dict[str, Any], session: Session) -> Dict[str, Any]:
-    user_id = _require_user_id(session)
-    artifact_id = payload.get("artifact_id") or f"fallback_{uuid.uuid4().hex}"
-    metadata = dict(payload.get("metadata") or {})
-    metadata.setdefault("user_id", user_id)
-    artifact = {
-        "artifact_id": artifact_id,
-        "analysis_id": payload.get("analysis_id"),
-        "title": payload.get("title") or "Analyzer Run",
-        "body": payload.get("body", ""),
-        "metadata": metadata,
-        "created_at": datetime.utcnow().isoformat() + "Z",
-    }
-    return fallback_store.upsert_user_artifact(user_id, artifact)
-
-
-def _list_fallback_artifacts(
-    limit: int,
-    offset: int,
-    session: Session,
-    include_all: bool = False,
-) -> Dict[str, Any]:
-    if include_all:
-        items = fallback_store.list_all_artifacts()
-        scope = "all"
-    else:
-        user_id = _require_user_id(session)
-        items = fallback_store.list_user_artifacts(user_id)
-        scope = "user"
-
-    subset = items[offset: offset + limit]
-    return {
-        "success": True,
-        "items": subset,
-        "count": len(subset),
-        "total": len(items),
-        "has_more": offset + len(subset) < len(items),
-        "next_offset": offset + len(subset),
-        "source": "gateway_fallback",
-        "scope": scope,
-    }
-
-
-def _get_fallback_artifact(
-    artifact_id: str,
-    session: Session,
-    include_all: bool = False,
-) -> Optional[Dict[str, Any]]:
-    if include_all:
-        return fallback_store.get_any_artifact(artifact_id)
-    user_id = _require_user_id(session)
-    return fallback_store.get_user_artifact(user_id, artifact_id)
-
-
-def _decode_session_key(raw_value: Optional[str]) -> Optional[bytes]:
+# =============================================================================
+# Helper Functions (Used by routers via lazy import)
+# =============================================================================
+def _decode_session_key(raw_value: str | None) -> bytes | None:
     """Decode a base64/urlsafe base64 encoded 32-byte key."""
     if not raw_value:
         return None
     raw_value = raw_value.strip()
-    if not raw_value:
-        return None
     padded = raw_value + "=" * (-len(raw_value) % 4)
     for decoder in (base64.urlsafe_b64decode, base64.b64decode):
         try:
@@ -217,99 +144,318 @@ def _decode_session_key(raw_value: Optional[str]) -> Optional[bytes]:
                 return decoded
         except Exception:
             continue
-    logger.error("Failed to decode session key; expected 32-byte base64 string")
     return None
 
+
+# =============================================================================
+# Lifespan (Startup/Shutdown)
+# =============================================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global auth_manager
-    logger.info("Starting API Gateway...")
-    
+    global auth_manager, service_auth
+    logger.info("Starting API Gateway (Slim)...")
+
     # PHASE 0: Fail-closed security checks
     from shared.security.startup_checks import assert_secure_mode
-    assert_secure_mode()  # Blocks if SECURE_MODE=true and unsafe flags enabled
-    
-    # FAIL-CLOSED: Block startup if auth module failed to load
+
+    assert_secure_mode()
+
+    # Block startup if auth failed
     if not _auth_loaded:
-        raise RuntimeError(
-            f"SECURITY: AuthManager failed to import: {_auth_import_error}. "
-            "Cannot start API Gateway without authentication."
-        )
-    
-    session_key_bytes: Optional[bytes] = None
-    secrets_source: Optional[str] = None
+        raise RuntimeError(f"SECURITY: AuthManager failed to import: {_auth_import_error}")
 
+    # Initialize auth manager
     if AuthManager:
-        from shared.security.secrets import get_secret
-        logger.info("🔍 Attempting to load session_key from secrets...")
-        raw_secret = get_secret("session_key")
-        logger.info(f"🔍 get_secret('session_key') returned: {raw_secret is not None} (length: {len(raw_secret) if raw_secret else 0})")
-        session_key_bytes = _decode_session_key(raw_secret)
-        logger.info(f"🔍 _decode_session_key returned: {session_key_bytes is not None} (length: {len(session_key_bytes) if session_key_bytes else 0})")
-        if session_key_bytes:
-            secrets_source = "docker"  # /run/secrets/session_key
-        else:
-            env_secret = os.getenv("SESSION_KEY_B64") or os.getenv("SESSION_KEY")
-            session_key_bytes = _decode_session_key(env_secret)
-            if session_key_bytes:
-                secrets_source = "environment"
+        from src.auth.auth_manager import init_auth_manager
 
+        from shared.security.secrets_manager import get_secret
+
+        session_key_bytes = _decode_session_key(get_secret("session_key"))
         if not session_key_bytes:
-            logger.warning("Session key not found; generating ephemeral key (sessions reset on restart)")
+            session_key_bytes = _decode_session_key(os.getenv("SESSION_KEY_B64") or os.getenv("SESSION_KEY"))
+        if not session_key_bytes:
+            logger.warning("Session key not found; generating ephemeral key")
             session_key_bytes = secrets.token_bytes(32)
-            secrets_source = "ephemeral"
-        else:
-            logger.info("✅ Loaded session encryption key from %s", secrets_source)
 
         users_db_key = get_secret("users_db_key")
-        if users_db_key:
-            logger.info("Loaded users DB encryption key from secrets")
-        else:
-            logger.warning("Users DB encryption key not found; storing credentials database without encryption")
-
-        # Import init_auth_manager to properly initialize the global singleton
-        from src.auth.auth_manager import init_auth_manager
         auth_manager = init_auth_manager(
             secret_key=session_key_bytes,
             db_path=str(APP_INSTANCE_DIR / "users.db"),
             db_encryption_key=users_db_key,
         )
-        logger.info("Auth manager initialized with global singleton")
-    
+        logger.info("✅ Auth manager initialized")
+
     # Initialize service auth for inter-service JWTs
-    logger.info("🔍 DEBUG: About to initialize JWT service auth")
     try:
-        from shared.security.service_auth import (
-            get_service_auth,
-            load_service_jwt_keys,
-        )
-        try:
-            jwt_keys = load_service_jwt_keys("gateway")
-            global service_auth
-            service_auth = get_service_auth(service_id="gateway", service_secret=jwt_keys)
-            logger.info("✅ JWT service auth initialized for gateway (keys=%s)", len(jwt_keys))
-        except Exception as auth_err:
-            # FAIL-CLOSED: Block startup without valid service auth
-            logger.critical("🚫 ServiceAuth init failed: %s - BLOCKING STARTUP", auth_err)
-            raise RuntimeError(
-                f"SECURITY: ServiceAuth required but failed to initialize: {auth_err}. "
-                "Run: ./scripts/setup_secrets.sh"
-            ) from auth_err
+        from shared.security.service_auth import get_service_auth, load_service_jwt_keys
+
+        jwt_keys = load_service_jwt_keys("gateway")
+        service_auth = get_service_auth(service_id="gateway", service_secret=jwt_keys)
+        logger.info("✅ JWT service auth initialized for gateway")
     except Exception as e:
-        # FAIL-CLOSED: Block startup without service auth module
-        logger.critical("🚫 Failed to import ServiceAuth modules: %s - BLOCKING STARTUP", e)
-        raise RuntimeError(
-            f"SECURITY: ServiceAuth module import failed: {e}. "
-            "Ensure shared/security/service_auth.py exists and dependencies are installed."
-        ) from e
-    
+        raise RuntimeError(f"SECURITY: ServiceAuth failed: {e}") from e
+
     yield
-    
     logger.info("API Gateway shutdown complete")
 
-app = FastAPI(title="API Gateway", version="1.0.0", lifespan=lifespan)
+
+# =============================================================================
+# App Initialization
+# =============================================================================
+app = FastAPI(title="API Gateway", version="2.0.0", lifespan=lifespan)
+
+# =============================================================================
+# Middleware: CORS
+# =============================================================================
+app.add_middleware(
+    CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
+)
 
 
+# =============================================================================
+# Middleware: Rate Limiting
+# =============================================================================
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app):
+        super().__init__(app)
+        self.window = int(os.getenv("RATE_LIMIT_WINDOW_SEC", "60"))
+        self.limit = int(os.getenv("RATE_LIMIT_DEFAULT", "120"))
+        self.buckets: dict[str, dict[str, int]] = {}
+
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+            request.client.host if request.client else "unknown"
+        )
+        path = request.url.path
+
+        # Skip rate limiting for health and static
+        if path.startswith(("/health", "/ui/", "/favicon")):
+            return await call_next(request)
+
+        now = int(time.time())
+        key = f"{client_ip}:{path}"
+        bucket = self.buckets.get(key, {"count": 0, "start": now})
+
+        if now - bucket["start"] > self.window:
+            bucket = {"count": 1, "start": now}
+        else:
+            bucket["count"] += 1
+
+        self.buckets[key] = bucket
+
+        if bucket["count"] > self.limit:
+            return Response(status_code=429, content="Too Many Requests")
+
+        return await call_next(request)
+
+
+if RATE_LIMIT_ENABLED:
+    app.add_middleware(RateLimitMiddleware)
+
+
+# =============================================================================
+# Middleware: Security Headers (Enhanced for Enterprise)
+# =============================================================================
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Enhanced security headers middleware per OWASP and ISO 27002 guidelines.
+    
+    Adds comprehensive security headers to ALL responses:
+    - X-Content-Type-Options: nosniff (prevent MIME sniffing)
+    - X-Frame-Options: DENY (prevent clickjacking)
+    - X-XSS-Protection: 0 (deprecated but included for legacy browsers)
+    - Referrer-Policy: strict-origin-when-cross-origin
+    - Permissions-Policy: restrict sensitive APIs
+    - Strict-Transport-Security: HSTS with preload
+    - Content-Security-Policy: strict CSP with frame-ancestors
+    - X-Permitted-Cross-Domain-Policies: none
+    - Cache-Control: no-store for API responses
+    
+    Also removes potentially leaky headers (Server, X-Powered-By).
+    """
+    
+    def __init__(self, app):
+        super().__init__(app)
+        # Paths exempt from Cache-Control: no-store (static assets)
+        self.cache_exempt_paths = ("/ui/", "/assets/", "/static/", "/favicon")
+        # Force HSTS even in development
+        self.force_hsts = os.getenv("FORCE_HSTS", "true").lower() in ("true", "1", "yes")
+    
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        
+        # Core security headers (applied to ALL responses)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "0"  # Disabled per OWASP - can cause XSS in older browsers
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+        
+        # Permissions Policy - restrict sensitive browser APIs
+        response.headers["Permissions-Policy"] = (
+            "accelerometer=(), "
+            "autoplay=(), "
+            "camera=(), "
+            "cross-origin-isolated=(), "
+            "display-capture=(), "
+            "encrypted-media=(), "
+            "fullscreen=(self), "
+            "geolocation=(), "
+            "gyroscope=(), "
+            "keyboard-map=(), "
+            "magnetometer=(), "
+            "microphone=(self), "
+            "midi=(), "
+            "payment=(), "
+            "picture-in-picture=(), "
+            "publickey-credentials-get=(), "
+            "screen-wake-lock=(), "
+            "sync-xhr=(), "
+            "usb=(), "
+            "xr-spatial-tracking=()"
+        )
+        
+        # HSTS with preload - max-age 1 year, includeSubDomains, preload
+        if self.force_hsts:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains; preload"
+            )
+        
+        # Content Security Policy - strict with frame-ancestors
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' "
+            "https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly https://cdnjs.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: blob: https:; "
+            "connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:* https://unpkg.com https://cdn.jsdelivr.net; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "object-src 'none'; "
+            "upgrade-insecure-requests"
+        )
+        
+        # Cache-Control: no-store for API responses (not static assets)
+        if not any(path.startswith(exempt) for exempt in self.cache_exempt_paths):
+            if path.startswith("/api/") or path.startswith("/health"):
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                response.headers["Pragma"] = "no-cache"
+        
+        # Remove potentially leaky headers
+        if "Server" in response.headers:
+            del response.headers["Server"]
+        if "X-Powered-By" in response.headers:
+            del response.headers["X-Powered-By"]
+        
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+# =============================================================================
+# Middleware: CSRF Protection (Double-Submit Cookie Pattern)
+# =============================================================================
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """
+    CSRF protection using double-submit cookie pattern.
+    
+    Supports:
+    - Exempt paths (e.g., /api/auth/login)
+    - Bearer token authentication for mobile clients
+    - Header/cookie token comparison
+    """
+    
+    def __init__(self, app):
+        super().__init__(app)
+        self.exempt_paths = [
+            "/api/auth/login",
+            "/api/auth/register", 
+            "/health",
+            "/favicon.ico",
+            "/upload",      # Multipart file uploads don't include CSRF headers
+            "/api/upload",  # Alias for /upload with /api prefix
+            "/api/public/chat",  # Public Gemma chat endpoint
+            # Gemma endpoints - internal API calls
+            "/api/gemma/generate",
+            "/api/gemma/warmup",
+            "/api/gemma/chat",
+            "/api/gemma/stats",
+            "/api/gemma/release-session",
+            # Transcript endpoints - internal API calls
+            "/api/transcripts/count",
+            "/api/transcripts/query",
+            "/api/transcripts/recent",
+            "/api/transcripts/speakers",
+            # RAG/vectorize endpoints
+            "/vectorize/database",
+            "/vectorize/status",
+            "/embed",
+            "/ask",
+            "/databases",
+            "/api/databases",
+            # SCIM endpoints - IdP provisioning
+            "/scim/Users",
+            "/scim/Groups",
+            "/scim/ServiceProviderConfig",
+            "/scim/Schemas",
+            "/scim/ResourceTypes",
+        ]
+        self.exempt_prefixes = [
+            "/analytics/",     # ML analytics endpoints
+            "/api/analytics/", # ML analytics with /api prefix
+            "/vectorize/",     # Vectorization endpoints
+        ]
+        self.bearer_auth_paths = [
+            "/api/mobile/",
+            "/api/v1/mobile/",
+        ]
+        self.auth_limit = int(os.getenv("RATE_LIMIT_AUTH", "10"))  # Auth endpoint rate limit
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip exempt paths (exact match)
+        if request.url.path in self.exempt_paths:
+            return await call_next(request)
+        
+        # Skip exempt prefixes
+        if any(request.url.path.startswith(p) for p in self.exempt_prefixes):
+            return await call_next(request)
+        
+        # Skip for Bearer token authenticated paths (mobile clients)
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer ") and any(
+            request.url.path.startswith(p) for p in self.bearer_auth_paths
+        ):
+            return await call_next(request)
+        
+        # Skip safe methods (GET, HEAD, OPTIONS)
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return await call_next(request)
+        
+        # Double-submit CSRF validation
+        header_token = request.headers.get(CSRF_COOKIE_NAME) or request.headers.get("X-CSRF-Token")
+        cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+        
+        if not header_token or not cookie_token:
+            return Response(status_code=403, content="CSRF token missing")
+        
+        if not secrets.compare_digest(header_token, cookie_token):
+            return Response(status_code=403, content="CSRF token mismatch")
+        
+        return await call_next(request)
+
+
+# Enable CSRF protection (disabled in TEST_MODE for easier testing)
+if not SecConf.TEST_MODE:
+    app.add_middleware(CSRFMiddleware)
+
+
+# =============================================================================
+# Static Files & Favicon
+# =============================================================================
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     if FAVICON_PATH.exists():
@@ -317,3718 +463,314 @@ async def favicon():
     return Response(status_code=204)
 
 
-# Custom StaticFiles with no-cache headers to prevent VPN/browser caching issues
+@app.get("/", response_class=HTMLResponse)
+async def root_redirect():
+    return RedirectResponse(url="/ui/login.html")
+
+
+# Custom no-cache static files
 class NoCacheStaticFiles(StaticFiles):
-    """StaticFiles that adds Cache-Control headers to prevent caching issues"""
-    
-    async def get_response(self, path: str, scope) -> StarletteResponse:
+    async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
-        
-        # Add no-cache headers for HTML, JS, and CSS files
-        if path.endswith(('.html', '.js', '.css')):
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-        # Allow longer caching for assets like images, fonts
-        else:
-            response.headers['Cache-Control'] = 'public, max-age=3600'
-        
-        return response
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-
-# Rate limiting controls (can be disabled for dev/local)
-RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() in {"1", "true", "yes"}
-RATE_LIMIT_SKIP_PREFIXES = tuple(filter(None, os.getenv("RATE_LIMIT_SKIP_PREFIXES", "/ui/,/ui,/assets/,/static/,/docs/").split(",")))
-RATE_LIMIT_SKIP_PATHS = set(filter(None, os.getenv("RATE_LIMIT_SKIP_PATHS", "/health,/").split(",")))
-
-# Simple in-memory rate limiting middleware (fixed window)
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app):
-        super().__init__(app)
-        self.default_window = int(os.getenv("RATE_LIMIT_WINDOW_SEC", "60"))
-        self.default_limit = int(os.getenv("RATE_LIMIT_DEFAULT", "120"))
-        self.auth_limit = int(os.getenv("RATE_LIMIT_AUTH", "20"))
-        # buckets: key -> {"count": int, "window_start": int}
-        self.buckets: Dict[str, Dict[str, int]] = {}
-
-    def _key(self, request: Request, scope: str) -> str:
-        client_ip = request.client.host if request.client else "unknown"
-        return f"{client_ip}:{scope}"
-
-    async def dispatch(self, request: Request, call_next):
-        if not RATE_LIMIT_ENABLED:
-            return await call_next(request)
-        # Determine scope and limit
-        path = request.url.path or "/"
-
-        # Skip static resources and health endpoints
-        if path in RATE_LIMIT_SKIP_PATHS or any(path.startswith(prefix) for prefix in RATE_LIMIT_SKIP_PREFIXES):
-            return await call_next(request)
-
-        window = self.default_window
-        limit = self.default_limit
-        scope = "global"
-        if path.startswith("/api/auth/login"):
-            scope = "auth"
-            limit = self.auth_limit
-
-        now = int(time.time())
-        key = self._key(request, scope)
-        bucket = self.buckets.get(key, {"count": 0, "window_start": now})
-        # Reset window if expired
-        if now - bucket["window_start"] >= window:
-            bucket = {"count": 0, "window_start": now}
-        # Increment and check
-        bucket["count"] += 1
-        self.buckets[key] = bucket
-        if bucket["count"] > limit:
-            retry_after = window - (now - bucket["window_start"]) or 1
-            logger.warning(f"Rate limit exceeded for {key}: {bucket['count']}/{limit}")
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "detail": "Too Many Requests",
-                    "limit": limit,
-                    "window_sec": window,
-                    "retry_after_sec": retry_after,
-                },
-                headers={"Retry-After": str(retry_after)},
-            )
-
-        return await call_next(request)
-
-# Enable rate limiting unless disabled
-if RATE_LIMIT_ENABLED:
-    app.add_middleware(RateLimitMiddleware)
-else:
-    logger.info("Rate limiting middleware disabled via RATE_LIMIT_ENABLED")
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Attach common security headers to every response."""
-
-    def __init__(self, app):
-        super().__init__(app)
-        force_hsts = os.getenv("FORCE_HSTS", "false").lower() in {"1", "true", "yes"}
-        self.include_hsts = SESSION_COOKIE_SECURE or force_hsts
-        # DEV ONLY: Set ALLOW_FRAMING=true to allow iframe embedding (e.g., VS Code Simple Browser)
-        # WARNING: Do NOT enable in production - this disables clickjacking protection
-        self.allow_framing = os.getenv("ALLOW_FRAMING", "false").lower() in {"1", "true", "yes"}
-
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        if not self.allow_framing:
-            response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(self), camera=()")
-        # Content Security Policy
-        # Security: Removed 'unsafe-eval' - prevents XSS via eval()
-        # Note: Some Plotly.js features (custom transforms) may be limited
-        # Using 'wasm-unsafe-eval' for WebAssembly support only
-        # NOTE: 'unsafe-inline' is required for inline styles/scripts - consider nonce-based CSP in future
-        response.headers.setdefault(
-            "Content-Security-Policy",
-            "default-src 'self'; "
-            "img-src 'self' data: https:; "
-            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://127.0.0.1:* https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly; "
-            "frame-ancestors 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self';"
-        )
-        if self.include_hsts:
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         return response
 
 
-app.add_middleware(SecurityHeadersMiddleware)
-
-# CSRF enforcement middleware (double-submit cookie)
-class CSRFMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app):
-        super().__init__(app)
-        self.exempt_paths = {"/health", "/api/auth/login", "/api/auth/register", "/api/auth/logout", "/docs", "/openapi.json", "/upload", "/api/upload", "/api/public/chat", 
-                             "/vectorize/database", "/vectorize/status",
-                             # RAG chatbot endpoints
-                             "/embed", "/ask", "/databases", "/api/databases",
-                             # Service-to-service endpoints (ML calling Gemma)
-                             "/api/gemma/generate"}
-        # Paths that start with these prefixes are exempt (ML analytics, vectorization)
-        self.exempt_prefixes = {"/analytics/", "/api/analytics/", "/vectorize/", "/analyze-full/"}
-        # Paths that allow Bearer token auth (mobile clients) without CSRF
-        # Also include vectorization and upload paths for demo purposes
-        self.bearer_auth_paths = {"/api/analyze/stream", "/docs", "/openapi.json", "/redoc", "/health", 
-                                   "/vectorize/database","/vectorize/status", "/upload"}
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("CSRFMiddleware initialized")
-
-    @staticmethod
-    def _request_id(request: Request) -> str:
-        return (
-            request.headers.get("X-Request-Id")
-            or getattr(request.state, "request_id", None)
-            or "-"
-        )
-
-    async def dispatch(self, request: Request, call_next):
-        # Respect global CSRF toggle (e.g., TEST_MODE or local dev). When disabled,
-        # forward the request untouched so local development isn't blocked.
-        try:
-            from src.config import SecurityConfig as SecConf
-            if not SecConf.ENABLE_CSRF:
-                return await call_next(request)
-        except Exception:
-            # If config import fails, keep middleware active by default
-            pass
-        try:
-            # Skip all checks for exempt paths (like login, health, etc.)
-            if request.url.path in self.exempt_paths:
-                return await call_next(request)
-            # Skip checks for exempt path prefixes (ML analytics endpoints)
-            if any(request.url.path.startswith(prefix) for prefix in self.exempt_prefixes):
-                return await call_next(request)
-            
-            if request.method in {"POST", "PUT", "DELETE"}:
-                req_id = self._request_id(request)
-                self.logger.debug(
-                    "[CSRF] processing method=%s path=%s rid=%s",
-                    request.method,
-                    request.url.path,
-                    req_id,
-                )
-                # Validate session
-                ws_session = request.cookies.get(SESSION_COOKIE_NAME)
-                
-                # Check for Bearer token (mobile clients like Flutter)
-                if not ws_session:
-                    auth_header = request.headers.get("Authorization", "")
-                    has_auth_header = bool(auth_header)
-                    has_bearer = bool(auth_header.startswith("Bearer "))
-                    self.logger.info(
-                        "[CSRF] no cookie %s %s path=%s rid=%s",
-                        header_presence("authorization", has_auth_header),
-                        header_presence("bearer", has_bearer),
-                        request.url.path,
-                        req_id,
-                    )
-                    if has_bearer:
-                        ws_session = auth_header[7:]  # Remove "Bearer " prefix
-                        self.logger.debug(
-                            "[CSRF] bearer token accepted indicator=%s path=%s rid=%s",
-                            token_presence("bearer", ws_session),
-                            request.url.path,
-                            req_id,
-                        )
-                
-                if not auth_manager or not ws_session:
-                    self.logger.warning(
-                        "[CSRF] not authenticated path=%s rid=%s auth_manager=%s ws_session=%s",
-                        request.url.path,
-                        req_id,
-                        bool(auth_manager),
-                        bool(ws_session),
-                    )
-                    return Response(content='{"detail":"Not authenticated"}', media_type="application/json", status_code=401)
-                session = auth_manager.validate_session(ws_session)
-                if not session:
-                    self.logger.warning(
-                        "[CSRF] session validation failed path=%s rid=%s source=%s",
-                        request.url.path,
-                        req_id,
-                        "bearer" if request.url.path in self.bearer_auth_paths else "cookie",
-                    )
-                    return Response(content='{"detail":"Invalid session"}', media_type="application/json", status_code=401)
-                
-                # Store session in request.state for later use by require_auth
-                request.state.session = session
-                
-                # Skip CSRF check for Bearer auth paths (mobile clients don't have CSRF tokens)
-                if request.url.path in self.bearer_auth_paths:
-                    self.logger.debug(
-                        "[CSRF] bearer auth path allowed path=%s rid=%s",
-                        request.url.path,
-                        req_id,
-                    )
-                    return await call_next(request)
-                
-                # Double-submit CSRF check for web clients
-                header_token = request.headers.get(CSRF_HEADER_NAME)
-                cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
-                if not header_token or not cookie_token or header_token != cookie_token or header_token != session.csrf_token:
-                    self.logger.warning(
-                        "[CSRF] invalid token path=%s rid=%s header=%s cookie=%s session=%s",
-                        request.url.path,
-                        req_id,
-                        token_presence("header", header_token),
-                        token_presence("cookie", cookie_token),
-                        token_presence("session", session.csrf_token),
-                    )
-                    return Response(content='{"detail":"CSRF token invalid"}', media_type="application/json", status_code=403)
-        except Exception as e:
-            req_id = self._request_id(request)
-            self.logger.exception("[CSRF] unexpected error path=%s rid=%s", request.url.path, req_id)
-        return await call_next(request)
-
-app.add_middleware(CSRFMiddleware)
+if FRONTEND_DIR.exists():
+    app.mount("/ui", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    logger.info(f"✅ Frontend mounted from {FRONTEND_DIR}")
 
 
-class CanonicalHostMiddleware(BaseHTTPMiddleware):
-    """Redirect frontend traffic to a single canonical host."""
-
-    def __init__(self, app):
-        super().__init__(app)
-        self.canonical_host = CANONICAL_HOST
-        self.canonical_port = CANONICAL_PORT
-        self.enabled = bool(self.canonical_host)
-
-    async def dispatch(self, request: Request, call_next):
-        if not self.enabled:
-            return await call_next(request)
-
-        try:
-            if request.method not in {"GET", "HEAD"}:
-                return await call_next(request)
-
-            path = request.url.path
-            if not (path == "/" or path.startswith("/ui")):
-                return await call_next(request)
-
-            host_header = request.headers.get("host")
-            if not host_header:
-                return await call_next(request)
-
-            hostname, _, port = host_header.partition(":")
-            request_port = port or (str(request.url.port) if request.url.port else "")
-            request_port = request_port if request_port not in {"80", "443"} else ""
-
-            target_port = self.canonical_port or request_port
-            target_port = target_port if target_port and target_port not in {"80", "443"} else ""
-
-            if hostname == self.canonical_host and (not target_port or target_port == request_port):
-                return await call_next(request)
-
-            netloc = self.canonical_host
-            if target_port:
-                netloc = f"{self.canonical_host}:{target_port}"
-
-            redirect_url = request.url.replace(netloc=netloc)
-            return RedirectResponse(str(redirect_url), status_code=307)
-        except Exception as exc:
-            logger.warning(f"[CANONICAL] Redirect handling failed: {exc}")
-            return await call_next(request)
-
-
-app.add_middleware(CanonicalHostMiddleware)
-
-# Enterprise Audit Middleware (request logging + anomaly detection)
-AUDIT_ENABLED = os.getenv("AUDIT_ENABLED", "true").lower() in {"1", "true", "yes"}
-if AUDIT_ENABLED:
-    from shared.audit import get_audit_logger
-    audit_logger_instance = get_audit_logger()
-    
-    @app.middleware("http")
-    async def audit_request_middleware(request: Request, call_next):
-        """Log all requests with timing and anomaly detection"""
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        start_time = time.time()
-        error_msg = None
-        status_code = 500
-        
-        try:
-            response = await call_next(request)
-            status_code = response.status_code
-            return response
-        except Exception as e:
-            error_msg = str(e)
-            raise
-        finally:
-            latency_ms = (time.time() - start_time) * 1000
-            await audit_logger_instance.log_request(
-                request_id=request_id,
-                method=request.method,
-                path=request.url.path,
-                status_code=status_code,
-                latency_ms=latency_ms,
-                user_id=getattr(request.state, "user_id", None),
-                ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("User-Agent"),
-                error=error_msg
-            )
-    
-    logger.info("✅ Enterprise audit middleware enabled with anomaly detection")
-else:
-    audit_logger_instance = None
-    logger.info("Audit middleware disabled via AUDIT_ENABLED")
-
-# ============================================================================
-# Authentication Models
-# ============================================================================
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class RegisterRequest(BaseModel):
-    """Public self-registration request."""
-    username: str
-    password: str
-    email: Optional[str] = None
-    speaker_id: Optional[str] = None
-
-    @field_validator("username")
-    @classmethod
-    def validate_username(cls, v: str) -> str:
-        if not re.match(r"^[a-zA-Z0-9_]{3,50}$", v):
-            raise ValueError("Username must be 3-50 alphanumeric characters or underscores")
-        return v
-
-    @field_validator("password")
-    @classmethod
-    def validate_password(cls, v: str) -> str:
-        # NIST 2024: prioritize length, basic complexity
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters")
-        if len(v) > 128:
-            raise ValueError("Password must be at most 128 characters")
-        if not re.search(r"[A-Z]", v):
-            raise ValueError("Password must contain at least one uppercase letter")
-        if not re.search(r"[a-z]", v):
-            raise ValueError("Password must contain at least one lowercase letter")
-        if not re.search(r"[0-9]", v):
-            raise ValueError("Password must contain at least one digit")
-        return v
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[^@]+@[^@]+\\.[^@]+$", v):
-            raise ValueError("Invalid email format")
-        return v
-
-    @field_validator("speaker_id")
-    @classmethod
-    def validate_speaker_id(cls, v: Optional[str]) -> Optional[str]:
-        if v and not SPEAKER_ID_PATTERN.match(v):
-            raise ValueError("speaker_id must be lowercase alphanumerics, hyphen, underscore (1-64 chars)")
-        return v
-
-# ============================================================================
+# =============================================================================
 # Health Check
-# ============================================================================
-
+# =============================================================================
 @app.get("/health")
-def health() -> Dict[str, Any]:
-    return {"status": "healthy", "service": "api-gateway"}
-
-@app.get("/api/health")
-def api_health() -> Dict[str, Any]:
-    """Alias for legacy frontend that prefixes requests with /api."""
-    return health()
-
-@app.get("/api/audit/status")
-async def audit_status() -> Dict[str, Any]:
-    """Get audit logging status and statistics - for CLI testing"""
-    if not AUDIT_ENABLED or audit_logger_instance is None:
-        return {"enabled": False, "message": "Audit logging disabled"}
-    
-    stats = audit_logger_instance.get_stats()
-    anomalies = audit_logger_instance.get_anomalies()
-    
-    return {
-        "enabled": True,
-        "stats": stats,
-        "anomalies": [
-            {
-                "type": a.anomaly_type,
-                "path": a.path,
-                "description": a.description,
-                "severity": a.severity,
-                "timestamp": a.timestamp
-            }
-            for a in anomalies[-10:]  # Last 10 anomalies
-        ],
-        "thresholds": audit_logger_instance.thresholds
-    }
-
-# ============================================================================
-# Authentication Endpoints
-# ============================================================================
-
-def _client_ip(request: Request) -> str:
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-def _generate_unique_speaker_id(username: str, requested: Optional[str]) -> str:
-    """Derive a lowercase speaker_id that matches SPEAKER_ID_PATTERN and is unique."""
-    base = (requested or username).lower()
-    base = re.sub(r"[^a-z0-9_-]", "_", base)
-    base = base.strip("_-") or f"user_{uuid.uuid4().hex[:6]}"
-    base = base[:64]
-    if not SPEAKER_ID_PATTERN.match(base):
-        base = re.sub(r"[^a-z0-9_-]", "_", base.lower())[:64]
-
-    existing = {
-        u.get("speaker_id")
-        for u in (auth_manager.list_users() if auth_manager else [])
-        if u.get("speaker_id")
-    }
-    speaker_id = base
-    while speaker_id in existing:
-        suffix = uuid.uuid4().hex[:4]
-        trimmed = base[: max(0, 64 - (len(suffix) + 1))]
-        speaker_id = f"{trimmed}_{suffix}" if trimmed else f"user_{suffix}"
-    return speaker_id
+async def health_check():
+    return {"status": "healthy", "service": "api-gateway", "version": "2.0.0"}
 
 
-@app.post("/api/auth/register")
-async def register(request: RegisterRequest, response: Response, raw_request: Request):
-    """Public account creation. Creates a USER role and logs them in."""
-    if not auth_manager:
-        raise HTTPException(status_code=503, detail="Auth not available")
+# =============================================================================
+# Proxy Helper (Used by all routers)
+# =============================================================================
+import httpx
 
-    if os.getenv("ALLOW_SELF_REGISTRATION", "true").lower() not in {"1", "true", "yes"}:
-        raise HTTPException(status_code=403, detail="Self-registration is disabled")
-
-    # Rate limiting (simple per-IP window)
-    try:
-        ip = _client_ip(raw_request)
-        now = time.time()
-        window = register_attempts["window"]
-        lim = register_attempts["limit"]
-        ip_state = register_attempts["ips"].get(ip, {"count": 0, "start": now})
-        if now - ip_state["start"] > window:
-            ip_state = {"count": 0, "start": now}
-        ip_state["count"] += 1
-        register_attempts["ips"][ip] = ip_state
-        if ip_state["count"] > lim:
-            raise HTTPException(status_code=429, detail="Too many registration attempts. Please try again later.")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-
-    # Enforce case-insensitive username uniqueness
-    try:
-        existing_users = auth_manager.list_users()
-        if any(u.get("username", "").lower() == request.username.lower() for u in existing_users):
-            raise HTTPException(status_code=409, detail="Username already exists")
-    except HTTPException:
-        raise
-    except Exception:
-        # Fall back to exact-match check inside create_user
-        existing_users = []
-
-    from src.auth.auth_manager import UserRole
-    speaker_id = _generate_unique_speaker_id(request.username, request.speaker_id)
-
-    try:
-        auth_manager.create_user(
-            username=request.username,
-            password=request.password,
-            role=UserRole.USER,
-            speaker_id=speaker_id,
-            email=request.email,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    # Auto-login after registration
-    session_token = auth_manager.authenticate(
-        request.username, request.password, ip_address=_client_ip(raw_request)
-    )
-    if not session_token:
-        raise HTTPException(status_code=500, detail="Login after registration failed")
-    session = auth_manager.validate_session(session_token)
-    if not session:
-        raise HTTPException(status_code=500, detail="Session creation failed")
-
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=session_token,
-        httponly=True,
-        max_age=86400,
-        samesite=SESSION_COOKIE_SAMESITE,
-        secure=SESSION_COOKIE_SECURE,
-    )
-    response.set_cookie(
-        key=CSRF_COOKIE_NAME,
-        value=session.csrf_token or "",
-        httponly=False,
-        max_age=86400,
-        samesite=SESSION_COOKIE_SAMESITE,
-        secure=SESSION_COOKIE_SECURE,
-    )
-
-    return {
-        "success": True,
-        "message": "Account created",
-        "session_token": session_token,
-        "csrf_token": session.csrf_token or "",
-        "user": {
-            "user_id": session.user_id,
-            "role": session.role.value,
-            "speaker_id": speaker_id,
-        },
-    }
-
-@app.post("/api/auth/login")
-async def login(request: LoginRequest, response: Response, raw_request: Request):
-    if not auth_manager:
-        raise HTTPException(status_code=503, detail="Auth not available")
-    # Rate limiting (simple per-IP window)
-    try:
-        ip = _client_ip(raw_request)
-        now = time.time()
-        window = login_attempts["window"]
-        lim = login_attempts["limit"]
-        ip_state = login_attempts["ips"].get(ip, {"count": 0, "start": now})
-        if now - ip_state["start"] > window:
-            ip_state = {"count": 0, "start": now}
-        ip_state["count"] += 1
-        login_attempts["ips"][ip] = ip_state
-        if ip_state["count"] > lim:
-            raise HTTPException(status_code=429, detail="Too many login attempts. Please try again later.")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-    
-    # authenticate returns session_token directly
-    session_token = auth_manager.authenticate(request.username, request.password)
-    if not session_token:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    # Get user info from session
-    session = auth_manager.validate_session(session_token)
-    if not session:
-        raise HTTPException(status_code=500, detail="Session creation failed")
-    
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=session_token,
-        httponly=True,
-        max_age=86400,
-        samesite=SESSION_COOKIE_SAMESITE,
-        secure=SESSION_COOKIE_SECURE
-    )
-    # CSRF cookie (readable)
-    response.set_cookie(
-        key=CSRF_COOKIE_NAME,
-        value=session.csrf_token or "",
-        httponly=False,
-        max_age=86400,
-        samesite=SESSION_COOKIE_SAMESITE,
-        secure=SESSION_COOKIE_SECURE
-    )
-    
-    return {
-        "success": True,
-        "session_token": session_token,
-        "csrf_token": session.csrf_token or "",
-        "user": {
-            "user_id": session.user_id,
-            "role": session.role.value
-        }
-    }
-
-@app.post("/api/auth/logout")
-async def logout(request: Request, response: Response):
-    # Delete both session and CSRF cookies
-    response.delete_cookie(SESSION_COOKIE_NAME)
-    response.delete_cookie(CSRF_COOKIE_NAME)
-    return {"success": True}
-
-@app.get("/api/auth/session")
-async def check_session(request: Request):
-    ws_session = request.cookies.get(SESSION_COOKIE_NAME)
-    if not auth_manager or not ws_session:
-        return {"valid": False}
-    
-    session = auth_manager.validate_session(ws_session)
-    if not session:
-        return {"valid": False}
-    
-    return {
-        "valid": True,
-        "user": {
-            "user_id": session.user_id,
-            "role": session.role.value
-        }
-    }
-
-@app.get("/api/auth/check")
-async def check_auth(request: Request):
-    """Check if user is authenticated - used by frontend auth.js
-    Supports both cookie-based and Bearer token authentication (for iframe contexts)
-    """
-    # Try cookie first
-    ws_session = request.cookies.get(SESSION_COOKIE_NAME)
-    
-    # Fall back to Bearer token from Authorization header (for iframe/localStorage auth)
-    if not ws_session:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            ws_session = auth_header[7:]  # Remove "Bearer " prefix
-    
-    if not auth_manager or not ws_session:
-        return {"valid": False}
-    
-    session = auth_manager.validate_session(ws_session)
-    if not session:
-        return {"valid": False}
-    
-    return {
-        "valid": True,
-        "user": {
-            "user_id": session.user_id,
-            "role": session.role.value
-        }
-    }
-
-# ============================================================================
-# Proxy Helper
-# ============================================================================
 
 async def proxy_request(
     url: str,
     method: str = "POST",
-    json: Optional[Dict[str, Any]] = None,
-    params: Optional[Dict[str, Any]] = None,
-    files: Optional[Dict[str, Any]] = None,
-    extra_headers: Optional[Dict[str, str]] = None,
+    json: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+    files: dict[str, Any] | None = None,
+    extra_headers: dict[str, str] | None = None,
 ):
-    """Proxy request to backend service with comprehensive logging (no payloads)"""
-    start_ts = time.time()
-    request_id = str(uuid.uuid4())[:12]
-    
-    logger.info(f"🔄 [PROXY {request_id}] START: {method} {url}")
-    
-    # Build headers with service authentication
-    headers: Dict[str, str] = {"X-Request-Id": request_id}
-    jwt_emitted = False
-    jwt_short = ""
-    
-    # Add short‑TTL JWT header if available
-    try:
-        if service_auth:
+    """Proxy request to backend service with JWT authentication."""
+    headers: dict[str, str] = {}
+
+    # Add service JWT
+    if service_auth:
+        try:
             token = service_auth.create_token(expires_in=60, aud="internal")
             headers["X-Service-Token"] = token
-            # Extract jti for logging (don't log full token)
-            try:
-                import base64, json as _json
-                payload_b64 = token.split('.')[0]
-                padding = len(payload_b64) % 4
-                if padding:
-                    payload_b64 += '=' * (4 - padding)
-                payload = _json.loads(base64.urlsafe_b64decode(payload_b64))
-                jwt_short = payload.get('jti', payload.get('request_id', ''))[:12]
-                jwt_emitted = True
-                logger.debug(f"🔐 [PROXY {request_id}] JWT emitted: jti={jwt_short}... aud=internal ttl=60s")
-            except:
-                jwt_short = "unknown"
-                jwt_emitted = True
-    except Exception as e:
-        logger.warning(f"⚠️ [PROXY {request_id}] JWT emission failed: {e}")
-    
-    if jwt_emitted:
-        logger.info(f"🔐 [PROXY {request_id}] Auth: JWT (jti={jwt_short}...)")
-    else:
-        logger.error(f"❌ [PROXY {request_id}] JWT unavailable; aborting request to {url}")
-        raise HTTPException(status_code=503, detail="Service authentication unavailable")
-    
+        except Exception as e:
+            logger.error(f"Failed to create service token: {e}")
+            raise HTTPException(status_code=503, detail="Service authentication unavailable")
+
     if extra_headers:
         headers.update(extra_headers)
 
-    def _extract_error_payload(response: httpx.Response) -> Dict[str, Any]:  # type: ignore[name-defined]
-        safe_message: Any = None
-        try:
-            payload = response.json()
-        except Exception:
-            payload = None
-        if isinstance(payload, dict):
-            safe_message = payload.get("detail") or payload
-        elif isinstance(payload, list):
-            safe_message = payload
-        else:
-            try:
-                safe_message = response.text[:256]
-            except Exception:
-                safe_message = None
-        if isinstance(safe_message, (dict, list)):
-            try:
-                safe_message = json.dumps(safe_message)  # type: ignore[arg-type]
-            except Exception:
-                safe_message = str(safe_message)
-        if not safe_message:
-            safe_message = response.reason_phrase or "Upstream service error"
-        request_url = None
-        try:
-            request_url = str(response.request.url)  # type: ignore[attr-defined]
-        except Exception:
-            request_url = url
-        return {
-            "service": request_url,
-            "status": response.status_code,
-            "request_id": request_id,
-            "message": safe_message,
-        }
-
     try:
-        logger.debug(f"📤 [PROXY {request_id}] Sending request to backend...")
         async with httpx.AsyncClient(timeout=120.0) as client:
             if method == "GET":
                 response = await client.get(url, headers=headers, params=params)
             elif method == "POST":
                 if files:
-                    logger.debug(f"📤 [PROXY {request_id}] Uploading files (no payload logged)")
                     response = await client.post(url, headers=headers, files=files, data=json or {})
                 else:
-                    logger.debug(f"📤 [PROXY {request_id}] Sending JSON (no payload logged)")
                     response = await client.post(url, headers=headers, json=json)
+            elif method == "PUT":
+                response = await client.put(url, headers=headers, json=json)
+            elif method == "DELETE":
+                response = await client.delete(url, headers=headers)
             else:
                 raise ValueError(f"Unsupported method: {method}")
-            
-            duration_ms = int((time.time() - start_ts) * 1000)
-            logger.info(f"📥 [PROXY {request_id}] Response: status={response.status_code} duration={duration_ms}ms")
-            
-            if response.status_code != 200:
-                err_payload = _extract_error_payload(response)
-                body_size = len(response.content or b"")
-                logger.error(
-                    "❌ [PROXY %s] Non-200 status=%s body_size=%s bytes detail=%s",
-                    request_id,
-                    response.status_code,
-                    body_size,
-                    err_payload.get("message"),
-                )
-            
+
             response.raise_for_status()
-            data = response.json()
-            logger.info(f"✅ [PROXY {request_id}] SUCCESS: {method} {url} in {duration_ms}ms")
-            return data
-            
-    except httpx.TimeoutException as e:
-        duration_ms = int((time.time() - start_ts) * 1000)
-        logger.error(f"⏱️ [PROXY {request_id}] TIMEOUT after {duration_ms}ms (limit 120s): {e}")
+            return response.json()
+    except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail=f"Service timeout: {url}")
     except httpx.HTTPStatusError as e:
-        duration_ms = int((time.time() - start_ts) * 1000)
-        err_payload = _extract_error_payload(e.response)
-        body_size = len(e.response.content or b"")
-        logger.error(
-            "❌ [PROXY %s] HTTP ERROR: status=%s duration=%sms body_size=%s bytes detail=%s",
-            request_id,
-            e.response.status_code,
-            duration_ms,
-            body_size,
-            err_payload.get("message"),
-        )
-        raise HTTPException(status_code=e.response.status_code, detail=err_payload)
+        raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except Exception as e:
-        duration_ms = int((time.time() - start_ts) * 1000)
-        logger.error(f"💥 [PROXY {request_id}] EXCEPTION after {duration_ms}ms: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(f"💥 [PROXY {request_id}] Traceback:\n{traceback.format_exc()}")
         raise HTTPException(status_code=503, detail=f"Service unavailable: {str(e)}")
 
 
-def _service_jwt_headers(expires_in: int = 60) -> Dict[str, str]:
-    """Helper to mint short-lived service JWTs for direct httpx streams."""
+def _service_jwt_headers(expires_in: int = 60) -> dict[str, str]:
+    """Helper to mint short-lived service JWTs."""
     if not service_auth:
-        logger.error("[SERVICE-AUTH] Requested token but service_auth unavailable")
         raise HTTPException(status_code=503, detail="Service authentication unavailable")
-    try:
-        token = service_auth.create_token(expires_in=expires_in, aud="internal")
-    except Exception as exc:  # noqa: BLE001
-        logger.error("[SERVICE-AUTH] Failed to create JWT: %s", exc)
-        raise HTTPException(status_code=503, detail="Service authentication unavailable") from exc
+    token = service_auth.create_token(expires_in=expires_in, aud="internal")
     return {"X-Service-Token": token}
 
 
-def format_sse(event: str, payload: Dict[str, Any]) -> str:
+def format_sse(event: str, payload: dict[str, Any]) -> str:
+    """Format a Server-Sent Event."""
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
-# ============================================================================
-# Gemma Endpoints
-# ============================================================================
 
-@app.post("/api/gemma/warmup")
-async def gemma_warmup(session: Session = Depends(require_auth)):
-    """Warmup Gemma - moves model to GPU and waits until ready"""
-    result = await proxy_request(f"{GEMMA_URL}/warmup", "POST", json={})
-    return result
-
-@app.post("/api/gemma/generate")
-async def gemma_generate(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{GEMMA_URL}/generate", "POST", json=request)
-    return result
-
-@app.post("/api/gemma/chat")
-async def gemma_chat(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{GEMMA_URL}/chat", "POST", json=request)
-    return result
-
-@app.post("/api/public/chat")
-async def public_chat(request: Dict[str, Any], http_request: Request):
-    """Public chat endpoint for unauthenticated chatbot access (IP rate-limited)"""
-    # IP-based rate limiting is handled by RateLimitMiddleware
-    result = await proxy_request(f"{GEMMA_URL}/chat", "POST", json=request)
-    return result
-
-@app.get("/api/gemma/stats")
-async def gemma_stats(session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{GEMMA_URL}/stats", "GET")
-    return result
-
-@app.post("/api/gemma/chat-rag")
-async def gemma_chat_rag(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    """RAG-enhanced chat via Gemma service"""
-    result = await proxy_request(f"{GEMMA_URL}/chat/rag", "POST", json=request)
-    return result
-
-@app.post("/api/gemma/analyze")
-async def gemma_analyze(request: Dict[str, Any], http_request: Request, session: Session = Depends(require_auth)):
-    """Proxy legacy Gemma analyzer call (batch)."""
-    analysis_id = http_request.headers.get("X-Analysis-Id") or f"analysis_{uuid.uuid4().hex[:10]}"
-    headers = {"X-Analysis-Id": analysis_id} if analysis_id else None
-    result = await proxy_request(
-        f"{GEMMA_URL}/analyze",
-        "POST",
-        json=request,
-        extra_headers=headers,
-    )
-    if isinstance(result, dict):
-        result.setdefault("analysis_id", analysis_id)
-    return result
-
-@app.post("/api/gemma/analyze/stream")
-async def gemma_analyze_stream_create(
-    payload: Dict[str, Any],
-    http_request: Request,
-    session: Session = Depends(require_auth)
-):
-    """Create a streaming Gemma analysis job."""
-    job_id = f"gemma-stream-{uuid.uuid4().hex[:10]}"
-    analysis_id = payload.get("analysis_id") or http_request.headers.get("X-Analysis-Id")
-    if not analysis_id:
-        analysis_id = f"analysis_{uuid.uuid4().hex[:10]}"
-    analysis_jobs[job_id] = {
-        "payload": payload,
-        "created_at": datetime.utcnow().isoformat() + "Z",
-        "analysis_id": analysis_id,
-        "user_id": getattr(session, "user_id", None),
-    }
-    logger.info(
-        "[ANALYZE-STREAM] Created job %s analysis_id=%s user=%s",
-        job_id,
-        analysis_id,
-        getattr(session, "user_id", None),
-    )
-    return {"success": True, "job_id": job_id}
-
-
-@app.get("/api/gemma/analyze/stream/{job_id}")
-async def gemma_analyze_stream(job_id: str, http_request: Request, session: Session = Depends(require_auth)):
-    """Stream analyzer progress via Server-Sent Events."""
-    job = analysis_jobs.pop(job_id, None)
-    if not job:
-        logger.warning("[ANALYZE-STREAM] Unknown job_id=%s", job_id)
-        raise HTTPException(status_code=404, detail="Analysis job not found or already started")
-
-    payload = job.get("payload") or {}
-    filters = payload.get("filters") or {}
-    max_tokens = int(payload.get("max_tokens", 256) or 256)
-    temperature = float(payload.get("temperature", 0.4) or 0.4)
-    analysis_id = http_request.query_params.get("analysis_id") or job.get("analysis_id")
-    analysis_headers = {"X-Analysis-Id": analysis_id} if analysis_id else None
-
-    def _normalize_filter_list(value: Optional[Any]) -> List[str]:
-        if not value:
-            return []
-        if isinstance(value, (str, bytes)):
-            return [str(value)]
-        normalized: List[str] = []
-        iterable = value if isinstance(value, (list, tuple, set)) else [value]
-        for item in iterable:
-            if isinstance(item, dict):
-                for key in ("value", "name", "id", "speaker", "emotion"):
-                    if item.get(key):
-                        normalized.append(str(item[key]))
-                        break
-                else:
-                    normalized.append(str(item))
-            else:
-                normalized.append(str(item))
-        return normalized
-
-    raw_max = payload.get("max_statements")
-    try:
-        analysis_limit = int(raw_max)
-    except (TypeError, ValueError):
-        analysis_limit = None
-    if not analysis_limit or analysis_limit <= 0:
-        try:
-            analysis_limit = int(filters.get("limit", 20) or 20)
-        except (TypeError, ValueError):
-            analysis_limit = 20
-    analysis_limit = max(1, min(analysis_limit, 200))
-
-    async def _fetch_fallback_items(target_limit: int) -> List[Dict[str, Any]]:
-        limit = max(1, min(int(target_limit or 20), 200))
-        context_lines = max(0, min(int(filters.get("context_lines", 3) or 0), 10))
-        speakers_filter = {s.lower() for s in _normalize_filter_list(filters.get("speakers"))}
-        emotions_filter = {e.lower() for e in _normalize_filter_list(filters.get("emotions"))}
-        raw_keywords = str(filters.get("keywords", "") or "")
-        keywords = [k.strip().lower() for k in raw_keywords.split(",") if k.strip()]
-        match_all = filters.get("match", "any") == "all"
-        start_date_str = filters.get("start_date")
-        end_date_str = filters.get("end_date")
-
-        def parse_date(value: Optional[str], end_of_day: bool = False) -> Optional[datetime]:
-            if not value:
-                return None
-            for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%f%z"):
-                try:
-                    dt = datetime.strptime(value, fmt)
-                    break
-                except ValueError:
-                    continue
-            else:
-                return None
-            if end_of_day and dt.tzinfo is None:
-                return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-            if end_of_day:
-                return dt + timedelta(hours=23, minutes=59, seconds=59, microseconds=999999)
-            return dt
-
-        start_dt = parse_date(start_date_str) if start_date_str else None
-        end_dt = parse_date(end_date_str, end_of_day=True) if end_date_str else None
-
-        recent_limit = max(limit * 5, 200)
-        recent_response = await proxy_request(
-            f"{RAG_URL}/transcripts/recent?limit={recent_limit}",
-            "GET",
-            params=None,
-            extra_headers=analysis_headers,
-        )
-        transcripts = recent_response.get("transcripts") or []
-
-        items: List[Dict[str, Any]] = []
-        for transcript in transcripts:
-            created_value = transcript.get("created_at") or transcript.get("timestamp")
-            transcript_dt = parse_date(created_value)
-            if start_dt and transcript_dt and transcript_dt < start_dt:
-                continue
-            if end_dt and transcript_dt and transcript_dt > end_dt:
-                continue
-
-            segments = transcript.get("segments") or []
-            for idx, segment in enumerate(segments):
-                speaker_value = (segment.get("speaker") or "").strip()
-                if speakers_filter and speaker_value.lower() not in speakers_filter:
-                    continue
-
-                emotion_value = (
-                    (segment.get("emotion") or segment.get("dominant_emotion") or "").strip().lower()
-                )
-                if emotions_filter and emotion_value not in emotions_filter:
-                    continue
-
-                text_value = (segment.get("text") or "").strip()
-                if not text_value:
-                    continue
-                if keywords:
-                    text_lower = text_value.lower()
-                    matches = [kw for kw in keywords if kw in text_lower]
-                    if match_all and len(matches) != len(keywords):
-                        continue
-                    if not match_all and not matches:
-                        continue
-
-                context: List[Dict[str, Any]] = []
-                if context_lines:
-                    start_idx = max(0, idx - context_lines)
-                    for ctx_segment in segments[start_idx:idx]:
-                        context.append({
-                            "speaker": ctx_segment.get("speaker"),
-                            "text": ctx_segment.get("text"),
-                            "emotion": ctx_segment.get("emotion") or ctx_segment.get("dominant_emotion"),
-                        })
-
-                items.append({
-                    "segment_id": segment.get("id"),
-                    "transcript_id": transcript.get("id"),
-                    "job_id": transcript.get("job_id"),
-                    "speaker": segment.get("speaker"),
-                    "emotion": segment.get("emotion") or segment.get("dominant_emotion"),
-                    "text": text_value,
-                    "created_at": created_value,
-                    "start_time": segment.get("start_time"),
-                    "end_time": segment.get("end_time"),
-                    "context_before": context,
-                })
-
-                if len(items) >= limit:
-                    return items
-
-        return items
-
-    logger.info(
-        "[ANALYZE-STREAM] job=%s analysis_id=%s max_statements=%s filters=%s user=%s",
-        job_id,
-        analysis_id,
-        analysis_limit,
-        {k: filters.get(k) for k in ("limit", "speakers", "emotions", "start_date", "end_date", "search_type")},
-        getattr(session, "user_id", None),
-    )
-
-
-    # Enable fallback by default to avoid breaking UX if RAG /transcripts/query is unavailable
-    ANALYZE_FALLBACK_ENABLED = os.getenv("ANALYZE_FALLBACK_ENABLED", "true").lower() in {"1", "true", "yes"}
-
-    async def event_generator():
-        last_model = None
-        started_at = datetime.utcnow().isoformat() + "Z"
-        MAX_PROMPT_CHARS = 6000
-        combined_sections: List[str] = []
-        artifact_id: Optional[str] = None
-        transcripts_sentinel = "<END_OF_TRANSCRIPTS>"
-        analysis_stop_sequences: List[str] = []
-        prompt_template = (payload.get("custom_prompt") or "").strip()
-        has_transcript_placeholder = "{transcripts}" in prompt_template
-        apply_short_instruction = bool(prompt_template) and not has_transcript_placeholder
-        guardrail_instruction = (
-            "You are an analyst. Please answer the user's question about the given transcript section."
-            if apply_short_instruction
-            else ""
-        )
-
-        try:
-            # Warmup GPU (best effort)
-            try:
-                await proxy_request(
-                    f"{GEMMA_URL}/warmup",
-                    "POST",
-                    json={},
-                    extra_headers=analysis_headers,
-                )
-                logger.info(
-                    "[ANALYZE-STREAM] Warmup complete job=%s analysis_id=%s",
-                    job_id,
-                    analysis_id,
-                )
-                yield format_sse("meta", {"job_id": job_id, "message": "GPU warmup complete"})
-            except Exception as warmup_error:
-                logger.warning(
-                    "[ANALYZE-STREAM] Warmup failed job=%s analysis_id=%s error=%s",
-                    job_id,
-                    analysis_id,
-                    warmup_error,
-                )
-                yield format_sse("meta", {"job_id": job_id, "message": "GPU warmup failed; continuing"})
-
-            rag_payload = dict(filters)
-            rag_payload["limit"] = analysis_limit
-            rag_payload.setdefault("context_lines", max(0, min(int(filters.get("context_lines", 3) or 0), 10)))
-
-            fallback_used = False
-            rag_query_status: Optional[int] = None
-            raw_items: List[Dict[str, Any]] = []
-            dataset_total = None
-            try:
-                rag_result = await proxy_request(
-                    f"{RAG_URL}/transcripts/query",
-                    "POST",
-                    json=rag_payload,
-                    extra_headers=analysis_headers,
-                )
-                rag_query_status = 200
-                raw_items = rag_result.get("items") or []
-                try:
-                    if isinstance(rag_result, dict):
-                        dataset_total = rag_result.get("total") or rag_result.get("count")
-                except Exception:
-                    dataset_total = None
-            except HTTPException as exc:
-                if exc.status_code == 404:
-                    logger.error(
-                        "[ANALYZE-STREAM] RAG query endpoint 404 job=%s analysis_id=%s (fallback=%s)",
-                        job_id,
-                        analysis_id,
-                        ANALYZE_FALLBACK_ENABLED,
-                    )
-                    rag_query_status = 404
-                    if ANALYZE_FALLBACK_ENABLED:
-                        fallback_used = True
-                        items = await _fetch_fallback_items(analysis_limit)
-                    else:
-                        yield format_sse("server_error", {"job_id": job_id, "detail": "RAG query unavailable"})
-                        return
-                else:
-                    rag_query_status = exc.status_code
-                    raise
-
-            items = [
-                item
-                for item in raw_items
-                if isinstance(item, dict) and (item.get("text") or "").strip()
-            ]
-            if len(items) > analysis_limit:
-                items = items[:analysis_limit]
-
-            # Prefer backend-reported total if available to avoid UI jumps to the page limit
-            if isinstance(dataset_total, int):
-                dataset_total_int = dataset_total
-            else:
-                dataset_total_int = len(raw_items) if raw_items else len(items)
-            total = len(items)
-            if fallback_used:
-                logger.info(
-                    "[ANALYZE-STREAM] job=%s analysis_id=%s fallback produced %s candidate statements",
-                    job_id,
-                    analysis_id,
-                    total,
-                )
-            else:
-                logger.info(
-                    "[ANALYZE-STREAM] job=%s analysis_id=%s fetched %s candidate statements",
-                    job_id,
-                    analysis_id,
-                    total,
-                )
-
-            def _alpha_label(position: int) -> str:
-                if position <= 0:
-                    return str(position)
-                label = ""
-                while position > 0:
-                    position, rem = divmod(position - 1, 26)
-                    label = chr(65 + rem) + label
-                return label
-
-            for idx, item in enumerate(items, start=1):
-                if isinstance(item, dict):
-                    item.setdefault("label", _alpha_label(idx))
-
-            meta_payload = {
-                "job_id": job_id,
-                "total": total,
-                "started_at": started_at,
-                "max_statements": analysis_limit,
-            }
-            if isinstance(dataset_total_int, int):
-                meta_payload["dataset_total"] = dataset_total_int
-            if fallback_used:
-                meta_payload["fallback"] = "transcripts/recent"
-                meta_payload["fallback_reason"] = "rag_query_404"
-            if rag_query_status is not None:
-                meta_payload["rag_query_status"] = rag_query_status
-            yield format_sse("meta", meta_payload)
-            if fallback_used:
-                yield format_sse(
-                    "meta",
-                    {"job_id": job_id, "message": "Using fallback query (transcripts/recent filter)"},
-                )
-
-            if total == 0:
-                yield format_sse(
-                    "done",
-                    {"job_id": job_id, "completed_at": datetime.utcnow().isoformat() + "Z", "model": None},
-                )
-                logger.info(
-                    "[ANALYZE-STREAM] job=%s analysis_id=%s completed with no matches",
-                    job_id,
-                    analysis_id,
-                )
-                return
-
-            def _alpha_label(position: int) -> str:
-                if position <= 0:
-                    return str(position)
-                label = ""
-                while position > 0:
-                    position, rem = divmod(position - 1, 26)
-                    label = chr(65 + rem) + label
-                return label
-
-            for index, item in enumerate(items, start=1):
-                if await http_request.is_disconnected():
-                    logger.warning(
-                        "[ANALYZE-STREAM] Client disconnected job=%s analysis_id=%s",
-                        job_id,
-                        analysis_id,
-                    )
-                    break
-
-                label = None
-                if isinstance(item, dict):
-                    label = item.get("label") or _alpha_label(index)
-                    item["label"] = label
-
-                context_before = item.get("context_before") or []
-                context_plain_lines = [
-                    f"{ctx.get('speaker') or 'Speaker'}: {ctx.get('text')}" for ctx in context_before if ctx.get("text")
-                ]
-                context_plain = "\n".join(context_plain_lines).strip()
-                statement_plain = f"{item.get('speaker') or 'Speaker'}: {item.get('text')}".strip()
-
-                log_block_parts: List[str] = []
-                if context_plain:
-                    log_block_parts.append("Context:\n" + context_plain)
-                log_block_parts.append("Statement:\n" + statement_plain)
-                transcript_block = "\n".join(log_block_parts)
-
-                statement_header = f"Statement {label or index}"
-                formatted_sections: List[str] = [statement_header]
-                if context_plain:
-                    formatted_sections.extend(["Context:", "```", context_plain, "```"])
-                formatted_sections.extend(["Statement:", "```", statement_plain, "```"])
-                formatted_sections.append(transcripts_sentinel)
-                formatted_transcripts = "\n".join(formatted_sections)
-
-                if has_transcript_placeholder:
-                    user_instruction = prompt_template.replace("{transcripts}", formatted_transcripts)
-                else:
-                    base_prompt = prompt_template or "Analyze the following transcript section."
-                    user_instruction = base_prompt.strip() + "\n\nTranscript Section:\n" + formatted_transcripts
-
-                if guardrail_instruction:
-                    final_prompt = guardrail_instruction.strip() + "\n\n" + user_instruction.strip()
-                else:
-                    final_prompt = user_instruction.strip()
-
-                prompt_trimmed = False
-                if len(final_prompt) > MAX_PROMPT_CHARS:
-                    head = final_prompt[:2000]
-                    tail = final_prompt[-(MAX_PROMPT_CHARS - 2000):]
-                    final_prompt = head + "\n[TRUNCATED FOR LENGTH]\n" + tail
-                    prompt_trimmed = True
-
-                prompt_len = len(final_prompt)
-                approx_prompt_tokens = max(1, prompt_len // 4)
-                prompt_hash = hashlib.sha256(final_prompt.encode("utf-8")).hexdigest()[:12]
-                logger.info(
-                    "[ANALYZE-STREAM] job=%s analysis_id=%s statement=%s/%s prompt_hash=%s chars=%s approx_tokens=%s trimmed=%s",
-                    job_id,
-                    analysis_id,
-                    index,
-                    total,
-                    prompt_hash,
-                    prompt_len,
-                    approx_prompt_tokens,
-                    prompt_trimmed,
-                )
-
-                step_payload = {
-                    "job_id": job_id,
-                    "i": index,
-                    "total": total,
-                    "status": "sending",
-                    "prompt_fragment": final_prompt[:160],
-                }
-                if label:
-                    step_payload["label"] = label
-                yield format_sse("step", step_payload)
-
-                gemma_request = {
-                    "prompt": final_prompt,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "top_p": 0.9,
-                    "stop": analysis_stop_sequences,
-                }
-
-                waiting_payload = {
-                    "job_id": job_id,
-                    "i": index,
-                    "total": total,
-                    "status": "waiting",
-                }
-                if label:
-                    waiting_payload["label"] = label
-                yield format_sse("step", waiting_payload)
-
-                try:
-                    response_text, gen_resp = await _gemma_generate_with_fallback(
-                        gemma_request,
-                        analysis_headers,
-                    )
-                    last_model = (gen_resp or {}).get("model") or last_model
-                except HTTPException as exc:
-                    logger.error("[ANALYZE-STREAM] Gemma error job=%s: %s", job_id, exc.detail)
-                    yield format_sse("error", {"job_id": job_id, "i": index, "detail": exc.detail})
-                    break
-
-                if not isinstance(response_text, str) or not response_text.strip():
-                    response_text = "Gemma returned no text for this statement. Try refining the prompt or reducing stop sequences."
-                combined_sections.append(
-                    "\n".join(
-                        [
-                            f"{statement_header} ({index}/{total})",
-                            "Context:",
-                            transcript_block,
-                            "",
-                            "Gemma Response:",
-                            response_text,
-                            "",
-                        ]
-                    )
-                )
-
-                result_payload = {
-                    "job_id": job_id,
-                    "i": index,
-                    "total": total,
-                    "response": response_text,
-                    "item": item,
-                }
-                if label:
-                    result_payload["label"] = label
-                yield format_sse("result", result_payload)
-
-                logger.info(
-                    "[ANALYZE-STREAM] job=%s analysis_id=%s statement=%s/%s completed tokens=%s mode=%s",
-                    job_id,
-                    analysis_id,
-                    index,
-                    total,
-                    response.get("tokens_generated") if isinstance(response, dict) else "?",
-                    response.get("mode") if isinstance(response, dict) else "?",
-                )
-
-            # Archive combined artifact (best effort)
-            if analysis_id and combined_sections:
-                archive_payload = {
-                    "analysis_id": analysis_id,
-                    "title": payload.get("title") or f"Streaming Analysis - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}",
-                    "body": "\n".join(combined_sections),
-                    "metadata": {
-                        "filters": filters,
-                        "total_statements": total,
-                        "fallback_used": fallback_used,
-                        "job_id": job_id,
-                        "model": last_model,
-                        "started_at": started_at,
-                        "completed_at": datetime.utcnow().isoformat() + "Z",
-                        "user_id": job.get("user_id"),
-                    },
-                }
-                try:
-                    archive_result = await proxy_request(
-                        f"{RAG_URL}/analysis/archive",
-                        "POST",
-                        json=archive_payload,
-                        extra_headers=analysis_headers,
-                    )
-                    artifact_id = archive_result.get("artifact_id") if isinstance(archive_result, dict) else None
-                    if artifact_id:
-                        logger.info(
-                            "[ANALYZE-STREAM] job=%s analysis_id=%s archived artifact_id=%s",
-                            job_id,
-                            analysis_id,
-                            artifact_id,
-                        )
-                except Exception as exc:
-                    logger.error(
-                        "[ANALYZE-STREAM] job=%s analysis_id=%s archive failed: %s",
-                        job_id,
-                        analysis_id,
-                        exc,
-                    )
-
-            # Produce a concise executive summary of the combined sections (best effort)
-            summary_text = ""
-            try:
-                if combined_sections:
-                    summary_context = "\n\n".join(combined_sections)
-                    # limit context length defensively
-                    summary_context = summary_context[-12000:]
-                    summary_prompt = (
-                        "You are an expert conversation analyst. Based on the following analysis sections (each contains Context and Gemma Response), "
-                        "write a concise executive summary with 5-8 bullet points and a 2-3 sentence conclusion. Be precise and avoid repetition.\n\n"
-                        f"{summary_context}\n\n"
-                        "Now provide the executive summary:"
-                    )
-                    gen_req = {
-                        "prompt": summary_prompt,
-                        "max_tokens": 384,
-                        "temperature": 0.3,
-                    }
-                    summary_text, _ = await _gemma_generate_with_fallback(gen_req, analysis_headers)
-            except Exception as exc:
-                logger.warning("[ANALYZE-STREAM] summary generation failed job=%s analysis_id=%s: %s", job_id, analysis_id, exc)
-
-            yield format_sse(
-                "done",
-                {
-                    "job_id": job_id,
-                    "completed_at": datetime.utcnow().isoformat() + "Z",
-                    "model": last_model,
-                    "analysis_id": analysis_id,
-                    "artifact_id": artifact_id,
-                    **({"summary": summary_text} if summary_text else {}),
-                },
-            )
-            logger.info(
-                "[ANALYZE-STREAM] job=%s analysis_id=%s finished model=%s",
-                job_id,
-                analysis_id,
-                last_model,
-            )
-        except asyncio.CancelledError:
-            logger.warning("[ANALYZE-STREAM] Stream cancelled job=%s", job_id)
-            raise
-        except Exception as exc:
-            logger.error(
-                "[ANALYZE-STREAM] Unexpected error job=%s analysis_id=%s: %s",
-                job_id,
-                analysis_id,
-                exc,
-            )
-            yield format_sse("error", {"job_id": job_id, "detail": str(exc)})
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@app.get("/api/gemma/analyze/stream/inline/start")
-async def gemma_analyze_stream_inline(
-    payload: str = Query(..., description="Base64 payload"),
-    http_request: Request = None,
-    session: Session = Depends(require_auth),
-):
-    """Stream analyzer progress via Server-Sent Events without a separate job-creation step.
-
-    Mirrors gemma_analyze_stream but accepts a base64-encoded JSON payload directly in the query string.
-    """
-    decoded_payload = _prepare_email_stream_payload(payload)
-    analysis_id = decoded_payload.get("analysis_id") or http_request.query_params.get("analysis_id")
-    analysis_headers = {"X-Analysis-Id": analysis_id} if analysis_id else None
-
-    filters = decoded_payload.get("filters") or {}
-    try:
-        raw_max = decoded_payload.get("max_statements")
-        analysis_limit = int(raw_max) if raw_max is not None else int(filters.get("limit", 20) or 20)
-    except Exception:
-        analysis_limit = 20
-    analysis_limit = max(1, min(analysis_limit, 200))
-
-    async def event_generator():
-        last_model = None
-        started_at = datetime.utcnow().isoformat() + "Z"
-        MAX_PROMPT_CHARS = 6000
-        combined_sections: List[str] = []
-        artifact_id: Optional[str] = None
-        transcripts_sentinel = "<END_OF_TRANSCRIPTS>"
-        analysis_stop_sequences: List[str] = []
-        prompt_template = (decoded_payload.get("custom_prompt") or "").strip()
-        has_transcript_placeholder = "{transcripts}" in prompt_template
-        apply_short_instruction = bool(prompt_template) and not has_transcript_placeholder
-        guardrail_instruction = (
-            "You are an analyst. Please answer the user's question about the given transcript section."
-            if apply_short_instruction
-            else ""
-        )
-
-        try:
-            # Warmup GPU (best effort)
-            try:
-                await proxy_request(
-                    f"{GEMMA_URL}/warmup",
-                    "POST",
-                    json={},
-                    extra_headers=analysis_headers,
-                )
-                yield format_sse("meta", {"message": "GPU warmup complete"})
-            except Exception as warmup_error:
-                logger.warning("[ANALYZE-STREAM] Warmup failed (inline): %s", warmup_error)
-                yield format_sse("meta", {"message": "GPU warmup failed; continuing"})
-
-            rag_payload = dict(filters)
-            rag_payload["limit"] = analysis_limit
-            rag_payload.setdefault("context_lines", max(0, min(int(filters.get("context_lines", 3) or 0), 10)))
-
-            fallback_used = False
-            rag_query_status: Optional[int] = None
-            raw_items: List[Dict[str, Any]] = []
-            dataset_total = None
-            try:
-                rag_result = await proxy_request(
-                    f"{RAG_URL}/transcripts/query",
-                    "POST",
-                    json=rag_payload,
-                    extra_headers=analysis_headers,
-                )
-                rag_query_status = 200
-                raw_items = rag_result.get("items") or []
-                try:
-                    if isinstance(rag_result, dict):
-                        dataset_total = rag_result.get("total") or rag_result.get("count")
-                except Exception:
-                    dataset_total = None
-            except HTTPException as exc:
-                if exc.status_code == 404:
-                    rag_query_status = 404
-                    fallback_used = True
-                    # Build fallback items from recent transcripts
-                    async def _fetch_fallback_items(target_limit: int) -> List[Dict[str, Any]]:
-                        limit = max(1, min(int(target_limit or 20), 200))
-                        context_lines = max(0, min(int(filters.get("context_lines", 3) or 0), 10))
-                        def _norm_list(val: Optional[Any]) -> set:
-                            if not val:
-                                return set()
-                            if isinstance(val, (list, tuple, set)):
-                                return {str(x).lower() for x in val}
-                            return {str(val).lower()}
-                        speakers_filter = _norm_list(filters.get("speakers"))
-                        emotions_filter = _norm_list(filters.get("emotions"))
-                        raw_keywords = str(filters.get("keywords", "") or "")
-                        keywords = [k.strip().lower() for k in raw_keywords.split(",") if k.strip()]
-                        require_all = filters.get("match", "any") == "all"
-                        recent_limit = max(limit * 5, 200)
-                        recent_response = await proxy_request(
-                            f"{RAG_URL}/transcripts/recent?limit={recent_limit}",
-                            "GET",
-                            params=None,
-                            extra_headers=analysis_headers,
-                        )
-                        transcripts = recent_response.get("transcripts") or []
-                        out: List[Dict[str, Any]] = []
-                        for tr in transcripts:
-                            segments = tr.get("segments") or []
-                            for idx, seg in enumerate(segments):
-                                sp = (seg.get("speaker") or "").lower()
-                                if speakers_filter and sp not in speakers_filter:
-                                    continue
-                                em = (seg.get("emotion") or tr.get("dominant_emotion") or "").lower()
-                                if emotions_filter and em not in emotions_filter:
-                                    continue
-                                raw_text = (seg.get("text") or "")
-                                text_clean = raw_text.strip()
-                                if not text_clean:
-                                    continue
-                                text_val = raw_text.lower()
-                                if keywords:
-                                    hits = [kw for kw in keywords if kw in text_val]
-                                    if require_all and len(hits) != len(keywords):
-                                        continue
-                                    if not require_all and not hits:
-                                        continue
-                                ctx: List[Dict[str, Any]] = []
-                                if context_lines:
-                                    start_idx = max(0, idx - context_lines)
-                                    for j in range(start_idx, idx):
-                                        prev = segments[j]
-                                        ctx.append({"speaker": prev.get("speaker"), "text": prev.get("text"), "emotion": prev.get("emotion")})
-                                out.append({
-                                    "speaker": seg.get("speaker"),
-                                    "emotion": seg.get("emotion") or tr.get("dominant_emotion"),
-                                    "text": text_clean,
-                                    "created_at": tr.get("created_at"),
-                                    "job_id": tr.get("job_id"),
-                                    "transcript_id": tr.get("id"),
-                                    "start_time": seg.get("start_time"),
-                                    "end_time": seg.get("end_time"),
-                                    "context_before": ctx,
-                                })
-                                if len(out) >= limit:
-                                    return out
-                        return out
-
-                    raw_items = await _fetch_fallback_items(analysis_limit)
-                else:
-                    rag_query_status = exc.status_code
-                    raise
-
-            items = [
-                item
-                for item in (raw_items or [])
-                if isinstance(item, dict) and (item.get("text") or "").strip()
-            ]
-            if len(items) > analysis_limit:
-                items = items[:analysis_limit]
-
-            if isinstance(dataset_total, int):
-                dataset_total_int = dataset_total
-            else:
-                dataset_total_int = len(raw_items) if raw_items else len(items)
-            total = len(items)
-            meta_payload = {
-                "total": total,
-                "max_statements": analysis_limit,
-            }
-            if fallback_used:
-                meta_payload["fallback"] = "transcripts/recent"
-            if isinstance(dataset_total_int, int):
-                meta_payload["dataset_total"] = dataset_total_int
-            yield format_sse("meta", meta_payload)
-
-            if total == 0:
-                yield format_sse("done", {"completed_at": datetime.utcnow().isoformat() + "Z", "model": None})
-                return
-
-            def _alpha_label(position: int) -> str:
-                if position <= 0:
-                    return str(position)
-                label = ""
-                while position > 0:
-                    position, rem = divmod(position - 1, 26)
-                    label = chr(65 + rem) + label
-                return label
-
-            for index, item in enumerate(items, start=1):
-                if await http_request.is_disconnected():
-                    break
-                label = _alpha_label(index)
-                context_before = item.get("context_before") or []
-                context_plain_lines = [f"{ctx.get('speaker') or 'Speaker'}: {ctx.get('text')}" for ctx in context_before if ctx.get("text")]
-                context_plain = "\n".join(context_plain_lines).strip()
-                statement_plain = f"{item.get('speaker') or 'Speaker'}: {item.get('text')}".strip()
-
-                formatted_sections: List[str] = [f"Statement {label}"]
-                if context_plain:
-                    formatted_sections.extend(["Context:", "```", context_plain, "```"])
-                formatted_sections.extend(["Statement:", "```", statement_plain, "```"])
-                formatted_sections.append(transcripts_sentinel)
-                formatted_transcripts = "\n".join(formatted_sections)
-
-                if has_transcript_placeholder:
-                    user_instruction = prompt_template.replace("{transcripts}", formatted_transcripts)
-                else:
-                    base_prompt = prompt_template or "Analyze the following transcript section."
-                    user_instruction = base_prompt.strip() + "\n\nTranscript Section:\n" + formatted_transcripts
-                final_prompt = (guardrail_instruction.strip() + "\n\n" + user_instruction.strip()).strip()
-
-                # Enforce prompt size limits
-                if len(final_prompt) > MAX_PROMPT_CHARS:
-                    final_prompt = final_prompt[-MAX_PROMPT_CHARS:]
-
-                yield format_sse("step", {"i": index, "total": total, "status": "prompting"})
-                try:
-                    gemma_request = {
-                        "prompt": final_prompt,
-                        "max_tokens": int(decoded_payload.get("max_tokens", 512) or 512),
-                        "temperature": float(decoded_payload.get("temperature", 0.4) or 0.4),
-                        "stop": analysis_stop_sequences,
-                    }
-                    answer_text, gen_resp = await _gemma_generate_with_fallback(
-                        gemma_request,
-                        analysis_headers,
-                    )
-                    last_model = (gen_resp or {}).get("model") or last_model
-                    if not isinstance(answer_text, str) or not answer_text.strip():
-                        answer_text = "Gemma returned no text for this statement. Try refining the prompt or reducing stop sequences."
-                except HTTPException as exc:
-                    yield format_sse("server_error", {"detail": f"Gemma error: {getattr(exc, 'detail', exc)}"})
-                    return
-
-                combined_section = [f"Statement {label}"]
-                if context_plain:
-                    combined_section.extend(["Context:", context_plain])
-                combined_section.extend(["Statement:", statement_plain, "Gemma Response:", answer_text or "(empty)"])
-                combined_sections.append("\n".join(combined_section))
-
-                yield format_sse("result", {"i": index, "total": total, "response": answer_text, "item": item})
-
-            # Summarize
-            summary_text = ""
-            try:
-                if combined_sections:
-                    summary_context = "\n\n".join(combined_sections)[-12000:]
-                    summary_prompt = (
-                        "You are an expert conversation analyst. Based on the following analysis sections (each contains Context and Gemma Response), "
-                        "write a concise executive summary with 5-8 bullet points and a 2-3 sentence conclusion. Be precise and avoid repetition.\n\n"
-                        f"{summary_context}\n\nNow provide the executive summary:"
-                    )
-                    gen_req = {"prompt": summary_prompt, "max_tokens": 384, "temperature": 0.3}
-                    summary_text, _ = await _gemma_generate_with_fallback(gen_req, analysis_headers)
-            except Exception as exc:
-                logger.warning("[ANALYZE-STREAM] summary generation failed (inline): %s", exc)
-
-            yield format_sse("done", {"completed_at": datetime.utcnow().isoformat() + "Z", "model": last_model, **({"summary": summary_text} if summary_text else {})})
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.error("[ANALYZE-STREAM] Unexpected error (inline): %s", exc)
-            yield format_sse("error", {"detail": str(exc)})
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-
-
-@app.post("/api/analyze/gemma_summary")
-async def analyze_gemma_summary(
-    request: Dict[str, Any],
-    session: Session = Depends(require_auth)
-):
-    """
-    Generate a conversational summary using Gemma based on provided context.
-    """
-    context_raw = str(request.get("context", "") or "").strip()
-    if not context_raw:
-        raise HTTPException(status_code=400, detail="context is required")
-
-    # Avoid extremely large prompts (helps keep inference fast)
-    context = context_raw[:8000]
-    emotion_focus = (request.get("emotion") or "neutral").strip().lower()
-    max_tokens = int(request.get("max_tokens") or 320)
-    temperature = float(request.get("temperature") or 0.4)
-
-    prompt = (
-        "You are an expert conversation analyst. Review the transcript excerpts "
-        "and produce a concise summary for an executive audience. Highlight the most "
-        "important events, decisions, risks, and opportunities. If an emotion focus is provided, "
-        "weave in how that emotion manifests.\n\n"
-        f"Emotion focus: {emotion_focus or 'neutral'}\n\n"
-        "Transcript context:\n"
-        f"{context}\n\n"
-        "Write the summary as bullet points followed by a short paragraph of key insights."
-    )
-
-    generation_payload = {
-        "prompt": prompt,
-        "max_tokens": max(120, min(max_tokens, 512)),
-        "temperature": max(0.1, min(temperature, 1.0))
-    }
-
-    gemma_response = await proxy_request(
-        f"{GEMMA_URL}/generate",
-        "POST",
-        json=generation_payload
-    )
-
-    summary_text = ""
-    if isinstance(gemma_response, dict):
-        summary_text = gemma_response.get("text") or gemma_response.get("response") or ""
-
-    return {
-        "success": True,
-        "summary": summary_text.strip(),
-        "emotion": emotion_focus,
-        "model": gemma_response.get("model") if isinstance(gemma_response, dict) else None,
-        "raw": gemma_response
-    }
-
-
-@app.post("/api/analyze/prepare_emotion_analysis")
-async def analyze_prepare_emotion_analysis(
-    request: Dict[str, Any],
-    session: Session = Depends(require_auth)
-):
-    """
-    Fetch emotion statistics from RAG service and tailor them for the UI.
-    """
-    start_date = request.get("start_date")
-    end_date = request.get("end_date")
-
-    params: Dict[str, Any] = {}
-    if start_date:
-        params["start_date"] = start_date
-    if end_date:
-        params["end_date"] = end_date
-
-    rag_stats = await proxy_request(
-        f"{RAG_URL}/memory/emotions/stats",
-        "GET",
-        params=params or None
-    )
-
-    emotions_requested = request.get("emotions")
-    emotion_counts: Dict[str, Any] = {}
-
-    if isinstance(emotions_requested, list) and rag_stats:
-        for emotion_name in emotions_requested:
-            if isinstance(emotion_name, str):
-                emotion_counts[emotion_name] = rag_stats.get(emotion_name, 0)
-    else:
-        # Fallback: include any numeric keys returned by backend
-        for key, value in (rag_stats or {}).items():
-            if isinstance(value, (int, float)):
-                emotion_counts[key] = value
-
-    return {
-        "success": True,
-        "start_date": start_date,
-        "end_date": end_date,
-        "emotions": emotion_counts,
-        "raw": rag_stats
-    }
-
-
-@app.post("/api/analyze/personality")
-async def analyze_personality(
-    request: Dict[str, Any],
-    session: Session = Depends(require_auth)
-):
-    """
-    Run a quick personality analysis by collecting recent transcripts and
-    prompting Gemma for a traits breakdown.
-    """
-    last_n = request.get("last_n_transcripts") or request.get("limit") or 15
-    try:
-        last_n_int = max(5, min(int(last_n), 40))
-    except (TypeError, ValueError):
-        last_n_int = 15
-
-    transcripts_payload = await proxy_request(
-        f"{RAG_URL}/transcripts/recent",
-        "GET",
-        params={"limit": last_n_int}
-    )
-
-    transcript_items = []
-    if isinstance(transcripts_payload, dict):
-        transcript_items = transcripts_payload.get("transcripts") or transcripts_payload.get("items") or []
-    elif isinstance(transcripts_payload, list):
-        transcript_items = transcripts_payload
-
-    snippets = []
-    max_snippets = 200
-    for item in transcript_items[:last_n_int]:
-        if not isinstance(item, dict):
-            continue
-        speaker = item.get("speaker") or item.get("primary_speaker") or "Speaker"
-        text = item.get("snippet") or item.get("text") or item.get("full_text") or ""
-        if text:
-            snippets.append(f"{speaker}: {text}")
-        if len(snippets) >= max_snippets:
-            break
-        segments = item.get("segments") or []
-        if isinstance(segments, list):
-            for seg in segments[:5]:
-                if isinstance(seg, dict):
-                    seg_speaker = seg.get("speaker") or speaker
-                    seg_text = seg.get("text") or ""
-                    if seg_text:
-                        snippets.append(f"{seg_speaker}: {seg_text}")
-                    if len(snippets) >= max_snippets:
-                        break
-            if len(snippets) >= max_snippets:
-                break
-
-    conversation_sample = "\n".join(snippets)[:6000] or "No transcript data available."
-
-    prompt = (
-        "You are a professional psychologist analyzing the conversation below. "
-        "Provide a personality profile using Big Five traits, communication style, strengths, "
-        "risks, and actionable coaching suggestions. Be balanced and evidence-driven.\n\n"
-        "Conversation sample:\n"
-        f"{conversation_sample}\n\n"
-        "Respond with structured sections titled: 'Overview', 'Trait Breakdown', "
-        "'Communication Style', 'Strengths', 'Risks', and 'Coaching Tips'."
-    )
-
-    gemma_response = await proxy_request(
-        f"{GEMMA_URL}/generate",
-        "POST",
-        json={
-            "prompt": prompt,
-            "max_tokens": 512,
-            "temperature": 0.5
-        }
-    )
-
-    analysis_text = ""
-    if isinstance(gemma_response, dict):
-        analysis_text = gemma_response.get("text") or gemma_response.get("response") or ""
-
-    job_id = f"persona_{uuid.uuid4().hex[:12]}"
-    result_payload = {
-        "job_id": job_id,
-        "status": "complete",
-        "completed_at": datetime.utcnow().isoformat() + "Z",
-        "result": {
-            "analysis": analysis_text.strip(),
-            "model": gemma_response.get("model") if isinstance(gemma_response, dict) else None,
-            "raw": gemma_response
-        }
-    }
-
-    # Cache for follow-up GET requests (best effort).
-    personality_jobs[job_id] = result_payload
-
-    return result_payload
-
-
-@app.get("/api/analyze/personality/{job_id}")
-async def get_personality_result(
-    job_id: str,
-    session: Session = Depends(require_auth)
-):
-    """
-    Return previously computed personality analysis.
-    """
-    job = personality_jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Personality analysis not found")
-    return job
-
-# ============================================================================
-# RAG Endpoints
-# ============================================================================
-
-@app.post("/api/rag/query")
-async def rag_query(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{RAG_URL}/query", "POST", json=request)
-    return result
-
-@app.post("/api/search/semantic")
-async def search_semantic(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    """Proxy unified semantic search to RAG service"""
-    result = await proxy_request(f"{RAG_URL}/search/semantic", "POST", json=request)
-    return result
-
-@app.post("/api/rag/memory/search")
-async def rag_search(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{RAG_URL}/memory/search", "POST", json=request)
-    return result
-
-# ============================================================================
-# Memory Endpoints (Proxy to RAG service)
-# ============================================================================
-
-@app.get("/api/memory/list")
-async def memory_list(
-    limit: int = 100,
-    offset: int = 0,
-    session: Session = Depends(require_auth)
-):
-    """List all memories with pagination"""
-    result = await proxy_request(f"{RAG_URL}/memory/list?limit={limit}&offset={offset}", "GET")
-    return result
-
-
-# Vectorization endpoints (must be before /api/vectorize/{filename} catch-all)
-@app.post("/api/vectorize/database")
-async def vectorize_database_api(request: Request):
-    """Start database vectorization"""
-    body = await request.json()
-    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/database", "POST", json=body)
-    return result
-
-
-@app.get("/api/vectorize/status/{job_id}")
-async def vectorize_status_api(job_id: str):
-    """Get vectorization job status"""
-    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/status/{job_id}", "GET")
-    return result
-
-
-# Vectorization endpoints without /api prefix (no auth required for demo)
-@app.post("/vectorize/database")
-async def vectorize_database_noauth(request: Request):
-    """Start database vectorization (no auth)"""
-    body = await request.json()
-    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/database", "POST", json=body)
-    return result
-
-
-@app.get("/vectorize/status/{job_id}")
-async def vectorize_status_noauth(job_id: str):
-    """Get vectorization job status (no auth)"""
-    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/status/{job_id}", "GET")
-    return result
-
-
-@app.post("/api/memory/search")
-async def memory_search(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    """Search memories"""
-    result = await proxy_request(f"{RAG_URL}/memory/search", "POST", json=request)
-    return result
-
-# ============================================================================
-# ML Agent Endpoints (Proxy to ML service)
-# ============================================================================
-
-@app.post("/api/ml/ingest")
-async def ml_ingest(file: UploadFile = File(...), session: Session = Depends(require_auth)):
-    """Proxy file ingestion to ML service"""
-    # We need to stream the file content to the backend
-    files = {"file": (file.filename, file.file, file.content_type)}
-    # Note: proxy_request helper handles json/files, but we need to use the specific key 'file'
-    # The helper function logic for files: if files is passed, it sends multipart/form-data
-    result = await proxy_request(f"{ML_SERVICE_URL}/ingest", "POST", files=files)
-    return result
-
-@app.post("/api/ml/propose-goals")
-async def ml_propose_goals(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{ML_SERVICE_URL}/propose-goals", "POST", json=request)
-    return result
-
-@app.post("/api/ml/execute-analysis")
-async def ml_execute_analysis(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{ML_SERVICE_URL}/execute-analysis", "POST", json=request)
-    return result
-
-@app.post("/api/ml/explain-finding")
-async def ml_explain_finding(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{ML_SERVICE_URL}/explain-finding", "POST", json=request)
-    return result
-
-
-# ============================================================================
-# ML Analytics Upload & Premium Endpoints (Proxy to ML service)
-# ============================================================================
-
-# Allowed file extensions for upload (data files only)
-ALLOWED_UPLOAD_EXTENSIONS = {
-    # Data files
-    '.csv', '.tsv', '.txt', '.json', '.jsonl', '.ndjson',
-    '.xlsx', '.xls', '.xlsm', '.xlsb',
-    '.parquet', '.pq',
-    '.db', '.sqlite', '.sqlite3',
-    # Audio files (for transcription)
-    '.wav', '.mp3', '.m4a', '.flac', '.ogg', '.webm', '.aac',
-    # Images (for ML)
-    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff',
-}
-
-# Dangerous file extensions to explicitly reject
-DANGEROUS_EXTENSIONS = {
-    '.sh', '.bash', '.zsh', '.fish',  # Shell scripts
-    '.exe', '.dll', '.so', '.dylib',  # Executables
-    '.bat', '.cmd', '.ps1', '.vbs',   # Windows scripts
-    '.php', '.phtml', '.jsp', '.asp', '.aspx',  # Server scripts
-    '.py', '.rb', '.pl', '.cgi',      # Interpreted scripts
-    '.jar', '.war', '.ear',           # Java archives
-    '.msi', '.deb', '.rpm', '.apk',   # Installers
-}
-
-
-@app.post("/upload")
-async def ml_upload(file: UploadFile = File(...)):
-    """Proxy file upload to ML service (with file type validation)"""
-    # Security: Validate file extension
-    filename = file.filename or ""
-    file_ext = os.path.splitext(filename.lower())[1]
-    
-    # Reject explicitly dangerous extensions
-    if file_ext in DANGEROUS_EXTENSIONS:
-        raise HTTPException(
-            status_code=415,
-            detail=f"File type '{file_ext}' not allowed. Dangerous file types are rejected for security."
-        )
-    
-    # Validate against allowlist if extension is present
-    if file_ext and file_ext not in ALLOWED_UPLOAD_EXTENSIONS:
-        raise HTTPException(
-            status_code=415,
-            detail=f"File type '{file_ext}' not supported. Allowed types: data files (csv, json, xlsx, parquet), audio, images."
-        )
-    
-    # Read the file content first to ensure it's fully available
-    content = await file.read()
-    # Reset the file position in case it needs to be read again
-    await file.seek(0)
-    # Send as bytes with proper filename
-    files = {"file": (file.filename, content, file.content_type or "application/octet-stream")}
-    result = await proxy_request(f"{ML_SERVICE_URL}/ingest", "POST", files=files)
-    return result
-
-
-@app.post("/api/upload")
-async def api_ml_upload(file: UploadFile = File(...)):
-    """Alias with /api prefix"""
-    return await ml_upload(file)
-
-
-@app.get("/databases")
-async def list_databases():
-    """Proxy to ML service to list all available databases with embedding status"""
-    result = await proxy_request(f"{ML_SERVICE_URL}/databases", "GET")
-    return result
-
-
-@app.get("/api/databases")
-async def api_list_databases():
-    """Alias with /api prefix"""
-    return await list_databases()
-
-
-@app.post("/api/vectorize/{filename}")
-async def ml_vectorize(filename: str, session: Session = Depends(require_auth)):
-    """Proxy vectorization request to ML service (old endpoint for compatibility)"""
-    result = await proxy_request(f"{ML_SERVICE_URL}/embed/{filename}", "POST")
-    return result
-
-
-# New vectorization endpoints for LLM Q&A generation (no auth required for demo)
-@app.post("/vectorize/{path:path}")
-async def vectorize_proxy_post(path: str, request: Request):
-    """Proxy all POST vectorization endpoints to ML service"""
-    try:
-        body = await request.json()
-    except:
-        body = {}
-    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "POST", json=body)
-    return result
-
-
-@app.get("/vectorize/{path:path}")
-async def vectorize_proxy_get(path: str):
-    """Proxy all GET vectorization endpoints to ML service"""
-    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "GET")
-    return result
-
-
-@app.delete("/vectorize/{path:path}")
-async def vectorize_proxy_delete(path: str):
-    """Proxy DELETE vectorization endpoints to ML service"""
-    result = await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "DELETE")
-    return result
-
-
-# RAG Chatbot endpoints - no auth for ease of use
-@app.post("/embed")
-async def embed_proxy(request: Request):
-    """Proxy embedding request to ML service (for document indexing)"""
-    try:
-        body = await request.json()
-        filename = body.get("filename", "")
-        if not filename:
-            raise HTTPException(status_code=400, detail="filename is required")
-        result = await proxy_request(f"{ML_SERVICE_URL}/embed/{filename}", "POST")
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/ask")
-async def ask_proxy(request: Request):
-    """Proxy ask request to ML service (RAG question answering)"""
-    try:
-        body = await request.json()
-        result = await proxy_request(f"{ML_SERVICE_URL}/ask", "POST", json=body)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/analyze-full/{filename}")
-async def analyze_full_proxy(filename: str):
-    """Proxy full analysis request to ML service (runs all quick ML analyses)"""
-    try:
-        result = await proxy_request(f"{ML_SERVICE_URL}/analyze-full/{filename}", "POST")
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/analytics/{path:path}")
-async def ml_analytics_proxy(path: str, request: Request):
-    """Proxy all analytics endpoints to ML service"""
-    body = await request.json()
-    result = await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "POST", json=body)
-    return result
-
-
-@app.post("/api/analytics/{path:path}")
-async def api_ml_analytics_proxy(path: str, request: Request):
-    """Alias with /api prefix for analytics endpoints"""
-    body = await request.json()
-    result = await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "POST", json=body)
-    return result
-
-
-@app.get("/analytics/{path:path}")
-async def ml_analytics_get_proxy(path: str, request: Request):
-    """Proxy GET analytics endpoints to ML service"""
-    result = await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "GET")
-    return result
-
-
-@app.post("/api/memory/add")
-async def memory_add(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    """Add a memory (proxy to RAG service)"""
-    result = await proxy_request(f"{RAG_URL}/memory/add", "POST", json=request)
-    return result
-
-
-# ============================================================================
-# Email Analyzer Endpoints
-# ============================================================================
-
-
-@app.get("/api/email/users")
-async def email_users(session: Session = Depends(require_auth)):
-    _ensure_email_analyzer_enabled()
-    logger.info("[EMAIL] users requested by %s", getattr(session, "user_id", None))
-    return await proxy_request(f"{RAG_URL}/email/users", "GET")
-
-
-@app.get("/api/email/labels")
-async def email_labels(session: Session = Depends(require_auth)):
-    _ensure_email_analyzer_enabled()
-    logger.info("[EMAIL] labels requested by %s", getattr(session, "user_id", None))
-    return await proxy_request(f"{RAG_URL}/email/labels", "GET")
-
-
-@app.get("/api/email/stats")
-async def email_stats(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    user: Optional[str] = None,
-    label: Optional[str] = None,
-    session: Session = Depends(require_auth),
-):
-    _ensure_email_analyzer_enabled()
-    params: Dict[str, Any] = {}
-    if start_date:
-        params["start_date"] = start_date
-    if end_date:
-        params["end_date"] = end_date
-    if user:
-        params["user"] = user
-    if label:
-        params["label"] = label
-    logger.info(
-        "[EMAIL] stats requested by %s params=%s",
-        getattr(session, "user_id", None),
-        params,
-    )
-    return await proxy_request(f"{RAG_URL}/email/stats", "GET", params=params)
-
-
-@app.post("/api/email/query")
-async def email_query(payload: Dict[str, Any], session: Session = Depends(require_auth)):
-    _ensure_email_analyzer_enabled()
-    logger.info(
-        "[EMAIL] query requested by %s filters=%s limit=%s offset=%s",
-        getattr(session, "user_id", None),
-        payload.get("filters"),
-        payload.get("limit"),
-        payload.get("offset"),
-    )
-    return await proxy_request(f"{RAG_URL}/email/query", "POST", json=payload)
-
-
-@app.post("/api/email/analyze/quick")
-async def email_analyze_quick(payload: Dict[str, Any], session: Session = Depends(require_auth)):
-    _ensure_email_analyzer_enabled()
-    logger.info(
-        "[EMAIL] quick analysis requested by %s question_len=%s",
-        getattr(session, "user_id", None),
-        len(payload.get("question", "")),
-    )
-    return await proxy_request(f"{RAG_URL}/email/analyze/quick", "POST", json=payload)
-
-
-@app.post("/api/email/analyze/gemma/quick")
-async def email_analyze_gemma_quick(payload: Dict[str, Any], session: Session = Depends(require_auth)):
-    """
-    Quick email analysis backed by Gemma.
-    - Body: { question: str(>=3), filters: object, max_emails?: int }
-    - Flow: query RAG for top emails, construct prompt, call Gemma /generate, return summary
-    """
-    _ensure_email_analyzer_enabled()
-    question = (payload.get("question") or "").strip()
-    if len(question) < 3:
-        raise HTTPException(status_code=422, detail=[{
-            "type": "string_too_short",
-            "loc": ["body", "question"],
-            "msg": "String should have at least 3 characters",
-            "input": question,
-            "ctx": {"min_length": 3}
-        }])
-
-    filters = payload.get("filters") or {}
-    max_emails = int(payload.get("max_emails") or 10)
-    max_emails = max(1, min(max_emails, 25))
-
-    logger.info(
-        "[EMAIL][GEMMA] quick requested by %s qlen=%s max_emails=%s",
-        getattr(session, "user_id", None), len(question), max_emails,
-    )
-
-    # Query RAG for matching emails
-    rag_query = {
-        "filters": filters,
-        "limit": max_emails,
-        "offset": 0,
-        "sort_by": "date",
-        "order": "desc",
-    }
-    rag_resp = await proxy_request(f"{RAG_URL}/email/query", "POST", json=rag_query)
-    items: List[Dict[str, Any]] = (rag_resp or {}).get("items") or []
-
-    # Build prompt with clipped email snippets
-    def clip(text: Optional[str], n: int = 800) -> str:
-        if not text:
-            return ""
-        text = str(text)
-        return text if len(text) <= n else text[: n - 1] + "…"
-
-    lines: List[str] = [
-        "You are a helpful assistant analyzing email threads.",
-        "Provide a concise, actionable answer to the user's question based on the emails.",
-        "If information is insufficient, say so clearly.",
-        "\nUser question:",
-        question,
-        "\nRelevant emails (most recent first):",
-    ]
-    for i, it in enumerate(items, 1):
-        date = it.get("date") or it.get("timestamp") or ""
-        subject = it.get("subject") or "(no subject)"
-        sender = it.get("from_addr") or it.get("from") or ""
-        body = clip(it.get("body") or it.get("snippet") or it.get("text"), 800)
-        lines.append(f"[{i}] {date} • {sender} • {subject}\n{body}")
-
-    lines.append("\nAnswer:")
-    prompt = "\n\n".join(lines)
-
-    # Call Gemma generate with a modest cap
-    headers = _service_jwt_headers()
-    gen_req = {
-        "prompt": prompt,
-        "max_tokens": int(payload.get("max_tokens") or 384),
-        "temperature": float(payload.get("temperature") or 0.4),
-        "top_p": 0.92,
-    }
-    summary_text, gen_resp = await _gemma_generate_with_fallback(gen_req, headers)
-
-    return {
-        "success": True,
-        "summary": summary_text.strip() or "",
-        "model": gen_resp.get("model") if isinstance(gen_resp, dict) else None,
-        "emails_used": len(items),
-    }
-
-
-@app.get("/api/email/analyze/stream")
-async def email_analyze_stream(
-    payload: str = Query(..., description="Base64 payload"),
-    session: Session = Depends(require_auth),
-):
-    _ensure_email_analyzer_enabled()
-    decoded_payload = _prepare_email_stream_payload(payload)
-    sanitized = base64.urlsafe_b64encode(json.dumps(decoded_payload).encode("utf-8")).decode("utf-8").rstrip("=")
-    logger.info(
-        "[EMAIL] stream requested by %s prompt_len=%s max_chunks=%s",
-        getattr(session, "user_id", None),
-        len(str(decoded_payload.get("prompt", ""))),
-        decoded_payload.get("max_chunks"),
-    )
-
-    headers = _service_jwt_headers()
-
-    async def streamer():
-        try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream(
-                    "GET",
-                    f"{RAG_URL}/email/analyze/stream",
-                    params={"payload": sanitized},
-                    headers=headers,
-                ) as resp:
-                    async for line in resp.aiter_lines():
-                        if line:
-                            yield line + "\n"
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "[EMAIL] stream error user=%s detail=%s",
-                getattr(session, "user_id", None),
-                exc,
-            )
-            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
-
-    return StreamingResponse(streamer(), media_type="text/event-stream")
-
-
-@app.get("/api/email/analyze/gemma/stream")
-async def email_analyze_gemma_stream(
-    payload: str = Query(..., description="Base64 payload"),
-    session: Session = Depends(require_auth),
-):
-    """
-    Stream Gemma-backed email analysis over SSE.
-    - Payload: { prompt: str, filters: object, max_chunks?: int, max_emails?: int, analysis_id?: str }
-    Events: progress, note, summary, done
-    """
-    _ensure_email_analyzer_enabled()
-    decoded = _prepare_email_stream_payload(payload)
-    prompt = (decoded.get("prompt") or "").strip()
-    filters = decoded.get("filters") or {}
-    max_emails = int(decoded.get("max_emails") or 10)
-    max_emails = max(1, min(max_emails, 25))
-
-    logger.info(
-        "[EMAIL][GEMMA] stream requested by %s prompt_len=%s max_emails=%s",
-        getattr(session, "user_id", None), len(prompt), max_emails,
-    )
-
-    async def event_generator():
-        # Warmup note (do not block stream if warmup fails)
-        yield format_sse("progress", {"message": "Collecting email snippets"})
-        yield format_sse("note", {"message": f"Applying filters: {filters}"})
-
-        # Query RAG for candidate emails
-        rag_query = {
-            "filters": filters,
-            "limit": max_emails,
-            "offset": 0,
-            "sort_by": "date",
-            "order": "desc",
-        }
-        try:
-            rag_resp = await proxy_request(f"{RAG_URL}/email/query", "POST", json=rag_query)
-        except HTTPException as exc:  # surface upstream detail
-            detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc)}
-            yield format_sse("note", {"message": f"RAG query failed: {detail}"})
-            yield format_sse("done", {"error": True})
-            return
-
-        items: List[Dict[str, Any]] = (rag_resp or {}).get("items") or []
-        yield format_sse("progress", {"message": f"Found {len(items)} emails"})
-
-        # Helper to clip text
-        def clip(text: Optional[str], n: int = 800) -> str:
-            if not text:
-                return ""
-            text = str(text)
-            return text if len(text) <= n else text[: n - 1] + "…"
-
-        # Per-email pass (map)
-        per_results: List[str] = []
-        async with httpx.AsyncClient(timeout=None) as client:
-            for idx, it in enumerate(items, 1):
-                subject = it.get("subject") or "(no subject)"
-                sender = it.get("from_addr") or it.get("from") or ""
-                date = it.get("date") or it.get("timestamp") or ""
-                body = clip(it.get("body") or it.get("snippet") or it.get("text"), 800)
-                q = prompt or "Summarize key insights and action items from this email."
-                per_prompt = (
-                    f"You are analyzing a single email. Provide a brief answer to: {q}\n\n"
-                    f"From: {sender}\nDate: {date}\nSubject: {subject}\n\n"
-                    f"Body:\n{body}\n\n"
-                    f"Answer:"
-                )
-                gen_req = {
-                    "prompt": per_prompt,
-                    "max_tokens": 192,
-                    "temperature": 0.35,
-                    "top_p": 0.92,
-                }
-                try:
-                    text, _ = await _gemma_generate_with_fallback(gen_req, _service_jwt_headers())
-                except Exception as exc:  # noqa: BLE001
-                    yield format_sse("note", {"message": f"Gemma error on email {idx}: {exc}"})
-                    text = ""
-                snippet = text.strip()
-                if snippet:
-                    per_results.append(f"[{idx}] {subject}: {snippet}")
-                    yield format_sse("note", {"message": f"Analyzed email {idx}/{len(items)}"})
-                else:
-                    yield format_sse("note", {"message": f"No response for email {idx}/{len(items)}"})
-
-        # Reduce pass – overall answer
-        reduce_lines: List[str] = [
-            "You are an expert analyst. Combine the following per-email findings into a concise answer.",
-            f"User request: {prompt or '(general summary)'}",
-            "Findings:",
-            *per_results,
-            "\nFinal answer:",
-        ]
-        reduce_req = {
-            "prompt": "\n".join(reduce_lines),
-            "max_tokens": 384,
-            "temperature": 0.4,
-            "top_p": 0.92,
-        }
-        final_text, _ = await _gemma_generate_with_fallback(reduce_req, _service_jwt_headers())
-        final_text = (final_text or "").strip()
-        if final_text:
-            yield format_sse("summary", {"message": final_text})
-        else:
-            yield format_sse("summary", {"message": "No final summary produced."})
-
-        artifact_id = f"email-artifact-{uuid.uuid4().hex[:8]}"
-        yield format_sse("done", {"artifact_id": artifact_id})
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@app.post("/api/email/analyze/cancel")
-async def email_analyze_cancel(payload: Dict[str, Any], session: Session = Depends(require_auth)):
-    _ensure_email_analyzer_enabled()
-    logger.info(
-        "[EMAIL] cancel requested by %s analysis_id=%s",
-        getattr(session, "user_id", None),
-        payload.get("analysis_id"),
-    )
-    return await proxy_request(f"{RAG_URL}/email/analyze/cancel", "POST", json=payload)
-
-@app.post("/api/memory/create")
-async def memory_create(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    """
-    Alias for memory creation expected by the frontend SDK.
-    Requires at minimum a title and body.
-    """
-    title = (request.get("title") or "").strip()
-    body = (request.get("body") or "").strip()
-    if not title or not body:
-        raise HTTPException(status_code=400, detail="title and body are required")
-
-    payload = {
-        "title": title,
-        "body": body,
-        "metadata": request.get("metadata") or {}
-    }
-    return await memory_add(payload, session=session)
-
-@app.get("/api/memory/stats")
-async def memory_stats(session: Session = Depends(require_auth)):
-    """Get memory statistics"""
-    result = await proxy_request(f"{RAG_URL}/memory/stats", "GET")
-    return result
-
-@app.get("/api/memory/emotions/stats")
-async def memory_emotions_stats(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    session: Session = Depends(require_auth)
-):
-    """Get emotion statistics with optional date filtering"""
-    params = []
-    if start_date:
-        params.append(f"start_date={start_date}")
-    if end_date:
-        params.append(f"end_date={end_date}")
-    query_string = f"?{'&'.join(params)}" if params else ""
-    result = await proxy_request(f"{RAG_URL}/memory/emotions/stats{query_string}", "GET")
-    return result
-
-
-@app.get("/api/analytics/signals")
-async def analytics_signals(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    speakers: Optional[str] = None,
-    emotions: Optional[str] = None,
-    metrics: Optional[str] = None,
-    session: Session = Depends(require_auth)
-):
-    """Proxy analytics overlays to the insights service."""
-    query_params = {}
-    if start_date:
-        query_params["start_date"] = start_date
-    if end_date:
-        query_params["end_date"] = end_date
-    if speakers:
-        query_params["speakers"] = speakers
-    if emotions:
-        query_params["emotions"] = emotions
-    if metrics:
-        query_params["metrics"] = metrics
-    query_string = f"?{urlencode(query_params)}" if query_params else ""
-    result = await proxy_request(f"{INSIGHTS_URL}/analytics/signals{query_string}", "GET")
-    return result
-
-
-@app.get("/api/analytics/segments")
-async def analytics_segments(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    speakers: Optional[str] = None,
-    emotions: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
-    order: str = "desc",
-    session: Session = Depends(require_auth)
-):
-    """Proxy segment drill-downs to the insights service."""
-    query_params: Dict[str, Any] = {}
-    if start_date:
-        query_params["start_date"] = start_date
-    if end_date:
-        query_params["end_date"] = end_date
-    if speakers:
-        query_params["speakers"] = speakers
-    if emotions:
-        query_params["emotions"] = emotions
-    if limit is not None:
-        query_params["limit"] = str(limit)
-    if offset:
-        query_params["offset"] = str(offset)
-    if order:
-        query_params["order"] = order
-    query_string = f"?{urlencode(query_params)}" if query_params else ""
-    result = await proxy_request(f"{INSIGHTS_URL}/analytics/segments{query_string}", "GET")
-    return result
-
-@app.get("/api/insights/automl/hypotheses")
-async def get_automl_hypotheses(session: Session = Depends(require_auth)):
-    """Get available AutoML hypotheses"""
-    return await proxy_request(f"{INSIGHTS_URL}/automl/hypotheses", "GET")
-
-@app.post("/api/insights/automl/run")
-async def run_automl_experiment(payload: Dict[str, Any], session: Session = Depends(require_auth)):
-    """Run AutoML experiment"""
-    return await proxy_request(f"{INSIGHTS_URL}/automl/run", "POST", json=payload)
-
-@app.get("/api/transcripts/speakers")
-async def transcripts_speakers(session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{RAG_URL}/transcripts/speakers", "GET")
-    return result
-
-
-@app.post("/api/transcripts/count")
-async def transcripts_count(
-    payload: Dict[str, Any],
-    http_request: Request,
-    session: Session = Depends(require_auth)
-):
-    analysis_id = http_request.headers.get("X-Analysis-Id")
-    headers = {"X-Analysis-Id": analysis_id} if analysis_id else None
-    try:
-        result = await proxy_request(
-            f"{RAG_URL}/transcripts/count",
-            "POST",
-            json=payload,
-            extra_headers=headers,
-        )
-        return result
-    except HTTPException as exc:
-        if exc.status_code != 404:
-            raise
-        logger.warning("[COUNT-FALLBACK] /transcripts/count 404 – deriving count from /transcripts/recent window")
-        # Derive a best-effort count from the same recent window used in query fallback
-        qp = dict(payload or {})
-        qp.setdefault("limit", 500)
-        browse = await transcripts_query(qp, http_request)
-        return {"success": True, "count": int(browse.get("total", 0))}
-
-
-@app.post("/api/transcripts/query")
-async def transcripts_query(
-    payload: Dict[str, Any],
-    http_request: Request,
-    session: Session = Depends(require_auth)
-):
-    analysis_id = http_request.headers.get("X-Analysis-Id")
-    headers = {"X-Analysis-Id": analysis_id} if analysis_id else None
-    try:
-        result = await proxy_request(
-            f"{RAG_URL}/transcripts/query",
-            "POST",
-            json=payload,
-            extra_headers=headers,
-        )
-        return result
-    except HTTPException as exc:
-        if exc.status_code != 404:
-            raise
-        # Compatibility fallback for older RAG builds without /transcripts/query
-        logger.warning("[QUERY-FALLBACK] /transcripts/query 404 – using /transcripts/recent filter path")
-
-        def _norm_list(value):
-            if not value:
-                return []
-            if isinstance(value, (list, tuple, set)):
-                return [str(v) for v in value]
-            return [str(value)]
-
-        limit = max(1, min(int(payload.get("limit", 50) or 50), 500))
-        offset = max(0, int(payload.get("offset", 0) or 0))
-        speakers = {s.lower() for s in _norm_list(payload.get("speakers"))}
-        emotions = {e.lower() for e in _norm_list(payload.get("emotions"))}
-        raw_keywords = str(payload.get("keywords", "") or "")
-        keywords = [k.strip().lower() for k in raw_keywords.split(",") if k.strip()]
-        require_all = (payload.get("match") or "any").lower() == "all"
-        sort_by = (payload.get("sort_by") or "created_at").lower()
-        allowed_sorts = {"created_at", "speaker", "emotion", "job_id", "start_time"}
-        if sort_by not in allowed_sorts:
-            sort_by = "created_at"
-        order = (payload.get("order") or "desc").lower()
-        if order not in {"asc", "desc"}:
-            order = "desc"
-        reverse_sort = (order == "desc")
-        target_count = max(limit + offset, limit)
-
-        recent_limit = max(target_count * 4, 500)
-        recent = await proxy_request(
-            f"{RAG_URL}/transcripts/recent?limit={recent_limit}",
-            "GET",
-            params=None,
-            extra_headers=headers,
-        )
-        transcripts = recent.get("transcripts") or []
-
-        def _timestamp_value(value: Optional[Any]) -> float:
-            if value in (None, ""):
-                return 0.0
-            if isinstance(value, datetime):
-                return value.timestamp()
-            if isinstance(value, (int, float)):
-                return float(value)
-            text = str(value)
-            try:
-                if text.endswith("Z"):
-                    text = text[:-1] + "+00:00"
-                return datetime.fromisoformat(text).timestamp()
-            except Exception:
-                return 0.0
-
-        def _sort_key(item: Dict[str, Any]) -> Any:
-            if sort_by == "speaker":
-                return (item.get("speaker") or "").lower()
-            if sort_by == "emotion":
-                return (item.get("emotion") or "").lower()
-            if sort_by == "job_id":
-                return item.get("job_id") or ""
-            if sort_by == "start_time":
-                return _timestamp_value(item.get("start_time"))
-            return _timestamp_value(item.get("created_at"))
-
-        items = []
-        for tr in transcripts:
-            segments = tr.get("segments") or []
-            for idx, seg in enumerate(segments):
-                if speakers:
-                    sv = (seg.get("speaker") or "").lower().strip()
-                    if sv not in speakers:
-                        continue
-                if emotions:
-                    ev = (seg.get("emotion") or tr.get("dominant_emotion") or "").lower()
-                    if ev not in emotions:
-                        continue
-                if keywords:
-                    text = (seg.get("text") or "").lower()
-                    if not text:
-                        continue
-                    hits = [kw for kw in keywords if kw in text]
-                    if require_all and len(hits) != len(keywords):
-                        continue
-                    if not require_all and len(hits) == 0:
-                        continue
-                items.append({
-                    "segment_id": f"fallback-{tr.get('job_id', 'job')}-{idx}",
-                    "transcript_id": tr.get("transcript_id"),
-                    "job_id": tr.get("job_id"),
-                    "speaker": seg.get("speaker"),
-                    "emotion": seg.get("emotion") or tr.get("dominant_emotion"),
-                    "emotion_confidence": seg.get("emotion_confidence"),
-                    "text": seg.get("text"),
-                    "created_at": tr.get("created_at"),
-                    "start_time": seg.get("start_time"),
-                    "end_time": seg.get("end_time"),
-                    "context_before": [],
-                    "context_after": [],
-                })
-                if len(items) >= target_count:
-                    break
-            if len(items) >= target_count:
-                break
-
-        items.sort(key=_sort_key, reverse=reverse_sort)
-        total = len(items)
-        page = items[offset:offset + limit]
-        count = len(page)
-        has_more = (offset + count) < total
-        next_offset = offset + count
-
-        return {
-            "success": True,
-            "items": page,
-            "count": count,
-            "total": total,
-            "has_more": has_more,
-            "next_offset": next_offset,
-            "sort_by": sort_by,
-            "order": order,
-            "fallback": "transcripts/recent",
-        }
-
-
-@app.get("/api/transcripts/recent")
-async def transcripts_recent(
-    limit: int = 10,
-    session: Session = Depends(require_auth)
-):
-    """Get recent transcripts"""
-    result = await proxy_request(f"{RAG_URL}/transcripts/recent?limit={limit}", "GET")
-    return result
-
-@app.get("/api/transcript/{job_id}")
-async def transcript_get(
-    job_id: str,
-    session: Session = Depends(require_auth)
-):
-    """Get transcript by job_id"""
-    result = await proxy_request(f"{RAG_URL}/transcript/{job_id}", "GET")
-    return result
-
-
-# ============================================================================
-# Analysis Artifacts API
-# ============================================================================
-
-
-@app.post("/api/analysis/archive")
-async def analysis_archive(
-    payload: Dict[str, Any],
-    http_request: Request,
-    session: Session = Depends(require_auth)
-):
-    analysis_id = http_request.headers.get("X-Analysis-Id")
-    if analysis_id:
-        payload.setdefault("analysis_id", analysis_id)
-    headers = {"X-Analysis-Id": analysis_id} if analysis_id else None
-    try:
-        result = await proxy_request(
-            f"{RAG_URL}/analysis/archive",
-            "POST",
-            json=payload,
-            extra_headers=headers,
-        )
-        return result
-    except HTTPException as exc:
-        if exc.status_code != 404:
-            raise
-        logger.warning("[ANALYSIS-ARCHIVE] RAG 404 – storing artifact locally")
-        artifact = _persist_fallback_artifact(payload, session)
-        return {"success": True, "artifact_id": artifact["artifact_id"], "fallback": True}
-
-
-@app.get("/api/analysis/list")
-async def analysis_list(
-    limit: int = 50,
-    offset: int = 0,
-    scope: str = Query("user"),
-    session: Session = Depends(require_auth)
-):
-    scope_value = scope.lower()
-    include_all = scope_value == "all"
-    if include_all and not _is_admin(session):
-        raise HTTPException(status_code=403, detail="Admin scope required to view all artifacts")
-    if scope_value not in {"user", "all"}:
-        raise HTTPException(status_code=400, detail="Invalid scope value")
-
-    params = []
-    if limit:
-        params.append(f"limit={limit}")
-    if offset:
-        params.append(f"offset={offset}")
-    query = "&".join(params)
-    logger.info(
-        "[ANALYSIS-LIST] user=%s limit=%s offset=%s",
-        getattr(session, "user_id", None),
-        limit,
-        offset,
-    )
-    try:
-        result = await proxy_request(
-            f"{RAG_URL}/analysis/list{'?' + query if query else ''}",
-            "GET",
-        )
-        logger.info(
-            "[ANALYSIS-LIST] success user=%s count=%s has_more=%s",
-            getattr(session, "user_id", None),
-            (result or {}).get("count"),
-            (result or {}).get("has_more"),
-        )
-        return result
-    except HTTPException as exc:
-        if exc.status_code != 404:
-            logger.error(
-                "[ANALYSIS-LIST] error user=%s status=%s",
-                getattr(session, "user_id", None),
-                exc.status_code,
-            )
-            raise
-        logger.warning("[ANALYSIS-LIST] RAG 404 – using fallback store")
-        return _list_fallback_artifacts(limit, offset, session, include_all)
-
-
-@app.get("/api/analysis/{artifact_id}")
-async def analysis_get(
-    artifact_id: str,
-    scope: str = Query("user"),
-    session: Session = Depends(require_auth)
-):
-    scope_value = scope.lower()
-    include_all = scope_value == "all"
-    if scope_value not in {"user", "all"}:
-        raise HTTPException(status_code=400, detail="Invalid scope value")
-    if include_all and not _is_admin(session):
-        raise HTTPException(status_code=403, detail="Admin scope required to view all artifacts")
-
-    logger.info(
-        "[ANALYSIS-GET] user=%s artifact_id=%s",
-        getattr(session, "user_id", None),
-        artifact_id,
-    )
-    try:
-        result = await proxy_request(
-            f"{RAG_URL}/analysis/{artifact_id}",
-            "GET",
-        )
-        logger.info(
-            "[ANALYSIS-GET] success user=%s artifact_id=%s",
-            getattr(session, "user_id", None),
-            artifact_id,
-        )
-        return result
-    except HTTPException as exc:
-        if exc.status_code != 404:
-            logger.error(
-                "[ANALYSIS-GET] error user=%s artifact_id=%s status=%s",
-                getattr(session, "user_id", None),
-                artifact_id,
-                exc.status_code,
-            )
-            raise
-        fallback = _get_fallback_artifact(artifact_id, session, include_all)
-        if fallback:
-            return {"success": True, "artifact": fallback, "source": "gateway_fallback"}
-        logger.error(
-            "[ANALYSIS-GET] artifact_id=%s not found in fallback store",
-            artifact_id,
-        )
-        raise
-
-
-@app.post("/api/analysis/search")
-async def analysis_search(
-    payload: Dict[str, Any],
-    session: Session = Depends(require_auth)
-):
-    logger.info(
-        "[ANALYSIS-SEARCH] user=%s query=%s limit=%s",
-        getattr(session, "user_id", None),
-        (payload or {}).get("query"),
-        (payload or {}).get("limit"),
-    )
-    try:
-        result = await proxy_request(
-            f"{RAG_URL}/analysis/search",
-            "POST",
-            json=payload,
-        )
-        logger.info(
-            "[ANALYSIS-SEARCH] success user=%s count=%s",
-            getattr(session, "user_id", None),
-            len(result.get("items") or []) if isinstance(result, dict) else "?",
-        )
-        return result
-    except HTTPException as exc:
-        logger.error(
-            "[ANALYSIS-SEARCH] error user=%s status=%s",
-            getattr(session, "user_id", None),
-            exc.status_code,
-        )
-        raise
-
-
-# ============================================================================
-# Meta-Analysis and Chat-on-Artifact (Gemma)
-# ============================================================================
-
-
-@app.post("/api/analysis/meta")
-async def analysis_meta(
-    payload: Dict[str, Any],
-    http_request: Request,
-    session: Session = Depends(require_auth),
-):
-    analysis_id = http_request.headers.get("X-Analysis-Id") or f"meta_{uuid.uuid4().hex[:10]}"
-    headers = {"X-Analysis-Id": analysis_id}
-
-    async def streamer():
-        try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream(
-                    "POST",
-                    f"{GEMMA_URL}/analyze/meta",
-                    json=payload,
-                    headers=headers,
-                ) as resp:
-                    async for line in resp.aiter_lines():
-                        if line:
-                            yield line + "\n"
-        except Exception as exc:
-            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
-
-    return StarletteStreamingResponse(streamer(), media_type="text/event-stream")
-
-
-@app.post("/api/gemma/chat-on-artifact")
-async def chat_on_artifact_api(
-    payload: Dict[str, Any],
-    session: Session = Depends(require_auth),
-):
-    result = await proxy_request(
-        f"{GEMMA_URL}/chat-on-artifact",
-        "POST",
-        json=payload,
-    )
-    return result
-
-
-@app.post("/api/gemma/chat-on-artifact/v2")
-async def chat_on_artifact_v2_api(
-    payload: Dict[str, Any],
-    session: Session = Depends(require_auth),
-):
-    result = await proxy_request(
-        f"{GEMMA_URL}/chat-on-artifact/v2",
-        "POST",
-        json=payload,
-    )
-    return result
-
-
-@app.get("/api/result/{job_id}")
-async def api_result_get(
-    job_id: str,
-    session: Session = Depends(require_auth)
-):
-    """Alias for /api/transcript/{job_id} used by older frontend components."""
-    return await transcript_get(job_id=job_id, session=session)
-
-
-@app.get("/api/latest_result")
-async def latest_result(session: Session = Depends(require_auth)):
-    """
-    Return the most recent transcript entry for quick UI previews.
-    """
-    data = await proxy_request(f"{RAG_URL}/transcripts/recent?limit=1", "GET")
-    latest = None
-
-    if isinstance(data, dict):
-        candidates = data.get("transcripts") or data.get("items") or []
-        if isinstance(candidates, list) and candidates:
-            latest = candidates[0]
-    elif isinstance(data, list) and data:
-        latest = data[0]
-
-    return {
-        "success": True,
-        "result": latest,
-        "raw": data
-    }
-
-# ============================================================================
-# Emotion Endpoints
-# ============================================================================
-
-@app.post("/api/emotion/analyze")
-async def emotion_analyze(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    result = await proxy_request(f"{EMOTION_URL}/analyze", "POST", json=request)
-    return result
-
-# ============================================================================
-# Transcription Endpoints
-# ============================================================================
-
-@app.post("/api/transcription/transcribe")
-async def transcription_transcribe(
-    file: UploadFile = File(...),
-    session: Session = Depends(require_auth)
-):
-    """Transcribe audio file"""
-    if not service_auth:
-        logger.error("[TRANSCRIBE-API] ❌ service_auth unavailable")
-        raise HTTPException(status_code=503, detail="Service authentication unavailable")
-
-    headers: Dict[str, str] = {}
-    try:
-        token = service_auth.create_token(expires_in=60)
-        headers["X-Service-Token"] = token
-        logger.debug("[TRANSCRIBE-API] JWT attached for transcription request")
-    except Exception as e:
-        logger.error(f"[TRANSCRIBE-API] ❌ Failed to create JWT token: {e}", exc_info=True)
-        raise HTTPException(status_code=503, detail="Service authentication unavailable")
-    
-    # Read file content
-    file_content = await file.read()
-    # Content-type and size validation
-    if file.content_type and not file.content_type.startswith("audio/"):
-        raise HTTPException(status_code=400, detail="Invalid content type; expected audio/*")
-    if len(file_content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail=f"File too large (>{MAX_UPLOAD_MB}MB)")
-    
-    logger.info("[TRANSCRIBE-API] Forwarding audio chunk (%s bytes)", len(file_content))
-    files = {"audio": (file.filename or "audio.wav", file_content, file.content_type or "audio/wav")}
-    
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        logger.info(f"[TRANSCRIBE-API] Forwarding to {TRANSCRIPTION_URL}/transcribe")
-        response = await client.post(
-            f"{TRANSCRIPTION_URL}/transcribe",
-            headers=headers,
-            files=files
-        )
-        response.raise_for_status()
-        return response.json()
-
-@app.post("/api/transcription/stream")
-async def transcription_stream(request: Dict[str, Any], session: Session = Depends(require_auth)):
-    """Start streaming transcription session"""
-    result = await proxy_request(f"{TRANSCRIPTION_URL}/stream", "POST", json=request)
-    return result
-
-# Direct transcribe endpoint (for Flutter app compatibility)
-@app.post("/transcribe")
-async def transcribe_direct(request: Request, session: Session = Depends(require_auth)):
-    """Direct transcribe endpoint - forwards to transcription service (flexible input)"""
-    if not service_auth:
-        logger.error("[TRANSCRIBE] ❌ service_auth unavailable")
-        raise HTTPException(status_code=503, detail="Service authentication unavailable")
-
-    headers: Dict[str, str] = {}
-    try:
-        token = service_auth.create_token(expires_in=60)
-        headers["X-Service-Token"] = token
-        logger.debug("[TRANSCRIBE] JWT attached for direct request")
-    except Exception as e:
-        logger.error(f"[TRANSCRIBE] ❌ Failed to create JWT token: {e}", exc_info=True)
-        raise HTTPException(status_code=503, detail="Service authentication unavailable")
-    
-    try:
-        content_type = request.headers.get("content-type", "")
-        logger.info(f"[TRANSCRIBE] Received request with content-type: {content_type}")
-        
-        # Handle multipart form data
-        if "multipart/form-data" in content_type:
-            form = await request.form()
-            logger.info(f"[TRANSCRIBE] Form fields: {list(form.keys())}")
-            
-            # Look for file in common field names
-            file = None
-            for field_name in ["file", "audio", "recording", "data"]:
-                if field_name in form:
-                    file = form[field_name]
-                    logger.info(f"[TRANSCRIBE] Found file in field '{field_name}'")
-                    break
-            
-            if file:
-                # Read file content
-                if hasattr(file, 'read'):
-                    file_content = await file.read()
-                else:
-                    file_content = file
-                    
-                logger.info(f"[TRANSCRIBE] File size: {len(file_content)} bytes")
-                if len(file_content) > MAX_UPLOAD_BYTES:
-                    raise HTTPException(status_code=413, detail=f"File too large (>{MAX_UPLOAD_MB}MB)")
-                
-                # Extract other form fields (seq, stream_id, format, sample_rate)
-                form_data = {}
-                for key in form.keys():
-                    if key not in ["file", "audio", "recording", "data"]:
-                        form_data[key] = form[key]
-                
-                logger.info(f"[TRANSCRIBE] Additional form data: {form_data}")
-                
-                # Transcription service expects field name "audio"
-                files = {"audio": ("audio.wav", file_content, "audio/wav")}
-            else:
-                logger.error(f"[TRANSCRIBE] No file found. Available fields: {list(form.keys())}")
-                raise HTTPException(status_code=400, detail=f"No file in multipart data. Fields: {list(form.keys())}")
-        else:
-            # Handle raw body
-            body = await request.body()
-            logger.info(f"[TRANSCRIBE] Received raw body: {len(body)} bytes")
-            
-            if len(body) == 0:
-                raise HTTPException(status_code=400, detail="No audio data provided")
-            if len(body) > MAX_UPLOAD_BYTES:
-                raise HTTPException(status_code=413, detail=f"File too large (>{MAX_UPLOAD_MB}MB)")
-                
-            files = {"file": ("audio.wav", body, "audio/wav")}
-        
-        # Forward to transcription service
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            logger.info(f"[TRANSCRIBE] Forwarding to {TRANSCRIPTION_URL}/transcribe")
-            logger.info(f"[TRANSCRIBE] 📤 Headers being sent: {list(headers.keys())}")  # Log header names only
-            
-            # Build multipart data including form fields if present
-            multipart_data = []
-            
-            # Add audio file
-            for field_name, file_info in files.items():
-                filename, content, content_type = file_info
-                multipart_data.append((field_name, (filename, content, content_type)))
-            
-            # Add other form fields
-            if 'form_data' in locals():
-                for key, value in form_data.items():
-                    multipart_data.append((key, (None, str(value))))
-            
-            logger.info(f"[TRANSCRIBE] 📋 Multipart fields: {[k for k,v in multipart_data]}")
-            
-            response = await client.post(
-                f"{TRANSCRIPTION_URL}/transcribe",
-                headers=headers,
-                files=multipart_data if multipart_data else files
-            )
-            response.raise_for_status()
-            result = response.json()
-            logger.info(f"[TRANSCRIBE] Success: {result}")
-            return result
-                
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[TRANSCRIBE] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/transcribe")
-async def api_transcribe(request: Request, session: Session = Depends(require_auth)):
-    """Alias route for frontend clients that prefix endpoints with /api."""
-    return await transcribe_direct(request=request, session=session)
-
-
-# ============================================================================
-# WebSocket Streaming Proxy (Real-time Transcription)
-# ============================================================================
-
-# Allowed WebSocket origins (configurable via env)
-WS_ALLOWED_ORIGINS = set(filter(None, os.getenv(
-    "WS_ALLOWED_ORIGINS", 
-    "http://localhost,http://127.0.0.1,https://localhost,https://127.0.0.1"
-).split(",")))
-
-@app.websocket("/stream")
-async def websocket_stream_proxy(websocket: WebSocket, token: Optional[str] = Query(None)):
-    """
-    WebSocket proxy to transcription service for real-time streaming.
-    
-    Mobile app connects to ws://gateway:8000/stream?token=<session_token>
-    Gateway proxies to ws://transcription-service:8003/stream
-    
-    Security:
-    - JWT authentication required (via query param or cookie)
-    - Origin validation for browser clients
-    """
-    import websockets
-    
-    # --- Origin Validation (for browser clients) ---
-    origin = websocket.headers.get("origin", "")
-    if origin:
-        origin_host = origin.rstrip("/")
-        # Check if origin matches allowed list (strip port for localhost)
-        origin_allowed = any(
-            origin_host.startswith(allowed.rstrip("/")) 
-            for allowed in WS_ALLOWED_ORIGINS
-        )
-        if not origin_allowed:
-            logger.warning("ws_origin_rejected", origin=origin, allowed=list(WS_ALLOWED_ORIGINS))
-            await websocket.close(code=4003, reason="Origin not allowed")
-            return
-    
-    # --- JWT Authentication ---
-    session_token = token
-    if not session_token:
-        # Try cookie fallback
-        session_token = websocket.cookies.get(SESSION_COOKIE_NAME)
-    
-    if not session_token or not auth_manager:
-        logger.warning(f"ws_auth_missing: has_token={bool(session_token)}, has_auth_manager={bool(auth_manager)}")
-        await websocket.close(code=4001, reason="Authentication required")
-        return
-    
-    session = auth_manager.validate_session(session_token)
-    if not session:
-        logger.warning("ws_auth_invalid: Invalid or expired session")
-        await websocket.close(code=4001, reason="Invalid session")
-        return
-    
-    logger.info(f"ws_authenticated: user_id={session.user_id}, role={session.role.value}")
-    
-    # Convert HTTP URL to WebSocket URL
-    transcription_ws_url = TRANSCRIPTION_URL.replace("http://", "ws://").replace("https://", "wss://")
-    backend_url = f"{transcription_ws_url}/stream"
-    
-    logger.info(f"[WS-PROXY] Client connecting, proxying to {backend_url}")
-    
-    try:
-        # Accept client connection first
-        await websocket.accept()
-        logger.info("[WS-PROXY] Client connection accepted")
-        
-        # Connect to backend transcription service
-        async with websockets.connect(backend_url) as backend_ws:
-            logger.info("[WS-PROXY] Connected to backend transcription service")
-            
-            async def forward_to_backend():
-                """Forward messages from client to backend."""
-                try:
-                    while True:
-                        data = await websocket.receive()
-                        if "bytes" in data:
-                            await backend_ws.send(data["bytes"])
-                        elif "text" in data:
-                            await backend_ws.send(data["text"])
-                except WebSocketDisconnect:
-                    logger.info("[WS-PROXY] Client disconnected")
-                except Exception as e:
-                    logger.error(f"[WS-PROXY] Error forwarding to backend: {e}")
-            
-            async def forward_to_client():
-                """Forward messages from backend to client."""
-                try:
-                    async for message in backend_ws:
-                        if isinstance(message, bytes):
-                            await websocket.send_bytes(message)
-                        else:
-                            await websocket.send_text(message)
-                except Exception as e:
-                    logger.error(f"[WS-PROXY] Error forwarding to client: {e}")
-            
-            # Run both forwarding tasks concurrently
-            await asyncio.gather(
-                forward_to_backend(),
-                forward_to_client(),
-                return_exceptions=True
-            )
-            
-    except Exception as e:
-        logger.error(f"[WS-PROXY] Connection error: {e}")
-        try:
-            await websocket.close(code=1011, reason=str(e))
-        except:
-            pass
-
-# ============================================================================
-
-# ============================================================================
-# Speaker Enrollment Routes
-# ============================================================================
-
-@app.post("/enroll/upload")
-async def enroll_upload(
-    audio: UploadFile = File(...),
-    speaker: str = Form(...),
-    session: Session = Depends(require_auth)
-):
-    """
-    Upload enrollment audio for speaker voice profile
-    
-    Creates a speaker embedding from 90-120 seconds of voice audio
-    Saves to instance/enrollment/{speaker_name}/
-    """
-    import os
-    import tempfile
-    import numpy as np
-    import soundfile as sf
-    from pathlib import Path
-    
-    try:
-        # Validate speaker name
-        speaker_clean = speaker.strip().lower()
-        if not speaker_clean:
-            raise HTTPException(status_code=400, detail="Speaker name required")
-        if not SPEAKER_ID_PATTERN.fullmatch(speaker_clean):
-            raise HTTPException(
-                status_code=400,
-                detail="Speaker name must be 1-64 characters of lowercase letters, digits, '_' or '-'",
-            )
-        
-        # Read audio data
-        audio_data = await audio.read()
-        # Size and type checks
-        if audio.content_type and not audio.content_type.startswith("audio/"):
-            raise HTTPException(status_code=400, detail="Invalid content type; expected audio/*")
-        if len(audio_data) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail=f"File too large (>{MAX_UPLOAD_MB}MB)")
-        logger.info(f"[ENROLL] Processing enrollment for '{speaker_clean}' ({len(audio_data)} bytes)")
-        
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(audio_data)
-            tmp_path = tmp.name
-        
-        try:
-            # Load and validate audio
-            audio_array, sample_rate = sf.read(tmp_path)
-            duration = len(audio_array) / sample_rate
-            
-            if duration < 90:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Audio too short ({duration:.1f}s). Need at least 90 seconds."
-                )
-            
-            logger.info(f"[ENROLL] Audio: {duration:.1f}s at {sample_rate}Hz")
-            
-            # Resample to 16kHz if needed
-            if sample_rate != 16000:
-                import librosa
-                audio_array = librosa.resample(audio_array, orig_sr=sample_rate, target_sr=16000)
-                sample_rate = 16000
-                
-                # Save resampled audio
-                resampled_path = tmp_path.replace(".wav", "_16k.wav")
-                sf.write(resampled_path, audio_array, sample_rate)
-                os.remove(tmp_path)
-                tmp_path = resampled_path
-            
-            # Create enrollment directory
-            enrollment_dir = Path("instance/enrollment") / speaker_clean
-            enrollment_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Save the enrollment audio
-            enrollment_audio_path = enrollment_dir / "enrollment.wav"
-            sf.write(str(enrollment_audio_path), audio_array, sample_rate)
-            logger.info(f"[ENROLL] Saved audio to {enrollment_audio_path}")
-            
-            # Generate speaker embedding using TitaNet (if available)
-            try:
-                # Try to use transcription service's speaker model
-                embedding_response = await httpx.AsyncClient(timeout=60.0).post(
-                    f"{TRANSCRIPTION_URL}/generate_embedding",
-                    files={"audio": (audio.filename, open(tmp_path, "rb"), "audio/wav")}
-                )
-                
-                if embedding_response.status_code == 200:
-                    embedding_data = embedding_response.json()
-                    embedding = np.array(embedding_data["embedding"])
-                    
-                    # Save embedding
-                    embedding_path = enrollment_dir.parent / f"{speaker_clean}_embedding.npy"
-                    np.save(str(embedding_path), embedding)
-                    logger.info(f"[ENROLL] Saved embedding to {embedding_path}")
-                    
-                    return {
-                        "status": "success",
-                        "message": f"Enrollment successful for '{speaker_clean}'",
-                        "speaker": speaker_clean,
-                        "duration": duration,
-                        "audio_path": str(enrollment_audio_path),
-                        "embedding_path": str(embedding_path),
-                        "auto_processed": True
-                    }
-                else:
-                    logger.warning(f"[ENROLL] Could not generate embedding: {embedding_response.status_code}")
-                    
-            except Exception as emb_error:
-                logger.warning(f"[ENROLL] Embedding generation failed: {emb_error}")
-            
-            # Return success even without embedding (can be processed later)
-            return {
-                "status": "success",
-                "message": f"Enrollment audio saved for '{speaker_clean}'. Run embedding generation script.",
-                "speaker": speaker_clean,
-                "duration": duration,
-                "audio_path": str(enrollment_audio_path),
-                "embedding_path": None,
-                "auto_processed": False
-            }
-            
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
-                    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[ENROLL] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Enrollment failed: {str(e)}")
-
-
-@app.get("/enroll/speakers")
-async def list_enrolled_speakers(session = Depends(require_auth)):
-    """List all enrolled speakers"""
-    import os
-    from pathlib import Path
-    
-    try:
-        enrollment_dir = Path("instance/enrollment")
-        
-        if not enrollment_dir.exists():
-            return {"speakers": [], "count": 0}
-        
-        # Find all speaker directories
-        speakers = []
-        for item in enrollment_dir.iterdir():
-            if item.is_dir():
-                speakers.append(item.name)
-            elif item.name.endswith("_embedding.npy"):
-                # Also list speakers with just embeddings
-                speaker_name = item.name.replace("_embedding.npy", "")
-                if speaker_name not in speakers:
-                    speakers.append(speaker_name)
-        
-        speakers.sort()
-        
-        return {
-            "speakers": speakers,
-            "count": len(speakers)
-        }
-        
-    except Exception as e:
-        logger.error(f"[ENROLL] Error listing speakers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/enroll/upload")
-async def api_enroll_upload(
-    audio: UploadFile = File(...),
-    speaker: str = Form(...),
-    session: Session = Depends(require_auth)
-):
-    """Alias for /enroll/upload to support /api prefix."""
-    return await enroll_upload(audio=audio, speaker=speaker, session=session)
-
-
-@app.get("/api/enroll/speakers")
-async def api_list_enrolled_speakers(session: Session = Depends(require_auth)):
-    """Alias for /enroll/speakers to support /api prefix."""
-    return await list_enrolled_speakers(session=session)
-
-# Root & Frontend
-# ============================================================================
-
-@app.get("/", response_class=HTMLResponse)
-def root_redirect():
-    return RedirectResponse(url="/ui/login.html")
-
-# Mount static frontend with no-cache headers to prevent VPN/browser caching issues
-if FRONTEND_DIR.exists():
-    app.mount("/ui", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
-    logger.info(f"Frontend mounted at /ui from {FRONTEND_DIR} (with no-cache headers)")
-else:
-    logger.warning(f"Frontend not found at {FRONTEND_DIR}")
-
-# Mount test datasets for easy loading
-TEST_DATASETS_DIR = FRONTEND_DIR.parent / "data" / "test_datasets"
-if TEST_DATASETS_DIR.exists():
-    app.mount("/test-datasets", StaticFiles(directory=str(TEST_DATASETS_DIR)), name="test-datasets")
-    logger.info(f"Test datasets mounted at /test-datasets from {TEST_DATASETS_DIR}")
-else:
-    logger.warning(f"Test datasets not found at {TEST_DATASETS_DIR}")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
-def _ensure_email_analyzer_enabled() -> None:
-    if not EMAIL_ANALYZER_ENABLED:
-        raise HTTPException(status_code=404, detail="Email analyzer disabled")
-
-
-def _prepare_email_stream_payload(raw: str) -> Dict[str, Any]:
-    if not raw:
-        raise HTTPException(status_code=400, detail="Missing payload")
-    padded = raw + "=" * (-len(raw) % 4)
-    try:
-        decoded = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail="Invalid payload encoding") from exc
-    return decoded
-
-
+# =============================================================================
+# Gemma Generate with Fallback (Used by gemma router)
+# =============================================================================
 async def _gemma_generate_with_fallback(
-    body: Dict[str, Any],
-    headers: Optional[Dict[str, str]],
+    body: dict[str, Any],
+    headers: dict[str, str] | None,
     *,
     fallback_suffix: str = "\n\nRespond with at least one clear sentence.",
     min_temperature: float = 0.55,
 ):
     """Invoke Gemma /generate and retry once if no text is produced."""
 
-    async def _invoke(payload: Dict[str, Any]):
-        return await proxy_request(
-            f"{GEMMA_URL}/generate",
-            "POST",
-            json=payload,
-            extra_headers=headers,
-        )
+    async def _invoke(payload: dict[str, Any]):
+        result = await proxy_request(f"{GEMMA_URL}/generate", "POST", json=payload, extra_headers=headers)
+        return result
 
-    def _extract_text(resp: Optional[Dict[str, Any]]) -> str:
-        if not isinstance(resp, dict):
+    def _extract_text(resp: dict[str, Any] | None) -> str:
+        if not resp:
             return ""
         return (resp.get("text") or resp.get("response") or "").strip()
 
     response = await _invoke(body)
     text = _extract_text(response)
+
     if text:
         return text, response
 
-    retry_body = dict(body)
+    # Retry with adjusted parameters
+    retry_body = body.copy()
     retry_body["prompt"] = body.get("prompt", "") + fallback_suffix
-    try:
-        retry_temp = float(retry_body.get("temperature", 0.4) or 0.4)
-    except Exception:
-        retry_temp = 0.4
-    retry_body["temperature"] = max(retry_temp, min_temperature)
-    retry_body.setdefault("top_p", 0.92)
+    retry_body["temperature"] = max(body.get("temperature", 0.4), min_temperature)
 
-    try:
-        response = await _invoke(retry_body)
-        text = _extract_text(response)
-    except Exception:
-        text = ""
-
+    response = await _invoke(retry_body)
+    text = _extract_text(response)
     return text, response
-@app.get("/api/debug/transcripts/time-range")
-async def debug_transcript_time_range(session: Session = Depends(require_auth)):
-    """Expose RAG dataset coverage stats to the UI."""
-    logger.info("[DEBUG] transcript time range requested by %s", getattr(session, "user_id", None))
-    return await proxy_request(f"{RAG_URL}/debug/transcripts/time-range", "GET")
 
-@app.post("/api/rag/personalize")
-async def rag_personalize(session: Session = Depends(require_auth)):
-    """Trigger RAG personalization pipeline"""
-    if not _is_admin(session):
-        raise HTTPException(status_code=403, detail="Admin access required")
-        
-    result = await proxy_request(f"{RAG_URL}/personalize", "POST")
-    return result
 
-# ============================================================================
-# API Versioning (Phase 5)
-# ============================================================================
-v1 = APIRouter(prefix="/api/v1", tags=["v1"])
+# =============================================================================
+# Router Imports & Registration
+# =============================================================================
+logger.info("Loading routers...")
 
-# Authentication
-v1.add_api_route("/auth/login", login, methods=["POST"])
-v1.add_api_route("/auth/register", register, methods=["POST"])
-v1.add_api_route("/auth/logout", logout, methods=["POST"])
-v1.add_api_route("/auth/session", check_session, methods=["GET"])
-v1.add_api_route("/auth/check", check_auth, methods=["GET"])
-
-# Generative AI (Gemma)
-v1.add_api_route("/gemma/chat", gemma_chat, methods=["POST"])
-v1.add_api_route("/gemma/generate", gemma_generate, methods=["POST"])
-v1.add_api_route("/gemma/stats", gemma_stats, methods=["GET"])
-v1.add_api_route("/gemma/analyze/stream", gemma_analyze_stream_create, methods=["POST"])
-
-# Data Ingestion
-v1.add_api_route("/upload", ml_upload, methods=["POST"])
-
-# Mount v1 router
-app.include_router(v1)
-logger.info("✅ API v1 Router mounted at /api/v1")
-
-# Include auth router with user management endpoints
+# Core routers
+from src.routers.analysis import router as analysis_router
 from src.routers.auth import router as auth_router
-app.include_router(auth_router)
-logger.info("✅ Auth Router mounted with user management endpoints")
+from src.routers.email_analyzer import router as email_router
+from src.routers.enrollment import router as enrollment_router
+from src.routers.gemma import router as gemma_router
+from src.routers.health import router as health_router
+from src.routers.ml import router as ml_router
+from src.routers.rag import router as rag_router
+from src.routers.transcription import router as transcription_router
+from src.routers.transcripts import router as transcripts_router
+from src.routers.websocket import router as websocket_router
+from src.routers.emotions import router as emotions_router
 
-# Include enterprise manager router (QA, Automation, Knowledge, Analytics, Meetings)
+# SCIM router (Phase 2 - Enterprise Identity)
+try:
+    from src.routers.scim import router as scim_router
+    _scim_available = True
+except ImportError:
+    scim_router = None
+    _scim_available = False
+
+# Enterprise routers
 try:
     from src.routers.enterprise import router as enterprise_router
-    app.include_router(enterprise_router)
-    logger.info("✅ Enterprise Router mounted at /api/enterprise")
-except ImportError as e:
-    logger.warning(f"⚠️ Enterprise Router not available: {e}")
 
+    _enterprise_available = True
+except ImportError:
+    enterprise_router = None
+    _enterprise_available = False
+
+# Banking & Fiserv routers
+try:
+    from src.routers.banking import router as banking_router
+    from src.routers.fiserv import router as fiserv_router
+
+    _banking_available = True
+except ImportError:
+    banking_router = None
+    fiserv_router = None
+    _banking_available = False
+
+# Call Intelligence routers
+try:
+    from src.routers.call_intelligence import router as call_intelligence_router
+    from src.routers.call_lifecycle import router as call_lifecycle_router
+
+    _call_available = True
+except ImportError:
+    call_intelligence_router = None
+    call_lifecycle_router = None
+    _call_available = False
+
+# Salesforce router
+try:
+    from src.routers.salesforce import router as salesforce_router
+
+    _salesforce_available = True
+except ImportError:
+    salesforce_router = None
+    _salesforce_available = False
+
+# Phase 4 - Workflow Orchestration routers
+try:
+    from src.routers.automation import router as automation_router
+    from src.routers.models import router as models_router
+    from src.routers.prompts import router as prompts_router
+
+    _phase4_available = True
+except ImportError:
+    automation_router = None
+    models_router = None
+    prompts_router = None
+    _phase4_available = False
+
+# Phase 5 - Reliability and FinOps routers
+try:
+    from src.routers.analytics import router as analytics_router
+
+    _phase5_available = True
+except ImportError:
+    analytics_router = None
+    _phase5_available = False
+
+# =============================================================================
+# Register All Routers
+# =============================================================================
+app.include_router(auth_router)
+logger.info("✅ Auth Router mounted")
+
+app.include_router(health_router)
+logger.info("✅ Health Router mounted")
+
+app.include_router(gemma_router)
+logger.info("✅ Gemma Router mounted")
+
+app.include_router(rag_router)
+logger.info("✅ RAG Router mounted")
+
+app.include_router(ml_router)
+logger.info("✅ ML Router mounted")
+
+app.include_router(email_router)
+logger.info("✅ Email Analyzer Router mounted")
+
+app.include_router(transcription_router)
+logger.info("✅ Transcription Router mounted")
+
+app.include_router(transcripts_router)
+logger.info("✅ Transcripts Router mounted")
+
+app.include_router(analysis_router)
+logger.info("✅ Analysis Router mounted")
+
+app.include_router(emotions_router)
+logger.info("✅ Emotions Router mounted")
+
+app.include_router(enrollment_router)
+logger.info("✅ Enrollment Router mounted")
+
+app.include_router(websocket_router)
+logger.info("✅ WebSocket Router mounted")
+
+# SCIM Router (Phase 2 - Enterprise Identity)
+if _scim_available:
+    app.include_router(scim_router)
+    logger.info("✅ SCIM Router mounted")
+
+if _enterprise_available:
+    app.include_router(enterprise_router)
+    logger.info("✅ Enterprise Router mounted")
+
+if _banking_available:
+    app.include_router(banking_router)
+    app.include_router(fiserv_router)
+    logger.info("✅ Banking & Fiserv Routers mounted")
+
+if _call_available:
+    app.include_router(call_intelligence_router)
+    app.include_router(call_lifecycle_router)
+    logger.info("✅ Call Intelligence Routers mounted")
+
+if _salesforce_available:
+    app.include_router(salesforce_router)
+    logger.info("✅ Salesforce Router mounted")
+
+# Phase 4 - Workflow Orchestration
+if _phase4_available:
+    app.include_router(automation_router)
+    app.include_router(models_router)
+    app.include_router(prompts_router)
+    logger.info("✅ Phase 4 Routers (automation, models, prompts) mounted")
+
+# Phase 5 - Reliability and FinOps
+if _phase5_available:
+    app.include_router(analytics_router)
+    logger.info("✅ Phase 5 Analytics Router mounted")
+
+# =============================================================================
+# API Versioning
+# =============================================================================
+v1 = APIRouter(prefix="/api/v1", tags=["v1"])
+app.include_router(v1)
+logger.info("✅ API v1 Router mounted")
+
+# =============================================================================
+# Startup Complete
+# =============================================================================
+router_count = 15 + (3 if _phase4_available else 0) + (1 if _phase5_available else 0)
+logger.info("🚀 API Gateway (Slim) initialized with %d routers", router_count)
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

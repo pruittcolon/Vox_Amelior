@@ -1,0 +1,211 @@
+# Peer Authentication - STRICT mTLS for Nemo Namespace
+# This policy enforces mutual TLS for ALL traffic in the nemo namespace.
+# No plaintext traffic is allowed.
+#
+# Reference: https://istio.io/latest/docs/reference/config/security/peer_authentication/
+#
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: nemo
+spec:
+  # Apply to all workloads in namespace
+  selector: {}
+  mtls:
+    # STRICT: Only accept mTLS connections
+    # PERMISSIVE would allow both mTLS and plaintext (NOT recommended for production)
+    mode: STRICT
+
+---
+# Mesh-wide default (fallback for namespaces without specific policy)
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Per-service overrides (all STRICT for zero trust)
+# These explicitly define mTLS requirements per service
+
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: api-gateway
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  mtls:
+    mode: STRICT
+  # Port-level settings (all ports require mTLS)
+  portLevelMtls:
+    8000:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: gemma-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: gemma-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8001:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: gpu-coordinator
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: gpu-coordinator
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8002:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: transcription-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: transcription-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8003:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: rag-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: rag-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8004:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: emotion-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: emotion-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8005:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: ml-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: ml-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8006:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: insights-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: insights-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8010:
+      mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: fiserv-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: fiserv-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8015:
+      mode: STRICT
+
+---
+# Redis - require mTLS for data store access
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: redis
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    6379:
+      mode: STRICT
+
+---
+# PostgreSQL - require mTLS for database access
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: postgres
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    5432:
+      mode: STRICT

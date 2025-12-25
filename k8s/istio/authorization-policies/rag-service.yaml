@@ -1,0 +1,67 @@
+# RAG Service Authorization Policy
+#
+# RAG (Vector Search) can ONLY be accessed by:
+# - API Gateway (for document retrieval)
+# - Gemma Service (for context enrichment)
+# - Transcription Service (for storing transcripts)
+# - Insights Service (for knowledge queries)
+#
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: rag-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: rag-service
+  action: ALLOW
+  rules:
+    # Allow API Gateway for document operations
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/api-gateway"]
+      to:
+        - operation:
+            ports: ["8004"]
+            methods: ["GET", "POST", "DELETE"]
+            paths: ["/search", "/ingest", "/documents/*", "/health", "/v1/*"]
+    
+    # Allow Gemma Service to retrieve context for LLM
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/gemma-service"]
+      to:
+        - operation:
+            ports: ["8004"]
+            methods: ["POST", "GET"]
+            paths: ["/search", "/context", "/v1/*"]
+    
+    # Allow Transcription Service to store transcripts
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/transcription-service"]
+      to:
+        - operation:
+            ports: ["8004"]
+            methods: ["POST"]
+            paths: ["/ingest", "/transcripts", "/v1/*"]
+    
+    # Allow Insights Service for analytics queries
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/insights-service"]
+      to:
+        - operation:
+            ports: ["8004"]
+            methods: ["GET", "POST"]
+            paths: ["/search", "/analytics/*", "/v1/*"]
+    
+    # Allow health checks
+    - from:
+        - source:
+            namespaces: ["nemo"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/health", "/metrics"]

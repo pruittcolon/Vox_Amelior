@@ -41,14 +41,14 @@
   const escapeHTML = typeof global.escapeHTML === 'function'
     ? global.escapeHTML
     : (value) => {
-        if (value === null || value === undefined) return '';
-        return String(value)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
-      };
+      if (value === null || value === undefined) return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
 
   function formatDateTimeDisplay(value) {
     if (!value) return '—';
@@ -238,14 +238,14 @@
             <h3>Date Range</h3>
             <div class="analyzer-date-presets">
               ${datePresets
-                .map(
-                  (preset) => `
+        .map(
+          (preset) => `
                     <button class="chip" data-days="${preset.days}" ${preset.days === -1 ? 'data-active="true"' : ''}>
                       ${preset.label}
                     </button>
                   `
-                )
-                .join('')}
+        )
+        .join('')}
               <button class="chip" data-custom="true">Custom</button>
             </div>
             <div class="analyzer-date-inputs">
@@ -285,8 +285,8 @@
               </label>
               <div class="analyzer-emotion-grid">
                 ${emotionOptions
-                  .map(
-                    (emotion) => `
+        .map(
+          (emotion) => `
                       <label class="checkbox emotion-option">
                         <input type="checkbox" value="${emotion.value}" data-role="emotion-option" checked>
                         <span>
@@ -297,8 +297,8 @@
                         </span>
                       </label>
                     `
-                  )
-                  .join('')}
+        )
+        .join('')}
               </div>
               <div class="emotion-confidence-control">
                 <label>Emotion Confidence Baseline</label>
@@ -962,7 +962,7 @@ Provide your analysis in clear, structured sections.`).trim();
       } catch { return '' }
     }
 
-  function renderDbItems(items = []) {
+    function renderDbItems(items = []) {
       const frag = document.createDocumentFragment();
       items.forEach((it) => {
         const row = document.createElement('div');
@@ -1009,7 +1009,7 @@ Provide your analysis in clear, structured sections.`).trim();
         if (colVisible.segment_id || colVisible.transcript_id) {
           const seg = colVisible.segment_id ? escapeHTML(segmentDisplay) : '';
           const tr = colVisible.transcript_id ? escapeHTML(it.transcript_id || '') : '';
-          parts.push(`<span class="db-col db-segment">${[seg,tr].filter(Boolean).join(' • ')}</span>`);
+          parts.push(`<span class="db-col db-segment">${[seg, tr].filter(Boolean).join(' • ')}</span>`);
         }
         parts.push(`<span class="db-col db-text">${highlighted}</span>`);
         cols.innerHTML = parts.join('');
@@ -1380,7 +1380,7 @@ Provide your analysis in clear, structured sections.`).trim();
           const withoutFilter = base.replace(/\s*\(filtered:.*\)$/i, '');
           els.dbMeta.textContent = `${withoutFilter} (filtered: ${visible}/${total})`;
         }
-      } catch {}
+      } catch { }
     }
 
     function exportDbCsv() {
@@ -1410,8 +1410,8 @@ Provide your analysis in clear, structured sections.`).trim();
         const item = row.__item || {};
         const contextJoined = Array.isArray(item.context_before)
           ? item.context_before
-              .map((ctx) => `${ctx?.speaker || 'Speaker'}: ${ctx?.text || ''}`)
-              .join(' | ')
+            .map((ctx) => `${ctx?.speaker || 'Speaker'}: ${ctx?.text || ''}`)
+            .join(' | ')
           : '';
         lines.push([
           formatDateTimeDisplay(item.created_at),
@@ -1487,7 +1487,7 @@ Provide your analysis in clear, structured sections.`).trim();
     function saveColumnPrefs() {
       try {
         localStorage.setItem('gemma_viewer_columns', JSON.stringify(state.viewer.columns || {}));
-      } catch {}
+      } catch { }
     }
 
     function syncColumnToggles() {
@@ -1694,14 +1694,14 @@ Provide your analysis in clear, structured sections.`).trim();
         </div>
         <div class="analyzer-result-context">
           ${Array.isArray(item.context_before) && item.context_before.length
-            ? `<details><summary>Context (${item.context_before.length})</summary>
+          ? `<details><summary>Context (${item.context_before.length})</summary>
                 ${item.context_before
-                  .map(
-                    (ctx) => `<p><strong>${ctx.speaker || 'Speaker'}:</strong> ${ctx.text}</p>`
-                  )
-                  .join('')}
+            .map(
+              (ctx) => `<p><strong>${ctx.speaker || 'Speaker'}:</strong> ${ctx.text}</p>`
+            )
+            .join('')}
               </details>`
-            : ''}
+          : ''}
           <p><strong>Statement:</strong> ${item.text}</p>
         </div>
         <div class="analyzer-result-body">
@@ -1830,7 +1830,7 @@ Provide your analysis in clear, structured sections.`).trim();
             const data = JSON.parse(event.data || '{}');
             const msg = data.detail || 'Server error while preparing analysis.';
             logEvent(msg, 'error');
-          } catch (_) {}
+          } catch (_) { }
           // Mark complete to avoid network 'error' handler showing a misleading toast
           state.streamCompleted = true;
           stopStream('error');
@@ -2187,7 +2187,7 @@ Provide your analysis in clear, structured sections.`).trim();
         try {
           const obj = JSON.parse(data);
           if (ev === 'meta') appendMetaLog(`Meta: total=${obj.total}, strategy=${obj.strategy}`);
-          if (ev === 'result') appendMetaLog(`Chunk ${obj.i}/${obj.total}: ${String(obj.summary || '').slice(0,120)}…`);
+          if (ev === 'result') appendMetaLog(`Chunk ${obj.i}/${obj.total}: ${String(obj.summary || '').slice(0, 120)}…`);
           if (ev === 'error') { appendMetaLog(`Error: ${obj.detail || ''}`); showToast('Meta-analysis error', obj.detail || 'Unexpected error', 'error'); }
           if (ev === 'done') {
             appendMetaLog(`Done. artifact_id=${obj.artifact_id || 'n/a'}`);
@@ -2195,7 +2195,7 @@ Provide your analysis in clear, structured sections.`).trim();
             // Auto-close overlay shortly after completion
             setTimeout(() => closeMetaOverlay(), 600);
           }
-        } catch {}
+        } catch { }
       });
     }
     function runMetaAnalysis() {
@@ -2210,7 +2210,7 @@ Provide your analysis in clear, structured sections.`).trim();
         onEvent: parseSseChunk,
         analysisId: state.analysisId || createAnalysisId(),
       });
-      els.metaClose && (els.metaClose.onclick = () => { try { stop(); } catch(_){}; closeMetaOverlay(); });
+      els.metaClose && (els.metaClose.onclick = () => { try { stop(); } catch (_) { }; closeMetaOverlay(); });
     }
 
     function setChatDrawerOpen(open) {
@@ -2405,7 +2405,7 @@ Provide your analysis in clear, structured sections.`).trim();
             const intent = notes.intent || fallbackResponse.used_strategy || 'unknown';
             const action = notes.action || '—';
             const latency = typeof notes.latency_ms === 'number' ? `${notes.latency_ms}ms` : 'unknown latency';
-            logEvent(`[Chat] Fallback router intent=${intent} action=${action} citations=${notes.citations ?? 0} latency=${latency}`,'warning');
+            logEvent(`[Chat] Fallback router intent=${intent} action=${action} citations=${notes.citations ?? 0} latency=${latency}`, 'warning');
           } else {
             logEvent('[Chat] Response received via fallback', 'warning');
           }
@@ -2589,6 +2589,36 @@ Provide your analysis in clear, structured sections.`).trim();
     updateCount(false);
     loadGPUStats();
     warmupGPU();
+
+    // Release GPU when page closes so transcription can resume
+    function releaseGPUOnUnload() {
+      try {
+        // Use release-session endpoint - validates session cookie + CSRF from body
+        const url = api.buildURL('/gemma/release-session');
+        const csrfToken = api.getCsrfToken();  // Get CSRF token from cookie
+
+        // Use sendBeacon for reliable delivery on page unload
+        if (navigator.sendBeacon) {
+          // Include CSRF token in body (sendBeacon can't send headers)
+          // Session cookie is sent automatically by sendBeacon
+          const payload = JSON.stringify({ csrf_token: csrfToken });
+          const blob = new Blob([payload], { type: 'application/json' });
+          navigator.sendBeacon(url, blob);
+          console.log('[Analyzer] GPU release signal sent via sendBeacon (with CSRF in body)');
+        } else {
+          // Fallback: synchronous XHR with full headers
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url, false); // synchronous
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+          xhr.send(JSON.stringify({ csrf_token: csrfToken }));
+        }
+      } catch (error) {
+        console.warn('[Analyzer] Could not send GPU release signal:', error);
+      }
+    }
+    window.addEventListener('beforeunload', releaseGPUOnUnload);
+
     loadArtifacts(true);
     // Init DB viewer
     applyDbDensity();

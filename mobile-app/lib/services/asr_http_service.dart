@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:demo_ai_even/services/app_logger.dart';
 import 'package:demo_ai_even/services/auth_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -41,16 +43,24 @@ class AsrHttpService {
   String _serverBase = dotenv.env['ASR_SERVER_BASE']?.trim() ?? '';
 
   Duration _chunk = Duration(
-    seconds: int.tryParse(dotenv.env['ASR_CHUNK_SECS'] ?? '') ?? 30,
+    seconds: int.tryParse(dotenv.env['ASR_CHUNK_SECS'] ?? '') ?? 3,  // 3s chunks for faster feedback
   );
 
   void _logConfig() {
-    print("🔧 [ASR DEBUG] Server Base: '$_serverBase'");
-    print("🔧 [ASR DEBUG] Chunk Duration: $_chunk");
-    print("🔧 [ASR DEBUG] Stream ID: $_streamId");
+    if (kDebugMode) {
+      debugPrint("🔧 [ASR DEBUG] Server Base: '$_serverBase'");
+    }
+    if (kDebugMode) {
+      debugPrint("🔧 [ASR DEBUG] Chunk Duration: $_chunk");
+    }
+    if (kDebugMode) {
+      debugPrint("🔧 [ASR DEBUG] Stream ID: $_streamId");
+    }
     if (_serverBase.isEmpty) {
-      print(
-          "❌ [ASR ERROR] Empty server base! This will cause 'no host specified' errors.");
+      if (kDebugMode) {
+        debugPrint(
+            "❌ [ASR ERROR] Empty server base! This will cause 'no host specified' errors.");
+      }
     }
   }
 
@@ -83,20 +93,16 @@ class AsrHttpService {
       ),
     );
 
-    // Add authentication headers from AuthService
-    final authService = AuthService.instance;
-    AppLogger.instance.log('ASR', 'Auth status: isAuthenticated=${authService.isAuthenticated}');
-    if (authService.isAuthenticated) {
-      final sessionToken = authService.sessionToken;
-      AppLogger.instance.log('ASR', 'Session token value: $sessionToken (length=${sessionToken?.length ?? 0})');
-      if (sessionToken != null) {
-        _dio.options.headers['Authorization'] = 'Bearer $sessionToken';
-        AppLogger.instance.log('ASR', '✅ Session token added to headers');
-      } else {
-        AppLogger.instance.log('ASR', '⚠️ Session token is null despite being authenticated');
-      }
-    } else {
-      AppLogger.instance.log('ASR', '⚠️ Not authenticated - requests may fail');
+    // Bypass self-signed certificate errors for local development
+    // ISO 27002 5.14: TLS bypass ONLY in debug mode
+    if (_serverBase.startsWith('https')) {
+      (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        if (kDebugMode) {
+          client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+        }
+        return client;
+      };
     }
 
     _running = true;
@@ -228,9 +234,20 @@ class AsrHttpService {
       AppLogger.instance
           .log('ASR', 'Uploading segment #$segmentNumber (seq=$seq) to server');
 
-      print("🔧 [ASR DEBUG] Uploading to server: $_serverBase/transcribe");
-      print("🔧 [ASR DEBUG] File path: $path");
-      print("🔧 [ASR DEBUG] Stream ID: $_streamId, Seq: $seq");
+      if (kDebugMode) {
+        debugPrint("🔧 [ASR DEBUG] Uploading to server: $_serverBase/transcribe");
+      }
+      if (kDebugMode) {
+        debugPrint("🔧 [ASR DEBUG] File path: $path");
+      }
+      if (kDebugMode) {
+        debugPrint("🔧 [ASR DEBUG] Stream ID: $_streamId, Seq: $seq");
+      }
+      
+      final authHeaders = AuthService.instance.getAuthHeaders();
+      if (kDebugMode) {
+        debugPrint("🔧 [ASR DEBUG] Auth headers: $authHeaders");
+      }
 
       final form = FormData.fromMap({
         'audio': await MultipartFile.fromFile(path, filename: 'chunk.wav'),
@@ -238,21 +255,16 @@ class AsrHttpService {
         'sample_rate': 16000,
         'seq': seq,
         'stream_id': _streamId,
+        'diarize': false,  // Skip diarization for faster response
       });
 
-      // Log headers being sent
-      AppLogger.instance.log('ASR', '📤 Headers being sent to /transcribe: ${_dio.options.headers}');
-
-      // Explicitly include Authorization header in the request options
-      final requestOptions = Options(
-        contentType: 'multipart/form-data',
-        headers: _dio.options.headers,
-      );
-
       final response = await _dio.post(
-        '/transcribe',
+        '/transcribe',  // Form data now includes diarize field
         data: form,
-        options: requestOptions,
+        options: Options(
+          contentType: 'multipart/form-data',
+          headers: authHeaders,
+        ),
       );
 
       if (response.statusCode == 200 && response.data is Map) {

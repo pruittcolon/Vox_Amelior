@@ -6,16 +6,16 @@ The ML Service is the **Analytical Cortex** of the Nemo Platform. While the LLM 
 
 ---
 
-## 📐 Core Philosophy
+## Core Philosophy
 
 In Enterprise AI, hallucination is unacceptable. The ML Service acts as a **Ground Truth Generator**.
 When a user asks, *"Why did sales drop?"*, an LLM might hallucinate a reason. The ML Service runs a **Granger Causality Test** to mathematically determine if a specific variable (e.g., Ad Spend) temporally preceded and correlated with the drop.
 
 ---
 
-## 🧠 The Intelligence Engines
+## The Intelligence Engines
 
-The service exposes three distinct "Engines," each solving a specific class of analytical problem.
+The service exposes **36 distinct "Engines,"** each solving a specific class of analytical problem.
 
 ### 1. Titan Engine (Predictive Modeling)
 **Algorithm:** `AutoML` with `5x2 Nested Cross-Validation` & `Stability Selection`.
@@ -40,7 +40,36 @@ The service exposes three distinct "Engines," each solving a specific class of a
 
 ---
 
-## 🏗️ System Architecture
+## Complete Engine Catalog (36 Engines)
+
+### Flagship Engines (10)
+| Engine | Use Case |
+| :--- | :--- |
+| **Titan** | Universal AutoML with Gemma-ranked insights |
+| **Chaos** | Monte Carlo simulations for risk analysis |
+| **Scout** | Feature exploration and ranking |
+| **Oracle** | Ensemble forecasting and causal inference |
+| **Newton** | Symbolic regression (discover formulas) |
+| **Flash** | Quick-fit pattern detection |
+| **Mirror** | Synthetic data generation |
+| **Chronos** | Advanced time series forecasting |
+| **Deep Feature** | Neural feature extraction |
+| **Galileo** | Graph-based relationship discovery |
+
+### Financial Analytics Engines (12)
+`cost_optimization`, `roi_prediction`, `spend_patterns`, `budget_variance`, `profit_margins`, `revenue_forecasting`, `customer_ltv`, `cash_flow`, `pricing_strategy`, `market_basket`, `inventory_optimization`, `resource_utilization`
+
+### Salesforce Enterprise Engines (5)
+`salesforce_c360` (Customer 360), `salesforce_churn`, `salesforce_competitive`, `salesforce_nba` (Next Best Action), `salesforce_velocity` (Deal Velocity)
+
+### Core Analytics Engines (9)
+`predictive`, `clustering`, `anomaly`, `statistical`, `trend`, `lead_scoring`, `opportunity_scoring`, `rag_evaluation`, `universal_graph`
+
+> 📚 **See [ML_ENGINES_README.md](./ML_ENGINES_README.md)** for detailed implementation guide and how to add new engines.
+
+---
+
+## System Architecture
 
 The service is designed for **Compute-Intensive** workloads that must run asynchronously.
 
@@ -62,19 +91,59 @@ graph LR
 *   **Resource Management:** Runs on CPU to reserve GPU for the LLM/ASR services.
 *   **Explainability:** Every model integrates with SHAP (SHapley Additive exPlanations) to explain *why* a prediction was made.
 
+## Security & Observability
+
+### Authentication
+-   **Method**: Service-to-Service (S2S) JWT.
+-   **Header**: `X-Service-Token`. Requests without this header are rejected (401).
+
+### Logging
+-   **Format**: Structured JSON via `shared.logging.structured`.
+-   **Integration**: Logs are ready for ingestion into ELK/Datadog.
+
 ---
 
 ## 🔌 API Specification
 
-### Execute Analysis
+### Run Any Engine (Primary Endpoint)
+
+```http
+POST /analytics/run-engine/{engine_name}
+Content-Type: application/json
+
+{
+  "filename": "uploaded_data.csv",
+  "target_column": "revenue",
+  "config": {}
+}
+```
+
+### Premium Engine Execution
+### Engine Execution
+
+```http
+POST /analytics/{engine_name}
+Content-Type: application/json
+
+{
+  "filename": "uploaded_file.csv",
+  "target_column": "target",
+  "config_overrides": {}
+}
+```
+
+### List Available Engines
+
+```http
+GET /analytics/engines
+```
+
+### Legacy Analyze Endpoint
 
 ```http
 POST /analyze
 Content-Type: application/json
-```
 
-**Payload:**
-```json
 {
   "dataset_id": "uuid-1234",
   "engine": "oracle",
@@ -98,18 +167,15 @@ Content-Type: application/json
 
 ---
 
-## 🧪 Development & Testing
+## Development & Testing
 
 The engines are tested against synthetic datasets where the ground truth is known (e.g., generating data using $y=x^2$ and verifying Newton rediscovers it).
 
 ```bash
 # Run Engine Verification Tests
 pytest tests/test_engines.py
-```
 
----
-
-**Pruitt Colon**
-*Senior Architect*
-
+# Run ML service locally
+cd services/ml-service
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8006
 ```

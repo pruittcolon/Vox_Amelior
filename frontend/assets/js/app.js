@@ -60,29 +60,29 @@ let autoRefreshInterval = null;
  */
 function formatTime(timestamp) {
   if (!timestamp) return 'Unknown';
-  
+
   const date = new Date(timestamp);
   const now = new Date();
   const diff = now - date;
-  
+
   // Less than 1 minute
   if (diff < 60000) {
     return 'Just now';
   }
-  
+
   // Less than 1 hour
 
   if (diff < 3600000) {
     const minutes = Math.floor(diff / 60000);
     return `${minutes}m ago`;
   }
-  
+
   // Less than 1 day
   if (diff < 86400000) {
     const hours = Math.floor(diff / 3600000);
     return `${hours}h ago`;
   }
-  
+
   // More than 1 day
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 }
@@ -92,10 +92,10 @@ function formatTime(timestamp) {
  */
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return '00:00';
-  
+
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  
+
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
@@ -152,12 +152,12 @@ function getSpeakerColor(speakerId) {
     '#10b981', // Green
     '#3b82f6', // Blue
   ];
-  
+
   let hash = 0;
   for (let i = 0; i < speakerId.length; i++) {
     hash = speakerId.charCodeAt(i) + ((hash << 5) - hash);
   }
-  
+
   return colors[Math.abs(hash) % colors.length];
 }
 
@@ -168,7 +168,7 @@ function createSpeakerAvatar(speakerId, size = 'normal') {
   const avatar = document.createElement('div');
   avatar.className = `speaker-avatar ${size === 'large' ? 'large' : ''}`;
   avatar.style.background = getSpeakerColor(speakerId);
-  
+
   // Extract initials (e.g., "SPK_00" -> "S0", "John Doe" -> "JD")
   const initials = speakerId
     .split(/[_\s]+/)
@@ -176,9 +176,9 @@ function createSpeakerAvatar(speakerId, size = 'normal') {
     .join('')
     .substring(0, 2)
     .toUpperCase();
-  
+
   avatar.textContent = initials;
-  
+
   return avatar;
 }
 
@@ -194,7 +194,7 @@ function createEmotionBadge(emotion, confidence = null) {
   const percentText = `${Math.round(normalized * 100)}%`;
   const label = emotion ? `${emotion} ${percentText}` : percentText;
   badge.textContent = label.trim();
-  
+
   return badge;
 }
 
@@ -211,7 +211,7 @@ function showToast(title, message, type = 'info', duration = 3000) {
 
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  
+
   toast.innerHTML = `
     <div class="toast-content">
       <div class="toast-title">${escapeHTML(title)}</div>
@@ -219,9 +219,9 @@ function showToast(title, message, type = 'info', duration = 3000) {
     </div>
     <button class="glass-button" onclick="this.parentElement.remove()">&times;</button>
   `;
-  
+
   container.appendChild(toast);
-  
+
   if (duration > 0) {
     setTimeout(() => toast.remove(), duration);
   }
@@ -234,7 +234,7 @@ function showToast(title, message, type = 'info', duration = 3000) {
 function showModal(title, bodyHTML) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  
+
   overlay.innerHTML = `
     <div class="modal">
       <div class="modal-header">
@@ -246,16 +246,16 @@ function showModal(title, bodyHTML) {
       </div>
     </div>
   `;
-  
+
   document.body.appendChild(overlay);
-  
+
   // Close on overlay click
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) {
       overlay.remove();
     }
   });
-  
+
   return overlay;
 }
 
@@ -361,10 +361,10 @@ function toggleTheme() {
 async function testAPIConnection() {
   const statusEl = document.getElementById('api-status');
   if (!statusEl) return;
-  
+
   try {
     const isConnected = await api.testConnection();
-    
+
     if (isConnected) {
       statusEl.innerHTML = '<span class="badge badge-success">Connected</span>';
     } else {
@@ -398,10 +398,10 @@ function stopAutoRefresh() {
 
 function highlightText(text, query) {
   if (!query) return escapeHTML(text);
-  
+
   const escaped = escapeHTML(text);
   const regex = new RegExp(`(${escapeHTML(query)})`, 'gi');
-  
+
   return escaped.replace(regex, '<mark>$1</mark>');
 }
 
@@ -412,7 +412,8 @@ function highlightText(text, query) {
 function setActiveNav(pageName) {
   document.querySelectorAll('.nav-link').forEach(link => {
     link.classList.remove('active');
-    if (link.getAttribute('href').includes(pageName)) {
+    const href = link.getAttribute('href');
+    if (href && href.includes(pageName)) {
       link.classList.add('active');
     }
   });
@@ -426,7 +427,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check if we're on the login page
   const currentPage = window.location.pathname.split('/').pop() || 'index.html';
   const isLoginPage = currentPage === 'login.html';
-  
+
   // TEMP: Skip auth until backend is running
   // Initialize authentication (skip for login page)
   // if (!isLoginPage && typeof Auth !== 'undefined') {
@@ -435,21 +436,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   //     return; // Auth.init will redirect to login
   //   }
   // }
-  
+
   // Initialize theme
   initTheme();
-  
+
   // Test API connection
   testAPIConnection();
-  
+
   // Retry API connection every 30 seconds if failed
   setInterval(testAPIConnection, 30000);
-  
+
   // Add theme toggle listeners
   document.querySelectorAll('[data-toggle-theme]').forEach(btn => {
     btn.addEventListener('click', toggleTheme);
   });
-  
+
   // Set active navigation
   setActiveNav(currentPage.replace('.html', ''));
 });
@@ -465,7 +466,7 @@ document.addEventListener('keydown', (e) => {
     const searchInput = document.querySelector('.search-input');
     if (searchInput) searchInput.focus();
   }
-  
+
   // Escape: Close modal
   if (e.key === 'Escape') {
     closeModal();

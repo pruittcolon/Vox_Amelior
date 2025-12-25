@@ -1,0 +1,1088 @@
+/**
+ * ============================================================================
+ * NEMO PREMIUM DESIGN SYSTEM
+ * Apple-Inspired Metallic Grey Theme
+ * ============================================================================
+ * 
+ * A unified, premium design system for the Nemo Server frontend.
+ * Inspired by Apple's design language with smooth metallic grey aesthetics,
+ * glassmorphism effects, and modern typography.
+ * 
+ * @version 1.0.0
+ * @author Nemo Server Team
+ */
+
+/* ============================================================================
+   CSS CUSTOM PROPERTIES (Design Tokens)
+   ============================================================================ */
+
+:root {
+  /* --------------------------------------------------------------------------
+     COLOR PALETTE - Apple-Inspired Metallic Grey
+     -------------------------------------------------------------------------- */
+  
+  /* Background Layers */
+  --nemo-bg-canvas: #f5f5f7;           /* Apple grey canvas */
+  --nemo-bg-surface: #ffffff;          /* Pure white cards */
+  --nemo-bg-elevated: #fafafa;         /* Slightly elevated surfaces */
+  --nemo-bg-inset: #ebebed;            /* Inset/recessed areas */
+  
+  /* Metallic Gradients */
+  --nemo-metallic-light: linear-gradient(145deg, #e8e8ea, #d8d8dc);
+  --nemo-metallic-medium: linear-gradient(145deg, #d4d4d8, #a1a1aa);
+  --nemo-metallic-dark: linear-gradient(145deg, #a1a1aa, #71717a);
+  --nemo-metallic-brushed: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(0, 0, 0, 0.05) 100%
+  );
+  
+  /* Text Hierarchy */
+  --nemo-text-primary: #1d1d1f;        /* Apple dark grey */
+  --nemo-text-secondary: #6e6e73;      /* Apple muted */
+  --nemo-text-tertiary: #a1a1a6;       /* Subtle text */
+  --nemo-text-inverse: #ffffff;        /* White on dark */
+  
+  /* Accent Colors */
+  --nemo-accent-primary: #0071e3;      /* Apple blue */
+  --nemo-accent-hover: #0077ed;        /* Hover state */
+  --nemo-accent-active: #005bb5;       /* Active/pressed */
+  --nemo-accent-gradient: linear-gradient(135deg, #0071e3 0%, #2563eb 100%);
+  
+  /* Semantic Colors */
+  --nemo-success: #34c759;             /* Apple green */
+  --nemo-success-bg: rgba(52, 199, 89, 0.12);
+  --nemo-warning: #ff9f0a;             /* Apple orange */
+  --nemo-warning-bg: rgba(255, 159, 10, 0.12);
+  --nemo-danger: #ff3b30;              /* Apple red */
+  --nemo-danger-bg: rgba(255, 59, 48, 0.12);
+  --nemo-info: #5ac8fa;                /* Apple cyan */
+  --nemo-info-bg: rgba(90, 200, 250, 0.12);
+  
+  /* --------------------------------------------------------------------------
+     GLASSMORPHISM
+     -------------------------------------------------------------------------- */
+  --nemo-glass-bg: rgba(255, 255, 255, 0.72);
+  --nemo-glass-bg-heavy: rgba(255, 255, 255, 0.85);
+  --nemo-glass-bg-light: rgba(255, 255, 255, 0.5);
+  --nemo-glass-border: rgba(255, 255, 255, 0.8);
+  --nemo-glass-border-subtle: rgba(0, 0, 0, 0.06);
+  --nemo-glass-blur: 20px;
+  --nemo-glass-blur-heavy: 30px;
+  
+  /* --------------------------------------------------------------------------
+     SHADOWS
+     -------------------------------------------------------------------------- */
+  --nemo-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --nemo-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --nemo-shadow-md: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --nemo-shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.12);
+  --nemo-shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.16);
+  
+  /* Metallic Inset/Highlight */
+  --nemo-shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+  --nemo-shadow-highlight: 0 1px 0 rgba(255, 255, 255, 0.5);
+  --nemo-shadow-glow-primary: 0 0 20px rgba(0, 113, 227, 0.3);
+  
+  /* --------------------------------------------------------------------------
+     TYPOGRAPHY
+     -------------------------------------------------------------------------- */
+  --nemo-font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --nemo-font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  
+  /* Font Sizes */
+  --nemo-text-xs: 0.75rem;     /* 12px */
+  --nemo-text-sm: 0.875rem;    /* 14px */
+  --nemo-text-base: 1rem;      /* 16px */
+  --nemo-text-lg: 1.125rem;    /* 18px */
+  --nemo-text-xl: 1.25rem;     /* 20px */
+  --nemo-text-2xl: 1.5rem;     /* 24px */
+  --nemo-text-3xl: 1.875rem;   /* 30px */
+  --nemo-text-4xl: 2.25rem;    /* 36px */
+  
+  /* Font Weights */
+  --nemo-font-normal: 400;
+  --nemo-font-medium: 500;
+  --nemo-font-semibold: 600;
+  --nemo-font-bold: 700;
+  
+  /* Line Heights */
+  --nemo-leading-tight: 1.25;
+  --nemo-leading-normal: 1.5;
+  --nemo-leading-relaxed: 1.75;
+  
+  /* Letter Spacing */
+  --nemo-tracking-tight: -0.02em;
+  --nemo-tracking-normal: 0;
+  --nemo-tracking-wide: 0.02em;
+  --nemo-tracking-wider: 0.05em;
+  
+  /* --------------------------------------------------------------------------
+     SPACING
+     -------------------------------------------------------------------------- */
+  --nemo-space-1: 0.25rem;     /* 4px */
+  --nemo-space-2: 0.5rem;      /* 8px */
+  --nemo-space-3: 0.75rem;     /* 12px */
+  --nemo-space-4: 1rem;        /* 16px */
+  --nemo-space-5: 1.25rem;     /* 20px */
+  --nemo-space-6: 1.5rem;      /* 24px */
+  --nemo-space-8: 2rem;        /* 32px */
+  --nemo-space-10: 2.5rem;     /* 40px */
+  --nemo-space-12: 3rem;       /* 48px */
+  
+  /* --------------------------------------------------------------------------
+     BORDER RADIUS
+     -------------------------------------------------------------------------- */
+  --nemo-radius-sm: 6px;
+  --nemo-radius-md: 10px;
+  --nemo-radius-lg: 14px;
+  --nemo-radius-xl: 20px;
+  --nemo-radius-2xl: 28px;
+  --nemo-radius-full: 9999px;
+  
+  /* --------------------------------------------------------------------------
+     TRANSITIONS
+     -------------------------------------------------------------------------- */
+  --nemo-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nemo-transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nemo-transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nemo-transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nemo-transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  
+  /* --------------------------------------------------------------------------
+     Z-INDEX SCALE
+     -------------------------------------------------------------------------- */
+  --nemo-z-dropdown: 100;
+  --nemo-z-sticky: 200;
+  --nemo-z-fixed: 300;
+  --nemo-z-modal-backdrop: 400;
+  --nemo-z-modal: 500;
+  --nemo-z-popover: 600;
+  --nemo-z-tooltip: 700;
+}
+
+
+/* ============================================================================
+   BASE STYLES
+   ============================================================================ */
+
+.nemo-premium-theme {
+  font-family: var(--nemo-font-primary);
+  background: var(--nemo-bg-canvas);
+  color: var(--nemo-text-primary);
+  line-height: var(--nemo-leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.nemo-premium-theme *,
+.nemo-premium-theme *::before,
+.nemo-premium-theme *::after {
+  box-sizing: border-box;
+}
+
+
+/* ============================================================================
+   SCROLLBAR STYLING
+   ============================================================================ */
+
+.nemo-premium-theme ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.nemo-premium-theme ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nemo-premium-theme ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--nemo-radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.nemo-premium-theme ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+  background-clip: padding-box;
+}
+
+
+/* ============================================================================
+   NAVIGATION HEADER
+   ============================================================================ */
+
+.nemo-nav-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--nemo-z-sticky);
+  background: var(--nemo-glass-bg);
+  backdrop-filter: blur(var(--nemo-glass-blur));
+  -webkit-backdrop-filter: blur(var(--nemo-glass-blur));
+  border-bottom: 1px solid var(--nemo-glass-border-subtle);
+  padding: var(--nemo-space-3) var(--nemo-space-6);
+}
+
+.nemo-nav-header .nemo-nav-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.nemo-nav-header .nemo-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--nemo-space-3);
+  font-size: var(--nemo-text-lg);
+  font-weight: var(--nemo-font-bold);
+  color: var(--nemo-text-primary);
+  text-decoration: none;
+}
+
+.nemo-nav-header .nemo-logo-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--nemo-accent-gradient);
+  border-radius: var(--nemo-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nemo-text-inverse);
+  font-weight: var(--nemo-font-bold);
+}
+
+.nemo-nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--nemo-space-1);
+}
+
+.nemo-nav-link {
+  padding: var(--nemo-space-2) var(--nemo-space-3);
+  color: var(--nemo-text-secondary);
+  text-decoration: none;
+  font-size: var(--nemo-text-sm);
+  font-weight: var(--nemo-font-medium);
+  border-radius: var(--nemo-radius-md);
+  transition: all var(--nemo-transition-fast);
+}
+
+.nemo-nav-link:hover {
+  color: var(--nemo-text-primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.nemo-nav-link.active {
+  color: var(--nemo-accent-primary);
+  background: rgba(0, 113, 227, 0.08);
+}
+
+
+/* ============================================================================
+   GLASS CARD
+   ============================================================================ */
+
+.nemo-glass-card {
+  background: var(--nemo-glass-bg);
+  backdrop-filter: blur(var(--nemo-glass-blur));
+  -webkit-backdrop-filter: blur(var(--nemo-glass-blur));
+  border: 1px solid var(--nemo-glass-border);
+  border-radius: var(--nemo-radius-xl);
+  padding: var(--nemo-space-6);
+  box-shadow: var(--nemo-shadow-md);
+  transition: all var(--nemo-transition-normal);
+}
+
+.nemo-glass-card:hover {
+  box-shadow: var(--nemo-shadow-lg);
+}
+
+.nemo-glass-card-solid {
+  background: var(--nemo-bg-surface);
+  border: 1px solid var(--nemo-glass-border-subtle);
+  border-radius: var(--nemo-radius-xl);
+  padding: var(--nemo-space-6);
+  box-shadow: var(--nemo-shadow-md);
+  transition: all var(--nemo-transition-normal);
+}
+
+.nemo-glass-card-solid:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--nemo-shadow-lg);
+}
+
+
+/* ============================================================================
+   STAT CARD
+   ============================================================================ */
+
+.nemo-stat-card {
+  position: relative;
+  background: var(--nemo-bg-surface);
+  border: 1px solid var(--nemo-glass-border-subtle);
+  border-radius: var(--nemo-radius-lg);
+  padding: var(--nemo-space-5);
+  box-shadow: var(--nemo-shadow-sm);
+  overflow: hidden;
+  transition: all var(--nemo-transition-normal);
+}
+
+.nemo-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--nemo-accent-gradient);
+  opacity: 0;
+  transition: opacity var(--nemo-transition-normal);
+}
+
+.nemo-stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--nemo-shadow-md);
+}
+
+.nemo-stat-card:hover::before {
+  opacity: 1;
+}
+
+.nemo-stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--nemo-radius-md);
+  background: rgba(0, 113, 227, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nemo-accent-primary);
+  margin-bottom: var(--nemo-space-3);
+}
+
+.nemo-stat-value {
+  font-size: var(--nemo-text-3xl);
+  font-weight: var(--nemo-font-bold);
+  color: var(--nemo-text-primary);
+  letter-spacing: var(--nemo-tracking-tight);
+  line-height: var(--nemo-leading-tight);
+  margin-bottom: var(--nemo-space-1);
+}
+
+.nemo-stat-label {
+  font-size: var(--nemo-text-sm);
+  font-weight: var(--nemo-font-medium);
+  color: var(--nemo-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--nemo-tracking-wider);
+}
+
+
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+
+.nemo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nemo-space-2);
+  padding: var(--nemo-space-3) var(--nemo-space-5);
+  font-family: var(--nemo-font-primary);
+  font-size: var(--nemo-text-sm);
+  font-weight: var(--nemo-font-semibold);
+  line-height: 1;
+  border: none;
+  border-radius: var(--nemo-radius-md);
+  cursor: pointer;
+  transition: all var(--nemo-transition-fast);
+  text-decoration: none;
+}
+
+.nemo-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary Button */
+.nemo-btn-primary {
+  background: var(--nemo-accent-gradient);
+  color: var(--nemo-text-inverse);
+  box-shadow: 
+    var(--nemo-shadow-sm),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.nemo-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 
+    var(--nemo-shadow-md),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    var(--nemo-shadow-glow-primary);
+}
+
+.nemo-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Secondary Button */
+.nemo-btn-secondary {
+  background: var(--nemo-bg-surface);
+  color: var(--nemo-text-secondary);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: var(--nemo-shadow-xs);
+}
+
+.nemo-btn-secondary:hover:not(:disabled) {
+  background: var(--nemo-bg-elevated);
+  color: var(--nemo-text-primary);
+  border-color: rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+  box-shadow: var(--nemo-shadow-sm);
+}
+
+/* Ghost Button */
+.nemo-btn-ghost {
+  background: transparent;
+  color: var(--nemo-text-secondary);
+}
+
+.nemo-btn-ghost:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--nemo-text-primary);
+}
+
+/* Icon Button */
+.nemo-btn-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--nemo-radius-md);
+}
+
+/* Button Sizes */
+.nemo-btn-sm {
+  padding: var(--nemo-space-2) var(--nemo-space-3);
+  font-size: var(--nemo-text-xs);
+}
+
+.nemo-btn-lg {
+  padding: var(--nemo-space-4) var(--nemo-space-6);
+  font-size: var(--nemo-text-base);
+  border-radius: var(--nemo-radius-lg);
+}
+
+
+/* ============================================================================
+   METALLIC SEGMENTED CONTROL
+   ============================================================================ */
+
+.nemo-segmented-control {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  background: var(--nemo-metallic-light);
+  border-radius: var(--nemo-radius-full);
+  box-shadow: 
+    var(--nemo-shadow-inset),
+    var(--nemo-shadow-highlight);
+  position: relative;
+}
+
+.nemo-segment-slider {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  height: calc(100% - 8px);
+  background: var(--nemo-bg-surface);
+  border-radius: var(--nemo-radius-full);
+  box-shadow: var(--nemo-shadow-sm);
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  z-index: 1;
+}
+
+.nemo-segment-btn {
+  position: relative;
+  z-index: 2;
+  padding: var(--nemo-space-2) var(--nemo-space-5);
+  background: transparent;
+  border: none;
+  font-family: var(--nemo-font-primary);
+  font-size: var(--nemo-text-sm);
+  font-weight: var(--nemo-font-medium);
+  color: var(--nemo-text-secondary);
+  cursor: pointer;
+  border-radius: var(--nemo-radius-full);
+  transition: color var(--nemo-transition-normal);
+  white-space: nowrap;
+}
+
+.nemo-segment-btn:hover {
+  color: var(--nemo-text-primary);
+}
+
+.nemo-segment-btn.active {
+  color: var(--nemo-text-primary);
+  font-weight: var(--nemo-font-semibold);
+}
+
+
+/* ============================================================================
+   FORM INPUTS
+   ============================================================================ */
+
+.nemo-input {
+  width: 100%;
+  padding: var(--nemo-space-3) var(--nemo-space-4);
+  background: var(--nemo-bg-surface);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--nemo-radius-md);
+  font-family: var(--nemo-font-primary);
+  font-size: var(--nemo-text-base);
+  color: var(--nemo-text-primary);
+  transition: all var(--nemo-transition-fast);
+}
+
+.nemo-input::placeholder {
+  color: var(--nemo-text-tertiary);
+}
+
+.nemo-input:focus {
+  outline: none;
+  border-color: var(--nemo-accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+}
+
+.nemo-input:disabled {
+  background: var(--nemo-bg-inset);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Input Label */
+.nemo-input-label {
+  display: block;
+  margin-bottom: var(--nemo-space-2);
+  font-size: var(--nemo-text-sm);
+  font-weight: var(--nemo-font-medium);
+  color: var(--nemo-text-secondary);
+}
+
+/* Select */
+.nemo-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 40px;
+}
+
+
+/* ============================================================================
+   BADGE / CHIP
+   ============================================================================ */
+
+.nemo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nemo-space-1);
+  padding: var(--nemo-space-1) var(--nemo-space-3);
+  font-size: var(--nemo-text-xs);
+  font-weight: var(--nemo-font-semibold);
+  border-radius: var(--nemo-radius-full);
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--nemo-text-secondary);
+}
+
+.nemo-badge-primary {
+  background: rgba(0, 113, 227, 0.12);
+  color: var(--nemo-accent-primary);
+}
+
+.nemo-badge-success {
+  background: var(--nemo-success-bg);
+  color: var(--nemo-success);
+}
+
+.nemo-badge-warning {
+  background: var(--nemo-warning-bg);
+  color: var(--nemo-warning);
+}
+
+.nemo-badge-danger {
+  background: var(--nemo-danger-bg);
+  color: var(--nemo-danger);
+}
+
+/* Chip (interactive) */
+.nemo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nemo-space-2);
+  padding: var(--nemo-space-2) var(--nemo-space-4);
+  font-size: var(--nemo-text-sm);
+  font-weight: var(--nemo-font-medium);
+  border-radius: var(--nemo-radius-full);
+  background: var(--nemo-bg-surface);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: var(--nemo-text-secondary);
+  cursor: pointer;
+  transition: all var(--nemo-transition-fast);
+}
+
+.nemo-chip:hover {
+  background: var(--nemo-bg-elevated);
+  border-color: rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+}
+
+.nemo-chip.active,
+.nemo-chip[aria-pressed="true"] {
+  background: var(--nemo-accent-gradient);
+  border-color: transparent;
+  color: var(--nemo-text-inverse);
+  box-shadow: var(--nemo-shadow-sm);
+}
+
+
+/* ============================================================================
+   GRID LAYOUTS
+   ============================================================================ */
+
+.nemo-grid {
+  display: grid;
+  gap: var(--nemo-space-6);
+}
+
+.nemo-grid-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.nemo-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.nemo-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.nemo-grid-12 {
+  grid-template-columns: repeat(12, 1fr);
+}
+
+/* Responsive Grid */
+@media (max-width: 1024px) {
+  .nemo-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .nemo-grid-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .nemo-grid-2,
+  .nemo-grid-3,
+  .nemo-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Column Spans */
+.nemo-col-span-2 { grid-column: span 2; }
+.nemo-col-span-3 { grid-column: span 3; }
+.nemo-col-span-4 { grid-column: span 4; }
+.nemo-col-span-6 { grid-column: span 6; }
+.nemo-col-span-8 { grid-column: span 8; }
+.nemo-col-span-12 { grid-column: span 12; }
+
+
+/* ============================================================================
+   CONTAINER
+   ============================================================================ */
+
+.nemo-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 var(--nemo-space-6);
+}
+
+.nemo-container-sm {
+  max-width: 900px;
+}
+
+.nemo-container-lg {
+  max-width: 1600px;
+}
+
+
+/* ============================================================================
+   DROPDOWN MENU
+   ============================================================================ */
+
+.nemo-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.nemo-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 200px;
+  background: var(--nemo-glass-bg-heavy);
+  backdrop-filter: blur(var(--nemo-glass-blur-heavy));
+  -webkit-backdrop-filter: blur(var(--nemo-glass-blur-heavy));
+  border: 1px solid var(--nemo-glass-border-subtle);
+  border-radius: var(--nemo-radius-lg);
+  box-shadow: var(--nemo-shadow-lg);
+  padding: var(--nemo-space-2) 0;
+  z-index: var(--nemo-z-dropdown);
+}
+
+.nemo-dropdown:hover .nemo-dropdown-menu,
+.nemo-dropdown:focus-within .nemo-dropdown-menu {
+  display: block;
+  animation: nemo-fade-in 0.2s ease;
+}
+
+.nemo-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--nemo-space-3);
+  padding: var(--nemo-space-3) var(--nemo-space-4);
+  color: var(--nemo-text-secondary);
+  text-decoration: none;
+  font-size: var(--nemo-text-sm);
+  transition: all var(--nemo-transition-fast);
+}
+
+.nemo-dropdown-item:hover {
+  background: rgba(0, 113, 227, 0.08);
+  color: var(--nemo-text-primary);
+}
+
+
+/* ============================================================================
+   UPLOAD ZONE
+   ============================================================================ */
+
+.nemo-upload-zone {
+  border: 2px dashed rgba(0, 0, 0, 0.15);
+  border-radius: var(--nemo-radius-xl);
+  padding: var(--nemo-space-12);
+  text-align: center;
+  background: var(--nemo-bg-surface);
+  transition: all var(--nemo-transition-normal);
+  cursor: pointer;
+}
+
+.nemo-upload-zone:hover,
+.nemo-upload-zone.dragover {
+  border-color: var(--nemo-accent-primary);
+  background: rgba(0, 113, 227, 0.04);
+}
+
+.nemo-upload-zone-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--nemo-space-4);
+  color: var(--nemo-accent-primary);
+  opacity: 0.6;
+}
+
+.nemo-upload-zone-text {
+  font-size: var(--nemo-text-lg);
+  font-weight: var(--nemo-font-medium);
+  color: var(--nemo-text-primary);
+  margin-bottom: var(--nemo-space-2);
+}
+
+.nemo-upload-zone-hint {
+  font-size: var(--nemo-text-sm);
+  color: var(--nemo-text-tertiary);
+}
+
+
+/* ============================================================================
+   PROGRESS BAR
+   ============================================================================ */
+
+.nemo-progress {
+  width: 100%;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: var(--nemo-radius-full);
+  overflow: hidden;
+}
+
+.nemo-progress-fill {
+  height: 100%;
+  background: var(--nemo-accent-gradient);
+  border-radius: var(--nemo-radius-full);
+  transition: width var(--nemo-transition-smooth);
+}
+
+
+/* ============================================================================
+   TABS
+   ============================================================================ */
+
+.nemo-tabs {
+  display: flex;
+  gap: var(--nemo-space-1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  margin-bottom: var(--nemo-space-6);
+}
+
+.nemo-tab {
+  position: relative;
+  padding: var(--nemo-space-3) var(--nemo-space-5);
+  background: transparent;
+  border: none;
+  font-family: var(--nemo-font-primary);
+  font-size: var(--nemo-text-sm);
+  font-weight: var(--nemo-font-medium);
+  color: var(--nemo-text-secondary);
+  cursor: pointer;
+  transition: all var(--nemo-transition-fast);
+}
+
+.nemo-tab:hover {
+  color: var(--nemo-text-primary);
+}
+
+.nemo-tab.active {
+  color: var(--nemo-accent-primary);
+}
+
+.nemo-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--nemo-accent-gradient);
+  border-radius: 2px 2px 0 0;
+}
+
+
+/* ============================================================================
+   TABLE
+   ============================================================================ */
+
+.nemo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--nemo-text-sm);
+}
+
+.nemo-table th,
+.nemo-table td {
+  padding: var(--nemo-space-3) var(--nemo-space-4);
+  text-align: left;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.nemo-table th {
+  font-weight: var(--nemo-font-semibold);
+  color: var(--nemo-text-secondary);
+  font-size: var(--nemo-text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--nemo-tracking-wider);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.nemo-table tbody tr {
+  transition: background var(--nemo-transition-fast);
+}
+
+.nemo-table tbody tr:hover {
+  background: rgba(0, 113, 227, 0.04);
+}
+
+
+/* ============================================================================
+   AVATAR
+   ============================================================================ */
+
+.nemo-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--nemo-radius-full);
+  background: var(--nemo-metallic-light);
+  border: 2px solid var(--nemo-bg-surface);
+  box-shadow: var(--nemo-shadow-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--nemo-font-semibold);
+  color: var(--nemo-text-secondary);
+}
+
+.nemo-avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: var(--nemo-text-xs);
+}
+
+.nemo-avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: var(--nemo-text-lg);
+}
+
+
+/* ============================================================================
+   STATUS INDICATOR
+   ============================================================================ */
+
+.nemo-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--nemo-radius-full);
+  background: var(--nemo-text-tertiary);
+}
+
+.nemo-status-dot.online {
+  background: var(--nemo-success);
+  box-shadow: 0 0 8px var(--nemo-success);
+}
+
+.nemo-status-dot.warning {
+  background: var(--nemo-warning);
+  box-shadow: 0 0 8px var(--nemo-warning);
+}
+
+.nemo-status-dot.offline {
+  background: var(--nemo-danger);
+}
+
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes nemo-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) translateX(-50%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) translateX(-50%);
+  }
+}
+
+@keyframes nemo-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nemo-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes nemo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.nemo-animate-fade-in-up {
+  animation: nemo-fade-in-up 0.4s ease forwards;
+}
+
+.nemo-animate-pulse {
+  animation: nemo-pulse 1.5s ease-in-out infinite;
+}
+
+.nemo-animate-spin {
+  animation: nemo-spin 1s linear infinite;
+}
+
+/* Animation Delays */
+.nemo-delay-100 { animation-delay: 100ms; }
+.nemo-delay-200 { animation-delay: 200ms; }
+.nemo-delay-300 { animation-delay: 300ms; }
+.nemo-delay-400 { animation-delay: 400ms; }
+
+
+/* ============================================================================
+   UTILITIES
+   ============================================================================ */
+
+/* Text Colors */
+.nemo-text-primary { color: var(--nemo-text-primary); }
+.nemo-text-secondary { color: var(--nemo-text-secondary); }
+.nemo-text-tertiary { color: var(--nemo-text-tertiary); }
+.nemo-text-accent { color: var(--nemo-accent-primary); }
+.nemo-text-success { color: var(--nemo-success); }
+.nemo-text-warning { color: var(--nemo-warning); }
+.nemo-text-danger { color: var(--nemo-danger); }
+
+/* Background Colors */
+.nemo-bg-canvas { background: var(--nemo-bg-canvas); }
+.nemo-bg-surface { background: var(--nemo-bg-surface); }
+.nemo-bg-elevated { background: var(--nemo-bg-elevated); }
+
+/* Flexbox */
+.nemo-flex { display: flex; }
+.nemo-flex-center { display: flex; align-items: center; justify-content: center; }
+.nemo-flex-between { display: flex; align-items: center; justify-content: space-between; }
+.nemo-flex-col { display: flex; flex-direction: column; }
+.nemo-items-center { align-items: center; }
+.nemo-justify-center { justify-content: center; }
+.nemo-justify-between { justify-content: space-between; }
+.nemo-gap-1 { gap: var(--nemo-space-1); }
+.nemo-gap-2 { gap: var(--nemo-space-2); }
+.nemo-gap-3 { gap: var(--nemo-space-3); }
+.nemo-gap-4 { gap: var(--nemo-space-4); }
+.nemo-gap-6 { gap: var(--nemo-space-6); }
+
+/* Spacing */
+.nemo-mt-2 { margin-top: var(--nemo-space-2); }
+.nemo-mt-4 { margin-top: var(--nemo-space-4); }
+.nemo-mt-6 { margin-top: var(--nemo-space-6); }
+.nemo-mb-2 { margin-bottom: var(--nemo-space-2); }
+.nemo-mb-4 { margin-bottom: var(--nemo-space-4); }
+.nemo-mb-6 { margin-bottom: var(--nemo-space-6); }
+.nemo-p-4 { padding: var(--nemo-space-4); }
+.nemo-p-6 { padding: var(--nemo-space-6); }
+
+/* Typography */
+.nemo-font-semibold { font-weight: var(--nemo-font-semibold); }
+.nemo-font-bold { font-weight: var(--nemo-font-bold); }
+.nemo-text-center { text-align: center; }
+
+/* Visibility */
+.nemo-hidden { display: none !important; }
+.nemo-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -30,6 +30,11 @@ Return JSON Config or Rendered HTML
 - **Automated Reporting**: Creates summary reports from analysis results.
 - **Real-time Monitoring**: Visualizes system health and performance metrics.
 
+## Authentication
+This service interacts with internal components and requires:
+- **Service-to-Service (S2S) Auth**: `X-Service-Token` header signed by `jwt_secret`.
+- **Internal Access Only**: Not exposed publicly.
+
 ## API Endpoints
 
 ### Health Check

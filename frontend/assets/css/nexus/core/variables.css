@@ -1,0 +1,208 @@
+/* =============================================================================
+   NexusAI Design System - Variables
+   Enterprise-grade design tokens for the analysis suite
+   Color scheme inspired by Vox Augmented branding
+   ============================================================================= */
+
+:root {
+  /* ==================== Color Palette ==================== */
+
+  /* Primary - Purple/Violet (Vox Augmented style) */
+  --nexus-primary-50: #faf5ff;
+  --nexus-primary-100: #f3e8ff;
+  --nexus-primary-200: #e9d5ff;
+  --nexus-primary-300: #d8b4fe;
+  --nexus-primary-400: #c084fc;
+  --nexus-primary-500: #a855f7;
+  --nexus-primary-600: #9333ea;
+  --nexus-primary-700: #7e22ce;
+  --nexus-primary-800: #6b21a8;
+  --nexus-primary-900: #581c87;
+
+  /* Accent - Cyan/Teal */
+  --nexus-accent-400: #22d3ee;
+  --nexus-accent-500: #06b6d4;
+  --nexus-accent-600: #0891b2;
+
+  /* Success - Emerald */
+  --nexus-success-400: #34d399;
+  --nexus-success-500: #10b981;
+  --nexus-success-600: #059669;
+
+  /* Warning - Amber */
+  --nexus-warning-400: #fbbf24;
+  --nexus-warning-500: #f59e0b;
+  --nexus-warning-600: #d97706;
+
+  /* Error - Rose */
+  --nexus-error-400: #fb7185;
+  --nexus-error-500: #f43f5e;
+  --nexus-error-600: #e11d48;
+
+  /* Info - Blue */
+  --nexus-info-400: #60a5fa;
+  --nexus-info-500: #3b82f6;
+  --nexus-info-600: #2563eb;
+
+  /* Neutrals - Deep slate with purple tint */
+  --nexus-bg-dark: #0c0a1d;
+  --nexus-bg-surface: #13111f;
+  --nexus-bg-elevated: #1e1a2e;
+  --nexus-bg-card: rgba(19, 17, 31, 0.85);
+  --nexus-bg-glass: rgba(168, 85, 247, 0.03);
+
+  --nexus-border-subtle: rgba(168, 85, 247, 0.1);
+  --nexus-border-default: rgba(168, 85, 247, 0.2);
+  --nexus-border-strong: rgba(168, 85, 247, 0.35);
+
+  --nexus-text-primary: #f5f3ff;
+  --nexus-text-secondary: #e9e4f5;
+  --nexus-text-muted: #a8a0c0;
+  --nexus-text-faint: #6b6280;
+
+  /* Category Colors */
+  --nexus-cat-ml: #06b6d4;
+  --nexus-cat-financial: #f59e0b;
+  --nexus-cat-ops: #a855f7;
+  --nexus-cat-advanced: #ec4899;
+
+  /* ==================== Gradients ==================== */
+
+  /* Vox Augmented style - purple to cyan */
+  --nexus-gradient-primary: linear-gradient(135deg, #a855f7, #06b6d4);
+  --nexus-gradient-hero: linear-gradient(135deg, #0c0a1d 0%, #1a1435 50%, #0c0a1d 100%);
+  --nexus-gradient-card: linear-gradient(145deg, rgba(168, 85, 247, 0.08), rgba(6, 182, 212, 0.04));
+  --nexus-gradient-success: linear-gradient(135deg, #10b981, #06b6d4);
+  --nexus-gradient-financial: linear-gradient(135deg, #f59e0b, #ec4899);
+  --nexus-gradient-ml: linear-gradient(135deg, #06b6d4, #3b82f6);
+  --nexus-gradient-advanced: linear-gradient(135deg, #a855f7, #ec4899);
+
+  /* Glass effect with purple tint */
+  --nexus-glass-bg: rgba(19, 17, 31, 0.75);
+  --nexus-glass-blur: blur(20px);
+  --nexus-glass-border: 1px solid rgba(168, 85, 247, 0.15);
+
+  /* ==================== Typography ==================== */
+
+  --nexus-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --nexus-font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* Fluid type scale */
+  --nexus-text-xs: clamp(0.7rem, 0.65rem + 0.25vw, 0.75rem);
+  --nexus-text-sm: clamp(0.8rem, 0.75rem + 0.25vw, 0.875rem);
+  --nexus-text-base: clamp(0.9rem, 0.85rem + 0.25vw, 1rem);
+  --nexus-text-lg: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  --nexus-text-xl: clamp(1.15rem, 1.1rem + 0.25vw, 1.25rem);
+  --nexus-text-2xl: clamp(1.4rem, 1.3rem + 0.5vw, 1.5rem);
+  --nexus-text-3xl: clamp(1.7rem, 1.5rem + 1vw, 1.875rem);
+  --nexus-text-4xl: clamp(2rem, 1.75rem + 1.25vw, 2.25rem);
+  --nexus-text-5xl: clamp(2.5rem, 2rem + 2.5vw, 3rem);
+  --nexus-text-6xl: clamp(3rem, 2.5rem + 2.5vw, 3.75rem);
+
+  /* Font weights */
+  --nexus-font-normal: 400;
+  --nexus-font-medium: 500;
+  --nexus-font-semibold: 600;
+  --nexus-font-bold: 700;
+
+  /* Line heights */
+  --nexus-leading-tight: 1.25;
+  --nexus-leading-normal: 1.5;
+  --nexus-leading-relaxed: 1.75;
+
+  /* ==================== Spacing ==================== */
+
+  --nexus-space-1: 0.25rem;
+  /* 4px */
+  --nexus-space-2: 0.5rem;
+  /* 8px */
+  --nexus-space-3: 0.75rem;
+  /* 12px */
+  --nexus-space-4: 1rem;
+  /* 16px */
+  --nexus-space-5: 1.25rem;
+  /* 20px */
+  --nexus-space-6: 1.5rem;
+  /* 24px */
+  --nexus-space-8: 2rem;
+  /* 32px */
+  --nexus-space-10: 2.5rem;
+  /* 40px */
+  --nexus-space-12: 3rem;
+  /* 48px */
+  --nexus-space-16: 4rem;
+  /* 64px */
+  --nexus-space-20: 5rem;
+  /* 80px */
+  --nexus-space-24: 6rem;
+  /* 96px */
+
+  /* ==================== Borders & Radius ==================== */
+
+  --nexus-radius-sm: 0.375rem;
+  /* 6px */
+  --nexus-radius-md: 0.5rem;
+  /* 8px */
+  --nexus-radius-lg: 0.75rem;
+  /* 12px */
+  --nexus-radius-xl: 1rem;
+  /* 16px */
+  --nexus-radius-2xl: 1.5rem;
+  /* 24px */
+  --nexus-radius-full: 9999px;
+
+  /* ==================== Shadows ==================== */
+
+  --nexus-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --nexus-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+  --nexus-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.2);
+  --nexus-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  --nexus-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+
+  /* Glow shadows - purple dominant */
+  --nexus-glow-primary: 0 0 20px rgba(168, 85, 247, 0.4);
+  --nexus-glow-accent: 0 0 20px rgba(6, 182, 212, 0.3);
+  --nexus-glow-success: 0 0 20px rgba(16, 185, 129, 0.3);
+
+  /* ==================== Transitions ==================== */
+
+  --nexus-transition-fast: 150ms ease;
+  --nexus-transition-normal: 250ms ease;
+  --nexus-transition-slow: 400ms ease;
+  --nexus-transition-spring: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ==================== Z-Index Scale ==================== */
+
+  --nexus-z-base: 0;
+  --nexus-z-dropdown: 100;
+  --nexus-z-sticky: 200;
+  --nexus-z-fixed: 300;
+  --nexus-z-modal-backdrop: 400;
+  --nexus-z-modal: 500;
+  --nexus-z-popover: 600;
+  --nexus-z-tooltip: 700;
+  --nexus-z-toast: 800;
+
+  /* ==================== Container Widths ==================== */
+
+  --nexus-container-sm: 640px;
+  --nexus-container-md: 768px;
+  --nexus-container-lg: 1024px;
+  --nexus-container-xl: 1280px;
+  --nexus-container-2xl: 1536px;
+}
+
+/* ==================== Dark Mode (default) ==================== */
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* ==================== Reduced Motion ==================== */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --nexus-transition-fast: 0ms;
+    --nexus-transition-normal: 0ms;
+    --nexus-transition-slow: 0ms;
+    --nexus-transition-spring: 0ms;
+  }
+}

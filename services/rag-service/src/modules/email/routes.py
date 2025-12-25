@@ -1,6 +1,7 @@
 """FastAPI router that exposes temporary email analyzer stubs.
 The goal is to provide end-to-end wiring for the new email.html UI while
 backend ingestion/query work is still underway."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,24 +9,24 @@ import base64
 import json
 import logging
 import uuid
-from typing import Dict, Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from .repository import repository
 from .schemas import (
+    EmailCancelRequest,
+    EmailLabelsResponse,
+    EmailListResponse,
+    EmailQueryFilters,
     EmailQueryRequest,
     EmailQuickAnalyzeRequest,
-    EmailStreamRequest,
-    EmailCancelRequest,
-    EmailListResponse,
     EmailStatsResponse,
-    EmailUsersResponse,
-    EmailLabelsResponse,
+    EmailStreamRequest,
     EmailSummary,
-    EmailQueryFilters,
+    EmailUsersResponse,
 )
-from .repository import repository
 
 logger = logging.getLogger("gemma.email")
 
@@ -48,10 +49,10 @@ async def list_email_labels() -> EmailLabelsResponse:
 
 @router.get("/stats", response_model=EmailStatsResponse)
 async def get_email_stats(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    user: Optional[str] = None,
-    label: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user: str | None = None,
+    label: str | None = None,
 ) -> EmailStatsResponse:
     filters = EmailQueryFilters(
         start_date=start_date,
@@ -102,7 +103,7 @@ async def analyze_emails_quick(request: EmailQuickAnalyzeRequest) -> EmailSummar
     return EmailSummary(**summary)
 
 
-def _decode_stream_payload(raw: Optional[str]) -> EmailStreamRequest:
+def _decode_stream_payload(raw: str | None) -> EmailStreamRequest:
     if not raw:
         raise HTTPException(status_code=400, detail="Missing payload parameter")
     try:
@@ -114,7 +115,7 @@ def _decode_stream_payload(raw: Optional[str]) -> EmailStreamRequest:
 
 
 @router.get("/analyze/stream")
-async def analyze_emails_stream(payload: Optional[str] = Query(default=None)) -> StreamingResponse:
+async def analyze_emails_stream(payload: str | None = Query(default=None)) -> StreamingResponse:
     request = _decode_stream_payload(payload)
     logger.info(
         "[EMAIL] /analyze/stream prompt_len=%s max_chunks=%s",
@@ -155,7 +156,7 @@ async def analyze_emails_stream(payload: Optional[str] = Query(default=None)) ->
 
 
 @router.post("/analyze/cancel")
-async def cancel_email_analysis(request: EmailCancelRequest) -> Dict[str, Any]:
+async def cancel_email_analysis(request: EmailCancelRequest) -> dict[str, Any]:
     logger.info("[EMAIL] /analyze/cancel analysis_id=%s", request.analysis_id)
     return {
         "success": True,

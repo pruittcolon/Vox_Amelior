@@ -1,0 +1,146 @@
+# Istio Installation Configuration for Nemo Server
+# Enables mTLS STRICT mode and security features
+#
+# Install with: istioctl install -f istio-config.yaml
+#
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: nemo-istio
+  namespace: istio-system
+spec:
+  profile: default
+  
+  # Mesh-wide settings
+  meshConfig:
+    # Enable access logging
+    accessLogFile: /dev/stdout
+    accessLogFormat: |
+      {"timestamp":"%START_TIME%","req_id":"%REQ(X-REQUEST-ID)%","src":"%DOWNSTREAM_PEER_SUBJECT%","dst":"%UPSTREAM_HOST%","method":"%REQ(:METHOD)%","path":"%REQ(:PATH)%","status":"%RESPONSE_CODE%","latency":"%DURATION%ms"}
+    
+    # Default mTLS mode - STRICT means all traffic must be mTLS
+    defaultConfig:
+      # Enable tracing
+      tracing:
+        sampling: 100
+      # Proxy access log
+      proxyStatsMatcher:
+        inclusionPrefixes:
+          - "cluster.xds-grpc"
+    
+    # Enable automatic mTLS
+    enableAutoMtls: true
+    
+    # Trust domain for SPIFFE identities
+    trustDomain: cluster.local
+    
+  # Component settings
+  components:
+    # Istiod (control plane)
+    pilot:
+      enabled: true
+      k8s:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        # Prioritize security settings
+        env:
+          - name: PILOT_TRACE_SAMPLING
+            value: "100"
+    
+    # Ingress Gateway
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+        k8s:
+          service:
+            type: LoadBalancer
+            ports:
+              - port: 443
+                name: https
+                targetPort: 8443
+              - port: 80
+                name: http
+                targetPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+    
+    # Egress Gateway for controlled outbound traffic
+    egressGateways:
+      - name: istio-egressgateway
+        enabled: true
+        k8s:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+  
+  # Global values
+  values:
+    global:
+      # Security settings
+      proxy:
+        # Use distroless image for security
+        image: proxyv2
+        # Enable privileged mode only for init container
+        privileged: false
+        # Resource limits
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      
+      # mTLS settings
+      mtls:
+        enabled: true
+        auto: true
+      
+      # Logging level
+      logging:
+        level: "default:info"
+      
+      # Network settings
+      meshNetworks: {}
+      
+    # Sidecar injector settings
+    sidecarInjectorWebhook:
+      enableNamespacesByDefault: false
+      objectSelector:
+        autoInject: true
+      
+    # Pilot settings (control plane)
+    pilot:
+      autoscaleEnabled: false
+      autoscaleMin: 1
+      autoscaleMax: 3
+      
+    # Gateway settings
+    gateways:
+      istio-ingressgateway:
+        autoscaleEnabled: false
+        autoscaleMin: 1
+        autoscaleMax: 3
+
+---
+# Namespace label for automatic sidecar injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nemo
+  labels:
+    istio-injection: enabled

@@ -7,7 +7,6 @@ import logging
 import re
 from pathlib import Path
 from threading import Lock
-from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ class AnalysisFallbackStore:
     def __init__(
         self,
         base_dir: Path,
-        legacy_file: Optional[Path] = None,
+        legacy_file: Path | None = None,
         max_per_user: int = 200,
         unknown_bucket: str = "unknown",
     ) -> None:
@@ -33,7 +32,7 @@ class AnalysisFallbackStore:
         self._migrate_legacy_file()
 
     # ------------------------------------------------------------------ public
-    def upsert_user_artifact(self, user_id: str, artifact: Dict[str, object]) -> Dict[str, object]:
+    def upsert_user_artifact(self, user_id: str, artifact: dict[str, object]) -> dict[str, object]:
         """Insert/update artifact for the given user."""
         user_key = self._user_key(user_id)
         with self._lock:
@@ -45,23 +44,23 @@ class AnalysisFallbackStore:
             self._write_user_items(user_key, items)
         return artifact
 
-    def list_user_artifacts(self, user_id: str) -> List[Dict[str, object]]:
+    def list_user_artifacts(self, user_id: str) -> list[dict[str, object]]:
         """Return all artifacts for a specific user (newest first)."""
         user_key = self._user_key(user_id)
         with self._lock:
             return list(self._load_user_items(user_key))
 
-    def list_all_artifacts(self) -> List[Dict[str, object]]:
+    def list_all_artifacts(self) -> list[dict[str, object]]:
         """Return aggregated artifacts across all users."""
         with self._lock:
-            items: List[Dict[str, object]] = []
+            items: list[dict[str, object]] = []
             for path in sorted(self.base_dir.glob("*.json")):
                 items.extend(self._load_path_items(path))
             # Files are already newest-first, but concatenation by user may not be sorted.
             items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
             return items
 
-    def get_user_artifact(self, user_id: str, artifact_id: str) -> Optional[Dict[str, object]]:
+    def get_user_artifact(self, user_id: str, artifact_id: str) -> dict[str, object] | None:
         """Return artifact for the given user if present."""
         user_key = self._user_key(user_id)
         with self._lock:
@@ -71,7 +70,7 @@ class AnalysisFallbackStore:
                     return item
         return None
 
-    def get_any_artifact(self, artifact_id: str) -> Optional[Dict[str, object]]:
+    def get_any_artifact(self, artifact_id: str) -> dict[str, object] | None:
         """Return artifact regardless of owner (admin use)."""
         with self._lock:
             for path in self.base_dir.glob("*.json"):
@@ -81,7 +80,7 @@ class AnalysisFallbackStore:
         return None
 
     # -------------------------------------------------------------- utilities
-    def _user_key(self, user_id: Optional[str]) -> str:
+    def _user_key(self, user_id: str | None) -> str:
         raw = (user_id or "").strip()
         if not raw:
             return self.unknown_bucket
@@ -92,11 +91,11 @@ class AnalysisFallbackStore:
     def _user_path(self, user_key: str) -> Path:
         return self.base_dir / f"{user_key}.json"
 
-    def _load_user_items(self, user_key: str) -> List[Dict[str, object]]:
+    def _load_user_items(self, user_key: str) -> list[dict[str, object]]:
         path = self._user_path(user_key)
         return self._load_path_items(path)
 
-    def _load_path_items(self, path: Path) -> List[Dict[str, object]]:
+    def _load_path_items(self, path: Path) -> list[dict[str, object]]:
         if not path.exists():
             return []
         try:
@@ -105,7 +104,7 @@ class AnalysisFallbackStore:
             logger.warning("[ANALYSIS-FALLBACK] Failed to read %s: %s", path, exc)
             return []
 
-    def _write_user_items(self, user_key: str, items: List[Dict[str, object]]) -> None:
+    def _write_user_items(self, user_key: str, items: list[dict[str, object]]) -> None:
         path = self._user_path(user_key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(items, indent=2))

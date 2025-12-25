@@ -1,20 +1,22 @@
-# Even Demo App - Setup Guide
+# EvenDemoApp Setup Guide
 
-Flutter client application for Nemo Server that provides voice interface for smart glasses.
+Complete guide to configure the Flutter app to connect to your Nemo Server backend.
 
 ---
 
-## 📋 Quick Setup
+## 📋 Quick Setup (5 Minutes)
 
-### Step 1: Configure Server Connection
+### Step 1: Create `.env` File
 
-Create `.env` file:
 ```bash
 cd EvenDemoApp-main
 cp .env.example .env
 ```
 
-Edit `.env` and set your server IP:
+### Step 2: Configure Your Server IP
+
+Open `.env` and replace `YOUR_SERVER_IP` with your actual server IP address:
+
 ```bash
 # Find your server IP address
 hostname -I | awk '{print $1}'
@@ -299,23 +301,23 @@ Flutter displays transcript
 
 ---
 
-## 🔐 Security Considerations
+## Security Considerations
 
 ### For Development
-✅ Use local network (192.168.x.x)  
-✅ No HTTPS required  
-✅ IP whitelist is sufficient  
+- Use local network (192.168.x.x)  
+- No HTTPS required  
+- IP whitelist is sufficient  
 
 ### For Production
-❌ **Never** expose HTTP server to internet  
-✅ **Must** use HTTPS (TLS/SSL)  
-✅ **Must** use authentication tokens (not IP whitelist)  
-✅ **Must** implement rate limiting per user  
-✅ **Must** encrypt database  
+- **Never** expose HTTP server to internet  
+- **Must** use HTTPS (TLS/SSL)  
+- **Must** use authentication tokens (not IP whitelist)  
+- **Must** implement rate limiting per user  
+- **Must** encrypt database  
 
 ---
 
-## 📚 Additional Resources
+## Additional Resources
 
 - **Backend API Documentation**: `http://YOUR_SERVER_IP:8000/docs`
 - **Server Configuration**: See `Nemo_Server/.env.example`
@@ -324,7 +326,7 @@ Flutter displays transcript
 
 ---
 
-## ✅ Verification Checklist
+## Verification Checklist
 
 Before using the app, verify:
 

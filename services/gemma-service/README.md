@@ -150,7 +150,13 @@ Environment variables:
 | `GEMMA_BATCH_SIZE` | `512` | Batch size for token processing |
 | `GPU_COORDINATOR_URL` | `http://gpu-coordinator:8002` | Coordinator service URL |
 | `RAG_SERVICE_URL` | `http://rag-service:8004` | RAG service for memory retrieval |
-| `JWT_ONLY` | `false` | Enforce JWT-only authentication |
+| `JWT_ONLY` | `true` | Enforce JWT-only authentication |
+
+## Authentication (New!)
+The service now requires **Service-to-Service (S2S) Authentication**.
+- **Header**: `X-Service-Token: <signed_jwt>`
+- **Internal Only**: Not accessible without valid JWT signed by `jwt_secret`.
+
 
 ## Model Information
 

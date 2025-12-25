@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # Development mode - mounts local src/ for rapid prototyping
+  fiserv-dev:
+    build: .
+    container_name: fiserv-dev
+    ports:
+      - "8015:8015"
+    volumes:
+      # Mount local source code - changes apply immediately without rebuild
+      - ./src:/app/src:ro
+    environment:
+      # Phase 1 Security: Use Docker secrets or env vars, no hardcoded defaults
+      - FISERV_API_KEY_FILE=/run/secrets/fiserv_api_key
+      - FISERV_API_SECRET_FILE=/run/secrets/fiserv_api_secret
+      - FISERV_ORG_ID=${FISERV_ORG_ID:-999950001}
+      - PYTHONUNBUFFERED=1
+    secrets:
+      - fiserv_api_key
+      - fiserv_api_secret
+    # Auto-reload on code changes
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8015 --reload --reload-dir /app/src
+    profiles:
+      - dev
+
+  # Production mode - code baked into image
+  fiserv-prod:
+    build: .
+    container_name: fiserv-prod
+    ports:
+      - "8015:8015"
+    environment:
+      - FISERV_API_KEY_FILE=/run/secrets/fiserv_api_key
+      - FISERV_API_SECRET_FILE=/run/secrets/fiserv_api_secret
+      - FISERV_ORG_ID=${FISERV_ORG_ID:-999950001}
+    secrets:
+      - fiserv_api_key
+      - fiserv_api_secret
+    profiles:
+      - prod
+
+secrets:
+  fiserv_api_key:
+    file: ../../docker/secrets/fiserv_api_key
+  fiserv_api_secret:
+    file: ../../docker/secrets/fiserv_api_secret

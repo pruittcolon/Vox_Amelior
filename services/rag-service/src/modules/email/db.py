@@ -1,15 +1,19 @@
 """Encrypted email database helper for the Gemma email analyzer."""
+
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
-import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Dict, Any
+from typing import Any
 
 from shared.crypto.db_encryption import create_encrypted_db
+
 try:
     from pysqlcipher3 import dbapi2 as _sqlc_db
+
     _SQLCIPHER_ROW = getattr(_sqlc_db, "Row", None)
 except Exception:  # noqa: BLE001
     _SQLCIPHER_ROW = None
@@ -31,12 +35,15 @@ if _key_file:
 EMAIL_DB_KEY = os.getenv("EMAIL_DB_KEY") or _key_from_file
 
 EMAIL_DB_ENCRYPTION = os.getenv("EMAIL_DB_ENCRYPTION", "true").lower() in {"1", "true", "yes"}
-TEST_MODE = os.getenv("TEST_MODE", "true").lower() in {"1", "true", "yes"}
+# Security: Default to false - production must explicitly set TEST_MODE=true for dev key
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() in {"1", "true", "yes"}
 
 if EMAIL_DB_ENCRYPTION and not EMAIL_DB_KEY:
     if TEST_MODE:
-        EMAIL_DB_KEY = "dev-email-key"
-        LOGGER.warning("[EMAIL][DB] EMAIL_DB_KEY missing – using dev key (TEST_MODE) – do not use in production")
+        import secrets
+
+        EMAIL_DB_KEY = secrets.token_hex(16)  # Random ephemeral key - never same twice
+        LOGGER.warning("[EMAIL][DB] EMAIL_DB_KEY missing – generated ephemeral key (TEST_MODE)")
     else:
         raise RuntimeError(
             "EMAIL_DB_KEY is required when EMAIL_DB_ENCRYPTION=true (set EMAIL_DB_KEY_FILE to a Docker secret path)"
@@ -61,7 +68,7 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
-def _exec(conn: sqlite3.Connection, sql: str, params: Dict[str, Any] | Iterable[Any] | None = None) -> None:
+def _exec(conn: sqlite3.Connection, sql: str, params: dict[str, Any] | Iterable[Any] | None = None) -> None:
     conn.execute(sql, params or {})
 
 
@@ -185,7 +192,9 @@ def initialize_database() -> None:
         "[EMAIL][DB] Ready path=%s encrypted=%s rows=%s",
         EMAIL_DB_PATH,
         EMAIL_DB_ENCRYPTION,
-        (lambda r: (r[0] if isinstance(r, tuple) else r.get("cnt") or r.get("COUNT(*)") or 0))(conn.execute("SELECT COUNT(*) AS cnt FROM emails").fetchone() or {}),
+        (lambda r: (r[0] if isinstance(r, tuple) else r.get("cnt") or r.get("COUNT(*)") or 0))(
+            conn.execute("SELECT COUNT(*) AS cnt FROM emails").fetchone() or {}
+        ),
     )
 
 

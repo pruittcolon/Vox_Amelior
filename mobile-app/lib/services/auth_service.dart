@@ -1,7 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+// Phase 6 Security: Use encrypted storage instead of SharedPreferences
+// SharedPreferences stores data in plaintext, flutter_secure_storage uses KeyStore/Keychain
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:demo_ai_even/services/app_logger.dart';
 
@@ -15,23 +20,40 @@ class AuthService {
   late Dio _dio;
   String _serverBase = '';
   String? _sessionToken;
+  String? _csrfToken;
   Map<String, dynamic>? _currentUser;
-  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
-  static const String _sessionTokenKey = 'session_token';
-  static const String _userDataKey = 'user_data';
-  static const String _csrfTokenKey = 'csrf_token';
-  AndroidOptions _androidOptions() => const AndroidOptions(encryptedSharedPreferences: true);
-  IOSOptions _iosOptions() => const IOSOptions(accessibility: KeychainAccessibility.first_unlock);
   
   final StreamController<bool> _authStateController = StreamController<bool>.broadcast();
   Stream<bool> get authStateStream => _authStateController.stream;
   
   bool get isAuthenticated => _sessionToken != null && _currentUser != null;
   Map<String, dynamic>? get currentUser => _currentUser;
-  String? get sessionToken => _sessionToken;
+  
+  /// Get the session token for WebSocket authentication
+  String? getSessionToken() => _sessionToken;
+  
+  /// Get auth headers for API requests
+  Map<String, String> getAuthHeaders() {
+    final headers = <String, String>{};
+    final cookies = <String>[];
+    
+    if (_sessionToken != null) {
+      cookies.add('ws_session=$_sessionToken');
+    }
+    if (_csrfToken != null) {
+      cookies.add('ws_csrf=$_csrfToken');
+      headers['X-CSRF-Token'] = _csrfToken!;  // CSRF header required for POST requests
+    }
+    if (cookies.isNotEmpty) {
+      headers['Cookie'] = cookies.join('; ');
+    }
+    return headers;
+  }
 
   void initialize() {
-    _serverBase = dotenv.env['WHISPER_SERVER_BASE']?.trim() ?? 'http://127.0.0.1:8000';
+    // Server base URL - configure in .env file (WHISPER_SERVER_BASE)
+    // Empty string will cause clear error if not configured
+    _serverBase = dotenv.env['WHISPER_SERVER_BASE']?.trim() ?? '';
     
     _dio = Dio(
       BaseOptions(
@@ -39,10 +61,26 @@ class AuthService {
         connectTimeout: const Duration(seconds: 10),
         receiveTimeout: const Duration(seconds: 30),
         sendTimeout: const Duration(seconds: 30),
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
       ),
     );
+
+    // Bypass self-signed certificate errors for local development
+    // ISO 27002 5.14: TLS bypass ONLY in debug mode - release builds use strict verification
+    if (_serverBase.startsWith('https')) {
+      (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        if (kDebugMode) {
+          client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+        }
+        return client;
+      };
+    }
     
-    AppLogger.instance.log('AuthService', 'Initialized with base $_serverBase');
+    AppLogger.instance.log('AuthService', 'Initialized with base $_serverBase (HTTPS/Secure)');
   }
 
   /// Login with username and password
@@ -63,30 +101,11 @@ class AuthService {
         
         if (data['success'] == true) {
           _sessionToken = data['session_token'];
+          _csrfToken = data['csrf_token'];
           _currentUser = data['user'];
           
-          // Extract CSRF token from Set-Cookie header
-          String? csrfToken;
-          try {
-            final cookies = response.headers['set-cookie'];
-            if (cookies != null) {
-              for (final cookie in cookies) {
-                if (cookie.startsWith('csrf_token=')) {
-                  final parts = cookie.split(';')[0].split('=');
-                  if (parts.length == 2) {
-                    csrfToken = parts[1];
-                    AppLogger.instance.log('AuthService', 'CSRF token extracted from cookie');
-                    break;
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            AppLogger.instance.log('AuthService', 'Failed to extract CSRF token: $e', isError: true);
-          }
-          
-          // Persist session token and CSRF token
-          await _saveSession(csrfToken: csrfToken);
+          // Persist session token
+          await _saveSession();
           
           _authStateController.add(true);
           
@@ -133,6 +152,69 @@ class AuthService {
         success: false,
         message: 'Unexpected error: $e',
       );
+    }
+  }
+
+  /// Register a new account (self-signup) and establish a session
+  Future<LoginResult> register(String username, String password, {String? email}) async {
+    AppLogger.instance.log('AuthService', 'Attempting registration for user: $username');
+
+    try {
+      final payload = <String, dynamic>{
+        'username': username,
+        'password': password,
+      };
+      if (email != null && email.trim().isNotEmpty) {
+        payload['email'] = email.trim();
+      }
+
+      final response = await _dio.post(
+        '/api/auth/register',
+        data: payload,
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data['success'] == true) {
+          _sessionToken = data['session_token'];
+          _csrfToken = data['csrf_token'];
+          _currentUser = data['user'];
+
+          await _saveSession();
+          _authStateController.add(true);
+
+          AppLogger.instance.log('AuthService', 'Registration successful: ${_currentUser?['user_id'] ?? username}');
+          return LoginResult(
+            success: true,
+            message: data['message'] ?? 'Account created',
+            user: _currentUser,
+          );
+        }
+        return LoginResult(
+          success: false,
+          message: data['message'] ?? 'Registration failed',
+        );
+      }
+
+      return LoginResult(
+        success: false,
+        message: 'Server error: ${response.statusCode}',
+      );
+    } on DioException catch (e) {
+      AppLogger.instance.log('AuthService', 'Registration error: $e', isError: true);
+      String errorMessage = 'Network error';
+      final status = e.response?.statusCode;
+      if (status == 409) {
+        errorMessage = 'Username already exists';
+      } else if (status == 400) {
+        errorMessage = e.response?.data?['detail']?.toString() ?? 'Invalid registration data';
+      } else if (status == 429) {
+        errorMessage = 'Too many attempts. Please try again later.';
+      }
+      return LoginResult(success: false, message: errorMessage);
+    } catch (e) {
+      AppLogger.instance.log('AuthService', 'Unexpected registration error: $e', isError: true);
+      return LoginResult(success: false, message: 'Unexpected error: $e');
     }
   }
 
@@ -206,57 +288,39 @@ class AuthService {
     _authStateController.add(false);
   }
 
-  /// Save session to persistent storage
-  Future<void> _saveSession({String? csrfToken}) async {
+  // Phase 6 Security: Use encrypted storage for sensitive session data
+  // flutter_secure_storage uses Android KeyStore and iOS Keychain
+  final _secureStorage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
+
+  /// Save session to secure encrypted storage
+  Future<void> _saveSession() async {
     if (_sessionToken != null && _currentUser != null) {
-      await _secureStorage.write(
-        key: _sessionTokenKey,
-        value: _sessionToken!,
-        aOptions: _androidOptions(),
-        iOptions: _iosOptions(),
-      );
-      await _secureStorage.write(
-        key: _userDataKey,
-        value: jsonEncode(_currentUser!),
-        aOptions: _androidOptions(),
-        iOptions: _iosOptions(),
-      );
-      if (csrfToken != null && csrfToken.isNotEmpty) {
-        await _secureStorage.write(
-          key: _csrfTokenKey,
-          value: csrfToken,
-          aOptions: _androidOptions(),
-          iOptions: _iosOptions(),
-        );
-        AppLogger.instance.log('AuthService', 'Session and CSRF token stored securely');
-      } else {
-        await _secureStorage.delete(
-          key: _csrfTokenKey,
-          aOptions: _androidOptions(),
-          iOptions: _iosOptions(),
-        );
-        AppLogger.instance.log('AuthService', 'Session stored securely (no CSRF token)');
+      await _secureStorage.write(key: 'session_token', value: _sessionToken!);
+      await _secureStorage.write(key: 'user_data', value: jsonEncode(_currentUser!));
+      if (_csrfToken != null) {
+        await _secureStorage.write(key: 'csrf_token', value: _csrfToken!);
       }
+      AppLogger.instance.log('AuthService', 'Session saved to secure storage');
     }
   }
 
-  /// Load session from persistent storage
+  /// Load session from secure encrypted storage
   Future<void> _loadSession() async {
-    _sessionToken = await _secureStorage.read(
-      key: _sessionTokenKey,
-      aOptions: _androidOptions(),
-      iOptions: _iosOptions(),
-    );
-    final userData = await _secureStorage.read(
-      key: _userDataKey,
-      aOptions: _androidOptions(),
-      iOptions: _iosOptions(),
-    );
-
+    _sessionToken = await _secureStorage.read(key: 'session_token');
+    _csrfToken = await _secureStorage.read(key: 'csrf_token');
+    final userData = await _secureStorage.read(key: 'user_data');
+    
     if (userData != null) {
       try {
         _currentUser = jsonDecode(userData);
-        AppLogger.instance.log('AuthService', 'Session loaded from secure storage');
+        AppLogger.instance.log('AuthService', 'Session loaded from secure storage (csrf=${_csrfToken != null})');
       } catch (e) {
         AppLogger.instance.log('AuthService', 'Failed to parse user data: $e', isError: true);
         await _clearSession();
@@ -264,23 +328,11 @@ class AuthService {
     }
   }
 
-  /// Clear session from persistent storage
+  /// Clear session from secure encrypted storage
   Future<void> _clearSession() async {
-    await _secureStorage.delete(
-      key: _sessionTokenKey,
-      aOptions: _androidOptions(),
-      iOptions: _iosOptions(),
-    );
-    await _secureStorage.delete(
-      key: _userDataKey,
-      aOptions: _androidOptions(),
-      iOptions: _iosOptions(),
-    );
-    await _secureStorage.delete(
-      key: _csrfTokenKey,
-      aOptions: _androidOptions(),
-      iOptions: _iosOptions(),
-    );
+    await _secureStorage.delete(key: 'session_token');
+    await _secureStorage.delete(key: 'user_data');
+    await _secureStorage.delete(key: 'csrf_token');
     AppLogger.instance.log('AuthService', 'Session cleared from secure storage');
   }
 
@@ -300,3 +352,4 @@ class LoginResult {
     this.user,
   });
 }
+

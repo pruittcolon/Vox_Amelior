@@ -1,157 +1,826 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:;">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:;">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
-  <title>Nemo Server - Settings</title>
-  
+  <title>Settings - Vox Amelior</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  
+
   <script src="https://unpkg.com/lucide@latest"></script>
-  
-  <link rel="stylesheet" href="assets/css/design-tokens.css?v=2024110802">
-  <link rel="stylesheet" href="assets/css/main.css">
-  <link rel="stylesheet" href="assets/css/components.css">
-  <link rel="stylesheet" href="assets/css/animations.css">
-  
+
+  <!-- Vox Amelior Design System -->
+  <link rel="stylesheet" href="assets/css/vox-amelior.css">
+
   <script src="assets/js/api.js"></script>
   <script src="assets/js/app.js"></script>
   <script src="assets/js/auth.js"></script>
-</head>
-<body class="gemma-theme">
 
-  <header class="glass-header">
-    <div class="container">
-      <div class="flex-between">
-        <div class="flex">
-          <h1 style="font-size: 1.5rem; margin: 0; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-            🎙️ Nemo Server
-          </h1>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f8fafc;
+      min-height: 100vh;
+      color: #1e293b;
+      overflow-x: hidden;
+    }
+
+    /* ========================================
+       ANIMATED GEOMETRIC BACKGROUND
+       ======================================== */
+    .bg-pattern {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .bg-gradient {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 0% 0%, rgba(2, 85, 158, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 100% 0%, rgba(2, 85, 158, 0.05) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 100%, rgba(2, 85, 158, 0.03) 0%, transparent 50%);
+    }
+
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(2, 85, 158, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(2, 85, 158, 0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      animation: gridMove 20s linear infinite;
+    }
+
+    @keyframes gridMove {
+      0% {
+        transform: translate(0, 0);
+      }
+
+      100% {
+        transform: translate(60px, 60px);
+      }
+    }
+
+    .floating-shapes {
+      position: absolute;
+      inset: 0;
+    }
+
+    .shape {
+      position: absolute;
+      border-radius: 50%;
+      opacity: 0.5;
+      animation: floatShape 20s ease-in-out infinite;
+    }
+
+    .shape-1 {
+      width: 300px;
+      height: 300px;
+      background: linear-gradient(135deg, rgba(2, 85, 158, 0.1), rgba(2, 85, 158, 0.05));
+      top: 10%;
+      right: 5%;
+      animation-delay: 0s;
+    }
+
+    .shape-2 {
+      width: 200px;
+      height: 200px;
+      background: linear-gradient(135deg, rgba(2, 85, 158, 0.08), rgba(69, 123, 175, 0.08));
+      bottom: 20%;
+      left: 5%;
+      animation-delay: -7s;
+    }
+
+    .shape-3 {
+      width: 150px;
+      height: 150px;
+      background: linear-gradient(135deg, rgba(2, 85, 158, 0.06), rgba(2, 85, 158, 0.03));
+      top: 50%;
+      left: 30%;
+      animation-delay: -14s;
+    }
+
+    @keyframes floatShape {
+
+      0%,
+      100% {
+        transform: translate(0, 0) rotate(0deg) scale(1);
+      }
+
+      25% {
+        transform: translate(30px, -20px) rotate(5deg) scale(1.05);
+      }
+
+      50% {
+        transform: translate(-20px, 20px) rotate(-5deg) scale(0.95);
+      }
+
+      75% {
+        transform: translate(20px, 30px) rotate(3deg) scale(1.02);
+      }
+    }
+
+    /* ========================================
+       NAVIGATION
+       ======================================== */
+    .nav-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+      padding: 0.75rem 2rem;
+    }
+
+    .nav-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .nav-logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #02559e 0%, #457baf 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 1.1rem;
+      box-shadow: 0 4px 12px rgba(2, 85, 158, 0.3);
+    }
+
+    .nav-logo-text {
+      font-weight: 700;
+      font-size: 1.25rem;
+      background: linear-gradient(135deg, #02559e, #457baf);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .nav-link {
+      padding: 0.5rem 1rem;
+      color: #64748b;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .nav-link:hover {
+      color: #1e293b;
+      background: rgba(0, 0, 0, 0.04);
+    }
+
+    .nav-link.active {
+      color: #02559e;
+      background: rgba(2, 85, 158, 0.1);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .nav-btn {
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: transparent;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      transition: all 0.2s ease;
+    }
+
+    .nav-btn:hover {
+      background: rgba(0, 0, 0, 0.05);
+      color: #1e293b;
+    }
+
+    /* ========================================
+       MAIN CONTENT
+       ======================================== */
+    .main-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ========================================
+       HERO
+       ======================================== */
+    .hero {
+      text-align: center;
+      padding: 2rem 0 3rem;
+      animation: fadeInUp 0.6s ease;
+    }
+
+    .hero-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 1.5rem;
+      background: linear-gradient(135deg, #02559e 0%, #457baf 100%);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 40px rgba(2, 85, 158, 0.25);
+      animation: iconFloat 3s ease-in-out infinite;
+    }
+
+    @keyframes iconFloat {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-8px);
+      }
+    }
+
+    .hero-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: 1.125rem;
+      color: #64748b;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ========================================
+       SETTINGS CARDS
+       ======================================== */
+    .settings-card {
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 20px;
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+      box-shadow:
+        0 4px 20px rgba(0, 0, 0, 0.04),
+        0 0 0 1px rgba(0, 0, 0, 0.02);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      animation: fadeInUp 0.5s ease backwards;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .settings-card:nth-child(1) {
+      animation-delay: 0.1s;
+    }
+
+    .settings-card:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .settings-card:nth-child(3) {
+      animation-delay: 0.2s;
+    }
+
+    .settings-card:nth-child(4) {
+      animation-delay: 0.25s;
+    }
+
+    .settings-card:nth-child(5) {
+      animation-delay: 0.3s;
+    }
+
+    .settings-card:nth-child(6) {
+      animation-delay: 0.35s;
+    }
+
+    .settings-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--card-accent, linear-gradient(135deg, #6366f1, #8b5cf6));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .settings-card:hover {
+      transform: translateY(-4px);
+      box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.08),
+        0 0 0 1px rgba(0, 0, 0, 0.02);
+    }
+
+    .settings-card:hover::before {
+      opacity: 1;
+    }
+
+    .settings-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .settings-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: transform 0.3s ease;
+    }
+
+    .settings-card:hover .settings-icon {
+      transform: scale(1.1) rotate(5deg);
+    }
+
+    .settings-title {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    /* Icon color variants */
+    .icon-primary {
+      background: linear-gradient(135deg, rgba(2, 85, 158, 0.15), rgba(69, 123, 175, 0.15));
+      color: #02559e;
+    }
+
+    .icon-success {
+      background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(16, 185, 129, 0.15));
+      color: #22c55e;
+    }
+
+    .icon-warning {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(249, 115, 22, 0.15));
+      color: #f59e0b;
+    }
+
+    .icon-info {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(59, 130, 246, 0.15));
+      color: #06b6d4;
+    }
+
+    .icon-rose {
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(244, 114, 182, 0.15));
+      color: #ec4899;
+    }
+
+    .icon-slate {
+      background: linear-gradient(135deg, rgba(71, 85, 105, 0.15), rgba(100, 116, 139, 0.15));
+      color: #475569;
+    }
+
+    /* ========================================
+       FORM ELEMENTS
+       ======================================== */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #64748b;
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 0.875rem 1rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 1rem;
+      color: #1e293b;
+      transition: all 0.25s ease;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: #6366f1;
+      background: white;
+      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+    }
+
+    /* ========================================
+       TOGGLE SWITCHES
+       ======================================== */
+    .toggle-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .toggle-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.875rem 1rem;
+      background: #f8fafc;
+      border-radius: 12px;
+      transition: all 0.2s ease;
+    }
+
+    .toggle-item:hover {
+      background: #f1f5f9;
+    }
+
+    .toggle-label {
+      font-size: 0.9375rem;
+      color: #1e293b;
+      font-weight: 500;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 52px;
+      height: 28px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #cbd5e1;
+      border-radius: 100px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .toggle-slider::before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .toggle-switch input:checked+.toggle-slider {
+      background: linear-gradient(135deg, #02559e, #457baf);
+    }
+
+    .toggle-switch input:checked+.toggle-slider::before {
+      transform: translateX(24px);
+    }
+
+    /* ========================================
+       BUTTONS
+       ======================================== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.25rem;
+      border: none;
+      border-radius: 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #02559e 0%, #457baf 100%);
+      color: white;
+      box-shadow: 0 4px 15px rgba(2, 85, 158, 0.3);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(2, 85, 158, 0.4);
+    }
+
+    .btn-ghost {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .btn-ghost:hover {
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    /* ========================================
+       ABOUT CONTENT
+       ======================================== */
+    .about-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+    }
+
+    .about-item {
+      padding: 1rem;
+      background: #f8fafc;
+      border-radius: 12px;
+    }
+
+    .about-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    .about-value {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .about-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 1rem;
+      color: #6366f1;
+      text-decoration: none;
+      font-weight: 600;
+      transition: gap 0.2s ease;
+    }
+
+    .about-link:hover {
+      gap: 0.75rem;
+    }
+
+    /* ========================================
+       RESPONSIVE
+       ======================================== */
+    @media (max-width: 768px) {
+      .nav-links {
+        display: none;
+      }
+
+      .main-container {
+        padding: 1rem;
+      }
+
+      .hero-title {
+        font-size: 2rem;
+      }
+
+      .about-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Animated Background -->
+  <div class="bg-pattern">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+    <div class="floating-shapes">
+      <div class="shape shape-1"></div>
+      <div class="shape shape-2"></div>
+      <div class="shape shape-3"></div>
+    </div>
+  </div>
+
+  <!-- Navigation (Vox Amelior) -->
+  <nav class="vox-nav">
+    <div class="vox-nav-inner">
+      <a href="index.html" class="vox-logo">
+        <div class="vox-logo-mark">
+          <img src="assets/images/logo.png" alt="Vox Amelior Logo">
         </div>
-        
-        <nav class="nav">
-          <a href="index.html" class="nav-link">Dashboard</a>
-          <a href="search.html" class="nav-link">Search</a>
-          <a href="emotions.html" class="nav-link">Emotions</a>
-          <a href="memories.html" class="nav-link">Memories</a>
-          <a href="gemma.html" class="nav-link">AI Insights</a>
-          <a href="databases.html" class="nav-link">LLM Vectorization</a>
-          <a href="predictions.html" class="nav-link">ML Service</a>
-          <a href="settings.html" class="nav-link active">Settings</a>
-        </nav>
-        
-        <div class="flex">
-          <button class="glass-button" data-toggle-theme>
-            <i data-lucide="moon" style="width: 18px; height: 18px;"></i>
-          </button>
-          <div id="api-status"></div>
-        </div>
+        <span class="vox-logo-text">Vox Amelior</span>
+      </a>
+
+      <div class="vox-nav-links">
+        <a href="index.html" class="vox-nav-link">Dashboard</a>
+        <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+        <a href="nexus.html" class="vox-nav-link">Analytics</a>
+        <a href="banking.html" class="vox-nav-link">Enterprise</a>
+        <a href="settings.html" class="vox-nav-link active">Settings</a>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <div id="api-status"></div>
+        <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
       </div>
     </div>
-  </header>
+  </nav>
 
-  <main class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
-    
-    <section class="fade-in-up" style="text-align: center; margin-bottom: 3rem;">
-      <h1 style="font-size: 2.5rem; margin-bottom: 1rem;">Settings</h1>
-      <p class="text-muted">Configure Nemo Server preferences and connections</p>
+  <!-- Main Content -->
+  <main class="main-container">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-icon">
+        <i data-lucide="settings" style="width: 36px; height: 36px; color: white;"></i>
+      </div>
+      <h1 class="hero-title">Settings</h1>
+      <p class="hero-subtitle">Configure Vox Amelior preferences and connections</p>
     </section>
 
-    <!-- Settings Sections -->
-    <div style="max-width: 800px; margin: 0 auto;">
-      
+    <!-- Settings Cards -->
+    <div class="settings-grid">
       <!-- API Connection -->
-      <section class="glass-card fade-in-up delay-100" style="margin-bottom: 2rem;">
-        <h3 style="margin-bottom: 1.5rem;">
-          <i data-lucide="server" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></i>
-          API Connection
-        </h3>
-        <div style="margin-bottom: 1rem;">
-          <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Server URL</label>
-          <input type="text" class="input" id="api-url" value="http://localhost:8000">
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #02559e, #457baf);">
+        <div class="settings-header">
+          <div class="settings-icon icon-primary">
+            <i data-lucide="server" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">API Connection</h3>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Server URL</label>
+          <input type="text" class="form-input" id="api-url" value="http://localhost:8000">
         </div>
         <button class="btn btn-primary" onclick="testConnection()">
           <i data-lucide="activity" style="width: 16px; height: 16px;"></i>
           Test Connection
         </button>
-      </section>
+      </div>
 
       <!-- Appearance -->
-      <section class="glass-card fade-in-up delay-200" style="margin-bottom: 2rem;">
-        <h3 style="margin-bottom: 1.5rem;">
-          <i data-lucide="palette" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></i>
-          Appearance
-        </h3>
-        <div style="display: flex; gap: 1rem; align-items: center;">
-          <label style="font-weight: 600;">Theme:</label>
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #ec4899, #f472b6);">
+        <div class="settings-header">
+          <div class="settings-icon icon-rose">
+            <i data-lucide="palette" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">Appearance</h3>
+        </div>
+        <div class="btn-group">
           <button class="btn btn-ghost" onclick="setTheme('dark')">
             <i data-lucide="moon" style="width: 16px; height: 16px;"></i>
-            Dark
+            Dark Mode
           </button>
           <button class="btn btn-ghost" onclick="setTheme('light')">
             <i data-lucide="sun" style="width: 16px; height: 16px;"></i>
-            Light
+            Light Mode
           </button>
         </div>
-      </section>
+      </div>
 
-      <!-- Transcription -->
-      <section class="glass-card fade-in-up delay-300" style="margin-bottom: 2rem;">
-        <h3 style="margin-bottom: 1.5rem;">
-          <i data-lucide="mic" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></i>
-          Transcription Settings
-        </h3>
-        <div style="margin-bottom: 1rem;">
-          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="auto-refresh" checked>
-            <span>Auto-refresh transcriptions (every 2s)</span>
-          </label>
+      <!-- Transcription Settings -->
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #22c55e, #10b981);">
+        <div class="settings-header">
+          <div class="settings-icon icon-success">
+            <i data-lucide="mic" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">Transcription Settings</h3>
         </div>
-        <div style="margin-bottom: 1rem;">
-          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="show-timestamps" checked>
-            <span>Show timestamps</span>
-          </label>
+        <div class="toggle-group">
+          <div class="toggle-item">
+            <span class="toggle-label">Auto-refresh transcriptions (every 2s)</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="auto-refresh" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-item">
+            <span class="toggle-label">Show timestamps</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="show-timestamps" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-item">
+            <span class="toggle-label">Show emotion badges</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="show-emotions" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
-        <div>
-          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="show-emotions" checked>
-            <span>Show emotion badges</span>
-          </label>
-        </div>
-      </section>
+      </div>
 
       <!-- Notifications -->
-      <section class="glass-card fade-in-up delay-400" style="margin-bottom: 2rem;">
-        <h3 style="margin-bottom: 1.5rem;">
-          <i data-lucide="bell" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></i>
-          Notifications
-        </h3>
-        <div style="margin-bottom: 1rem;">
-          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="notify-new-transcript">
-            <span>Notify on new transcription</span>
-          </label>
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #f59e0b, #f97316);">
+        <div class="settings-header">
+          <div class="settings-icon icon-warning">
+            <i data-lucide="bell" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">Notifications</h3>
         </div>
-        <div>
-          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="notify-errors" checked>
-            <span>Notify on errors</span>
-          </label>
+        <div class="toggle-group">
+          <div class="toggle-item">
+            <span class="toggle-label">Notify on new transcription</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notify-new-transcript">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-item">
+            <span class="toggle-label">Notify on errors</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notify-errors" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
-      </section>
+      </div>
 
-      <!-- Storage -->
-      <section class="glass-card fade-in-up delay-500" style="margin-bottom: 2rem;">
-        <h3 style="margin-bottom: 1.5rem;">
-          <i data-lucide="database" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></i>
-          Data Management
-        </h3>
-        <div style="display: flex; gap: 1rem;">
+      <!-- Data Management -->
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #06b6d4, #3b82f6);">
+        <div class="settings-header">
+          <div class="settings-icon icon-info">
+            <i data-lucide="database" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">Data Management</h3>
+        </div>
+        <div class="btn-group">
           <button class="btn btn-ghost" onclick="clearCache()">
             <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
             Clear Cache
@@ -161,26 +830,125 @@
             Export Settings
           </button>
         </div>
-      </section>
+      </div>
+
+      <!-- AI Model Configuration -->
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #8b5cf6, #6366f1);">
+        <div class="settings-header">
+          <div class="settings-icon icon-primary">
+            <i data-lucide="brain" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">AI Models</h3>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Chat Model</label>
+          <select class="form-input" id="llm-model">
+            <option value="gemma-3-4b">Gemma 3 4B (Default - 2.4GB)</option>
+            <option value="granite-1b">IBM Granite 1B (Faster - 1.1GB)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">KV Cache Quantization</label>
+          <select class="form-input" id="kv-cache-type">
+            <option value="q8_0">Q8_0 (~418MB cache) - Recommended</option>
+            <option value="fp16">FP16 (~835MB cache) - Full Precision</option>
+            <option value="q4_0">Q4_0 (~209MB cache) - Max Savings</option>
+          </select>
+        </div>
+
+        <div class="about-grid" style="margin-top: 1rem;">
+          <div class="about-item">
+            <div class="about-label">VRAM Used</div>
+            <div class="about-value" id="vram-used">-- MB</div>
+          </div>
+          <div class="about-item">
+            <div class="about-label">VRAM Total</div>
+            <div class="about-value" id="vram-total">-- MB</div>
+          </div>
+        </div>
+
+        <div class="btn-group" style="margin-top: 1rem;">
+          <button class="btn btn-primary" onclick="applyModelSettings()">
+            <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+            Apply Changes
+          </button>
+          <button class="btn btn-ghost" onclick="loadModelSettings()">
+            <i data-lucide="eye" style="width: 16px; height: 16px;"></i>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- ASR Model Configuration -->
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #10b981, #059669);">
+        <div class="settings-header">
+          <div class="settings-icon icon-success">
+            <i data-lucide="audio-waveform" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">Speech Recognition</h3>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">ASR Model</label>
+          <select class="form-input" id="asr-model">
+            <option value="parakeet-tdt-0.6b">Parakeet TDT 0.6B (Default)</option>
+            <option value="parakeet-rnnt-0.6b">Parakeet RNNT 0.6B</option>
+          </select>
+        </div>
+
+        <div class="toggle-group">
+          <div class="toggle-item">
+            <span class="toggle-label">Cache-Aware Streaming</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cache-aware-streaming" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-item">
+            <span class="toggle-label">TensorRT Optimization</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="tensorrt-opt">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
 
       <!-- About -->
-      <section class="glass-card fade-in-up delay-600">
-        <h3 style="margin-bottom: 1.5rem;">
-          <i data-lucide="info" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></i>
-          About
-        </h3>
-        <div style="color: var(--text-secondary); line-height: 1.8;">
-          <p><strong>Version:</strong> 3.2 REFACTORED</p>
-          <p><strong>ASR Model:</strong> Parakeet-TDT-0.6B (GPU)</p>
-          <p><strong>AI Model:</strong> Gemma 3 4B (GPU)</p>
-          <p><strong>Emotion Model:</strong> DistilRoBERTa (CPU)</p>
-          <p><strong>Speaker Model:</strong> TitaNet Large (CPU)</p>
-          <p><a href="about.html" style="color: var(--primary);">View System Information →</a></p>
+
+      <div class="settings-card" style="--card-accent: linear-gradient(135deg, #475569, #64748b);">
+        <div class="settings-header">
+          <div class="settings-icon icon-slate">
+            <i data-lucide="info" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="settings-title">About</h3>
         </div>
-      </section>
-
+        <div class="about-grid">
+          <div class="about-item">
+            <div class="about-label">Version</div>
+            <div class="about-value">3.2 REFACTORED</div>
+          </div>
+          <div class="about-item">
+            <div class="about-label">ASR Model</div>
+            <div class="about-value">Parakeet-TDT-0.6B (GPU)</div>
+          </div>
+          <div class="about-item">
+            <div class="about-label">AI Model</div>
+            <div class="about-value">Gemma 3 4B (GPU)</div>
+          </div>
+          <div class="about-item">
+            <div class="about-label">Emotion Model</div>
+            <div class="about-value">DistilRoBERTa (CPU)</div>
+          </div>
+        </div>
+        <a href="about.html" class="about-link">
+          View System Information
+          <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
+        </a>
+      </div>
     </div>
-
   </main>
 
   <script>
@@ -214,11 +982,11 @@
     async function testConnection() {
       const url = document.getElementById('api-url').value;
       api.setBaseURL(url);
-      
+
       showToast('Testing', 'Connecting to server...', 'info', 2000);
-      
+
       const isConnected = await api.testConnection();
-      
+
       if (isConnected) {
         showToast('Success', 'Connected to server!', 'success');
       } else {
@@ -250,7 +1018,7 @@
         notifyErrors: document.getElementById('notify-errors').checked,
         theme: document.body.classList.contains('light-mode') ? 'light' : 'dark'
       };
-      
+
       const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -258,13 +1026,72 @@
       a.download = 'whisperserver-settings.json';
       a.click();
       URL.revokeObjectURL(url);
-      
+
       showToast('Exported', 'Settings exported successfully', 'success');
     }
 
-    // Export settings
+    // ========================================
+    // AI MODEL SETTINGS
+    // ========================================
+
+    async function loadModelSettings() {
+      try {
+        const baseUrl = document.getElementById('api-url').value || api.getBaseURL();
+        const response = await fetch(`${baseUrl}/api/gemma/health`);
+        if (!response.ok) throw new Error('Failed to fetch model settings');
+
+        const data = await response.json();
+
+        // Update VRAM display
+        if (data.vram_used_mb) {
+          document.getElementById('vram-used').textContent = `${data.vram_used_mb} MB`;
+        }
+        if (data.vram_total_mb) {
+          document.getElementById('vram-total').textContent = `${data.vram_total_mb} MB`;
+        }
+
+        // Update selectors
+        if (data.model_name) {
+          document.getElementById('llm-model').value = data.model_name;
+        }
+        if (data.cache_type) {
+          document.getElementById('kv-cache-type').value = data.cache_type;
+        }
+
+        showToast('Loaded', 'Model settings refreshed', 'success', 1500);
+      } catch (e) {
+        console.warn('Could not load model settings:', e);
+        document.getElementById('vram-used').textContent = 'N/A';
+        document.getElementById('vram-total').textContent = 'N/A';
+      }
+    }
+
+    async function applyModelSettings() {
+      const model = document.getElementById('llm-model').value;
+      const cacheType = document.getElementById('kv-cache-type').value;
+
+      showToast('Info', 'Model settings require service restart to apply', 'info', 3000);
+
+      // Save to local storage for reference
+      saveToStorage('llm-model', model);
+      saveToStorage('kv-cache-type', cacheType);
+
+      // Display the env vars needed
+      const envVars = `
+        GEMMA_MODEL_PATH=/app/models/${model === 'granite-1b' ? 'granite-4.0-1b-Q8_0.gguf' : 'gemma-3-4b-it-UD-Q4_K_XL.gguf'}
+        GEMMA_CACHE_TYPE=${cacheType}
+      `;
+      console.log('Apply these environment variables:', envVars);
+
+      showToast('Saved', 'Settings saved. Restart Gemma service to apply.', 'warning', 4000);
+    }
+
+    // Load model settings on page load
+    setTimeout(loadModelSettings, 500);
+
+    // Initialize
     loadSettings();
   </script>
-
 </body>
+
 </html>

@@ -2,8 +2,9 @@
 Emotion analysis module to avoid circular imports.
 """
 
-from typing import Any, Dict
 import os
+from typing import Any
+
 try:
     from transformers import pipeline  # type: ignore
 except ImportError:  # pragma: no cover - executed when optional deps missing
@@ -13,6 +14,7 @@ from config import ModelConfig
 
 # Global emotion classifier
 emotion_classifier = None
+
 
 def initialize_emotion_classifier():
     """Initialize the emotion classifier model."""
@@ -50,7 +52,8 @@ def initialize_emotion_classifier():
             print(f"[WARN] Failed to load emotion analysis model: {exc}")
             emotion_classifier = None
 
-def analyze_emotion(text: str) -> Dict[str, Any]:
+
+def analyze_emotion(text: str) -> dict[str, Any]:
     """
     Analyze emotion in the given text using the Hugging Face emotion model.
     Returns emotion data including the dominant emotion and all emotion scores.
@@ -66,44 +69,40 @@ def analyze_emotion(text: str) -> Dict[str, Any]:
                 "joy": 0.0,
                 "neutral": 1.0,
                 "sadness": 0.0,
-                "surprise": 0.0
-            }
+                "surprise": 0.0,
+            },
         }
-    
+
     try:
         # Clean and truncate text for emotion analysis to prevent token overflow
         clean_text = text.strip()
         if len(clean_text) < 3:
             return analyze_emotion("")  # Return neutral for very short text
-        
+
         # Truncate text to prevent token sequence length errors (max 512 tokens)
         max_chars = 2000  # Conservative limit to stay well under 512 tokens
         if len(clean_text) > max_chars:
             clean_text = clean_text[:max_chars]
-        
+
         # Get emotion predictions
         results = emotion_classifier(clean_text)
-        
+
         # Extract emotions and scores
         emotions = {}
         dominant_emotion = "neutral"
         max_score = 0.0
-        
+
         for result in results[0]:  # results is a list with one element containing all emotions
             emotion = result["label"]
             score = result["score"]
             emotions[emotion] = score
-            
+
             if score > max_score:
                 max_score = score
                 dominant_emotion = emotion
-        
-        return {
-            "dominant_emotion": dominant_emotion,
-            "confidence": max_score,
-            "emotions": emotions
-        }
-        
+
+        return {"dominant_emotion": dominant_emotion, "confidence": max_score, "emotions": emotions}
+
     except Exception as exc:
         print(f"[EMOTION] Error analyzing emotion: {exc}")
         # Return neutral emotion data instead of recursive call to prevent infinite loops
@@ -117,6 +116,6 @@ def analyze_emotion(text: str) -> Dict[str, Any]:
                 "joy": 0.0,
                 "neutral": 1.0,
                 "sadness": 0.0,
-                "surprise": 0.0
-            }
+                "surprise": 0.0,
+            },
         }

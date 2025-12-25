@@ -1,0 +1,43 @@
+# Code Owners
+# These users will be automatically requested for review
+
+# Default owners for everything
+* @pruittcolon
+
+# Service-specific ownership
+/services/api-gateway/ @pruittcolon
+/services/gemma-service/ @pruittcolon
+/services/ml-service/ @pruittcolon
+/services/transcription-service/ @pruittcolon
+/services/rag-service/ @pruittcolon
+/services/emotion-service/ @pruittcolon
+/services/insights-service/ @pruittcolon
+/services/queue-service/ @pruittcolon
+
+# Infrastructure
+/docker/ @pruittcolon
+/k8s/ @pruittcolon
+/monitoring/ @pruittcolon
+
+# Security-sensitive files (require review)
+SECURITY.md @pruittcolon
+/docker/secrets/ @pruittcolon
+/.github/workflows/ @pruittcolon
+.pre-commit-config.yaml @pruittcolon
+
+# Documentation
+/docs/ @pruittcolon
+README.md @pruittcolon
+ARCHITECTURE.md @pruittcolon
+CONTRIBUTING.md @pruittcolon
+
+# Testing
+/tests/ @pruittcolon
+pytest.ini @pruittcolon
+pyproject.toml @pruittcolon
+
+# Mobile app
+/mobile-app/ @pruittcolon
+
+# Frontend
+/frontend/ @pruittcolon

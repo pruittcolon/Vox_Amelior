@@ -1,7 +1,15 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:demo_ai_even/services/evenai.dart';
+import 'package:flutter/foundation.dart';
+import 'package:demo_ai_even/services/text_display_service.dart';
 import 'package:demo_ai_even/services/proto.dart';
+
+// Debug logging helper
+void _log(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 class TextService {
   static TextService? _instance;
@@ -19,7 +27,7 @@ class TextService {
     isRunning = true;
 
     _currentLine = 0;
-    list = EvenAIDataMethod.measureStringList(text);
+    list = TextDisplayService.measureStringList(text);
 
     if (list.length < 4) {
       String startScreenWords =
@@ -28,6 +36,11 @@ class TextService {
       startScreenWords = headString + startScreenWords;
 
       await doSendText(startScreenWords, 0x01, 0x70, 0);
+      // If custom interval is set (interview mode), wait before returning
+      if (customIntervalMs != null) {
+        _log('🕐 TextService: Single page - waiting ${customIntervalMs}ms');
+        await Future.delayed(Duration(milliseconds: customIntervalMs!));
+      }
       return;
     }
 
@@ -37,6 +50,11 @@ class TextService {
       String headString = '\n';
       startScreenWords = headString + startScreenWords;
       await doSendText(startScreenWords, 0x01, 0x70, 0);
+      // If custom interval is set (interview mode), wait before returning
+      if (customIntervalMs != null) {
+        _log('🕐 TextService: Single page - waiting ${customIntervalMs}ms');
+        await Future.delayed(Duration(milliseconds: customIntervalMs!));
+      }
       return;
     }
 
@@ -44,6 +62,11 @@ class TextService {
       String startScreenWords =
           list.sublist(0, 5).map((str) => '$str\n').join();
       await doSendText(startScreenWords, 0x01, 0x70, 0);
+      // If custom interval is set (interview mode), wait before returning
+      if (customIntervalMs != null) {
+        _log('🕐 TextService: Single page - waiting ${customIntervalMs}ms');
+        await Future.delayed(Duration(milliseconds: customIntervalMs!));
+      }
       return;
     }
 
@@ -59,17 +82,19 @@ class TextService {
 
   int retryCount = 0;
   Future<bool> doSendText(String text, int type, int status, int pos) async {
-    print(
-        '${DateTime.now()} doSendText--currentPage---${getCurrentPage()}-----text----$text-----type---$type---status---$status----pos---$pos-');
+    if (kDebugMode) {
+      debugPrint(
+          '${DateTime.now()} doSendText--currentPage---${getCurrentPage()}-----text----$text-----type---$type---status---$status----pos---$pos-');
+    }
     if (!isRunning) {
       return false;
     }
 
     bool isSuccess = await Proto.sendEvenAIData(text,
-        newScreen: EvenAIDataMethod.transferToNewScreen(type, status),
+        newScreen: status | type,
         pos: pos,
         current_page_num: getCurrentPage(),
-        max_page_num: getTotalPages()); // todo pos
+        max_page_num: getTotalPages());
     if (!isSuccess) {
       if (retryCount < maxRetry) {
         retryCount++;
@@ -83,12 +108,25 @@ class TextService {
     return true;
   }
 
+  /// Custom interval for interview mode (ms) - set before calling startSendText
+  static int? customIntervalMs;
+
   Future updateReplyToOSByTimer() async {
     if (!isRunning) return;
-    int interval = 8; // Adjusted from 12 to 8 seconds
+    // Use custom interval if set, otherwise default 5 seconds
+    int intervalMs = customIntervalMs ?? 5000;
+    _log('🕐 TextService: Using timer interval: ${intervalMs}ms (customIntervalMs: $customIntervalMs)');
 
     _timer?.cancel();
-    _timer = Timer.periodic(Duration(seconds: interval), (timer) async {
+    _timer = Timer.periodic(Duration(milliseconds: intervalMs), (timer) async {
+      // CRITICAL: Check if we should still be running at start of each tick
+      // This prevents pages from displaying after terminate is called
+      if (!isRunning) {
+        timer.cancel();
+        _timer = null;
+        return;
+      }
+
       _currentLine = min(_currentLine + 5, list.length - 1);
       sendReplys = list.sublist(_currentLine);
 
@@ -98,6 +136,13 @@ class TextService {
 
         clear();
       } else {
+        // Check again before sending in case terminate was called
+        if (!isRunning) {
+          timer.cancel();
+          _timer = null;
+          return;
+        }
+
         if (sendReplys.length < 4) {
           var mergedStr = sendReplys
               .sublist(0, sendReplys.length)
@@ -161,7 +206,7 @@ class TextService {
   }
 
   Future stopTextSendingByOS() async {
-    print("stopTextSendingByOS---------------");
+    _log("stopTextSendingByOS---------------");
     isRunning = false;
     clear();
   }

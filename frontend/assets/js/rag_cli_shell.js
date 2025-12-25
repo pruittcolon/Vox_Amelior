@@ -641,17 +641,583 @@
         '  help                    Show this help',
         '  clear                   Clear log',
         '  raw on|off              Toggle raw JSON logging (default: on)',
-        '  rag query "<text>" [--top-k N] [--last-n M] [--period today|week|month] [--speaker NAME] [--all-speakers]',
-        '  gemma rag "<question>" [--top-k N] [--max-tokens N] [--period today|week|month] [--speaker NAME] [--all-speakers]',
+        '',
+        '=== Core Commands ===',
+        '  rag query "<text>" [--top-k N] [--last-n M] [--period today|week|month]',
+        '  gemma rag "<question>" [--top-k N] [--max-tokens N]',
         '  gemma chat "<question>" [--max-tokens N]',
-        '  emotion analyze "<text>"   Analyze up to 5 emotion segments (default speakers pruitt, ericah)',
-        '  emotion summary           Summarize the last emotion analysis',
-        '  show context            Show last RAG context snippets',
-        '  show response           Show last Gemma response',
-        '  gpu                     Show Gemma GPU stats',
-        '  warmup                  Warm GPU (Gemma)',
+        '  emotion analyze "<text>"   Analyze emotion segments',
+        '  emotion summary            Summarize last emotion analysis',
+        '  show context               Show last RAG context',
+        '  show response              Show last Gemma response',
+        '  gpu                        Show Gemma GPU stats',
+        '  warmup                     Warm GPU (Gemma)',
+        '',
+        '=== ML Profit Commands ===',
+        '  ml test [member_id]        Run all ML endpoint tests',
+        '  ml crosssell <member_id>   Test cross-sell propensity',
+        '  ml churn <member_id>       Test churn prediction',
+        '  ml pricing <member_id> <loan_type> <amount> <term> <score>',
+        '                             Test loan pricing optimization',
+        '  ml features <member_id>    View member ML features',
+        '',
+        '=== Enterprise Commands ===',
+        '  qa stats                   Show QA statistics',
+        '  qa review [pending|all]    List feedback for review',
+        '  qa golden list             List golden answers',
+        '',
+        '  automation stats           Show automation statistics',
+        '  automation rules           List automation rules',
+        '  automation webhooks        List webhooks',
+        '',
+        '  knowledge stats            Show knowledge stats',
+        '  knowledge articles         List recent articles',
+        '  knowledge search "<query>" Search knowledge base',
+        '',
+        '  analytics stats            Show analytics stats',
+        '  analytics reports          List saved reports',
+        '',
+        '  meetings stats             Show meeting stats',
+        '  meetings list              List recent meetings',
+        '  meetings search "<query>"  Search meetings',
+        '',
+        '=== Banking Hub Commands (SCU) ===',
+        '  banking analyze <member_id>   Analyze member with role-based insights',
+        '  banking dataset <member_id>   Fetch raw dataset from Fiserv connector',
+        '  banking test                  Run full integration test',
       ].join('\n');
       appendLog('info', helpText);
+    }
+
+    // ===========================================
+    // Enterprise Command Handlers
+    // ===========================================
+
+    async function handleQA(tokens) {
+      const sub = tokens[0] || 'stats';
+      if (sub === 'stats') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/qa/stats'), 'qa-stats');
+          appendLog('success', `[QA] Stats in ${formatMs(elapsed)}`, result);
+        } catch (e) {
+          appendLog('error', `[QA] stats failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'review') {
+        const status = tokens[1] || 'pending';
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => apiClient.get(`/enterprise/qa/review?status=${status}&limit=10`),
+            'qa-review'
+          );
+          const items = result?.items || result || [];
+          appendLog('success', `[QA] Review queue (${status}): ${items.length} items in ${formatMs(elapsed)}`, items);
+        } catch (e) {
+          appendLog('error', `[QA] review failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'golden') {
+        const action = tokens[1] || 'list';
+        if (action === 'list') {
+          try {
+            const { result, elapsed } = await runWithTiming(
+              () => apiClient.get('/enterprise/qa/golden?limit=20'),
+              'qa-golden'
+            );
+            const items = result?.items || result || [];
+            appendLog('success', `[QA] Golden answers: ${items.length} in ${formatMs(elapsed)}`, items);
+          } catch (e) {
+            appendLog('error', `[QA] golden list failed: ${e?.message || e}`);
+          }
+        }
+        return;
+      }
+      appendLog('warn', 'Usage: qa stats | qa review [pending|all] | qa golden list');
+    }
+
+    async function handleAutomation(tokens) {
+      const sub = tokens[0] || 'stats';
+      if (sub === 'stats') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/automation/stats'), 'auto-stats');
+          appendLog('success', `[Automation] Stats in ${formatMs(elapsed)}`, result);
+        } catch (e) {
+          appendLog('error', `[Automation] stats failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'rules') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/automation/rules'), 'auto-rules');
+          const items = result?.rules || [];
+          appendLog('success', `[Automation] Rules: ${items.length} in ${formatMs(elapsed)}`, items);
+        } catch (e) {
+          appendLog('error', `[Automation] rules failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'webhooks') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/automation/webhooks'), 'auto-webhooks');
+          const items = result?.webhooks || [];
+          appendLog('success', `[Automation] Webhooks: ${items.length} in ${formatMs(elapsed)}`, items);
+        } catch (e) {
+          appendLog('error', `[Automation] webhooks failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      appendLog('warn', 'Usage: automation stats | automation rules | automation webhooks');
+    }
+
+    async function handleKnowledge(tokens) {
+      const sub = tokens[0] || 'stats';
+      if (sub === 'stats') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/knowledge/stats'), 'kb-stats');
+          appendLog('success', `[Knowledge] Stats in ${formatMs(elapsed)}`, result);
+        } catch (e) {
+          appendLog('error', `[Knowledge] stats failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'articles') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/knowledge/articles?limit=10'), 'kb-articles');
+          const items = result?.articles || result?.items || [];
+          appendLog('success', `[Knowledge] Articles: ${items.length} in ${formatMs(elapsed)}`, items);
+        } catch (e) {
+          appendLog('error', `[Knowledge] articles failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'search') {
+        const query = buildQueryFromTokens(tokens, 1);
+        if (!query) {
+          appendLog('warn', 'Usage: knowledge search "<query>"');
+          return;
+        }
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => apiClient.get(`/enterprise/knowledge/search?query=${encodeURIComponent(query)}`),
+            'kb-search'
+          );
+          appendLog('success', `[Knowledge] Search results in ${formatMs(elapsed)}`, result);
+        } catch (e) {
+          appendLog('error', `[Knowledge] search failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      appendLog('warn', 'Usage: knowledge stats | knowledge articles | knowledge search "<query>"');
+    }
+
+    async function handleAnalytics(tokens) {
+      const sub = tokens[0] || 'stats';
+      if (sub === 'stats') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/analytics/stats'), 'analytics-stats');
+          appendLog('success', `[Analytics] Stats in ${formatMs(elapsed)}`, result);
+        } catch (e) {
+          appendLog('error', `[Analytics] stats failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'reports') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/analytics/reports?limit=10'), 'analytics-reports');
+          const items = result?.reports || result?.items || [];
+          appendLog('success', `[Analytics] Reports: ${items.length} in ${formatMs(elapsed)}`, items);
+        } catch (e) {
+          appendLog('error', `[Analytics] reports failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      appendLog('warn', 'Usage: analytics stats | analytics reports');
+    }
+
+    async function handleMeetings(tokens) {
+      const sub = tokens[0] || 'stats';
+      if (sub === 'stats') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/meetings/stats'), 'meetings-stats');
+          appendLog('success', `[Meetings] Stats in ${formatMs(elapsed)}`, result);
+        } catch (e) {
+          appendLog('error', `[Meetings] stats failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'list') {
+        try {
+          const { result, elapsed } = await runWithTiming(() => apiClient.get('/enterprise/meetings?limit=10'), 'meetings-list');
+          const items = result?.meetings || result?.items || [];
+          appendLog('success', `[Meetings] List: ${items.length} in ${formatMs(elapsed)}`, items);
+        } catch (e) {
+          appendLog('error', `[Meetings] list failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      if (sub === 'search') {
+        const query = buildQueryFromTokens(tokens, 1);
+        if (!query) {
+          appendLog('warn', 'Usage: meetings search "<query>"');
+          return;
+        }
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => apiClient.get(`/enterprise/meetings/search?query=${encodeURIComponent(query)}`),
+            'meetings-search'
+          );
+          appendLog('success', `[Meetings] Search results in ${formatMs(elapsed)}`, result);
+        } catch (e) {
+          appendLog('error', `[Meetings] search failed: ${e?.message || e}`);
+        }
+        return;
+      }
+      appendLog('warn', 'Usage: meetings stats | meetings list | meetings search "<query>"');
+    }
+
+    // ===========================================
+    // ML Profit Maximization Command Handlers
+    // ===========================================
+
+    async function handleML(tokens) {
+      const sub = tokens[0] || 'test';
+      const memberId = tokens[1] || 'M12345';
+
+      // Helper to make ML API calls through gateway
+      async function mlFetch(method, path, body = null) {
+        const url = `/fiserv/api/v1/ml${path}`;
+        const options = {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+        };
+        if (body) options.body = JSON.stringify(body);
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`${res.status}: ${errText}`);
+        }
+        return res.json();
+      }
+
+      if (sub === 'test') {
+        appendLog('info', `[ML] Running all tests for member: ${memberId}`);
+        let passed = 0;
+        let failed = 0;
+
+        // Test Cross-Sell
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => mlFetch('POST', '/cross-sell/predict', { member_id: memberId }),
+            'ml-crosssell'
+          );
+          const recCount = result?.recommendations?.length || 0;
+          appendLog('success', `[ML] ✓ Cross-sell: ${recCount} recommendations in ${formatMs(elapsed)}`, state.raw ? result : undefined);
+          passed++;
+        } catch (e) {
+          appendLog('error', `[ML] ✗ Cross-sell failed: ${e.message}`);
+          failed++;
+        }
+
+        // Test Churn
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => mlFetch('POST', '/churn/predict', { member_id: memberId }),
+            'ml-churn'
+          );
+          appendLog('success', `[ML] ✓ Churn: ${result?.risk_level || 'N/A'} risk (${(result?.churn_probability * 100).toFixed(1)}%) in ${formatMs(elapsed)}`, state.raw ? result : undefined);
+          passed++;
+        } catch (e) {
+          appendLog('error', `[ML] ✗ Churn failed: ${e.message}`);
+          failed++;
+        }
+
+        // Test Pricing
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => mlFetch('POST', '/pricing/optimize', {
+              member_id: memberId,
+              loan_type: 'auto_new',
+              amount: 25000,
+              term_months: 60,
+              credit_score: 720
+            }),
+            'ml-pricing'
+          );
+          appendLog('success', `[ML] ✓ Pricing: ${result?.recommended_rate}% rate in ${formatMs(elapsed)}`, state.raw ? result : undefined);
+          passed++;
+        } catch (e) {
+          appendLog('error', `[ML] ✗ Pricing failed: ${e.message}`);
+          failed++;
+        }
+
+        appendLog('info', `[ML] Test Summary: ${passed} passed, ${failed} failed`);
+        return;
+      }
+
+      if (sub === 'crosssell') {
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => mlFetch('POST', '/cross-sell/predict', { member_id: memberId, top_n: 5 }),
+            'ml-crosssell'
+          );
+          const recs = result?.recommendations || [];
+          if (recs.length === 0) {
+            appendLog('warn', `[ML Cross-Sell] No recommendations for ${memberId} (may already have all products)`);
+          } else {
+            recs.forEach((r, idx) => {
+              appendLog('success', `[${idx + 1}] ${r.product_name}: ${(r.propensity_score * 100).toFixed(0)}% (${r.confidence})`);
+              if (r.reasons?.length) {
+                r.reasons.forEach(reason => appendLog('info', `    → ${reason}`));
+              }
+            });
+          }
+          appendLog('info', `[ML Cross-Sell] Completed in ${formatMs(elapsed)}`, state.raw ? result : undefined);
+        } catch (e) {
+          appendLog('error', `[ML Cross-Sell] Failed: ${e.message}`);
+        }
+        return;
+      }
+
+      if (sub === 'churn') {
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => mlFetch('POST', '/churn/predict', { member_id: memberId }),
+            'ml-churn'
+          );
+          const prob = (result?.churn_probability * 100).toFixed(1);
+          const level = result?.risk_level || 'N/A';
+          const priority = result?.retention_priority || 0;
+          appendLog('success', `[ML Churn] Risk: ${level} (${prob}%) | Priority: ${priority}/100`);
+
+          if (result?.top_risk_factors?.length) {
+            appendLog('info', '[ML Churn] Risk Factors:');
+            result.top_risk_factors.forEach(f => {
+              appendLog('warn', `    ⚠ ${f.description} (${f.severity})`);
+            });
+          }
+
+          if (result?.recommended_actions?.length) {
+            appendLog('info', '[ML Churn] Recommended Actions:');
+            result.recommended_actions.forEach((a, idx) => {
+              appendLog('info', `    ${idx + 1}. ${a}`);
+            });
+          }
+          appendLog('info', `[ML Churn] Completed in ${formatMs(elapsed)}`, state.raw ? result : undefined);
+        } catch (e) {
+          appendLog('error', `[ML Churn] Failed: ${e.message}`);
+        }
+        return;
+      }
+
+      if (sub === 'pricing') {
+        const loanType = tokens[2] || 'auto_new';
+        const amount = parseFloat(tokens[3]) || 25000;
+        const term = parseInt(tokens[4]) || 60;
+        const score = parseInt(tokens[5]) || 720;
+
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => mlFetch('POST', '/pricing/optimize', {
+              member_id: memberId,
+              loan_type: loanType,
+              amount: amount,
+              term_months: term,
+              credit_score: score
+            }),
+            'ml-pricing'
+          );
+
+          appendLog('success', `[ML Pricing] Recommended Rate: ${result?.recommended_rate}%`);
+          appendLog('info', `    Loan: $${amount.toLocaleString()} ${loanType} @ ${term} months`);
+          appendLog('info', `    Risk Tier: ${result?.risk_tier} (Score: ${score})`);
+          appendLog('info', `    Range: ${result?.rate_range?.floor}% - ${result?.rate_range?.ceiling}%`);
+          appendLog('info', `    Monthly Payment: $${result?.monthly_payment}`);
+          appendLog('info', `    Total Interest: $${result?.total_interest}`);
+          appendLog('info', `    Win Probability: ${(result?.win_probability * 100).toFixed(0)}%`);
+
+          if (result?.rate_breakdown?.relationship_adjustments?.length) {
+            appendLog('info', '[ML Pricing] Adjustments:');
+            result.rate_breakdown.relationship_adjustments.forEach(adj => {
+              const sign = adj.amount > 0 ? '+' : '';
+              appendLog('info', `    ${sign}${adj.amount}%: ${adj.name}`);
+            });
+          }
+
+          const rec = result?.approval_recommendation;
+          if (rec) {
+            appendLog(rec.recommendation === 'APPROVE' ? 'success' : 'warn',
+              `[ML Pricing] ${rec.recommendation} (${rec.confidence}): ${rec.notes}`);
+          }
+          appendLog('info', `[ML Pricing] Completed in ${formatMs(elapsed)}`, state.raw ? result : undefined);
+        } catch (e) {
+          appendLog('error', `[ML Pricing] Failed: ${e.message}`);
+        }
+        return;
+      }
+
+      if (sub === 'features') {
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => mlFetch('GET', `/features/${memberId}`),
+            'ml-features'
+          );
+          appendLog('success', `[ML Features] Retrieved ${Object.keys(result).length} features in ${formatMs(elapsed)}`);
+
+          // Display key features in organized groups
+          const demo = ['age', 'age_bracket', 'tenure_years', 'tenure_months'];
+          const products = ['has_checking', 'has_savings', 'has_auto_loan', 'has_credit_card', 'has_heloc', 'has_mortgage', 'product_count'];
+          const balances = ['total_balance', 'avg_balance'];
+          const activity = ['transaction_count_30d', 'has_direct_deposit', 'days_since_last_tx'];
+
+          appendLog('info', '[Demographics]');
+          demo.forEach(k => result[k] !== undefined && appendLog('info', `    ${k}: ${result[k]}`));
+
+          appendLog('info', '[Products]');
+          products.forEach(k => result[k] !== undefined && appendLog('info', `    ${k}: ${result[k]}`));
+
+          appendLog('info', '[Balances]');
+          balances.forEach(k => result[k] !== undefined && appendLog('info', `    ${k}: $${Number(result[k]).toLocaleString()}`));
+
+          appendLog('info', '[Activity]');
+          activity.forEach(k => result[k] !== undefined && appendLog('info', `    ${k}: ${result[k]}`));
+
+          if (state.raw) appendLog('info', '', result);
+        } catch (e) {
+          appendLog('error', `[ML Features] Failed: ${e.message}`);
+        }
+        return;
+      }
+
+      appendLog('warn', 'Usage: ml test | ml crosssell <id> | ml churn <id> | ml pricing <id> <type> <amt> <term> <score> | ml features <id>');
+    }
+
+    // ===========================================
+    // Banking Hub Command Handler (Phase 1: SCU Integration)
+    // ===========================================
+
+    async function handleBanking(tokens) {
+      const sub = tokens[0] || 'analyze';
+      const memberId = tokens[1] || '12345';
+
+      if (sub === 'analyze') {
+        appendLog('info', `[Banking] Analyzing member ${memberId}...`);
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => apiClient.post(`/api/v1/banking/analyze/${memberId}`, {}),
+            'banking-analyze'
+          );
+
+          appendLog('success', `[Banking] Analysis complete in ${formatMs(elapsed)}`);
+          appendLog('info', `[Banking] Member: ${result?.member_id} | Role: ${result?.role_context}`);
+
+          const insights = result?.insights || {};
+
+          // Display Stats if available
+          if (insights.stats && !insights.stats.error) {
+            appendLog('success', `[Banking] ✓ Statistical Summary loaded`);
+            if (state.raw) appendLog('info', '', insights.stats);
+          } else if (insights.stats?.error) {
+            appendLog('warn', `[Banking] ⚠ Statistics: ${insights.stats.error}`);
+          }
+
+          // Display Cash Flow if available
+          if (insights.cash_flow && !insights.cash_flow.error) {
+            appendLog('success', `[Banking] ✓ Cash Flow analysis loaded`);
+            if (state.raw) appendLog('info', '', insights.cash_flow);
+          } else if (insights.cash_flow?.error) {
+            appendLog('warn', `[Banking] ⚠ Cash Flow: ${insights.cash_flow.error}`);
+          }
+
+          // Display Spend Pattern if available (Loan Officer role)
+          if (insights.spend_pattern && !insights.spend_pattern.error) {
+            appendLog('success', `[Banking] ✓ Spend Pattern analysis loaded`);
+            if (state.raw) appendLog('info', '', insights.spend_pattern);
+          }
+
+          // Display LTV if available (Loan Officer role)
+          if (insights.ltv && !insights.ltv.error) {
+            appendLog('success', `[Banking] ✓ Customer LTV calculated`);
+            if (state.raw) appendLog('info', '', insights.ltv);
+          }
+
+          // Display Anomalies if available (Fraud Analyst role)
+          if (insights.anomalies && !insights.anomalies.error) {
+            appendLog('success', `[Banking] ✓ Anomaly Detection complete`);
+            if (state.raw) appendLog('info', '', insights.anomalies);
+          }
+
+          appendLog('info', `[Banking] Full response:`, state.raw ? result : undefined);
+        } catch (e) {
+          const err = e.err || e;
+          appendLog('error', `[Banking] Analysis failed: ${err?.message || err}`);
+        }
+        return;
+      }
+
+      if (sub === 'dataset') {
+        appendLog('info', `[Banking] Fetching dataset for member ${memberId}...`);
+        try {
+          // Call Fiserv service directly for dataset view
+          const { result, elapsed } = await runWithTiming(
+            () => fetch(`/fiserv/api/v1/datasets/member/${memberId}`).then(r => r.json()),
+            'banking-dataset'
+          );
+          appendLog('success', `[Banking] Dataset fetched in ${formatMs(elapsed)}`);
+          appendLog('info', `[Banking] Accounts: ${result?.accounts?.length || 0}`);
+          appendLog('info', `[Banking] Transactions: ${result?.transactions?.length || 0}`);
+          if (state.raw) appendLog('info', '', result);
+        } catch (e) {
+          const err = e.err || e;
+          appendLog('error', `[Banking] Dataset fetch failed: ${err?.message || err}`);
+        }
+        return;
+      }
+
+      if (sub === 'test') {
+        appendLog('info', `[Banking] Running full integration test...`);
+        let passed = 0, failed = 0;
+
+        // Test 1: Dataset endpoint
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => fetch(`/fiserv/api/v1/datasets/member/${memberId}`).then(r => r.json()),
+            'banking-test-dataset'
+          );
+          if (result?.member?.member_id) {
+            appendLog('success', `[Banking] ✓ Dataset endpoint OK (${formatMs(elapsed)})`);
+            passed++;
+          } else {
+            throw new Error('Invalid dataset response');
+          }
+        } catch (e) {
+          appendLog('error', `[Banking] ✗ Dataset endpoint failed: ${e.message}`);
+          failed++;
+        }
+
+        // Test 2: Analyze endpoint
+        try {
+          const { result, elapsed } = await runWithTiming(
+            () => apiClient.post(`/api/v1/banking/analyze/${memberId}`, {}),
+            'banking-test-analyze'
+          );
+          if (result?.member_id && result?.insights) {
+            appendLog('success', `[Banking] ✓ Analyze endpoint OK (${formatMs(elapsed)})`);
+            passed++;
+          } else {
+            throw new Error('Invalid analyze response');
+          }
+        } catch (e) {
+          appendLog('error', `[Banking] ✗ Analyze endpoint failed: ${e.message}`);
+          failed++;
+        }
+
+        appendLog('info', `[Banking] Test Summary: ${passed} passed, ${failed} failed`);
+        return;
+      }
+
+      appendLog('warn', 'Usage: banking analyze <member_id> | banking dataset <member_id> | banking test');
     }
 
     async function dispatch(line) {
@@ -691,6 +1257,33 @@
           break;
         case 'warmup':
           await handleWarmup();
+          break;
+        // Enterprise commands
+        case 'qa':
+          await handleQA(rest);
+          break;
+        case 'automation':
+          await handleAutomation(rest);
+          break;
+        case 'knowledge':
+        case 'kb':
+          await handleKnowledge(rest);
+          break;
+        case 'analytics':
+          await handleAnalytics(rest);
+          break;
+        case 'meetings':
+        case 'meeting':
+          await handleMeetings(rest);
+          break;
+        // ML Profit commands
+        case 'ml':
+          await handleML(rest);
+          break;
+        // Banking Hub commands (SCU Integration)
+        case 'banking':
+        case 'bank':
+          await handleBanking(rest);
           break;
         default:
           appendLog('warn', `Unknown command: ${cmd}. Type "help" for options.`);

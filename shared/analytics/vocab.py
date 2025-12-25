@@ -1,12 +1,11 @@
 import collections
 import re
 import sqlite3
-from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
+from typing import Any
 
-
-TokenStats = Dict[str, Any]
-SegmentRow = Dict[str, Any]
+TokenStats = dict[str, Any]
+SegmentRow = dict[str, Any]
 
 
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z']+")
@@ -46,7 +45,7 @@ _STOPWORDS = {
 }
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """Lightweight word tokenizer for transcripts."""
     if not text:
         return []
@@ -65,11 +64,11 @@ def _estimate_sentences(text: str) -> int:
 
 def empty_vocab_summary(
     *,
-    fallback_reason: Optional[str] = None,
-    error: Optional[str] = None,
-) -> Dict[str, Any]:
+    fallback_reason: str | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
     """Return an empty but structurally complete vocab payload."""
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "global": {
             "total_segments": 0,
             "total_words": 0,
@@ -97,7 +96,7 @@ def empty_vocab_summary(
     return payload
 
 
-def _detect_record_date_column(conn: sqlite3.Connection) -> Optional[str]:
+def _detect_record_date_column(conn: sqlite3.Connection) -> str | None:
     """Mirror AnalyticsEngine date-column detection for transcript_records."""
     try:
         cur = conn.cursor()
@@ -122,19 +121,19 @@ def _detect_record_date_column(conn: sqlite3.Connection) -> Optional[str]:
 def fetch_segments_for_vocab(
     conn: sqlite3.Connection,
     *,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    speakers: Optional[Sequence[str]] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    speakers: Sequence[str] | None = None,
     max_rows: int = 10000,
-) -> List[SegmentRow]:
+) -> list[SegmentRow]:
     """
     Fetch minimal segment data for vocabulary analysis.
 
     Returns rows with: text, speaker, day (YYYY-MM-DD).
     """
     date_column = _detect_record_date_column(conn)
-    where_clauses: List[str] = ["ts.text IS NOT NULL", "ts.text != ''"]
-    params: List[Any] = []
+    where_clauses: list[str] = ["ts.text IS NOT NULL", "ts.text != ''"]
+    params: list[Any] = []
 
     if date_column:
         if start_date:
@@ -167,7 +166,7 @@ def fetch_segments_for_vocab(
 
     cur = conn.cursor()
     cur.execute(sql, tuple(params))
-    rows: List[SegmentRow] = []
+    rows: list[SegmentRow] = []
     for row in cur.fetchall():
         if isinstance(row, sqlite3.Row):
             rows.append(
@@ -184,24 +183,24 @@ def fetch_segments_for_vocab(
     return rows
 
 
-def compute_vocab_metrics(segments: Iterable[SegmentRow]) -> Dict[str, Any]:
+def compute_vocab_metrics(segments: Iterable[SegmentRow]) -> dict[str, Any]:
     """Compute global, per-speaker, timeline, and top-word stats."""
     global_word_count = 0
     global_sentence_count = 0
     global_segments = 0
     global_vocab: set[str] = set()
 
-    per_speaker_counts: Dict[str, int] = collections.defaultdict(int)
-    per_speaker_segments: Dict[str, int] = collections.defaultdict(int)
-    per_speaker_sentences: Dict[str, int] = collections.defaultdict(int)
-    per_speaker_vocab: Dict[str, set[str]] = collections.defaultdict(set)
+    per_speaker_counts: dict[str, int] = collections.defaultdict(int)
+    per_speaker_segments: dict[str, int] = collections.defaultdict(int)
+    per_speaker_sentences: dict[str, int] = collections.defaultdict(int)
+    per_speaker_vocab: dict[str, set[str]] = collections.defaultdict(set)
 
-    per_speaker_tokens: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    per_speaker_tokens: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     global_tokens = collections.Counter()
 
     # Timeline: day -> {words, unique}
-    day_word_counts: Dict[str, int] = collections.defaultdict(int)
-    day_vocab: Dict[str, set[str]] = collections.defaultdict(set)
+    day_word_counts: dict[str, int] = collections.defaultdict(int)
+    day_vocab: dict[str, set[str]] = collections.defaultdict(set)
 
     for seg in segments:
         text = (seg.get("text") or "").strip()
@@ -242,12 +241,10 @@ def compute_vocab_metrics(segments: Iterable[SegmentRow]) -> Dict[str, Any]:
     global_unique = len(global_vocab)
     type_token_ratio = float(global_unique) / float(global_word_count) if global_word_count else 0.0
     avg_words_per_segment = float(global_word_count) / float(global_segments) if global_segments else 0.0
-    avg_words_per_sentence = (
-        float(global_word_count) / float(global_sentence_count) if global_sentence_count else 0.0
-    )
+    avg_words_per_sentence = float(global_word_count) / float(global_sentence_count) if global_sentence_count else 0.0
 
     # Per-speaker stats
-    per_speaker: Dict[str, Any] = {}
+    per_speaker: dict[str, Any] = {}
     for speaker, words in per_speaker_counts.items():
         unique = len(per_speaker_vocab[speaker])
         segments = per_speaker_segments[speaker] or 1
@@ -268,9 +265,9 @@ def compute_vocab_metrics(segments: Iterable[SegmentRow]) -> Dict[str, Any]:
     timeline_counts = [day_word_counts[d] for d in dates_sorted]
 
     # Notable shifts in unique vocabulary (simple top-k deltas)
-    notable_shifts: List[Dict[str, Any]] = []
+    notable_shifts: list[dict[str, Any]] = []
     if len(dates_sorted) > 1:
-        deltas: List[Tuple[str, int]] = []
+        deltas: list[tuple[str, int]] = []
         prev_unique = timeline_unique[0]
         for idx in range(1, len(dates_sorted)):
             current_unique = timeline_unique[idx]
@@ -290,20 +287,20 @@ def compute_vocab_metrics(segments: Iterable[SegmentRow]) -> Dict[str, Any]:
             )
 
     # Top words
-    def _top(counter: collections.Counter, n: int = 30) -> List[Dict[str, Any]]:
+    def _top(counter: collections.Counter, n: int = 30) -> list[dict[str, Any]]:
         return [{"word": w, "count": int(c)} for w, c in counter.most_common(n)]
 
     top_global = _top(global_tokens, 40)
-    top_per_speaker: Dict[str, List[Dict[str, Any]]] = {
+    top_per_speaker: dict[str, list[dict[str, Any]]] = {
         speaker: _top(counter, 30) for speaker, counter in per_speaker_tokens.items()
     }
 
     # Speaker lexical fingerprints (distinctive words per speaker)
-    distinctive_per_speaker: Dict[str, List[Dict[str, Any]]] = {}
+    distinctive_per_speaker: dict[str, list[dict[str, Any]]] = {}
     if global_word_count:
         for speaker, counter in per_speaker_tokens.items():
             total_words_speaker = per_speaker_counts.get(speaker) or 1
-            scored: List[Tuple[str, float, int]] = []
+            scored: list[tuple[str, float, int]] = []
             for word, count in counter.items():
                 global_count = global_tokens.get(word) or 1
                 # Relative frequency in speaker vs global
@@ -325,12 +322,8 @@ def compute_vocab_metrics(segments: Iterable[SegmentRow]) -> Dict[str, Any]:
     most_talkative_speaker = None
     richest_speaker = None
     if per_speaker:
-        most_talkative_speaker = max(
-            per_speaker.items(), key=lambda kv: kv[1].get("total_words", 0)
-        )[0]
-        richest_speaker = max(
-            per_speaker.items(), key=lambda kv: kv[1].get("type_token_ratio", 0.0)
-        )[0]
+        most_talkative_speaker = max(per_speaker.items(), key=lambda kv: kv[1].get("total_words", 0))[0]
+        richest_speaker = max(per_speaker.items(), key=lambda kv: kv[1].get("type_token_ratio", 0.0))[0]
 
     return {
         "global": {
@@ -362,11 +355,11 @@ def compute_vocab_metrics(segments: Iterable[SegmentRow]) -> Dict[str, Any]:
 def query_vocab_summary(
     conn: sqlite3.Connection,
     *,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    speakers: Optional[Sequence[str]] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    speakers: Sequence[str] | None = None,
     max_rows: int = 10000,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     High-level helper used by the Insights service.
 

@@ -1,0 +1,71 @@
+version: 2
+updates:
+  # Python dependencies for each service
+  - package-ecosystem: "pip"
+    directory: "/services/api-gateway"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(gateway):"
+    groups:
+      python-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/services/gemma-service"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(gemma):"
+
+  - package-ecosystem: "pip"
+    directory: "/services/ml-service"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(ml):"
+
+  - package-ecosystem: "pip"
+    directory: "/services/rag-service"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(rag):"
+
+  - package-ecosystem: "pip"
+    directory: "/services/transcription-service"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(transcription):"
+
+  - package-ecosystem: "pip"
+    directory: "/services/emotion-service"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(emotion):"
+
+  - package-ecosystem: "pip"
+    directory: "/tests"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(tests):"
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(docker):"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci:"

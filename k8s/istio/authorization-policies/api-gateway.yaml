@@ -1,0 +1,43 @@
+# API Gateway Authorization Policy
+# 
+# This policy defines which services can access the API Gateway.
+# The API Gateway is the entry point and should accept:
+# - External traffic via Istio Ingress Gateway
+# - Internal metrics/health checks
+#
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: api-gateway
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  action: ALLOW
+  rules:
+    # Allow traffic from Istio Ingress Gateway
+    - from:
+        - source:
+            principals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"]
+      to:
+        - operation:
+            ports: ["8000"]
+    
+    # Allow health checks from any authenticated service
+    - from:
+        - source:
+            namespaces: ["nemo", "istio-system"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/health", "/health/ready", "/health/live", "/metrics"]
+    
+    # Allow Prometheus scraping
+    - from:
+        - source:
+            namespaces: ["monitoring", "prometheus"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/metrics"]

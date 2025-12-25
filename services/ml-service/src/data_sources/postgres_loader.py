@@ -1,13 +1,15 @@
+from typing import Any
+
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
-from typing import List, Dict, Optional, Any
+
 
 class PostgresLoader:
     """
     Universal PostgreSQL Loader using SQLAlchemy.
     Supports schema introspection, chunked loading, and safe connection handling.
     """
-    
+
     def __init__(self, connection_string: str):
         """
         Initialize with a connection string.
@@ -26,37 +28,31 @@ class PostgresLoader:
             print(f"Connection failed: {e}")
             return False
 
-    def list_schemas(self) -> List[str]:
+    def list_schemas(self) -> list[str]:
         """List all schemas in the database."""
         inspector = inspect(self.engine)
         return inspector.get_schema_names()
 
-    def list_tables(self, schema: str = 'public') -> List[str]:
+    def list_tables(self, schema: str = "public") -> list[str]:
         """List all tables in a specific schema."""
         inspector = inspect(self.engine)
         return inspector.get_table_names(schema=schema)
 
-    def get_schema(self, table_name: str, schema: str = 'public') -> Dict[str, Any]:
+    def get_schema(self, table_name: str, schema: str = "public") -> dict[str, Any]:
         """Get column metadata for a table."""
         inspector = inspect(self.engine)
         columns = inspector.get_columns(table_name, schema=schema)
         # Convert SQLAlchemy types to string representation for JSON serialization
-        return {
-            col['name']: {
-                'type': str(col['type']),
-                'nullable': col['nullable']
-            }
-            for col in columns
-        }
+        return {col["name"]: {"type": str(col["type"]), "nullable": col["nullable"]} for col in columns}
 
-    def load_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
+    def load_query(self, query: str, params: dict | None = None) -> pd.DataFrame:
         """Load data from a raw SQL query."""
         return pd.read_sql_query(query, self.engine, params=params)
 
-    def load_table(self, table_name: str, schema: str = 'public', limit: Optional[int] = None) -> pd.DataFrame:
+    def load_table(self, table_name: str, schema: str = "public", limit: int | None = None) -> pd.DataFrame:
         """
         Load data from a table.
-        
+
         Args:
             table_name: Name of the table
             schema: Schema name (default 'public')
@@ -65,10 +61,10 @@ class PostgresLoader:
         query = f'SELECT * FROM "{schema}"."{table_name}"'
         if limit:
             query += f" LIMIT {limit}"
-        
+
         return pd.read_sql_query(query, self.engine)
 
-    def estimate_count(self, table_name: str, schema: str = 'public') -> int:
+    def estimate_count(self, table_name: str, schema: str = "public") -> int:
         """Fast estimate of row count using system catalogs."""
         query = text("""
             SELECT reltuples::bigint AS estimate

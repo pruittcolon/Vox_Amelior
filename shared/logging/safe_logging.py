@@ -18,8 +18,7 @@ _FINGERPRINT_KEY: bytes | None = _fingerprint_key_raw.encode("utf-8") if _finger
 
 if DEBUG_TOKENS_ENABLED and not _FINGERPRINT_KEY:
     _LOGGER.warning(
-        "[safe-logging] DEBUG_TOKENS enabled but LOG_FINGERPRINT_KEY missing; "
-        "token fingerprints will be suppressed"
+        "[safe-logging] DEBUG_TOKENS enabled but LOG_FINGERPRINT_KEY missing; token fingerprints will be suppressed"
     )
 
 

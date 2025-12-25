@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List
 
 from nemo.collections.asr.models import SortformerEncLabelModel
 
@@ -46,7 +45,7 @@ class NemoSortformerDiarizer:
         target = device
         if target == "cuda" and not torch.cuda.is_available():
             target = "cpu"
-        
+
         if target == self.device:
             return
 
@@ -55,11 +54,19 @@ class NemoSortformerDiarizer:
             self.model = self.model.to(target)
             self.device = target
             if target == "cpu":
-                torch.cuda.empty_cache()
+                # Force proper CUDA memory release
+                import gc
+
+                gc.collect()  # Force garbage collection first
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()  # Wait for any pending operations
+                    torch.cuda.empty_cache()  # Release cached memory
+                    allocated = torch.cuda.memory_allocated() / 1024**2
+                    logger.info("Sortformer VRAM released, current allocation: %.1f MB", allocated)
         except Exception as exc:
             logger.error("Failed to move Sortformer to %s: %s", target, exc)
 
-    def diarize(self, audio_path: str) -> List[SpeakerSegment]:
+    def diarize(self, audio_path: str) -> list[SpeakerSegment]:
         if not audio_path or not os.path.exists(audio_path):
             logger.error("Audio file missing for diarization: %s", audio_path)
             return []
@@ -87,15 +94,13 @@ class NemoSortformerDiarizer:
             raw_output,
         )
         parsed = _parse_segments(raw_output, self.max_speakers)
-        logger.info(
-            "Sortformer parsed %d speaker segment(s)", len(parsed)
-        )
+        logger.info("Sortformer parsed %d speaker segment(s)", len(parsed))
         return parsed
 
 
-def _parse_segments(raw_segments: List[str], max_speakers: int) -> List[SpeakerSegment]:
+def _parse_segments(raw_segments: list[str], max_speakers: int) -> list[SpeakerSegment]:
     logger.info("Parsing raw diarization segments: %s", raw_segments)
-    segments: List[SpeakerSegment] = []
+    segments: list[SpeakerSegment] = []
     for line in raw_segments:
         if not line:
             continue

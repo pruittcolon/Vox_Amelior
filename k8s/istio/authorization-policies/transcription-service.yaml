@@ -1,0 +1,45 @@
+# Transcription Service Authorization Policy
+#
+# Transcription Service can ONLY be accessed by:
+# - API Gateway (for transcription requests)
+# - GPU Coordinator (for GPU pause/resume signals)
+#
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: transcription-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: transcription-service
+  action: ALLOW
+  rules:
+    # Allow API Gateway for transcription operations
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/api-gateway"]
+      to:
+        - operation:
+            ports: ["8003"]
+            methods: ["GET", "POST"]
+            paths: ["/transcribe", "/stream", "/upload", "/health", "/v1/*"]
+    
+    # Allow GPU Coordinator for resource management
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/gpu-coordinator"]
+      to:
+        - operation:
+            ports: ["8003"]
+            methods: ["POST", "GET"]
+            paths: ["/pause", "/resume", "/gpu/*", "/health"]
+    
+    # Allow health checks
+    - from:
+        - source:
+            namespaces: ["nemo"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/health", "/metrics"]

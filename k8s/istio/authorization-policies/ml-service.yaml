@@ -1,0 +1,41 @@
+# ML Service Authorization Policy
+#
+# ML Service (System 2 engines) can ONLY be accessed by:
+# - API Gateway (for prediction requests)
+#
+# ML Service CAN access:
+# - Gemma Service (for LLM scoring)
+# - GPU Coordinator (for GPU resource requests)
+#
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: ml-service
+  namespace: nemo
+spec:
+  selector:
+    matchLabels:
+      app: ml-service
+  action: ALLOW
+  rules:
+    # Allow API Gateway for ML operations
+    - from:
+        - source:
+            principals: ["cluster.local/ns/nemo/sa/api-gateway"]
+      to:
+        - operation:
+            ports: ["8006"]
+            methods: ["GET", "POST"]
+            paths: [
+              "/predict", "/analyze", "/engines/*", "/upload", "/ingest",
+              "/health", "/v1/*", "/analytics/*"
+            ]
+    
+    # Allow health checks
+    - from:
+        - source:
+            namespaces: ["nemo"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/health", "/metrics"]

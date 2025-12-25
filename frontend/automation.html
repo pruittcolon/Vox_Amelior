@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Automation - Vox Amelior</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <link rel="stylesheet" href="assets/css/main.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/design-tokens.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/components.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/animations.css?v=2024110802">
+
+    <!-- Vox Amelior Design System -->
+    <link rel="stylesheet" href="assets/css/vox-amelior.css">
+
+    <script src="assets/js/api.js?v=2024110101"></script>
+    <script src="assets/js/app.js?v=2024110101"></script>
+    <script src="assets/js/auth.js?v=2024110101"></script>
+
+    <style>
+        /* ========================================
+           Premium 2024 FinTech Aesthetic
+           Business Automation Page
+           ======================================== */
+
+        .auto-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 2rem;
+        }
+
+        .auto-stat-card {
+            background: #FFFFFF;
+            border: 1px solid rgba(0, 82, 204, 0.08);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+            transition: all 0.2s ease;
+        }
+
+        .auto-stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0, 82, 204, 0.1);
+        }
+
+        .auto-stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #0052CC, #00A3BF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .auto-stat-label {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-top: 0.35rem;
+        }
+
+        .rule-item,
+        .webhook-item {
+            background: #FFFFFF;
+            border: 1px solid rgba(0, 82, 204, 0.08);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+            transition: all 0.2s ease;
+        }
+
+        .rule-item:hover,
+        .webhook-item:hover {
+            border-color: rgba(0, 82, 204, 0.25);
+            box-shadow: 0 4px 20px rgba(0, 82, 204, 0.1);
+        }
+
+        .rule-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--text-primary);
+        }
+
+        .rule-meta {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-badge.enabled {
+            background: rgba(16, 185, 129, 0.15);
+            color: #059669;
+        }
+
+        .status-badge.disabled {
+            background: rgba(100, 116, 139, 0.1);
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navigation (Vox Amelior) -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="index.html" class="vox-nav-link">Dashboard</a>
+                <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="nexus.html" class="vox-nav-link">Analytics</a>
+                <a href="banking.html" class="vox-nav-link">Enterprise</a>
+                <a href="settings.html" class="vox-nav-link">Settings</a>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <span id="current-user" style="color: var(--vox-grey-500); font-size: 0.9rem;"></span>
+                <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
+        <section class="fade-in-up" style="text-align: center; margin-bottom: 2rem;">
+            <h1 style="font-size: 2.5rem; margin-bottom: 1rem;">
+                <i data-lucide="workflow"
+                    style="width: 40px; height: 40px; color: var(--primary); vertical-align: middle;"></i>
+                Business Automation
+            </h1>
+            <p class="text-muted">Manage rules, webhooks, and automated triggers</p>
+        </section>
+
+        <!-- Stats -->
+        <section class="auto-stats-grid fade-in-up delay-100" id="auto-stats">
+            <div class="auto-stat-card">
+                <div class="auto-stat-value" id="stat-rules">0</div>
+                <div class="auto-stat-label">Total Rules</div>
+            </div>
+            <div class="auto-stat-card">
+                <div class="auto-stat-value" id="stat-webhooks">0</div>
+                <div class="auto-stat-label">Webhooks</div>
+            </div>
+            <div class="auto-stat-card">
+                <div class="auto-stat-value" id="stat-triggers">0</div>
+                <div class="auto-stat-label">Triggers (24h)</div>
+            </div>
+            <div class="auto-stat-card">
+                <div class="auto-stat-value" id="stat-success">0%</div>
+                <div class="auto-stat-label">Success Rate</div>
+            </div>
+        </section>
+
+        <!-- Rules -->
+        <section class="glass-card fade-in-up delay-200" style="margin-bottom: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="git-branch" style="width: 24px; height: 24px; color: var(--primary);"></i>
+                    Automation Rules
+                </h3>
+                <button class="btn btn-primary btn-sm" onclick="createRule()">
+                    <i data-lucide="plus" style="width: 14px; height: 14px;"></i> New Rule
+                </button>
+            </div>
+            <div id="rules-list">
+                <p class="text-muted">Loading rules...</p>
+            </div>
+        </section>
+
+        <!-- Webhooks -->
+        <section class="glass-card fade-in-up delay-300">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 0.75rem;">
+                    <i data-lucide="webhook" style="width: 24px; height: 24px; color: #f472b6;"></i>
+                    Webhooks
+                </h3>
+                <button class="btn btn-primary btn-sm" onclick="createWebhook()">
+                    <i data-lucide="plus" style="width: 14px; height: 14px;"></i> New Webhook
+                </button>
+            </div>
+            <div id="webhooks-list">
+                <p class="text-muted">Loading webhooks...</p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        // Dropdown
+        document.querySelectorAll('.nav-dropdown').forEach(d => {
+            d.addEventListener('mouseenter', () => d.querySelector('.nav-dropdown-menu').style.display = 'block');
+            d.addEventListener('mouseleave', () => d.querySelector('.nav-dropdown-menu').style.display = 'none');
+        });
+
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/enterprise/automation/stats');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('stat-rules').textContent = data.rules?.total || 0;
+                    document.getElementById('stat-webhooks').textContent = data.webhooks?.total || 0;
+                    document.getElementById('stat-triggers').textContent = data.triggers_24h || 0;
+                    document.getElementById('stat-success').textContent = (data.webhook_deliveries_24h?.success_rate || 0) + '%';
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadRules() {
+            const container = document.getElementById('rules-list');
+            try {
+                const res = await fetch('/api/enterprise/automation/rules');
+                if (res.ok) {
+                    const data = await res.json();
+                    const items = data.rules || [];
+                    if (items.length === 0) {
+                        container.innerHTML = '<p class="text-muted">No rules configured.</p>';
+                        return;
+                    }
+                    container.innerHTML = items.map(r => `
+            <div class="rule-item">
+              <div>
+                <div class="rule-name">${r.name}</div>
+                <div class="rule-meta">${r.description || 'No description'} • Priority: ${r.priority}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 1rem;">
+                <span class="status-badge ${r.enabled ? 'enabled' : 'disabled'}">${r.enabled ? 'Enabled' : 'Disabled'}</span>
+                <button class="btn btn-ghost btn-sm" onclick="toggleRule(${r.id}, ${!r.enabled})">Toggle</button>
+                <button class="btn btn-ghost btn-sm" onclick="deleteRule(${r.id})">Delete</button>
+              </div>
+            </div>
+          `).join('');
+                }
+            } catch (e) { container.innerHTML = '<p class="text-muted">Failed to load rules.</p>'; }
+        }
+
+        async function loadWebhooks() {
+            const container = document.getElementById('webhooks-list');
+            try {
+                const res = await fetch('/api/enterprise/automation/webhooks');
+                if (res.ok) {
+                    const data = await res.json();
+                    const items = data.webhooks || [];
+                    if (items.length === 0) {
+                        container.innerHTML = '<p class="text-muted">No webhooks configured.</p>';
+                        return;
+                    }
+                    container.innerHTML = items.map(w => `
+            <div class="webhook-item">
+              <div>
+                <div class="rule-name">${w.name}</div>
+                <div class="rule-meta">${w.url}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 1rem;">
+                <span class="status-badge ${w.enabled ? 'enabled' : 'disabled'}">${w.enabled ? 'Active' : 'Inactive'}</span>
+                <button class="btn btn-ghost btn-sm" onclick="testWebhook(${w.id})">Test</button>
+                <button class="btn btn-ghost btn-sm" onclick="deleteWebhook(${w.id})">Delete</button>
+              </div>
+            </div>
+          `).join('');
+                }
+            } catch (e) { container.innerHTML = '<p class="text-muted">Failed to load webhooks.</p>'; }
+        }
+
+        function createRule() {
+            alert('Rule creation UI - Coming soon. Use CLI: rules create "name" --condition "type:value" --action "type"');
+        }
+
+        function createWebhook() {
+            const name = prompt('Webhook name:');
+            const url = prompt('Webhook URL:');
+            if (!name || !url) return;
+            fetch('/api/enterprise/automation/webhooks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, url })
+            }).then(() => { loadWebhooks(); loadStats(); });
+        }
+
+        async function toggleRule(id, enabled) {
+            await fetch(`/api/enterprise/automation/rules/${id}/toggle?enabled=${enabled}`, { method: 'PATCH' });
+            loadRules(); loadStats();
+        }
+
+        async function deleteRule(id) {
+            if (!confirm('Delete this rule?')) return;
+            await fetch(`/api/enterprise/automation/rules/${id}`, { method: 'DELETE' });
+            loadRules(); loadStats();
+        }
+
+        async function testWebhook(id) {
+            const res = await fetch(`/api/enterprise/automation/webhooks/${id}/test`, { method: 'POST' });
+            const data = await res.json();
+            alert(data.success ? 'Webhook test successful!' : 'Webhook test failed: ' + data.error);
+        }
+
+        async function deleteWebhook(id) {
+            if (!confirm('Delete this webhook?')) return;
+            await fetch(`/api/enterprise/automation/webhooks/${id}`, { method: 'DELETE' });
+            loadWebhooks(); loadStats();
+        }
+
+        loadStats();
+        loadRules();
+        loadWebhooks();
+    </script>
+</body>
+
+</html>

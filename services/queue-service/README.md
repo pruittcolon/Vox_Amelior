@@ -86,10 +86,27 @@ GET /gpu/status
 
 ---
 
-## 🛡️ Reliability Engineering
+## Reliability Engineering
 
 *   **Deadlock Detection:** A background "Watchdog" thread monitors lock durations. If a service holds a lock > TTL, it is forcibly revoked and the service is restarted.
 *   **Queue Persistence:** Pending tasks are stored in PostgreSQL, ensuring that if the server reboots, the transcription queue is not lost.
+
+## Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_URL` | `redis://redis:6379` | Redis connection URL |
+| `REDIS_PASSWORD_FILE` | `/run/secrets/redis_password` | Path to Redis password secret |
+| `REDIS_PASSWORD` | - | Fallback: Redis password from env |
+| `POSTGRES_URL` | - | PostgreSQL connection for queue persistence |
+| `GPU_PAUSE_TIMEOUT` | `12.0` | Seconds to wait for transcription pause |
+| `JWT_ONLY` | `true` | Enforce JWT authentication |
+
+## 🔒 Security
+
+- **Redis Authentication**: Password loaded from Docker secret or environment variable
+- **JWT Service Auth**: All internal API calls require service JWT tokens
+- **Replay Protection**: Request IDs tracked to prevent token replay attacks
 
 ---
 

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nemo-shared"
+version = "1.0.0"
+description = "Shared modules for Nemo Server microservices"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary"}
+authors = [
+    {name = "Nemo Team"}
+]
+
+dependencies = [
+    "pyjwt>=2.8.0",
+    "cryptography>=41.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+redis = [
+    "redis>=5.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["shared*"]
+
+[tool.setuptools.package-data]
+shared = ["*.json", "*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -122,7 +122,7 @@ class AudioProcessingService : Service() {
         val buf = ShortArray(frameBufShorts)
 
         audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,  // Use MIC instead of VOICE_RECOGNITION to avoid pausing other media
             SAMPLE_RATE,
             CHANNEL_CONFIG,
             AUDIO_FORMAT,

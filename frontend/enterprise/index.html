@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Vox Amelior Enterprise Solutions - Salesforce CRM and Fiserv Banking integrations for AI-powered business intelligence.">
+    <title>Enterprise Solutions - Vox Amelior</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Design Systems -->
+    <link rel="stylesheet" href="../assets/css/vox-amelior.css">
+    <link rel="stylesheet" href="css/enterprise.css">
+    <link rel="stylesheet" href="css/animations.css">
+</head>
+
+<body class="enterprise-light">
+    <!-- Floating Blobs (Lavender theme) -->
+    <div class="ent-floating-layer">
+        <div class="ent-blob ent-blob-1"></div>
+        <div class="ent-blob ent-blob-2"></div>
+        <div class="ent-blob ent-blob-3"></div>
+    </div>
+
+    <!-- Navigation (Vox Amelior Standard) -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="../index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="../assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="../index.html" class="vox-nav-link">Dashboard</a>
+                <a href="../gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="../predictions.html" class="vox-nav-link">Analytics</a>
+
+                <!-- Enterprise Dropdown (Active) -->
+                <div class="ent-nav-dropdown">
+                    <button class="ent-nav-dropdown-trigger" style="color: var(--vox-primary);">
+                        Enterprise <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+                    </button>
+                    <div class="ent-nav-dropdown-menu">
+                        <a href="index.html" class="ent-nav-dropdown-item"
+                            style="background: var(--ent-primary-subtle);">
+                            <span>🏢</span> Overview
+                        </a>
+                        <a href="salesforce/index.html" class="ent-nav-dropdown-item">
+                            <span>☁️</span> Salesforce CRM
+                        </a>
+                        <a href="fiserv/index.html" class="ent-nav-dropdown-item">
+                            <span>🏦</span> Fiserv Banking
+                        </a>
+                    </div>
+                </div>
+
+                <a href="../settings.html" class="vox-nav-link">Settings</a>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem;">
+                <a href="../login.html" class="vox-btn vox-btn-ghost">Sign In</a>
+                <a href="../login.html" class="vox-btn vox-btn-primary">Get Started</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="ent-main-content">
+        <div class="ent-container">
+
+            <!-- Hero Section -->
+            <section class="ent-hero">
+                <div class="ent-hero-badge">
+                    <span class="ent-hero-badge-dot"></span>
+                    Enterprise Platform
+                </div>
+
+                <h1 class="ent-hero-title">
+                    Enterprise-Grade<br>
+                    <span class="ent-hero-title-accent">Integration Suite</span>
+                </h1>
+
+                <p class="ent-hero-subtitle">
+                    Connect your CRM and Banking systems with AI-powered intelligence.
+                    Real-time insights, automated workflows, and premium analytics.
+                </p>
+
+                <div style="display: flex; justify-content: center; gap: 1rem;">
+                    <a href="salesforce/index.html" class="ent-btn ent-btn-accent">
+                        <i data-lucide="cloud" style="width: 18px; height: 18px;"></i>
+                        Launch Salesforce
+                    </a>
+                    <a href="fiserv/index.html" class="ent-btn ent-btn-secondary">
+                        <i data-lucide="landmark" style="width: 18px; height: 18px;"></i>
+                        Explore Fiserv
+                    </a>
+                </div>
+            </section>
+
+            <!-- Feature Cards -->
+            <section class="ent-feature-grid">
+
+                <!-- Salesforce Card -->
+                <a href="salesforce/index.html" class="ent-card ent-feature-card">
+                    <div class="ent-feature-icon">
+                        <i data-lucide="cloud" style="width: 24px; height: 24px;"></i>
+                    </div>
+                    <h3 class="ent-feature-title">Salesforce CRM</h3>
+                    <p class="ent-feature-description">
+                        Agentic cockpit for intelligent pipeline management. AI-powered deal analysis,
+                        smart task prioritization, and real-time opportunity insights.
+                    </p>
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="ent-status ent-status-success">
+                            <span class="ent-status-dot"></span>
+                            Connected
+                        </div>
+                    </div>
+                    <span class="ent-feature-link">
+                        Open Cockpit <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
+                    </span>
+                </a>
+
+                <!-- Fiserv Card -->
+                <a href="fiserv/index.html" class="ent-card ent-feature-card">
+                    <div class="ent-feature-icon"
+                        style="background: rgba(16, 185, 129, 0.1); color: var(--ent-success);">
+                        <i data-lucide="landmark" style="width: 24px; height: 24px;"></i>
+                    </div>
+                    <h3 class="ent-feature-title">Fiserv Banking</h3>
+                    <p class="ent-feature-description">
+                        Core banking integration with AI fraud detection, member analytics,
+                        and real-time transaction monitoring. Know your members better.
+                    </p>
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="ent-status ent-status-success">
+                            <span class="ent-status-dot"></span>
+                            Connected
+                        </div>
+                    </div>
+                    <span class="ent-feature-link">
+                        View Dashboard <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
+                    </span>
+                </a>
+
+            </section>
+
+            <!-- Capabilities Overview -->
+            <section style="margin-top: 4rem;">
+                <h2
+                    style="text-align: center; font-size: 2rem; font-weight: 800; margin-bottom: 0.5rem; color: var(--ent-text-primary);">
+                    Platform Capabilities
+                </h2>
+                <p style="text-align: center; color: var(--ent-text-secondary); margin-bottom: 2rem;">
+                    Enterprise-grade tools powered by AI
+                </p>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon" style="width: 40px; height: 40px; margin-bottom: 0.75rem;">
+                            <i data-lucide="brain" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin-bottom: 0.5rem; color: var(--ent-text-primary);">AI-Powered
+                            Insights</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem;">
+                            Gemma integration for intelligent analysis and recommendations.
+                        </p>
+                    </div>
+
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon"
+                            style="width: 40px; height: 40px; margin-bottom: 0.75rem; background: rgba(245, 158, 11, 0.1); color: var(--ent-warning);">
+                            <i data-lucide="zap" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin-bottom: 0.5rem; color: var(--ent-text-primary);">Real-Time
+                            Sync</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem;">
+                            Live data streaming from connected enterprise systems.
+                        </p>
+                    </div>
+
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon"
+                            style="width: 40px; height: 40px; margin-bottom: 0.75rem; background: rgba(16, 185, 129, 0.1); color: var(--ent-success);">
+                            <i data-lucide="shield-check" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin-bottom: 0.5rem; color: var(--ent-text-primary);">Enterprise
+                            Security</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem;">
+                            SOC 2 compliant with role-based access controls.
+                        </p>
+                    </div>
+
+                    <div class="ent-card" style="padding: 1.5rem;">
+                        <div class="ent-feature-icon"
+                            style="width: 40px; height: 40px; margin-bottom: 0.75rem; background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
+                            <i data-lucide="bar-chart-3" style="width: 20px; height: 20px;"></i>
+                        </div>
+                        <h4 style="font-weight: 700; margin-bottom: 0.5rem; color: var(--ent-text-primary);">Advanced
+                            Analytics</h4>
+                        <p style="color: var(--ent-text-secondary); font-size: 0.9rem;">
+                            ML-powered predictions and trend analysis.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer style="margin-top: 5rem; padding: 2rem; text-align: center; border-top: 1px solid var(--ent-glass-border);">
+        <p style="color: var(--ent-text-muted); font-size: 0.9rem;">
+            &copy; 2024 Vox Amelior. Enterprise Solutions.
+        </p>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>

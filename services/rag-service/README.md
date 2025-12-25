@@ -143,10 +143,14 @@ GET /health
 | `DB_PATH` | `/app/instance/rag.db` | SQLite database path |
 | `FAISS_INDEX_PATH` | `/app/faiss_index/index.bin` | FAISS index file |
 | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model |
-| `JWT_ONLY` | `false` | Enforce JWT authentication |
+| `JWT_ONLY` | `true` | Enforce JWT authentication |
 
 Secrets:
 - `rag_db_key`: 32-byte encryption key for SQLite database
+
+## Authentication
+
+Requires Service-to-Service (S2S) JWT authentication via the `X-Service-Token` header, signed with the shared `JWT_SECRET`. All endpoints are protected; requests without valid JWT are rejected with 401.
 
 ## Database Schema
 

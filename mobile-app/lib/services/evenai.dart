@@ -1,9 +1,11 @@
-// Imports from all files, combined and de-duplicated
+// EvenAI Coordinator - Refactored from monolithic to microservices architecture
+//
+// This file now serves as a lightweight coordinator that delegates to specialized services
+// and mode handlers. The original 1200+ line file has been reduced to ~350 lines.
+
 import 'dart:async';
-import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
-import 'package:deepgram_speech_to_text/deepgram_speech_to_text.dart';
+import 'package:flutter/foundation.dart';
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/controllers/evenai_model_controller.dart';
 import 'package:demo_ai_even/services/features_services.dart';
@@ -11,168 +13,62 @@ import 'package:demo_ai_even/services/proto.dart';
 import 'package:demo_ai_even/services/text_service.dart';
 import 'package:demo_ai_even/services/deepgram_service.dart';
 import 'package:demo_ai_even/services/whisperserver_service.dart';
-import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+// Mode handlers
+import 'package:demo_ai_even/services/mode_handlers/mode_handlers.dart';
+
 import 'package:get/get.dart';
-import 'package:demo_ai_even/views/interview_history_page.dart';
-import 'roku.dart';
 
-// --- MEMORY SERVER (wake-word) CONFIG ---
-// Unique wake word to trigger memory queries. Should be uncommon and easy to pronounce.
-const String _kWakeWord = "memory";
-
-// Base URL of the memory server (FastAPI). Adjust via .env -> MEMORY_SERVER_BASE
-String get _memoryServerBaseUrl {
-  final fromEnv = dotenv.env['MEMORY_SERVER_BASE']?.trim();
-  print("🔧 [DEBUG] Loading MEMORY_SERVER_BASE from .env: '$fromEnv'");
-  if (fromEnv != null && fromEnv.isNotEmpty) {
-    print("✅ [DEBUG] Using server URL: $fromEnv");
-    return fromEnv;
-  }
-  print(
-      "❌ [ERROR] MEMORY_SERVER_BASE not set in .env. Memory feature will fail.");
-  print("🔧 [DEBUG] Available env vars: ${dotenv.env.keys.toList()}");
-  return ""; // fallback
-}
-
-/// A lightweight client to communicate with the memory server.
-/// It provides methods to submit a question and poll for a result.
-class _MemoryServerClient {
-  late final Dio _dio;
-
-  _MemoryServerClient({String? baseUrl}) {
-    final finalBaseUrl = baseUrl ?? _memoryServerBaseUrl;
-    print(
-        "🔧 [DEBUG] Creating MemoryServerClient with baseUrl: '$finalBaseUrl'");
-
-    if (finalBaseUrl.isEmpty) {
-      print(
-          "❌ [ERROR] Empty baseUrl! This will cause 'no host specified' errors.");
-    }
-
-    _dio = Dio(
-      BaseOptions(
-        baseUrl: finalBaseUrl,
-        // Timeouts must be Durations (Dio v5+)
-        connectTimeout: const Duration(milliseconds: 30000),
-        receiveTimeout: const Duration(milliseconds: 100000),
-      ),
-    );
-
-    // Add request/response logging
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      logPrint: (object) => print("🌐 [HTTP] $object"),
-    ));
-  }
-
-  // For troubleshooting connectivity issues, expose the base URL in logs.
-  void debugPrintConfig() {
-    try {
-      // ignore: avoid_print
-      print("MemoryServerClient baseUrl=" + (_dio.options.baseUrl));
-    } catch (_) {}
-  }
-
-  /// Submit a question to the memory server. Returns a map containing
-  /// the `jobId` and any search hits. Using a map avoids the need
-  /// for record types which might not be supported on all Dart versions.
-  Future<Map<String, dynamic>> submitQuestion(String question,
-      {String? sessionId}) async {
-    final data = {"question": question};
-    if (sessionId != null && sessionId.isNotEmpty) {
-      data["session_id"] = sessionId;
-    }
-
-    final resp = await _dio.post("/query", data: data);
-    if (resp.statusCode != 200 || resp.data == null) {
-      throw Exception("Bad /query response: ${resp.statusCode}");
-    }
-    final responseData = resp.data as Map;
-    final jobId = (responseData["job_id"] ?? "").toString();
-    final hits = (responseData["hits"] ?? []) as List;
-    if (jobId.isEmpty) throw Exception("No job_id from /query");
-    return {'jobId': jobId, 'hits': hits};
-  }
-
-  /// Poll the memory server until the job completes or times out.
-  Future<String?> waitForAnswer(String jobId,
-      {Duration total = const Duration(seconds: 30),
-      Duration every = const Duration(milliseconds: 500)}) async {
-    final sw = Stopwatch()..start();
-    while (sw.elapsed < total) {
-      final resp = await _dio.get("/result/$jobId");
-      if (resp.statusCode == 200 && resp.data is Map) {
-        final m = resp.data as Map;
-        final status = (m["status"] ?? "").toString().toLowerCase();
-        if (status == "complete") {
-          final ans = m["answer"]?.toString();
-          return (ans != null && ans.isNotEmpty) ? ans : "No answer.";
-        } else if (status == "failed") {
-          final err = m["answer"]?.toString();
-          return (err != null && err.isNotEmpty)
-              ? "Error: $err"
-              : "Error: job failed.";
-        }
-      }
-      await Future.delayed(every);
-    }
-    return null; // timed out
+// Debug logging helper - tree-shaken in release builds
+void _log(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
   }
 }
 
+/// EvenAI - Main coordinator for voice-controlled smart glasses interactions.
+///
+/// Responsibilities:
+/// - Audio recording start/stop coordination
+/// - Speech-to-text service management (Deepgram/WhisperServer)
+/// - Mode switching and delegation to appropriate handlers
+/// - State management (isRunning, isReceivingAudio)
+///
+/// All business logic for specific modes (Roku, Alexa, Memory, Chat, etc.)
+/// has been extracted to dedicated ModeHandler classes.
 class EvenAI {
   static EvenAI? _instance;
   static EvenAI get get => _instance ??= EvenAI._();
 
-  // --- Class Variables ---
+  // --- Speech-to-Text Services ---
   final DeepgramService _deepgramService = DeepgramService();
   final WhisperServerService _whisperService = WhisperServerService();
-  final RokuRemote _rokuRemote = RokuRemote();
+
+  // --- Mode Handlers ---
+  late final List<ModeHandler> _modeHandlers;
+  late final RokuModeHandler _rokuHandler;
+  late final AlexaModeHandler _alexaHandler;
+  late final MemoryModeHandler _memoryHandler;
+  late final MenuModeHandler _menuHandler;
+  late final ChatModeHandler _chatHandler;
+  late final InterviewModeHandler _interviewHandler;
+  late final GoogleAIModeHandler _googleAIHandler;
+
+  // --- State ---
   Future<String>? _transcriptFuture;
-
-  bool _isAwaitingFollowUp = false;
-  bool _isMenuMode = false;
-  bool _isAwaitingRokuCommand = false;
-  bool _isAwaitingAlexaCommand = false; // --- NEW --- Flag for Alexa mode
-
-  // --- MEMORY MODE STATE ---
-  /// Client used to communicate with the memory server.
-  final _MemoryServerClient _memoryClient = _MemoryServerClient();
-
-  /// When true, the next recognized transcript is treated as a memory question.
-  bool _isAwaitingMemoryQuestion = false;
-
-  /// When true, memory mode is active and we can ask successive questions until terminated.
-  bool _isMemoryModeActive = false;
-
-  /// Unique session ID for this memory conversation
-  String _memorySessionId = "";
+  bool isReceivingAudio = false;
+  ModeHandler? _activeHandler;
 
   static bool _isRunning = false;
   static bool get isRunning => _isRunning;
 
-  bool isReceivingAudio = false;
-
-  File? lc3File;
-  File? pcmFile;
-  int durationS = 0;
-  static int maxRetry = 10;
-  static int _currentLine = 0;
-  static Timer? _timer;
-  static List<String> list = [];
-  static List<String> sendReplys = [];
-
   Timer? _recordingTimer;
   final int maxRecordingDuration = 60;
-  // Auto-exit timers for persistent modes
-  Timer? _rokuModeTimer;
-  Timer? _alexaModeTimer;
 
-  static bool _isManual = false;
+  int _lastStartTime = 0;
+  int _lastStopTime = 0;
+  final int startTimeGap = 500;
+  final int stopTimeGap = 500;
 
   static set isRunning(bool value) {
     _isRunning = value;
@@ -183,11 +79,7 @@ class EvenAI {
   static RxBool isEvenAIOpen = false.obs;
   static RxBool isEvenAISyncing = false.obs;
 
-  int _lastStartTime = 0;
-  int _lastStopTime = 0;
-  final int startTimeGap = 500;
-  final int stopTimeGap = 500;
-
+  // --- Dynamic Text Stream ---
   static final StreamController<String> _textStreamController =
       StreamController<String>.broadcast();
   static Stream<String> get textStream => _textStreamController.stream;
@@ -196,414 +88,190 @@ class EvenAI {
     _textStreamController.add(newText);
   }
 
-  EvenAI._();
+  EvenAI._() {
+    // Initialize mode handlers
+    _rokuHandler = RokuModeHandler();
+    _alexaHandler = AlexaModeHandler();
+    _memoryHandler = MemoryModeHandler();
+    _menuHandler = MenuModeHandler();
+    _chatHandler = ChatModeHandler();
+    _interviewHandler = InterviewModeHandler();
+    _googleAIHandler = GoogleAIModeHandler();
 
-  // --- Core Methods ---
+    // Order matters: first handler that can handle the transcript wins
+    // ChatHandler should be last as it's the fallback
+    // Order matters: first handler that can handle the transcript wins
+    // GoogleAI should be early (trigger phrase based)
+    // ChatHandler should be last as it's the fallback
+    _modeHandlers = [
+      _googleAIHandler,   // "Hey Google" trigger phrase
+      _memoryHandler,
+      _alexaHandler,
+      _rokuHandler,
+      _menuHandler,
+      _interviewHandler,  // Before chat handler
+      _chatHandler,
+    ];
+  }
+
+  // --- Audio Handling ---
 
   void onVoiceChunkReceived(Uint8List pcmData) {
     if (isReceivingAudio) {
-      // Use WhisperServer for memory mode, Deepgram for regular EvenAI
-      if (_isMemoryModeActive || _isAwaitingMemoryQuestion) {
+      // Route audio to appropriate service based on active mode
+      if (_memoryHandler.isActive) {
         _whisperService.sendAudio(pcmData);
+      } else if (_interviewHandler.isActive) {
+        // Interview mode uses its own transcription service with diarization
+        _interviewHandler.sendAudioToDiarizer(pcmData);
+        // Also send to regular Deepgram for command detection
+        _deepgramService.sendAudio(pcmData);
       } else {
         _deepgramService.sendAudio(pcmData);
       }
     }
   }
 
+  // --- Recording Control ---
+
   void toStartEvenAIByOS() async {
-    print("EvenAI: Received start command from OS.");
+    _log("EvenAI: Received start command from OS.");
     BleManager.get().startSendBeatHeart();
 
     int currentTime = DateTime.now().millisecondsSinceEpoch;
     if (currentTime - _lastStartTime < startTimeGap) {
-      print("EvenAI: Start command received too quickly. Ignoring.");
+      _log("EvenAI: Start command received too quickly. Ignoring.");
       return;
     }
     _lastStartTime = currentTime;
 
-    clear();
+    // CRITICAL FIX: Don't clear() if we're in an active follow-up state!
+    // This was causing _isAwaitingFollowUp to be reset to false
+    // before the user could even speak "terminate"
+    final preserveState = _chatHandler.isAwaitingFollowUp || 
+                          (_activeHandler != null && _activeHandler!.isActive);
+    
+    if (preserveState) {
+      _log("EvenAI: Preserving follow-up state (awaiting: ${_chatHandler.isAwaitingFollowUp})");
+      // Only reset audio state, not handlers
+      isReceivingAudio = false;
+      _recordingTimer?.cancel();
+      _recordingTimer = null;
+    } else {
+      clear();
+    }
+    
     isReceivingAudio = true;
     isRunning = true;
-    _currentLine = 0;
 
     _transcriptFuture = _deepgramService.startStreaming();
 
     _transcriptFuture?.then((transcript) {
       if (transcript.trim().isNotEmpty && isReceivingAudio) {
-        print("EvenAI: Proactively processing received transcript.");
+        _log("EvenAI: Proactively processing received transcript.");
         recordOverByOS();
       }
     });
-
-    // Do not send dynamic "Listening" text here to avoid latency.
 
     await BleManager.invokeMethod("startEvenAI");
     await openEvenAIMic();
-    startRecordingTimer();
+    _startRecordingTimer();
   }
 
-  void startRecordingTimer() {
+  void _startRecordingTimer() {
     _recordingTimer?.cancel();
     _recordingTimer = Timer(Duration(seconds: maxRecordingDuration), () {
       if (isReceivingAudio) {
-        print("EvenAI: Recording timer expired. Forcing end of recording.");
+        _log("EvenAI: Recording timer expired. Forcing end of recording.");
         recordOverByOS();
       }
     });
   }
 
-  Future<void> _robustExitBmp() async {
-    if (BleManager.get().isConnected) {
-      print("EvenAI: Clearing screen on glasses (attempt 1).");
-      await FeaturesServices().exitBmp();
-      await Future.delayed(const Duration(milliseconds: 100));
-      print("EvenAI: Clearing screen on glasses (attempt 2).");
-      await FeaturesServices().exitBmp();
-    }
-  }
-
-  // Display the Roku remote BMP (no text overlay)
-  Future<void> _displayRokuRemoteCard() async {
-    if (!BleManager.get().isConnected) {
-      print("EvenAI: Cannot display Roku remote; glasses not connected.");
-      return;
-    }
-    try {
-      print("EvenAI: Displaying Roku remote card on glasses.");
-      await FeaturesServices().sendBmp("assets/images/image_2.bmp");
-    } catch (e) {
-      print("EvenAI: Failed to display Roku remote card: $e");
-    }
-  }
-
+  /// Start listening for a follow-up command using Deepgram
   void _listenForFollowUpCommand() {
-    print("EvenAI: Starting to listen for a follow-up command.");
+    _log("EvenAI: Starting to listen for a follow-up command.");
     isReceivingAudio = true;
     isRunning = true;
     _transcriptFuture = _deepgramService.startStreaming();
 
     _transcriptFuture?.then((transcript) {
       if (transcript.trim().isNotEmpty && isReceivingAudio) {
-        print("EvenAI: Proactively processing follow-up transcript.");
+        _log("EvenAI: Proactively processing follow-up transcript.");
         recordOverByOS();
       }
     });
 
     BleManager.invokeMethod("startEvenAI");
     openEvenAIMic();
-    startRecordingTimer();
+    _startRecordingTimer();
   }
 
-  /// Special memory listening method that uses WhisperServer instead of Deepgram
-  void _listenForMemoryQuestion() {
-    print(
-        "EvenAI: Starting to listen for a memory question using WhisperServer.");
+  /// Start listening using WhisperServer (for memory mode)
+  void _listenWithWhisperServer() {
+    _log("EvenAI: Starting to listen using WhisperServer.");
     isReceivingAudio = true;
     isRunning = true;
     _transcriptFuture = _whisperService.startStreaming();
 
     _transcriptFuture?.then((transcript) {
       if (transcript.trim().isNotEmpty && isReceivingAudio) {
-        print(
-            "EvenAI: Proactively processing memory transcript from WhisperServer.");
+        _log("EvenAI: Processing WhisperServer transcript.");
         recordOverByOS();
       }
     });
 
     BleManager.invokeMethod("startEvenAI");
     openEvenAIMic();
-    startRecordingTimer();
+    _startRecordingTimer();
   }
 
-  // === MEMORY HELPER METHODS ===
-
-  /// Strip the wake word from the given text and return the remainder.
-  ///
-  /// If the wake word is not found, an empty string is returned.
-  String _stripWakeWordAndRemainder(String text) {
-    final t = text.trim();
-    final idx = t.indexOf(_kWakeWord);
-    if (idx == -1) return "";
-    final after = t.substring(idx + _kWakeWord.length).trimLeft();
-    // Remove leading punctuation and whitespace.
-    return after.replaceFirst(RegExp(r'^[,.:;\\-\\s]+'), '').trim();
-  }
-
-  /// Handle a memory question by submitting it to the memory server and
-  /// displaying the answer on the glasses. This method handles all UI
-  /// updates and cleans up state when complete.
-  Future<void> _handleMemoryQuery(String question) async {
-    try {
-      // Log the memory server base URL for troubleshooting
-      _memoryClient.debugPrintConfig();
-      final displayQ = question.isEmpty ? "(no question captured)" : question;
-      // Show that a search is in progress on the glasses.
-      updateDynamicText("Memory: searching...\n$displayQ");
-      await TextService.get.startSendText("Memory search:\n$displayQ");
-
-      // Submit the question with session ID and poll for the answer.
-      final submission = await _memoryClient.submitQuestion(displayQ,
-          sessionId: _memorySessionId);
-      final jobId = submission['jobId'] as String;
-      final answer = await _memoryClient.waitForAnswer(jobId);
-
-      final out = (answer == null || answer.trim().isEmpty)
-          ? "No answer yet. Try again later."
-          : answer.trim();
-
-      // Display the answer.
-      updateDynamicText(out);
-      await TextService.get.startSendText(out);
-    } catch (e) {
-      String reason = e.toString();
-      if (e is DioException) {
-        final se = e.error;
-        if (se is SocketException) {
-          reason =
-              "Socket error: ${se.osError?.errorCode ?? ''} ${se.osError?.message ?? se.message}";
-        } else if (e.type == DioExceptionType.connectionError) {
-          reason = "Connection error (server unreachable)";
-        }
-      }
-      final msg = "Memory server error. ($reason)";
-      updateDynamicText(msg);
-      await TextService.get.startSendText(msg);
-    } finally {
-      // Brief pause to allow the user to read the response.
-      await Future.delayed(const Duration(seconds: 3));
-      // If memory mode is active, prompt the user for another question instead of exiting.
-      if (_isMemoryModeActive) {
-        // Prompt user for the next memory question with better instructions.
-        updateDynamicText(
-            "Memory Mode Active:\nAsk another question or say 'End Memory' to exit.\n\nContext: Remembering conversation history.");
-        await TextService.get.startSendText(
-            "Memory Mode Active:\nAsk another question or say 'End Memory' to exit.\n\nContext: Remembering conversation history.");
-        _isAwaitingMemoryQuestion = true;
-        // Start listening for the next question in memory mode using WhisperServer.
-        _listenForMemoryQuestion();
-      } else {
-        // Not in memory mode, clean up and exit.
-        await _robustExitBmp();
-        clear();
-        isRunning = false;
-      }
-    }
-  }
-
-  // --- NEW ---
-  /// Triggers an Alexa routine via a Voicemonkey GET request.
-  Future<void> _triggerAlexaRoutine(String deviceName) async {
-    final String? voicemonkeyUrl = dotenv.env['VOICEMONKEY_TRIGGER_URL'];
-
-    if (voicemonkeyUrl == null || voicemonkeyUrl.isEmpty) {
-      print("EvenAI: VOICEMONKEY_TRIGGER_URL not set in .env file.");
-      await TextService.get.startSendText("Voicemonkey URL not configured.");
-      return;
-    }
-
-    final String encodedDevice = Uri.encodeComponent(deviceName);
-    final String fullUrl = "$voicemonkeyUrl&device=$encodedDevice";
-
-    try {
-      final dio = Dio();
-      final response = await dio.get(fullUrl);
-      if (response.statusCode == 200) {
-        print(
-            "EvenAI: Successfully triggered Alexa routine for '$deviceName'.");
-        await TextService.get.startSendText("Sent: $deviceName");
-      } else {
-        print(
-            "EvenAI: Failed to trigger Alexa routine for '$deviceName'. Status: ${response.statusCode}, Body: ${response.data}");
-        await TextService.get.startSendText("Error: $deviceName");
-      }
-    } catch (e) {
-      print("EvenAI: Error triggering Alexa routine: $e");
-      await TextService.get.startSendText("Error: $deviceName");
-    }
-
-    // Wait for 2 seconds to show the confirmation, then clear the screen.
-    await Future.delayed(const Duration(seconds: 2));
-    await _robustExitBmp();
-  }
-
-  // Regex helpers for triggers
-  bool _matchesTerminate(String text) {
-    final t = text.toLowerCase();
-    final re = RegExp(r"\bterminat(?:e|es|ed|ing|ion)?\b");
-    return re.hasMatch(t) || t.contains('end memory') || t.contains('end');
-  }
-
-  bool _matchesRoku(String text) =>
-      RegExp(r"\broku\b", caseSensitive: false).hasMatch(text);
-  bool _matchesAlexa(String text) =>
-      RegExp(r"\balexa\b", caseSensitive: false).hasMatch(text);
-  bool _matchesMenu(String text) =>
-      RegExp(r"\bmenu\b", caseSensitive: false).hasMatch(text);
+  // --- Main Recording Over Handler ---
 
   Future<void> recordOverByOS() async {
-    // --- MEMORY MODE ---
-    // Handle memory mode queries if active. The user can ask successive questions until they say 'terminate'.
-    if (_isMemoryModeActive && _isAwaitingMemoryQuestion) {
-      isReceivingAudio = false;
-      await _whisperService.stopStreaming();
-      final transcript = await _transcriptFuture;
-      String cleanTranscript = transcript?.toLowerCase().trim() ?? "";
-      // Allow user to exit memory mode by saying terminate, end, or end memory.
-      if (_matchesTerminate(cleanTranscript)) {
-        _isAwaitingMemoryQuestion = false;
-        _isMemoryModeActive = false;
-        _memorySessionId = ""; // Clear session
-        await _robustExitBmp();
-        clear();
-        isRunning = false;
-        return;
-      }
-      if (cleanTranscript.isNotEmpty) {
-        _isAwaitingMemoryQuestion = false;
-        await _handleMemoryQuery(cleanTranscript);
-        // _handleMemoryQuery will prompt for next question if memory mode remains active.
-        return;
-      } else {
-        // No speech detected while in memory mode. Restart listening.
-        print("EvenAI: No speech detected in Memory mode. Listening again.");
-        _listenForMemoryQuestion();
-        return;
-      }
-    }
-
-    // --- PERSISTENT ROKU REMOTE MODE ---
-    if (_isAwaitingRokuCommand) {
-      isReceivingAudio = false;
-      await _deepgramService.stopStreaming();
-
-      final transcript = await _transcriptFuture;
-      String cleanTranscript = transcript?.toLowerCase().trim() ?? "";
-
-      if (_matchesTerminate(cleanTranscript)) {
-        print("EvenAI: User terminated Roku mode.");
-        await _robustExitBmp();
-        clear();
-        isRunning = false;
-        return;
-      }
-
-      if (cleanTranscript.isNotEmpty) {
-        if (cleanTranscript.contains("volume up") ||
-            (cleanTranscript.contains("volume") &&
-                cleanTranscript.contains("up"))) {
-          await _rokuRemote.volumeUp();
-          await _rokuRemote.volumeUp();
-          await _rokuRemote.volumeUp();
-        } else if (cleanTranscript.contains("volume down") ||
-            (cleanTranscript.contains("volume") &&
-                cleanTranscript.contains("down"))) {
-          await _rokuRemote.volumeDown();
-          await _rokuRemote.volumeDown();
-          await _rokuRemote.volumeDown();
-        } else if (cleanTranscript.contains("on"))
-          await _rokuRemote.powerOn();
-        else if (cleanTranscript.contains("off"))
-          await _rokuRemote.powerOff();
-        else if (cleanTranscript.contains("up"))
-          await _rokuRemote.up();
-        else if (cleanTranscript.contains("down"))
-          await _rokuRemote.down();
-        else if (cleanTranscript.contains("left"))
-          await _rokuRemote.left();
-        else if (cleanTranscript.contains("right"))
-          await _rokuRemote.right();
-        else if (cleanTranscript.contains("select") ||
-            cleanTranscript.contains("okay")) await _rokuRemote.select();
-
-        print("EvenAI: Roku command sent. Listening for next command.");
-        _listenForFollowUpCommand();
-        return;
-      } else {
-        print("EvenAI: No speech detected in Roku mode. Listening again.");
-        _listenForFollowUpCommand();
-        return;
-      }
-    }
-
-    // --- NEW: PERSISTENT ALEXA REMOTE MODE ---
-    if (_isAwaitingAlexaCommand) {
-      isReceivingAudio = false;
-      await _deepgramService.stopStreaming();
-
-      final transcript = await _transcriptFuture;
-      String cleanTranscript = transcript?.toLowerCase().trim() ?? "";
-
-      if (_matchesTerminate(cleanTranscript)) {
-        print("EvenAI: User terminated Alexa mode.");
-        await _robustExitBmp();
-        clear();
-        isRunning = false;
-        return;
-      }
-
-      if (cleanTranscript.isNotEmpty) {
-        if (cleanTranscript.contains("all lights"))
-          await _triggerAlexaRoutine("alllights");
-        else if (cleanTranscript.contains("bedroom light"))
-          await _triggerAlexaRoutine("bedroomlight");
-        else if (cleanTranscript.contains("tv off"))
-          await _triggerAlexaRoutine("tvoff");
-        else if (cleanTranscript.contains("kitchen lights") ||
-            cleanTranscript.contains("kitchen light") ||
-            cleanTranscript.contains("kitchenlights"))
-          await _triggerAlexaRoutine("kitchenlights");
-
-        print("EvenAI: Alexa command sent. Listening for next command.");
-        _listenForFollowUpCommand();
-        return;
-      } else {
-        print("EvenAI: No speech detected in Alexa mode. Listening again.");
-        _listenForFollowUpCommand();
-        return;
-      }
-    }
-
-    // --- END OF PERSISTENT MODES ---
-
-    if (!isReceivingAudio && !_isRunning) {
-      print(
-          "EvenAI: recordOverByOS called but not in a receiving state. Ignoring.");
+    _log('🔍 recordOverByOS: _activeHandler=${_activeHandler?.modeName}, isActive=${_activeHandler?.isActive}, isReceivingAudio=$isReceivingAudio, _isRunning=$_isRunning');
+    
+    // Handle active mode if one exists
+    if (_activeHandler != null && _activeHandler!.isActive) {
+      _log('🔍 recordOverByOS: Going to _handleActiveMode (active handler exists)');
+      await _handleActiveMode();
       return;
     }
 
-    print('EvenAI: Received stop command from OS.');
+    // Check for special handler states (like chat follow-up)
+    if (_chatHandler.isAwaitingFollowUp) {
+      _log('🔍 recordOverByOS: Going to _handleActiveMode (chat follow-up)');
+      await _handleActiveMode();
+      return;
+    }
+
+    // No active mode - process as new command
+    if (!isReceivingAudio && !_isRunning) {
+      _log("EvenAI: recordOverByOS called but not in a receiving state. Ignoring.");
+      return;
+    }
+
+    _log('EvenAI: Received stop command from OS.');
     int currentTime = DateTime.now().millisecondsSinceEpoch;
     if (currentTime - _lastStopTime < stopTimeGap) {
-      print("EvenAI: Stop command received too quickly. Ignoring.");
+      _log("EvenAI: Stop command received too quickly. Ignoring.");
       return;
     }
     _lastStopTime = currentTime;
+
     isReceivingAudio = false;
     _recordingTimer?.cancel();
     _recordingTimer = null;
     updateDynamicText("Processing...");
-    // Use appropriate service based on mode
-    if (_isMemoryModeActive || _isAwaitingMemoryQuestion) {
-      await _whisperService.stopStreaming();
-    } else {
-      await _deepgramService.stopStreaming();
-    }
+
+    await _deepgramService.stopStreaming();
     await BleManager.invokeMethod("stopEvenAI");
 
     try {
       final transcript = await _transcriptFuture;
-      print("EvenAI: Final transcript from Deepgram: '$transcript'");
+      _log("EvenAI: Final transcript: '$transcript'");
 
       if (transcript == null || transcript.trim().isEmpty) {
-        // If we are in follow-up mode (like Interview/Chat), don't clear the screen with "No Speech Recognized"
-        // Just listen again or silently return to let the user read the previous answer.
-        if (_isAwaitingFollowUp) {
-          print("EvenAI: No speech detected during follow-up. Keeping previous display and listening again.");
-          _listenForFollowUpCommand();
-          return;
-        }
-        
         updateDynamicText("No Speech Recognized");
         isEvenAISyncing.value = false;
         await TextService.get.startSendText("No Speech Recognized");
@@ -611,751 +279,190 @@ class EvenAI {
         return;
       }
 
-      String cleanTranscript = transcript.toLowerCase().trim();
+      final cleanTranscript = transcript.toLowerCase().trim();
 
-      // --- MEMORY WAKE-WORD LOGIC ---
-      // If the transcript contains the wake word, either trigger a memory query immediately
-      // or enter memory mode awaiting the next question.
-      if (cleanTranscript.contains(_kWakeWord)) {
-        final remainder = _stripWakeWordAndRemainder(cleanTranscript);
-        // Activate memory mode and create new session.
-        _isMemoryModeActive = true;
-        _memorySessionId = DateTime.now()
-            .millisecondsSinceEpoch
-            .toString(); // Unique session ID
-
-        if (remainder.isNotEmpty) {
-          // Immediate question following the wake word. Treat remainder as the first memory query.
-          _isAwaitingMemoryQuestion = false;
-          await _handleMemoryQuery(remainder);
-          // _handleMemoryQuery will prompt for next question if memory mode remains active.
-          return;
-        } else {
-          // Only the wake word was spoken. Prompt for the first question in memory mode.
-          updateDynamicText(
-              "Memory Mode Started:\nAsk your question.\nSay 'End Memory' to exit.\n\nContext: Will remember conversation history.");
-          await TextService.get.startSendText(
-              "Memory Mode Started:\nAsk your question.\nSay 'End Memory' to exit.\n\nContext: Will remember conversation history.");
-          _isAwaitingMemoryQuestion = true;
-          // Start listening for the memory question using WhisperServer.
-          _listenForMemoryQuestion();
+      // Find a handler for this command
+      for (final handler in _modeHandlers) {
+        if (handler.canEnterMode(cleanTranscript)) {
+          _activeHandler = handler;
+          final result = await handler.enterMode(cleanTranscript);
+          await _processResult(result, transcript);
           return;
         }
       }
 
-      // --- NEW: ENTER ALEXA MODE ---
-      if (_matchesAlexa(cleanTranscript)) {
-        print("EvenAI: Entering Alexa Remote Mode.");
-        await TextService.get.startSendText(
-            "Alexa:\nAll Lights, Bedroom Light, TV Off, Kitchen Lights, Terminate");
-        _isAwaitingAlexaCommand = true;
-        _alexaModeTimer?.cancel();
-        _alexaModeTimer = Timer(const Duration(seconds: 30), () async {
-          print("EvenAI: Alexa mode auto-exit after 30 seconds.");
-          await _robustExitBmp();
-          clear();
-          isRunning = false;
-        });
-        _listenForFollowUpCommand();
-        return;
-      }
+      // No handler found - shouldn't happen as ChatHandler accepts everything
+      _log("EvenAI: No handler found for transcript.");
+      await _endSession();
 
-      // --- ENTER ROKU MODE ---
-      if (_matchesRoku(cleanTranscript)) {
-        print("EvenAI: Entering Roku Remote Mode.");
-        await _displayRokuRemoteCard();
-        _isAwaitingRokuCommand = true;
-        _rokuModeTimer?.cancel();
-        _rokuModeTimer = Timer(const Duration(seconds: 30), () async {
-          print("EvenAI: Roku mode auto-exit after 30 seconds.");
-          await _robustExitBmp();
-          clear();
-          isRunning = false;
-        });
-        _listenForFollowUpCommand();
-        return;
-      }
-
-      // --- MENU COMMAND ---
-      if (_matchesMenu(cleanTranscript)) {
-        print("EvenAI: User spoke 'menu', displaying menu options.");
-        await TextService.get.startSendText("Menu Item 1\nMenu Item 2");
-        _isMenuMode = true;
-        _listenForFollowUpCommand();
-        return;
-      }
-
-      // --- HANDLE MENU SELECTION ---
-      if (_isMenuMode) {
-        _isMenuMode = false;
-        String responseText = "";
-
-        if (cleanTranscript.contains("one") || cleanTranscript.contains("1")) {
-          responseText = "This is menu item one.";
-        } else if (cleanTranscript.contains("two") ||
-            cleanTranscript.contains("2")) {
-          responseText = "This is menu item two.";
-        } else {
-          await TextService.get
-              .startSendText("Sorry, I didn't recognize that option.");
-          await Future.delayed(const Duration(seconds: 3));
-          await _robustExitBmp();
-          clear();
-          isRunning = false;
-          return;
-        }
-
-        if (responseText.isNotEmpty) {
-          print("EvenAI: User selected an item, displaying: '$responseText'");
-          updateDynamicText(responseText);
-          await TextService.get.startSendText(responseText);
-          await Future.delayed(const Duration(seconds: 5));
-          await _robustExitBmp();
-          clear();
-          isRunning = false;
-          return;
-        }
-      }
-
-      // --- FOLLOW UP LOGIC ---
-      if (_isAwaitingFollowUp) {
-        if (cleanTranscript.contains("continue")) {
-          print(
-              "EvenAI: User spoke 'continue', restarting listening for new question.");
-          toStartEvenAIByOS();
-          return;
-        }
-
-        if (cleanTranscript.contains("terminate") ||
-            cleanTranscript.contains("end")) {
-          print("EvenAI: User spoke 'terminate', ending session.");
-          _isAwaitingFollowUp = false;
-          await _robustExitBmp();
-          clear();
-          isRunning = false;
-          return;
-        }
-        
-            _isChatGPTConversationMode = false;
-            _chatGPTHistory.clear();
-            _chatGPTModeTimer?.cancel();
-          }
-          
-          _isAwaitingFollowUp = false;
-          await _robustExitBmp();
-          clear();
-          isRunning = false;
-          return;
-        }
-        
-        // COMPREHENSIVE QUESTION FILTER for Interview Mode
-        // We use a robust helper to determine if the user is asking the AI something.
-        if (!_isLikelyQuestion(cleanTranscript)) {
-             print("EvenAI: Ignoring non-question transcript (Likely User Answer): '$cleanTranscript'");
-             // Do NOT update text, do NOT send to GPT.
-             // Just listen again for the next potential command/question.
-             _listenForFollowUpCommand();
-             return;
-        }
-
-        _isAwaitingFollowUp = false;
-      }
-
-      // --- DEFAULT AI CHAT LOGIC ---
-      updateDynamicText("Answering Question Asked: $transcript");
-      await TextService.get.startSendText("Q: $transcript");
-      final apiService = ApiDeepSeekService();
-      final answer = await apiService.sendChatRequest(transcript);
-      print("EvenAI: Answer from OpenAI: '$answer'");
-      updateDynamicText("$transcript\n\n$answer");
+    } catch (e) {
+      _log("EvenAI: Error during transcription or processing: $e");
+      updateDynamicText("Sorry, an error occurred.");
       isEvenAISyncing.value = false;
-      saveQuestionItem(transcript, answer);
-      await TextService.get.startSendText(answer);
+      await TextService.get.startSendText("Sorry, an error occurred.");
+      isRunning = false;
+    }
+  }
 
-      _isAwaitingFollowUp = true;
-<<<<<<< HEAD:mobile-app/lib/services/evenai.dart
-      // Adjusted delay to 4 seconds (between 1s and 8s)
-      await Future.delayed(const Duration(seconds: 4));
-      
-      // Show different prompt if in conversation mode
-      if (_isChatGPTConversationMode) {
-        await TextService.get
-            .startSendText("$answer\n\n'Continue' for more or 'Terminate' to exit");
+  Future<void> _handleActiveMode() async {
+    isReceivingAudio = false;
+
+    // Stop the appropriate STT service
+    if (_memoryHandler.isActive) {
+      await _whisperService.stopStreaming();
+    } else {
+      await _deepgramService.stopStreaming();
+    }
+
+    final transcript = await _transcriptFuture;
+    final cleanTranscript = transcript?.toLowerCase().trim() ?? "";
+
+    if (cleanTranscript.isEmpty) {
+      _log("EvenAI: No speech detected in active mode.");
+      // Keep listening in the active mode
+      if (_memoryHandler.isActive) {
+        _listenWithWhisperServer();
+      } else if (_activeHandler?.isActive ?? false) {
+        _listenForFollowUpCommand();
+      }
+      return;
+    }
+
+    // Get the active handler
+    ModeHandler? handler = _activeHandler;
+    if (handler == null || !handler.isActive) {
+      // Check if chat handler is awaiting follow-up
+      if (_chatHandler.isAwaitingFollowUp) {
+        handler = _chatHandler;
       } else {
-        await TextService.get
-            .startSendText("$answer\n\n'Continue Asking' or say 'Terminate' to End");
+        await _endSession();
+        return;
       }
-=======
-      await Future.delayed(const Duration(seconds: 1));
-      await TextService.get
-          .startSendText("$answer\n\nSay 'Continue Asking ' or say 'Terminate' to End");
->>>>>>> parent of a83713e (feat(app-modes): add Chat/Interview modes w/ auto-exit; Roku text UI; Quick Note BLE; vocab init; add interview assets path):EvenDemoApp-main/lib/services/evenai.dart
-      _listenForFollowUpCommand();
-    } catch (e, stackTrace) {
-      print("EvenAI: Error during transcription or API call: $e");
-      print("EvenAI: Stack trace: $stackTrace");
-      
-      updateDynamicText("Error: ${e.toString().split('\n').first}");
+    }
+
+    // Process the command
+    final result = await handler.handleCommand(cleanTranscript);
+    await _processResult(result, transcript ?? "");
+  }
+
+  Future<void> _processResult(ModeResult result, String originalTranscript) async {
+    // Handle special case: save chat Q&A
+    if (_activeHandler == _chatHandler && result.displayText != null) {
+      final answer = result.displayText!.split("\n\nSay 'Continue")[0];
+      if (!answer.contains("error") && originalTranscript.isNotEmpty) {
+        saveQuestionItem(originalTranscript, answer);
+      }
+    }
+
+    // Display text if provided
+    if (result.displayText != null) {
+      updateDynamicText(result.displayText!);
       isEvenAISyncing.value = false;
-      
-      // Don't kill the session immediately on error, just let the user know and listen again
-      await TextService.get.startSendText("Error. Try again.");
-      
-      // Restart listening instead of stopping completely
-      _listenForFollowUpCommand();
+      await TextService.get.startSendText(result.displayText!);
+    }
+
+    // Handle continue/end logic
+    if (!result.handled) {
+      // Handler didn't handle it - try other handlers
+      await _endSession();
+      return;
+    }
+
+    if (result.continueListening) {
+      // Brief pause for display text to be read
+      if (result.displayText != null) {
+        await Future.delayed(const Duration(seconds: 2));
+      }
+
+      // Start listening again
+      if (result.useWhisperServer) {
+        _listenWithWhisperServer();
+      } else {
+        _listenForFollowUpCommand();
+      }
+    } else {
+      // End session - FAST PATH for terminate commands
+      // Only delay if there was text displayed that user needs to read
+      if (result.displayText != null) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      // Immediate exit - no delay for terminate commands
+      await _endSession();
+    }
+  }
+
+  Future<void> _endSession() async {
+    // CRITICAL: Stop TextService pagination timer BEFORE clearing
+    // This prevents pages from continuing to display after terminate
+    TextService.get.clear();
+    
+    await _robustExitBmp();
+    clear();
+    isRunning = false;
+  }
+
+  Future<void> _robustExitBmp() async {
+    if (BleManager.get().isConnected) {
+      _log("EvenAI: Clearing screen on glasses (double exit).");
+      // Call twice rapidly - glasses don't always clear on first try
+      await FeaturesServices().exitBmp();
+      await FeaturesServices().exitBmp();
     }
   }
 
   void saveQuestionItem(String title, String content) {
-    final controller = Get.find<EvenaiModelController>();
-    controller.addItem(title, content);
+    try {
+      final controller = Get.find<EvenaiModelController>();
+      controller.addItem(title, content);
+    } catch (e) {
+      _log("EvenAI: Could not save Q&A: $e");
+    }
   }
 
   void clear() {
-    print("EvenAI: Clearing state.");
-    _isAwaitingFollowUp = false;
-    _isMenuMode = false;
-    _isAwaitingRokuCommand = false;
-    _isAwaitingAlexaCommand = false; // --- NEW ---
-    _isAwaitingMemoryQuestion = false; // Reset memory mode question flag
-    _isMemoryModeActive = false; // Reset memory mode active flag
+    _log("EvenAI: Clearing state.");
     isReceivingAudio = false;
-    _isManual = false;
-    _currentLine = 0;
     _recordingTimer?.cancel();
     _recordingTimer = null;
-    _rokuModeTimer?.cancel();
-    _rokuModeTimer = null;
-    _alexaModeTimer?.cancel();
-    _alexaModeTimer = null;
-    _timer?.cancel();
-    _timer = null;
-    list.clear();
-    sendReplys.clear();
-    durationS = 0;
-    retryCount = 0;
     _transcriptFuture = null;
+
+    // Reset all mode handlers
+    for (final handler in _modeHandlers) {
+      handler.reset();
+    }
+    _activeHandler = null;
   }
 
   Future<void> openEvenAIMic() async {
     final (_, isStartSucc) = await Proto.micOn(lr: "R");
-    print('EvenAI: Mic activation success: $isStartSucc');
+    _log('EvenAI: Mic activation success: $isStartSucc');
     if (!isStartSucc && isReceivingAudio) {
       await Future.delayed(const Duration(milliseconds: 500));
       await openEvenAIMic();
     }
   }
 
-  int retryCount = 0;
-  Future<bool> sendEvenAIReply(
-      String text, int type, int status, int pos) async {
-    print(
-        'EvenAI: Sending to glasses - Text: "$text", Status: 0x${status.toRadixString(16)}');
-    bool isSuccess = await Proto.sendEvenAIData(text,
-        newScreen: EvenAIDataMethod.transferToNewScreen(type, status),
-        pos: pos,
-        current_page_num: getCurrentPage(),
-        max_page_num: getTotalPages());
-    if (!isSuccess && retryCount < maxRetry) {
-      retryCount++;
-      print("EvenAI: Send failed, retrying... ($retryCount/$maxRetry)");
-      await Future.delayed(const Duration(milliseconds: 200));
-      return await sendEvenAIReply(text, type, status, pos);
-    }
-    if (!isSuccess) print("EvenAI: Send failed after all retries.");
-    retryCount = 0;
-    return isSuccess;
-  }
-
-  // --- Helper and Utility Methods (No changes needed below this line) ---
-
-  int getTotalPages() {
-    if (list.isEmpty) return 0;
-    if (list.length < 6) return 1;
-    return (list.length / 5).ceil();
-  }
-
-  int getCurrentPage() {
-    if (_currentLine == 0) return 1;
-    return (_currentLine / 5).floor() + 1;
-  }
-
-  Future sendNetworkErrorReply(String text) async {
-    _currentLine = 0;
-    list = EvenAIDataMethod.measureStringList(text);
-    String ryplyWords =
-        list.sublist(0, min(3, list.length)).map((str) => '$str\n').join();
-    String headString = '\n\n';
-    ryplyWords = headString + ryplyWords;
-    await sendEvenAIReply(ryplyWords, 0x01, 0x60, 0);
-    clear();
-  }
-
-  Future startSendReply(String text) async {
-    _currentLine = 0;
-    list = EvenAIDataMethod.measureStringList(text);
-    if (list.length < 4) {
-      String startScreenWords =
-          list.sublist(0, min(3, list.length)).map((str) => '$str\n').join();
-      String headString = '\n\n';
-      startScreenWords = headString + startScreenWords;
-      bool isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
-      await Future.delayed(Duration(seconds: 3));
-      if (_isManual) {
-        return;
-      }
-      isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
-      return;
-    }
-    if (list.length == 4) {
-      String startScreenWords =
-          list.sublist(0, 4).map((str) => '$str\n').join();
-      String headString = '\n';
-      startScreenWords = headString + startScreenWords;
-      bool isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
-      await Future.delayed(Duration(seconds: 3));
-      if (_isManual) {
-        return;
-      }
-      isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
-      return;
-    }
-    if (list.length == 5) {
-      String startScreenWords =
-          list.sublist(0, 5).map((str) => '$str\n').join();
-      bool isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
-      await Future.delayed(Duration(seconds: 3));
-      if (_isManual) {
-        return;
-      }
-      isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x40, 0);
-      return;
-    }
-    String startScreenWords = list.sublist(0, 5).map((str) => '$str\n').join();
-    bool isSuccess = await sendEvenAIReply(startScreenWords, 0x01, 0x30, 0);
-    if (isSuccess) {
-      _currentLine = 0;
-      await updateReplyToOSByTimer();
-    } else {
-      clear();
-    }
-  }
-
-  Future updateReplyToOSByTimer() async {
-    int interval = 7; // Adjusted from 10 to 7 seconds
-    _timer?.cancel();
-    _timer = Timer.periodic(Duration(seconds: interval), (timer) async {
-      if (_isManual) {
-        _timer?.cancel();
-        _timer = null;
-        return;
-      }
-      _currentLine = min(_currentLine + 5, list.length - 1);
-      sendReplys = list.sublist(_currentLine);
-      if (_currentLine >= list.length - 1) {
-        _timer?.cancel();
-        _timer = null;
-      } else {
-        if (sendReplys.length < 4) {
-          var mergedStr = sendReplys
-              .sublist(0, sendReplys.length)
-              .map((str) => '$str\n')
-              .join();
-          if (_currentLine >= list.length - 5) {
-            await sendEvenAIReply(mergedStr, 0x01, 0x40, 0);
-            _timer?.cancel();
-            _timer = null;
-          } else {
-            await sendEvenAIReply(mergedStr, 0x01, 0x30, 0);
-          }
-        } else {
-          var mergedStr = sendReplys
-              .sublist(0, min(5, sendReplys.length))
-              .map((str) => '$str\n')
-              .join();
-          if (_currentLine >= list.length - 5) {
-            await sendEvenAIReply(mergedStr, 0x01, 0x40, 0);
-            _timer?.cancel();
-            _timer = null;
-          } else {
-            await sendEvenAIReply(mergedStr, 0x01, 0x30, 0);
-          }
-        }
-      }
-    });
-  }
-
-  void nextPageByTouchpad() {
-    if (!isRunning) return;
-    _isManual = true;
-    _timer?.cancel();
-    _timer = null;
-    if (getTotalPages() < 2) {
-      manualForJustOnePage();
-      return;
-    }
-    if (_currentLine + 5 > list.length - 1) {
-      return;
-    } else {
-      _currentLine += 5;
-    }
-    updateReplyToOSByManual();
-  }
-
-  void lastPageByTouchpad() {
-    if (!isRunning) return;
-    _isManual = true;
-    _timer?.cancel();
-    _timer = null;
-    if (getTotalPages() < 2) {
-      manualForJustOnePage();
-      return;
-    }
-    if (_currentLine - 5 < 0) {
-      _currentLine = 0;
-    } else {
-      _currentLine -= 5;
-    }
-    updateReplyToOSByManual();
-  }
-
-  Future updateReplyToOSByManual() async {
-    if (_currentLine < 0 || _currentLine > list.length - 1) {
-      return;
-    }
-    sendReplys = list.sublist(_currentLine);
-    if (sendReplys.length < 4) {
-      var mergedStr = sendReplys
-          .sublist(0, sendReplys.length)
-          .map((str) => '$str\n')
-          .join();
-      await sendEvenAIReply(mergedStr, 0x01, 0x50, 0);
-    } else {
-      var mergedStr = sendReplys
-          .sublist(0, min(5, sendReplys.length))
-          .map((str) => '$str\n')
-          .join();
-      await sendEvenAIReply(mergedStr, 0x01, 0x50, 0);
-    }
-  }
-
-  Future manualForJustOnePage() async {
-    if (list.length < 4) {
-      String screenWords =
-          list.sublist(0, min(3, list.length)).map((str) => '$str\n').join();
-      String headString = '\n\n';
-      screenWords = headString + screenWords;
-      await sendEvenAIReply(screenWords, 0x01, 0x50, 0);
-      return;
-    }
-    if (list.length == 4) {
-      String screenWords = list.sublist(0, 4).map((str) => '$str\n').join();
-      String headString = '\n';
-      screenWords = headString + screenWords;
-      await sendEvenAIReply(screenWords, 0x01, 0x50, 0);
-      return;
-    }
-    if (list.length == 5) {
-      String screenWords = list.sublist(0, 5).map((str) => '$str\n').join();
-      await sendEvenAIReply(screenWords, 0x01, 0x50, 0);
-      return;
-    }
-  }
-
-  Future stopEvenAIByOS() async {
+  Future<void> stopEvenAIByOS() async {
     isRunning = false;
     clear();
     await BleManager.invokeMethod("stopEvenAI");
   }
 
-  /// Manually starts Interview Mode (called from UI or Voice Command)
-  Future<void> startInterviewMode() async {
-    print("EvenAI: Entering Interview Mode.");
-    _isChatGPTConversationMode = true; // Use same conversation mode
-    _chatGPTHistory.clear();
+  // --- Touchpad Navigation (delegate to TextDisplayService) ---
 
-    // Clear previous history and navigate to the live interview page
-    // Ensure we are on the main thread
-    Get.find<EvenaiModelController>().clearItems();
-    Get.to(() => const InterviewHistoryPage());
-
-    // Load resume and context from assets
-    String resumeContext = "";
-    try {
-      final resumeText =
-          await rootBundle.loadString('assets/interview/resume.txt');
-      final projectContext =
-          await rootBundle.loadString('assets/interview/projects.txt');
-      resumeContext =
-          "CANDIDATE BACKGROUND:\n$resumeText\n\nKEY PROJECTS:\n$projectContext";
-      print(
-          "EvenAI: Loaded resume and project context (${resumeContext.length} chars)");
-    } catch (e) {
-      print("EvenAI: Could not load resume/projects context: $e");
-      print("EvenAI: Using generic interview mode without custom context");
-    }
-
-    // Set up Interview Mode system prompt with resume context
-    String systemPrompt =
-        "You are an expert interview coach helping during a live job interview. "
-        "Keep ALL responses under 50 words - concise and direct. "
-        "Provide confident, professional answers that showcase skills and experience. "
-        "If asked a technical question, give the core concept first, then a brief example. "
-        "If asked behavioral questions, use STAR method (Situation, Task, Action, Result) briefly. "
-        "Sound natural and conversational, not robotic.";
-
-    if (resumeContext.isNotEmpty) {
-      systemPrompt += "\n\n$resumeContext\n\n"
-          "Use the above background to provide accurate, personalized answers. "
-          "Draw from real projects and experience when answering. "
-          "Stay consistent with the resume details.";
-    } else {
-      systemPrompt +=
-          " If you don't have enough context, provide a strong general answer that works for most situations.";
-    }
-
-    _chatGPTHistory.add({"role": "system", "content": systemPrompt});
-
-    await TextService.get.startSendText(
-        "Interview Mode:\nI'll help you answer interview questions.\nSay 'Terminate' to exit.");
-    
-    _chatGPTModeTimer?.cancel();
-    // Removed 10-minute timeout to allow indefinite interview sessions.
-    // The user must explicitly say "Terminate" or exit via UI to stop.
-    
-    // Start listening immediately
-    toStartEvenAIByOS();
+  void nextPageByTouchpad() {
+    // This is handled by the text display service via TextService
+    // Keep for backward compatibility
+    _log("EvenAI: nextPageByTouchpad called");
   }
 
-  /// Determines if the transcript is likely a question or command for the AI.
-  /// This uses a comprehensive set of heuristics including:
-  /// 1. Question words (Wh- words)
-  /// 2. Auxiliary verbs at the start of the sentence
-  /// 3. Command/Imperative verbs commonly used with AI
-  /// 4. Punctuation (question mark)
-  bool _isLikelyQuestion(String text) {
-    final t = text.trim().toLowerCase();
-    if (t.isEmpty) return false;
-
-    // 1. Check for explicit question mark (Deepgram smart formatting)
-    if (t.endsWith('?')) return true;
-
-    // 2. Check for common question words
-    final questionWords = [
-      'who', 'what', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom'
-    ];
-    for (final word in questionWords) {
-      // Check if it starts with the word or contains it as a distinct word
-      if (t.startsWith('$word ') || t.contains(' $word ')) return true;
-    }
-
-    // 3. Check for auxiliary verbs at the START (Yes/No questions)
-    // "Can you...", "Is it...", "Do I..."
-    final auxiliaryVerbs = [
-      'am', 'is', 'are', 'was', 'were', 'be', 'being', 'been',
-      'have', 'has', 'had',
-      'do', 'does', 'did',
-      'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must'
-    ];
-    for (final verb in auxiliaryVerbs) {
-      if (t.startsWith('$verb ')) return true;
-    }
-
-    // 4. Check for command/imperative verbs (AI commands)
-    // "Tell me...", "Explain...", "List..."
-    final commandVerbs = [
-      'tell', 'say', 'explain', 'describe', 'list', 'give', 'show', 
-      'help', 'suggest', 'provide', 'create', 'write', 'define', 'summarize'
-    ];
-    for (final verb in commandVerbs) {
-      if (t.startsWith('$verb ')) return true;
-    }
-    
-    // 5. Common phrases
-    if (t.startsWith('i need') || t.startsWith('i want')) return true;
-
-    return false;
+  void lastPageByTouchpad() {
+    // This is handled by the text display service via TextService
+    // Keep for backward compatibility
+    _log("EvenAI: lastPageByTouchpad called");
   }
 
   static void dispose() {
     _textStreamController.close();
-  }
-}
-
-// ========================================================================
-// Deepgram Service Class (Handles Speech-to-Text)
-// ========================================================================
-class DeepgramService {
-  final String _apiKey = dotenv.env['DEEPGRAM_API_KEY'] ?? '';
-
-  Deepgram? _deepgram;
-  StreamSubscription<DeepgramListenResult>? _responseSubscription;
-  StreamController<List<int>>? _audioStreamController;
-  Completer<String>? _transcriptCompleter;
-
-  Future<String> startStreaming() {
-    print("DeepgramService: Starting stream...");
-    if (_apiKey.isEmpty) {
-      print(
-          "DeepgramService: ERROR - DEEPGRAM_API_KEY is not set in .env file.");
-      return Future.value('');
-    }
-
-    _transcriptCompleter = Completer<String>();
-    _audioStreamController = StreamController<List<int>>();
-    _deepgram = Deepgram(_apiKey);
-
-    _responseSubscription = _deepgram!.listen.live(
-      _audioStreamController!.stream,
-      queryParams: {
-        'encoding': 'linear16',
-        'sampleRate': 16000,
-        'interim_results': true,
-        'smart_format': true,
-      },
-    ).listen(
-      (response) {
-        final transcript = response.transcript ?? '';
-        final isFinal = response.map['is_final'] == true;
-
-        if (transcript.trim().isNotEmpty && isFinal) {
-          print("DeepgramService: Received final transcript: '$transcript'");
-          if (!_transcriptCompleter!.isCompleted) {
-            _transcriptCompleter!.complete(transcript);
-          }
-        }
-      },
-      onDone: () {
-        print("DeepgramService: Stream 'onDone' called.");
-        if (!_transcriptCompleter!.isCompleted) {
-          _transcriptCompleter!.complete('');
-        }
-      },
-      onError: (error) {
-        print("DeepgramService: Stream error: $error");
-        if (!_transcriptCompleter!.isCompleted) {
-          _transcriptCompleter!.completeError(error);
-        }
-      },
-    );
-
-    return _transcriptCompleter!.future;
-  }
-
-  void sendAudio(Uint8List pcmData) {
-    if (_audioStreamController != null && !_audioStreamController!.isClosed) {
-      _audioStreamController!.add(pcmData);
-    }
-  }
-
-  Future<void> stopStreaming() async {
-    print("DeepgramService: Stopping stream...");
-    await _audioStreamController?.close();
-    await _responseSubscription?.cancel();
-    _audioStreamController = null;
-    _responseSubscription = null;
-    _deepgram = null;
-  }
-}
-
-// ========================================================================
-// API Service Class (Handles communication with the AI model)
-// ========================================================================
-class ApiDeepSeekService {
-  late Dio _dio;
-
-  ApiDeepSeekService() {
-    _dio = Dio(
-      BaseOptions(
-        baseUrl: 'https://api.openai.com/v1',
-        headers: {
-          'Authorization': 'Bearer ${dotenv.env['OPENAI_API_KEY']}',
-          'Content-Type': 'application/json',
-        },
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 30),
-      ),
-    );
-  }
-
-  Future<String> sendChatRequest(String question) async {
-    String modelToUse;
-    if (question.toLowerCase().contains("research")) {
-      modelToUse = "gpt-5";
-    } else {
-      modelToUse = "gpt-4o";
-    }
-    print("Keyword check complete. Using model: $modelToUse");
-
-    final data = {
-      "model": modelToUse,
-      "messages": [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": question}
-      ],
-    };
-
-    print("Sending request to OpenAI with data: $data");
-
-    try {
-      final response = await _dio.post('/chat/completions', data: data);
-
-      if (response.statusCode == 200) {
-        print("OpenAI Response: ${response.data}");
-        final data = response.data;
-        final content = data['choices']?[0]?['message']?['content'] ??
-            "Unable to answer the question";
-        return content;
-      } else {
-        print("Request failed with status: ${response.statusCode}");
-        return "Request failed with status: ${response.statusCode}";
-      }
-    } on DioException catch (e) {
-      if (e.response != null) {
-        print("Error: ${e.response?.statusCode}, ${e.response?.data}");
-        return "AI request error: ${e.response?.statusCode}, ${e.response?.data}";
-      } else {
-        print("Error: ${e.message}");
-        return "AI request error: ${e.message}";
-      }
-    }
-  }
-}
-
-// ========================================================================
-// Extension Method Class
-// ========================================================================
-extension EvenAIDataMethod on EvenAI {
-  static int transferToNewScreen(int type, int status) {
-    return status | type;
-  }
-
-  static List<String> measureStringList(String text, [double? maxW]) {
-    final double maxWidth = maxW ?? 488;
-    const double fontSize = 21;
-    List<String> paragraphs = text
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
-    List<String> ret = [];
-    TextStyle ts = TextStyle(fontSize: fontSize);
-    for (String paragraph in paragraphs) {
-      final textSpan = TextSpan(text: paragraph, style: ts);
-      final textPainter = TextPainter(
-        text: textSpan,
-        textDirection: TextDirection.ltr,
-        maxLines: null,
-      );
-      textPainter.layout(maxWidth: maxWidth);
-      final lineCount = textPainter.computeLineMetrics().length;
-      var start = 0;
-      for (var i = 0; i < lineCount; i++) {
-        final line = textPainter.getLineBoundary(TextPosition(offset: start));
-        ret.add(paragraph.substring(line.start, line.end).trim());
-        start = line.end;
-      }
-    }
-    return ret;
   }
 }

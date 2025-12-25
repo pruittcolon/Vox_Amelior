@@ -1,0 +1,274 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: nemo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow nginx to receive external traffic and forward to api-gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-ingress
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx
+  policyTypes:
+    - Ingress
+  ingress:
+    - from: []  # Allow external traffic
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+---
+# Allow nginx to reach api-gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-to-gateway
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# API Gateway policies
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# API Gateway can reach internal services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-services
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Egress
+  egress:
+    # To backend services
+    - to:
+        - podSelector:
+            matchLabels:
+              app: gemma-service
+      ports:
+        - protocol: TCP
+          port: 8001
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rag-service
+      ports:
+        - protocol: TCP
+          port: 8004
+    - to:
+        - podSelector:
+            matchLabels:
+              app: transcription-service
+      ports:
+        - protocol: TCP
+          port: 8003
+    - to:
+        - podSelector:
+            matchLabels:
+              app: emotion-service
+      ports:
+        - protocol: TCP
+          port: 8005
+    - to:
+        - podSelector:
+            matchLabels:
+              app: insights-service
+      ports:
+        - protocol: TCP
+          port: 8010
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ml-service
+      ports:
+        - protocol: TCP
+          port: 8006
+    # To Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# Redis accepts connections from gateway and services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: rag-service
+        - podSelector:
+            matchLabels:
+              app: transcription-service
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# PostgreSQL accepts connections from gateway only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-ingress
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: gpu-coordinator
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Gemma service accepts from gateway and ml-service
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gemma-ingress
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: gemma-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: ml-service
+      ports:
+        - protocol: TCP
+          port: 8001
+---
+# GPU Coordinator policies
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gpu-coordinator
+  namespace: nemo
+spec:
+  podSelector:
+    matchLabels:
+      app: gpu-coordinator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gemma-service
+        - podSelector:
+            matchLabels:
+              app: transcription-service
+      ports:
+        - protocol: TCP
+          port: 8002
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Allow DNS egress for all pods (required for service discovery)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: nemo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

@@ -17,19 +17,19 @@ A clear and concise description of what the bug is.
 3. Execute command '...'
 4. See error
 
-## ✅ Expected Behavior
+## Expected Behavior
 
 A clear and concise description of what you expected to happen.
 
-## ❌ Actual Behavior
+## Actual Behavior
 
 A clear and concise description of what actually happened.
 
-## 📸 Screenshots
+## Screenshots
 
 If applicable, add screenshots to help explain your problem.
 
-## 🖥️ Environment
+## Environment
 
 **Server:**
 - OS: [e.g. Ubuntu 22.04]

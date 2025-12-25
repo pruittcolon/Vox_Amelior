@@ -34,11 +34,11 @@ Please describe the tests that you ran to verify your changes.
 - Docker Version:
 - GPU Model:
 
-## 📸 Screenshots (if applicable)
+## Screenshots (if applicable)
 
 Add screenshots to help explain your changes.
 
-## ✅ Checklist
+## Checklist
 
 Please check off items as you complete them:
 

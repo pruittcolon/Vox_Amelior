@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:demo_ai_even/services/auth_service.dart';
 import 'package:demo_ai_even/views/home_page.dart';
+import 'package:demo_ai_even/views/register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -41,8 +43,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
     _fadeController.forward();
     
-    // Check if already logged in
-    _checkExistingSession();
+    // Initialize auth service and check existing session
+    _initAuthAndCheckSession();
   }
 
   @override
@@ -53,10 +55,26 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  Future<void> _checkExistingSession() async {
+  Future<void> _initAuthAndCheckSession() async {
+    // Initialize auth service first
+    _authService.initialize();
+    
+    // Check if already logged in with valid session
     final isValid = await _authService.checkSession();
     if (isValid && mounted) {
       _navigateToHome();
+    }
+    // If session check fails, AuthService.checkSession() already calls logout()
+    // which clears stale cookies, so fresh login will work
+  }
+  
+  /// Force clear any stale session data
+  Future<void> _clearStaleSession() async {
+    await _authService.logout();
+    if (mounted) {
+      setState(() {
+        _errorMessage = 'Session cleared. Please sign in again.';
+      });
     }
   }
 
@@ -77,6 +95,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       });
       return;
     }
+    
+    // Clear any stale session data before attempting fresh login
+    // This ensures old cookies don't interfere
+    await _authService.logout();
 
     try {
       final result = await _authService.login(username, password);
@@ -98,6 +120,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         _isLoading = false;
       });
     }
+  }
+
+  /// Skip authentication for development/testing
+  void _skipToTest() {
+    print("LoginPage: Skipping to test (dev mode)");
+    _navigateToHome();
   }
 
   void _navigateToHome() {
@@ -291,51 +319,88 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                     ),
                                   ),
                           ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                          builder: (context) =>
+                                              const RegisterPage()),
+                                    );
+                                  },
+                            child: const Text(
+                              'Create an account',
+                              style: TextStyle(
+                                color: accentColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 24),
 
-                  // Default Credentials Info
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: cardColor.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: subtitleColor.withOpacity(0.2),
+                  if (kDebugMode) ...[
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: cardColor.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: subtitleColor.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline,
+                                  color: accentColor, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Dev Notes',
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Demo users are for local dev only.\n'
+                            'Enable with ENABLE_DEMO_USERS=true + SECURE_MODE=false.',
+                            style: TextStyle(
+                              color: subtitleColor,
+                              fontSize: 12,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
                     ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.info_outline,
-                                color: accentColor, size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Default Credentials',
-                              style: TextStyle(
-                                color: textColor,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _isLoading ? null : _skipToTest,
+                      icon: const Icon(Icons.developer_mode, size: 18),
+                      label: const Text('Skip to Test (Dev Mode)'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.orangeAccent,
+                        side: BorderSide(
+                          color: Colors.orangeAccent.withOpacity(0.5),
+                          width: 1,
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Username: admin\nPassword: 123',
-                          style: TextStyle(
-                            color: subtitleColor,
-                            fontFamily: 'Courier',
-                            fontSize: 12,
-                          ),
-                          textAlign: TextAlign.center,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -345,7 +410,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 }
-
 
 
 

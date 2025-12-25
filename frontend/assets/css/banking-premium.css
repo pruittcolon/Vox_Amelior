@@ -1,0 +1,430 @@
+:root {
+    /* ---------------------------------------------------- */
+    /* THEME: CERAMIC GLASS & ETHEREAL DAYBREAK (Light)     */
+    /* ---------------------------------------------------- */
+
+    /* Core Palette - Light Mode Foundation */
+    --void-black: #ffffff;
+    /* Main background */
+    --deep-space: #f8fafc;
+    /* Secondary background */
+    --nebula-blue: #f1f5f9;
+    /* Tertiary background */
+
+    /* Glassmorphism Layers (Light) */
+    --glass-surface-2: rgba(255, 255, 255, 0.65);
+    --glass-border: rgba(255, 255, 255, 0.8);
+    --glass-blur: 24px;
+    --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.07);
+
+    /* Text Colors (High Contrast) */
+    --text-primary: #1e293b;
+    /* Slate 800 */
+    --text-secondary: #475569;
+    /* Slate 600 */
+    --text-tertiary: #94a3b8;
+    /* Slate 400 */
+    --text-accent: #2563eb;
+    /* Blue 600 */
+
+    /* Vibrant Accents */
+    --neon-cyan: #0891b2;
+    /* Cyan 600 */
+    --neon-violet: #7c3aed;
+    /* Violet 600 */
+    --neon-emerald: #059669;
+    /* Emerald 600 */
+    --neon-rose: #e11d48;
+    /* Rose 600 */
+    --neon-amber: #d97706;
+    /* Amber 600 */
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+    --gradient-surface: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    --gradient-glow: radial-gradient(circle at top left, rgba(37, 99, 235, 0.1), transparent 70%);
+
+    /* Typography */
+    --font-heading: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+
+    /* Transitions */
+    --transition-fast: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-medium: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-body);
+    background: #f0f4f8;
+    /* Soft blue-grey base */
+    color: var(--text-primary);
+    overflow: hidden;
+    /* App-like feel */
+    height: 100vh;
+}
+
+/* Background Ambient - Adjusted for Light Mode */
+.ambient-glow {
+    opacity: 0.6;
+    mix-blend-mode: multiply;
+    /* Better blending on light backgrounds */
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.5);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.8);
+}
+
+/* ---------------------------------------------------- */
+/* COMPONENTS: CARDS & CONTAINERS                       */
+/* ---------------------------------------------------- */
+
+.glass-card {
+    background: var(--glass-surface-2);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 20px;
+    padding: 1.5rem;
+    transition: all var(--transition-fast);
+}
+
+/* ---------------------------------------------------- */
+/* COMPONENTS: TYPOGRAPHY                               */
+/* ---------------------------------------------------- */
+
+.page-title {
+    font-size: 1.8rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0 0 0.5rem 0;
+    letter-spacing: -0.03em;
+}
+
+.page-subtitle {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin: 0;
+    font-weight: 400;
+}
+
+.card-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.card-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+}
+
+/* ---------------------------------------------------- */
+/* COMPONENTS: BUTTONS (GLOSSY & PREMIUM)               */
+/* ---------------------------------------------------- */
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: none;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Primary Button: Glossy Blue Gradient */
+.btn-primary {
+    background: var(--gradient-primary);
+    color: white;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    /* Top inner highlight */
+}
+
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+/* Secondary Button: Clean White/Glass */
+.btn-secondary {
+    background: white;
+    color: var(--text-secondary);
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn-secondary:hover {
+    background: #f8fafc;
+    color: var(--text-primary);
+    border-color: #cbd5e1;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Nav Item (Sidebar Button) */
+.nav-item {
+    padding: 0.75rem 1rem;
+    border-radius: 14px;
+    /* Softened corners */
+    color: var(--text-secondary);
+    background: transparent;
+    transition: all var(--transition-medium);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    /* Ensure left align */
+    gap: 12px;
+    /* Proper spacing between icon and text */
+    position: relative;
+}
+
+.nav-item:hover {
+    background: rgba(255, 255, 255, 0.6);
+    color: var(--text-primary);
+    transform: translateX(4px);
+}
+
+.nav-item.active {
+    background: white;
+    color: var(--text-accent);
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    /* Delicate shadow */
+}
+
+/* Start Luminous Role Switcher (Metallic Slider) */
+.segmented-control {
+    background: linear-gradient(145deg, #e2e8f0, #cbd5e1);
+    /* Metallic Grey */
+    padding: 6px;
+    border-radius: 50px;
+    /* Pill shape */
+    display: inline-flex;
+    position: relative;
+    user-select: none;
+    box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.06),
+        0 1px 2px rgba(255, 255, 255, 0.5);
+    /* Inset depth + bottom highlight */
+    height: 50px;
+    /* Fixed height for alignment */
+    align-items: center;
+}
+
+/* The sliding backdrop "bubble" */
+.role-slider {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    /* Initial constraint */
+    height: calc(100% - 12px);
+    background: white;
+    border-radius: 40px;
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.12),
+        0 0 0 1px rgba(0, 0, 0, 0.02);
+    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    /* Smooth "scroll" */
+    z-index: 1;
+    width: 0;
+    /* dynamic */
+}
+
+.role-tab {
+    position: relative;
+    z-index: 2;
+    /* Above slider */
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 0 24px;
+    /* Larger touch target */
+    height: 100%;
+    font-size: 0.95rem;
+    /* Larger text */
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 40px;
+    transition: color 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.role-tab:hover {
+    color: var(--text-primary);
+}
+
+/* Active State Text */
+.role-tab.active {
+    color: var(--text-primary);
+    font-weight: 600;
+    background: transparent;
+    /* Slider provides background */
+    box-shadow: none;
+    transform: none;
+}
+
+/* End Role Switcher */
+
+/* ---------------------------------------------------- */
+/* COMPONENTS: FORMS                                    */
+/* ---------------------------------------------------- */
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    color: var(--text-primary);
+    border-radius: 10px;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    transition: all var(--transition-fast);
+    box-sizing: border-box;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--text-accent);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* ---------------------------------------------------- */
+/* UTILITIES                                            */
+/* ---------------------------------------------------- */
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1.5rem;
+}
+
+.col-span-3 {
+    grid-column: span 3;
+}
+
+.col-span-4 {
+    grid-column: span 4;
+}
+
+.col-span-6 {
+    grid-column: span 6;
+}
+
+.col-span-8 {
+    grid-column: span 8;
+}
+
+.col-span-12 {
+    grid-column: span 12;
+}
+
+/* Alert Badges */
+.alert-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.alert-badge.success {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.alert-badge.danger {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+/* Loading Spinner */
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid white;
+    border-top: 2px solid transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* 3D Container */
+.viz-3d-container {
+    width: 100%;
+    position: relative;
+    border-radius: 20px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    /* Light blue sky */
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.05);
+    /* Inner shadow for depth */
+}
+
+.viz-overlay {
+    position: absolute;
+    top: 1.5rem;
+    left: 1.5rem;
+    z-index: 10;
+}

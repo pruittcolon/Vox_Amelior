@@ -1,9 +1,16 @@
 import 'dart:convert';
 import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:demo_ai_even/ble_manager.dart';
 import 'package:demo_ai_even/services/evenai_proto.dart';
 import 'package:demo_ai_even/utils/utils.dart';
+
+// Debug logging helper
+void _log(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 class Proto {
   static String lR() {
@@ -24,7 +31,7 @@ class Proto {
     var end = Utils.getTimestampMs();
     var startMic = (begin + ((end - begin) ~/ 2));
 
-    print("Proto---micOn---startMic---$startMic-------");
+    _log("Proto---micOn---startMic---$startMic-------");
     return (startMic, (!receive.isTimeout && receive.data[1] == 0xc9));
   }
 
@@ -49,23 +56,27 @@ class Proto {
         max_page_num: max_page_num);
     _evenaiSeq++;
 
-    print(
-        '${DateTime.now()} proto--sendEvenAIData---text---$text---_evenaiSeq----$_evenaiSeq---newScreen---$newScreen---pos---$pos---current_page_num--$current_page_num---max_page_num--$max_page_num--dataList----$dataList---');
+    if (kDebugMode) {
+      debugPrint(
+          '${DateTime.now()} proto--sendEvenAIData---text---$text---_evenaiSeq----$_evenaiSeq---newScreen---$newScreen---pos---$pos---current_page_num--$current_page_num---max_page_num--$max_page_num--dataList----$dataList---');
+    }
 
     bool isSuccess = await BleManager.requestList(dataList,
         lr: "L", timeoutMs: timeoutMs ?? 2000);
 
-    print(
-        '${DateTime.now()} sendEvenAIData-----isSuccess-----$isSuccess-------');
+    if (kDebugMode) {
+      debugPrint(
+          '${DateTime.now()} sendEvenAIData-----isSuccess-----$isSuccess-------');
+    }
     if (!isSuccess) {
-      print("${DateTime.now()} sendEvenAIData failed  L ");
+      _log("${DateTime.now()} sendEvenAIData failed  L ");
       return false;
     } else {
       isSuccess = await BleManager.requestList(dataList,
           lr: "R", timeoutMs: timeoutMs ?? 2000);
 
       if (!isSuccess) {
-        print("${DateTime.now()} sendEvenAIData failed  R ");
+        _log("${DateTime.now()} sendEvenAIData failed  R ");
         return false;
       }
       return true;
@@ -85,18 +96,18 @@ class Proto {
     ]);
     _beatHeartSeq++;
 
-    print('${DateTime.now()} sendHeartBeat--------data---$data--');
+    _log('${DateTime.now()} sendHeartBeat--------data---$data--');
     var ret = await BleManager.request(data, lr: "L", timeoutMs: 1500);
 
-    print('${DateTime.now()} sendHeartBeat----L----ret---${ret.data}--');
+    _log('${DateTime.now()} sendHeartBeat----L----ret---${ret.data}--');
     if (ret.isTimeout) {
-      print('${DateTime.now()} sendHeartBeat----L----time out--');
+      _log('${DateTime.now()} sendHeartBeat----L----time out--');
       return false;
     } else if (ret.data[0].toInt() == 0x25 &&
         ret.data.length > 5 &&
         ret.data[4].toInt() == 0x04) {
       var retR = await BleManager.request(data, lr: "R", timeoutMs: 1500);
-      print('${DateTime.now()} sendHeartBeat----R----retR---${retR.data}--');
+      _log('${DateTime.now()} sendHeartBeat----R----retR---${retR.data}--');
       if (retR.isTimeout) {
         return false;
       } else if (retR.data[0].toInt() == 0x25 &&
@@ -120,16 +131,16 @@ class Proto {
 
   // tell the glasses to exit function to dashboard
   static Future<bool> exit() async {
-    print("send exit all func");
+    _log("send exit all func");
     var data = Uint8List.fromList([0x18]);
 
     var retL = await BleManager.request(data, lr: "L", timeoutMs: 1500);
-    print('${DateTime.now()} exit----L----ret---${retL.data}--');
+    _log('${DateTime.now()} exit----L----ret---${retL.data}--');
     if (retL.isTimeout) {
       return false;
     } else if (retL.data.isNotEmpty && retL.data[1].toInt() == 0xc9) {
       var retR = await BleManager.request(data, lr: "R", timeoutMs: 1500);
-      print('${DateTime.now()} exit----R----retR---${retR.data}--');
+      _log('${DateTime.now()} exit----R----retR---${retR.data}--');
       if (retR.isTimeout) {
         return false;
       } else if (retR.data.isNotEmpty && retR.data[1].toInt() == 0xc9) {
@@ -164,12 +175,14 @@ class Proto {
   }
 
   static Future<void> sendNewAppWhiteListJson(String whitelistJson) async {
-    print("proto -> sendNewAppWhiteListJson: whitelist = $whitelistJson");
+    _log("proto -> sendNewAppWhiteListJson: whitelist = $whitelistJson");
     final whitelistData = utf8.encode(whitelistJson);
     //  2、转换为接口格式
     final dataList = _getPackList(0x04, whitelistData, count: 180);
-    print(
-        "proto -> sendNewAppWhiteListJson: length = ${dataList.length}, dataList = $dataList");
+    if (kDebugMode) {
+      debugPrint(
+          "proto -> sendNewAppWhiteListJson: length = ${dataList.length}, dataList = $dataList");
+    }
     for (var i = 0; i < 3; i++) {
       final isSuccess =
           await BleManager.requestList(dataList, timeoutMs: 300, lr: "L");
@@ -189,8 +202,10 @@ class Proto {
     });
     final dataList =
         _getNotifyPackList(0x4B, notifyId, utf8.encode(notifyJson));
-    print(
-        "proto -> sendNotify: notifyId = $notifyId, data length = ${dataList.length} , data = $dataList, app = $notifyJson");
+    if (kDebugMode) {
+      debugPrint(
+          "proto -> sendNotify: notifyId = $notifyId, data length = ${dataList.length} , data = $dataList, app = $notifyJson");
+    }
     for (var i = 0; i < retry; i++) {
       final isSuccess =
           await BleManager.requestList(dataList, timeoutMs: 1000, lr: "L");

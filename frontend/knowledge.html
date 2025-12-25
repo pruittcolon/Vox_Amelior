@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Management - Vox Amelior</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <link rel="stylesheet" href="assets/css/main.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/design-tokens.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/components.css?v=2024110802">
+    <link rel="stylesheet" href="assets/css/animations.css?v=2024110802">
+
+    <!-- Vox Amelior Design System -->
+    <link rel="stylesheet" href="assets/css/vox-amelior.css">
+
+    <script src="assets/js/api.js?v=2024110101"></script>
+    <script src="assets/js/app.js?v=2024110101"></script>
+    <script src="assets/js/auth.js?v=2024110101"></script>
+
+    <style>
+        /* ========================================
+           Premium 2024 FinTech Aesthetic
+           Knowledge Management Page
+           ======================================== */
+
+        .kb-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 2rem;
+        }
+
+        .kb-stat-card {
+            background: #FFFFFF;
+            border: 1px solid rgba(0, 82, 204, 0.08);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+            transition: all 0.2s ease;
+        }
+
+        .kb-stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0, 82, 204, 0.1);
+        }
+
+        .kb-stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #0052CC, #00A3BF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .kb-stat-label {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-top: 0.35rem;
+        }
+
+        .article-card {
+            background: #FFFFFF;
+            border: 1px solid rgba(0, 82, 204, 0.08);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+            transition: all 0.2s ease;
+        }
+
+        .article-card:hover {
+            border-color: rgba(0, 82, 204, 0.25);
+            box-shadow: 0 4px 20px rgba(0, 82, 204, 0.1);
+        }
+
+        .article-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .article-content {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .article-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .topic-chip {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: rgba(0, 82, 204, 0.1);
+            border-radius: 999px;
+            font-size: 0.8rem;
+            color: #0052CC;
+            margin-right: 0.5rem;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .search-box input {
+            flex: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navigation (Vox Amelior) -->
+    <nav class="vox-nav">
+        <div class="vox-nav-inner">
+            <a href="index.html" class="vox-logo">
+                <div class="vox-logo-mark">
+                    <img src="assets/images/logo.png" alt="Vox Amelior Logo">
+                </div>
+                <span class="vox-logo-text">Vox Amelior</span>
+            </a>
+
+            <div class="vox-nav-links">
+                <a href="index.html" class="vox-nav-link">Dashboard</a>
+                <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
+                <a href="nexus.html" class="vox-nav-link">Analytics</a>
+                <a href="banking.html" class="vox-nav-link">Enterprise</a>
+                <a href="settings.html" class="vox-nav-link">Settings</a>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <span id="current-user" style="color: var(--vox-grey-500); font-size: 0.9rem;"></span>
+                <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
+        <section class="fade-in-up" style="text-align: center; margin-bottom: 2rem;">
+            <h1 style="font-size: 2.5rem; margin-bottom: 1rem;">
+                <i data-lucide="book-open"
+                    style="width: 40px; height: 40px; color: var(--primary); vertical-align: middle;"></i>
+                Knowledge Management
+            </h1>
+            <p class="text-muted">Articles, topics, and expert knowledge base</p>
+        </section>
+
+        <!-- Stats -->
+        <section class="kb-stats-grid fade-in-up delay-100">
+            <div class="kb-stat-card">
+                <div class="kb-stat-value" id="stat-articles">0</div>
+                <div class="kb-stat-label">Articles</div>
+            </div>
+            <div class="kb-stat-card">
+                <div class="kb-stat-value" id="stat-topics">0</div>
+                <div class="kb-stat-label">Topics</div>
+            </div>
+            <div class="kb-stat-card">
+                <div class="kb-stat-value" id="stat-experts">0</div>
+                <div class="kb-stat-label">Experts</div>
+            </div>
+            <div class="kb-stat-card">
+                <div class="kb-stat-value" id="stat-skills">0</div>
+                <div class="kb-stat-label">Skills</div>
+            </div>
+        </section>
+
+        <!-- Search & Create -->
+        <section class="glass-card fade-in-up delay-200" style="margin-bottom: 2rem;">
+            <div class="search-box">
+                <input type="text" id="search-input" class="glass-input"
+                    placeholder="Search articles, topics, experts...">
+                <button class="btn btn-primary" onclick="search()">
+                    <i data-lucide="search" style="width: 18px; height: 18px;"></i> Search
+                </button>
+                <button class="btn btn-ghost" onclick="createArticle()">
+                    <i data-lucide="plus" style="width: 18px; height: 18px;"></i> New Article
+                </button>
+            </div>
+            <div id="search-results"></div>
+        </section>
+
+        <!-- Topics -->
+        <section class="glass-card fade-in-up delay-250" style="margin-bottom: 2rem;">
+            <h3 style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;">
+                <i data-lucide="folder-tree" style="width: 24px; height: 24px; color: #fbbf24;"></i>
+                Topics
+            </h3>
+            <div id="topics-list">
+                <p class="text-muted">Loading topics...</p>
+            </div>
+        </section>
+
+        <!-- Articles -->
+        <section class="glass-card fade-in-up delay-300">
+            <h3 style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;">
+                <i data-lucide="file-text" style="width: 24px; height: 24px; color: var(--primary);"></i>
+                Recent Articles
+            </h3>
+            <div id="articles-list">
+                <p class="text-muted">Loading articles...</p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        document.querySelectorAll('.nav-dropdown').forEach(d => {
+            d.addEventListener('mouseenter', () => d.querySelector('.nav-dropdown-menu').style.display = 'block');
+            d.addEventListener('mouseleave', () => d.querySelector('.nav-dropdown-menu').style.display = 'none');
+        });
+
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/enterprise/knowledge/stats');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('stat-articles').textContent = data.articles?.total || 0;
+                    document.getElementById('stat-topics').textContent = data.topics || 0;
+                    document.getElementById('stat-experts').textContent = data.experts || 0;
+                    document.getElementById('stat-skills').textContent = data.skills || 0;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadTopics() {
+            const container = document.getElementById('topics-list');
+            try {
+                const res = await fetch('/api/enterprise/knowledge/topics');
+                if (res.ok) {
+                    const data = await res.json();
+                    const items = data.topics || [];
+                    if (items.length === 0) {
+                        container.innerHTML = '<p class="text-muted">No topics yet.</p>';
+                        return;
+                    }
+                    container.innerHTML = items.map(t => `<span class="topic-chip">${t.name}</span>`).join('');
+                }
+            } catch (e) { container.innerHTML = '<p class="text-muted">Failed to load topics.</p>'; }
+        }
+
+        async function loadArticles() {
+            const container = document.getElementById('articles-list');
+            try {
+                const res = await fetch('/api/enterprise/knowledge/articles?limit=10');
+                if (res.ok) {
+                    const data = await res.json();
+                    const items = data.articles || data.items || [];
+                    if (items.length === 0) {
+                        container.innerHTML = '<p class="text-muted">No articles yet.</p>';
+                        return;
+                    }
+                    container.innerHTML = items.map(a => `
+            <div class="article-card">
+              <div class="article-title">${a.title}</div>
+              <div class="article-content">${a.content}</div>
+              <div class="article-meta">
+                <span>Rating: ${a.avg_rating?.toFixed(1) || 'N/A'} ⭐</span>
+                <button class="btn btn-ghost btn-sm" onclick="deleteArticle(${a.id})">Delete</button>
+              </div>
+            </div>
+          `).join('');
+                }
+            } catch (e) { container.innerHTML = '<p class="text-muted">Failed to load articles.</p>'; }
+        }
+
+        async function search() {
+            const query = document.getElementById('search-input').value;
+            if (!query) return;
+            const container = document.getElementById('search-results');
+            container.innerHTML = '<p class="text-muted">Searching...</p>';
+            try {
+                const res = await fetch(`/api/enterprise/knowledge/search?query=${encodeURIComponent(query)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!data.articles?.length && !data.experts?.length) {
+                        container.innerHTML = '<p class="text-muted">No results found.</p>';
+                        return;
+                    }
+                    let html = '';
+                    if (data.articles?.length) {
+                        html += '<h4>Articles</h4>' + data.articles.map(a => `<div class="article-card"><div class="article-title">${a.title}</div></div>`).join('');
+                    }
+                    if (data.experts?.length) {
+                        html += '<h4 style="margin-top:1rem">Experts</h4>' + data.experts.map(e => `<span class="topic-chip">${e.name}</span>`).join('');
+                    }
+                    container.innerHTML = html;
+                }
+            } catch (e) { container.innerHTML = '<p class="text-muted">Search failed.</p>'; }
+        }
+
+        function createArticle() {
+            const title = prompt('Article title:');
+            const content = prompt('Article content:');
+            if (!title || !content) return;
+            fetch('/api/enterprise/knowledge/articles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, content })
+            }).then(() => { loadArticles(); loadStats(); });
+        }
+
+        async function deleteArticle(id) {
+            if (!confirm('Delete this article?')) return;
+            await fetch(`/api/enterprise/knowledge/articles/${id}`, { method: 'DELETE' });
+            loadArticles(); loadStats();
+        }
+
+        document.getElementById('search-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter') search();
+        });
+
+        loadStats();
+        loadTopics();
+        loadArticles();
+    </script>
+</body>
+
+</html>

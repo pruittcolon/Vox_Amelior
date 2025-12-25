@@ -1,17 +1,17 @@
 import logging
+from typing import Any
+
 import pandas as pd
-import numpy as np
-import json
-from typing import List, Dict, Any, Optional
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import accuracy_score, r2_score
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.metrics import accuracy_score, r2_score, mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 
 from shared.crypto.db_encryption import create_encrypted_db
 
 logger = logging.getLogger(__name__)
+
 
 class AutoMLService:
     def __init__(self, db_path: str, db_key: str):
@@ -25,7 +25,7 @@ class AutoMLService:
         try:
             db = create_encrypted_db(self.db_path, self.db_key)
             conn = db.connect()
-            
+
             # Fetch core analysis fields
             query = """
                 SELECT 
@@ -43,22 +43,22 @@ class AutoMLService:
             """
             self.df = pd.read_sql_query(query, conn)
             db.close()
-            
+
             # Drop empty rows or rows with critical missing data
-            self.df.dropna(subset=['speaker', 'emotion'], inplace=True)
-            
+            self.df.dropna(subset=["speaker", "emotion"], inplace=True)
+
             # Preprocessing: Handle missing numeric values
-            numeric_cols = ['pace_wpm', 'pitch_mean', 'pitch_std', 'volume_rms', 'word_count', 'filler_count']
+            numeric_cols = ["pace_wpm", "pitch_mean", "pitch_std", "volume_rms", "word_count", "filler_count"]
             for col in numeric_cols:
                 if col in self.df.columns:
-                    self.df[col] = pd.to_numeric(self.df[col], errors='coerce').fillna(0)
+                    self.df[col] = pd.to_numeric(self.df[col], errors="coerce").fillna(0)
 
             return {"status": "success", "rows": len(self.df), "columns": list(self.df.columns)}
         except Exception as e:
             logger.error(f"Data load failed: {e}")
             return {"status": "error", "message": str(e)}
 
-    def generate_hypotheses(self) -> List[Dict[str, Any]]:
+    def generate_hypotheses(self) -> list[dict[str, Any]]:
         """Analyze the dataframe and suggest ML experiments"""
         if self.df is None or self.df.empty:
             return []
@@ -67,36 +67,42 @@ class AutoMLService:
 
         # Hypothesis 1: Predict Emotion (Classification)
         # Features: Audio metrics + Speaker
-        hypotheses.append({
-            "id": "predict_emotion",
-            "type": "classification",
-            "target": "emotion",
-            "features": ["pace_wpm", "pitch_mean", "pitch_std", "volume_rms", "word_count"],
-            "description": "Can we predict the speaker's emotion based on their voice pitch, speed, and volume?",
-            "model_type": "Random Forest"
-        })
+        hypotheses.append(
+            {
+                "id": "predict_emotion",
+                "type": "classification",
+                "target": "emotion",
+                "features": ["pace_wpm", "pitch_mean", "pitch_std", "volume_rms", "word_count"],
+                "description": "Can we predict the speaker's emotion based on their voice pitch, speed, and volume?",
+                "model_type": "Random Forest",
+            }
+        )
 
         # Hypothesis 2: Predict Speaker Identity (Classification)
         # Features: Audio metrics
-        hypotheses.append({
-            "id": "predict_speaker",
-            "type": "classification",
-            "target": "speaker",
-            "features": ["pitch_mean", "pitch_std", "pace_wpm"],
-            "description": "Can we identify the speaker purely by their voice characteristics?",
-            "model_type": "Random Forest"
-        })
+        hypotheses.append(
+            {
+                "id": "predict_speaker",
+                "type": "classification",
+                "target": "speaker",
+                "features": ["pitch_mean", "pitch_std", "pace_wpm"],
+                "description": "Can we identify the speaker purely by their voice characteristics?",
+                "model_type": "Random Forest",
+            }
+        )
 
         # Hypothesis 3: Predict Pace (Regression)
         # Features: Emotion
-        hypotheses.append({
-            "id": "predict_pace",
-            "type": "regression",
-            "target": "pace_wpm",
-            "features": ["emotion", "word_count"],
-            "description": "Does the emotion affect how fast the speaker talks?",
-            "model_type": "Linear Regression"
-        })
+        hypotheses.append(
+            {
+                "id": "predict_pace",
+                "type": "regression",
+                "target": "pace_wpm",
+                "features": ["emotion", "word_count"],
+                "description": "Does the emotion affect how fast the speaker talks?",
+                "model_type": "Linear Regression",
+            }
+        )
 
         return hypotheses
 
@@ -104,7 +110,7 @@ class AutoMLService:
         """Run a specific AutoML experiment"""
         if self.df is None:
             self.load_data()
-            
+
         if self.df.empty:
             return {"status": "error", "message": "No data available"}
 
@@ -124,17 +130,17 @@ class AutoMLService:
 
         # Encode categorical features/target
         encoders = {}
-        
+
         # Encode Target if classification
         if task_type == "classification":
             le = LabelEncoder()
             y = le.fit_transform(y.astype(str))
             encoders[target] = le
             classes = list(le.classes_)
-        
+
         # Encode categorical Features
         for col in X.columns:
-            if X[col].dtype == 'object':
+            if X[col].dtype == "object":
                 le = LabelEncoder()
                 X[col] = le.fit_transform(X[col].astype(str))
                 encoders[col] = le
@@ -150,7 +156,7 @@ class AutoMLService:
 
         # Train
         model.fit(X_train, y_train)
-        
+
         # Predict
         y_pred = model.predict(X_test)
 
@@ -160,24 +166,23 @@ class AutoMLService:
             "target": target,
             "model": model_type,
             "rows_used": len(self.df),
-            "status": "success"
+            "status": "success",
         }
 
         if task_type == "classification":
             acc = accuracy_score(y_test, y_pred)
             result["accuracy"] = round(acc * 100, 2)
             result["metric"] = "Accuracy"
-            
+
             # Feature Importance
             if hasattr(model, "feature_importances_"):
                 importances = model.feature_importances_
                 result["feature_importance"] = [
-                    {"feature": f, "importance": round(i, 3)} 
-                    for f, i in zip(features, importances)
+                    {"feature": f, "importance": round(i, 3)} for f, i in zip(features, importances)
                 ]
                 # Sort by importance
                 result["feature_importance"].sort(key=lambda x: x["importance"], reverse=True)
-                
+
         else:
             score = r2_score(y_test, y_pred)
             result["r2_score"] = round(score, 3)

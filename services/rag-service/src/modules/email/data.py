@@ -1,17 +1,18 @@
 """Temporary mock data for the Email Analyzer module.
 This will be replaced by real database queries in future phases."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import Any
 
-MOCK_USERS: List[Dict[str, Any]] = [
+MOCK_USERS: list[dict[str, Any]] = [
     {"id": "ops@evenai.io", "email": "ops@evenai.io", "display_name": "Ops", "mailbox_count": 128},
     {"id": "sales@evenai.io", "email": "sales@evenai.io", "display_name": "Sales", "mailbox_count": 94},
     {"id": "support@evenai.io", "email": "support@evenai.io", "display_name": "Support", "mailbox_count": 210},
 ]
 
-MOCK_LABELS: List[Dict[str, Any]] = [
+MOCK_LABELS: list[dict[str, Any]] = [
     {"label": "priority", "count": 87},
     {"label": "escalation", "count": 42},
     {"label": "vip", "count": 25},
@@ -20,7 +21,7 @@ MOCK_LABELS: List[Dict[str, Any]] = [
 
 _NOW = datetime.utcnow()
 
-MOCK_EMAILS: List[Dict[str, Any]] = [
+MOCK_EMAILS: list[dict[str, Any]] = [
     {
         "id": "eml-1001",
         "email_id": "eml-1001",
@@ -61,12 +62,8 @@ MOCK_EMAILS: List[Dict[str, Any]] = [
 
 MOCK_SNIPPETS = [
     {
-        "context_before": [
-            {"speaker": "insights", "text": "Latency is spiking in APAC cluster."}
-        ],
-        "context_after": [
-            {"speaker": "sales", "text": "Customer expects RCA by tomorrow."}
-        ],
+        "context_before": [{"speaker": "insights", "text": "Latency is spiking in APAC cluster."}],
+        "context_after": [{"speaker": "sales", "text": "Customer expects RCA by tomorrow."}],
     }
 ]
 

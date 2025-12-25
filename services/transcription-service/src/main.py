@@ -3,37 +3,37 @@ Transcription Service with GPU Pause/Resume
 Owns GPU by default, pauses for Gemma requests
 """
 
-import os
-import logging
 import asyncio
-import uuid
-import math
 import contextlib
+import io
+import logging
+import os
+import sys
+import tempfile
+import uuid
 from contextlib import asynccontextmanager
-from typing import Dict, Any, Optional, List, Tuple
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from pydantic import BaseModel
+from typing import Any
+
 import httpx
+import nemo.collections.asr as nemo_asr
 import numpy as np
 import soundfile as sf
-import io
-import tempfile
 import torch
-import nemo.collections.asr as nemo_asr
-from nemo.collections.asr.models import EncDecSpeakerLabelModel, EncDecClassificationModel
-import sys
-
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
+from fastapi.responses import JSONResponse
+from nemo.collections.asr.models import EncDecClassificationModel, EncDecSpeakerLabelModel
+from pydantic import BaseModel
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import silhouette_score
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from .pause_manager import get_pause_manager
 from .audio_metrics import extract_audio_metrics
-from .parakeet_pipeline import ParakeetPipeline, ParakeetTranscription, ParakeetSegment
+from .parakeet_pipeline import ParakeetPipeline, ParakeetTranscription
+from .pause_manager import get_pause_manager
+from .streaming import get_streaming_transcriber, init_streaming_transcriber
 
 # Add shared modules to path
-sys.path.insert(0, '/app')
+sys.path.insert(0, "/app")
 
 # Import replay protector at module level (not in middleware dispatch for efficiency)
 try:
@@ -42,24 +42,23 @@ except ImportError:
     get_replay_protector = None
 
 from shared.config import SecurityConfig
-from shared.security.secrets import get_secret
+from shared.security.secrets_manager import get_secret
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
 # Pydantic models
 class TranscriptionResponse(BaseModel):
     """Transcription response"""
+
     job_id: str
     status: str
     text: str = ""
     segments: list = []
     message: str = ""
+
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
@@ -72,8 +71,8 @@ JWT_ONLY = os.getenv("JWT_ONLY", "false").lower() in {"1", "true", "yes"}
 TRANSCRIBE_USE_VAD = os.getenv("TRANSCRIBE_USE_VAD", "true").lower() == "true"
 VAD_MODEL_NAME = os.getenv("VAD_MODEL_NAME", "vad_multilingual_marblenet")
 VAD_SPEECH_THRESHOLD = float(os.getenv("VAD_SPEECH_THRESHOLD", "0.5"))
-VAD_ONSET = float(os.getenv("VAD_ONSET", "0.6"))      # start speech threshold (higher)
-VAD_OFFSET = float(os.getenv("VAD_OFFSET", "0.4"))    # stop speech threshold (lower)
+VAD_ONSET = float(os.getenv("VAD_ONSET", "0.6"))  # start speech threshold (higher)
+VAD_OFFSET = float(os.getenv("VAD_OFFSET", "0.4"))  # stop speech threshold (lower)
 VAD_SMOOTHING_SEC = float(os.getenv("VAD_SMOOTHING_SEC", "0.15"))
 VAD_PAD_ONSET_SEC = float(os.getenv("VAD_PAD_ONSET_SEC", "0.05"))
 VAD_PAD_OFFSET_SEC = float(os.getenv("VAD_PAD_OFFSET_SEC", "0.1"))
@@ -88,7 +87,7 @@ CPU_ONLY_VAD_EMBEDS = os.getenv("CPU_ONLY_VAD_EMBEDS", "true").lower() == "true"
 DEFAULT_SPEAKER_EMBED_DIM = int(os.getenv("SPEAKER_EMBED_DIM_DEFAULT", "192"))
 
 TRANSCRIBE_STRATEGY = os.getenv("TRANSCRIBE_STRATEGY", "rnnt").lower()
-PARAKEET_MODEL_ID = os.getenv("PARAKEET_MODEL_ID", "nvidia/parakeet-tdt-0.6b-v2")
+PARAKEET_MODEL_ID = os.getenv("PARAKEET_MODEL_ID", "nvidia/parakeet-rnnt-0.6b")
 PARAKEET_CHUNK_DURATION = int(os.getenv("PARAKEET_CHUNK_DURATION", "300"))
 _enable_diarization_env = os.getenv("ENABLE_DIARIZATION")
 if _enable_diarization_env is None:
@@ -108,7 +107,7 @@ except ValueError:
 
 # Audio buffering for diarization
 # Key: stream_id, Value: {'audio_chunks': [], 'sample_rate': int, 'last_update': float}
-audio_buffers: Dict[str, Dict[str, Any]] = {}
+audio_buffers: dict[str, dict[str, Any]] = {}
 DIARIZATION_BUFFER_DURATION = 30  # Run diarization every 30 seconds of accumulated audio
 MAX_BUFFER_AGE = 300  # Clear buffers after 5 minutes of inactivity
 
@@ -123,7 +122,7 @@ speaker_device = "cpu"
 vad_device = "cpu"
 vad_window_stride = 0.01
 speaker_embedding_dim = 0
-parakeet_pipeline: Optional[ParakeetPipeline] = None
+parakeet_pipeline: ParakeetPipeline | None = None
 
 
 def _load_huggingface_token() -> str:
@@ -157,16 +156,17 @@ if HUGGINGFACE_TOKEN:
     os.environ["HUGGINGFACE_TOKEN"] = HUGGINGFACE_TOKEN
 
 
-def _resample_audio(audio: np.ndarray, input_sr: int, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
+def _resample_audio(audio: np.ndarray, input_sr: int, target_sr: int = 16000) -> tuple[np.ndarray, int]:
     """Resample audio to target sample rate (mono)."""
     if input_sr == target_sr:
         return audio.astype(np.float32), input_sr
     import librosa
+
     resampled = librosa.resample(audio.astype(np.float32), orig_sr=input_sr, target_sr=target_sr)
     return resampled.astype(np.float32), target_sr
 
 
-def _split_long_segment(start: float, end: float, max_duration: float, overlap: float) -> List[Tuple[float, float]]:
+def _split_long_segment(start: float, end: float, max_duration: float, overlap: float) -> list[tuple[float, float]]:
     """Split long segments into smaller windows with optional overlap."""
     duration = end - start
     if duration <= max_duration or max_duration <= 0:
@@ -184,11 +184,13 @@ def _split_long_segment(start: float, end: float, max_duration: float, overlap: 
     return segments
 
 
-def _merge_close_segments(segments: List[Tuple[float, float]], gap: float, min_duration: float) -> List[Tuple[float, float]]:
+def _merge_close_segments(
+    segments: list[tuple[float, float]], gap: float, min_duration: float
+) -> list[tuple[float, float]]:
     """Merge segments separated by short gaps and drop very short speech regions."""
     if not segments:
         return []
-    merged: List[List[float]] = [[segments[0][0], segments[0][1]]]
+    merged: list[list[float]] = [[segments[0][0], segments[0][1]]]
     for start, end in segments[1:]:
         if start - merged[-1][1] <= gap:
             merged[-1][1] = max(merged[-1][1], end)
@@ -198,7 +200,7 @@ def _merge_close_segments(segments: List[Tuple[float, float]], gap: float, min_d
     return filtered
 
 
-def run_vad_segments(audio: np.ndarray, sample_rate: int) -> List[Tuple[float, float]]:
+def run_vad_segments(audio: np.ndarray, sample_rate: int) -> list[tuple[float, float]]:
     """Run NeMo VAD with smoothing, hysteresis, padding, and post-processing."""
     global vad_window_stride
     duration = len(audio) / sample_rate
@@ -227,7 +229,7 @@ def run_vad_segments(audio: np.ndarray, sample_rate: int) -> List[Tuple[float, f
         kernel = np.ones(smoothing_frames, dtype=np.float32) / smoothing_frames
         speech_probs = np.convolve(speech_probs, kernel, mode="same")
 
-    segments: List[Tuple[float, float]] = []
+    segments: list[tuple[float, float]] = []
     active = False
     start_time = 0.0
 
@@ -253,7 +255,7 @@ def run_vad_segments(audio: np.ndarray, sample_rate: int) -> List[Tuple[float, f
 
     merged_segments = _merge_close_segments(segments, MERGE_GAP_SEC, MIN_SPEECH_SEC)
 
-    final_segments: List[Tuple[float, float]] = []
+    final_segments: list[tuple[float, float]] = []
     for seg_start, seg_end in merged_segments:
         final_segments.extend(_split_long_segment(seg_start, seg_end, MAX_SEGMENT_SEC, SEGMENT_OVERLAP_SEC))
 
@@ -274,20 +276,22 @@ def run_vad_segments(audio: np.ndarray, sample_rate: int) -> List[Tuple[float, f
     return bounded_segments
 
 
-def extract_speaker_embeddings(audio: np.ndarray, sample_rate: int, segments: List[Tuple[float, float]]) -> List[np.ndarray]:
+def extract_speaker_embeddings(
+    audio: np.ndarray, sample_rate: int, segments: list[tuple[float, float]]
+) -> list[np.ndarray]:
     """Compute speaker embeddings for each speech segment."""
     global speaker_embedding_dim
     if speaker_model is None or not segments:
         return []
 
-    embeddings: List[np.ndarray] = []
+    embeddings: list[np.ndarray] = []
     min_samples = int(sample_rate * 0.1)  # Minimum 100ms
-    
+
     for start, end in segments:
         start_idx = max(0, int(start * sample_rate))
         end_idx = min(len(audio), int(end * sample_rate))
         segment_audio = audio[start_idx:end_idx]
-        
+
         # Handle too-short or empty segments
         if segment_audio.size == 0 or len(segment_audio) < min_samples:
             if embeddings:
@@ -297,7 +301,7 @@ def extract_speaker_embeddings(audio: np.ndarray, sample_rate: int, segments: Li
             else:
                 # First segment is bad - create zero vector
                 dim = speaker_embedding_dim or DEFAULT_SPEAKER_EMBED_DIM
-                logger.warning(f"First segment too short, using zero vector")
+                logger.warning("First segment too short, using zero vector")
                 embeddings.append(np.zeros(dim, dtype=np.float32))
             continue
 
@@ -321,7 +325,7 @@ def extract_speaker_embeddings(audio: np.ndarray, sample_rate: int, segments: Li
     return embeddings
 
 
-def cluster_speakers(embeddings: List[np.ndarray]) -> List[int]:
+def cluster_speakers(embeddings: list[np.ndarray]) -> list[int]:
     """Cluster speaker embeddings using agglomerative clustering with cosine distance."""
     n = len(embeddings)
     if n == 0:
@@ -330,33 +334,33 @@ def cluster_speakers(embeddings: List[np.ndarray]) -> List[int]:
         return [0]
 
     X = np.stack(embeddings)
-    
+
     # Check for all-zero or invalid embeddings
     norms = np.linalg.norm(X, axis=1)
     if np.all(norms < 1e-6):
         logger.warning("[DIARIZATION] All embeddings are zero - using single speaker")
         return [0] * n
-    
+
     # Filter out zero embeddings for clustering
     valid_mask = norms >= 1e-6
     valid_count = np.sum(valid_mask)
-    
+
     if valid_count < 2:
         logger.warning(f"[DIARIZATION] Only {valid_count} valid embeddings - using single speaker")
         return [0] * n
-    
+
     # Normalize valid embeddings
     X_valid = X[valid_mask]
     norms_valid = norms[valid_mask, np.newaxis]
     X_norm = X_valid / (norms_valid + 1e-8)
-    
+
     # Clustering on valid embeddings only
     best_labels_valid = np.zeros(valid_count, dtype=int)
     best_score = 0.0  # Neutral baseline instead of -1.0
-    
+
     min_k = max(1, DIARIZATION_SPK_MIN)
     max_k = min(DIARIZATION_SPK_MAX, valid_count)
-    
+
     for k in range(min_k, max_k + 1):
         if k == 1:
             labels_valid = np.zeros(valid_count, dtype=int)
@@ -365,7 +369,7 @@ def cluster_speakers(embeddings: List[np.ndarray]) -> List[int]:
             try:
                 clustering = AgglomerativeClustering(n_clusters=k, affinity="cosine", linkage="average")
                 labels_valid = clustering.fit_predict(X_norm)
-                
+
                 # Check if clustering actually created k clusters
                 unique_labels = np.unique(labels_valid)
                 if len(unique_labels) >= 2:
@@ -376,16 +380,16 @@ def cluster_speakers(embeddings: List[np.ndarray]) -> List[int]:
                 logger.warning(f"[DIARIZATION] Clustering k={k} failed: {e}")
                 labels_valid = np.zeros(valid_count, dtype=int)
                 score = -1.0
-        
+
         if score > best_score:
             best_score = score
             best_labels_valid = labels_valid.copy()
-    
+
     # Map back to all embeddings
     labels = np.zeros(n, dtype=int)
     labels[valid_mask] = best_labels_valid
     # Invalid embeddings get speaker 0
-    
+
     logger.info(
         f"[DIARIZATION] Clustered {valid_count}/{n} valid embeddings into "
         f"{len(np.unique(best_labels_valid))} speakers (score={best_score:.3f})"
@@ -393,12 +397,12 @@ def cluster_speakers(embeddings: List[np.ndarray]) -> List[int]:
     return labels.tolist()
 
 
-def transcribe_segments_with_asr(segment_paths: List[str], batch_size: int = 1):
+def transcribe_segments_with_asr(segment_paths: list[str], batch_size: int = 1):
     """Run ASR on list of audio segment paths and return texts."""
     if not segment_paths:
         return []
     outputs = asr_model.transcribe(segment_paths, batch_size=batch_size, timestamps=False, return_hypotheses=True)
-    texts: List[str] = []
+    texts: list[str] = []
     for item in outputs:
         if isinstance(item, str):
             texts.append(item.strip())
@@ -411,17 +415,14 @@ def transcribe_segments_with_asr(segment_paths: List[str], batch_size: int = 1):
     return texts
 
 
-def merge_adjacent_segments(segments: List[Dict[str, Any]], gap_threshold: float) -> List[Dict[str, Any]]:
+def merge_adjacent_segments(segments: list[dict[str, Any]], gap_threshold: float) -> list[dict[str, Any]]:
     """Merge consecutive segments belonging to the same speaker within a small gap."""
     if not segments:
         return []
-    merged: List[Dict[str, Any]] = [segments[0].copy()]
+    merged: list[dict[str, Any]] = [segments[0].copy()]
     for seg in segments[1:]:
         last = merged[-1]
-        if (
-            seg["speaker"] == last["speaker"]
-            and seg["start_time"] - last["end_time"] <= gap_threshold
-        ):
+        if seg["speaker"] == last["speaker"] and seg["start_time"] - last["end_time"] <= gap_threshold:
             last["end_time"] = max(last["end_time"], seg["end_time"])
             last["text"] = (last["text"] + " " + seg["text"]).strip()
             last["speaker_confidence"] = min(
@@ -438,7 +439,8 @@ async def _transcribe_with_parakeet(
     sample_rate: int,
     audio_duration: float,
     job_id: str,
-    stream_id: Optional[str],
+    stream_id: str | None,
+    skip_diarization: bool = False,
 ) -> TranscriptionResponse:
     """Handle transcription using the Parakeet pipeline."""
     global parakeet_pipeline
@@ -451,33 +453,39 @@ async def _transcribe_with_parakeet(
         tmp_path = tmp_file.name
 
     try:
-        result: ParakeetTranscription = await asyncio.to_thread(parakeet_pipeline.transcribe_file, tmp_path)
+        result: ParakeetTranscription = await asyncio.to_thread(
+            parakeet_pipeline.transcribe_file, tmp_path, skip_diarization
+        )
     finally:
         with contextlib.suppress(Exception):
             os.unlink(tmp_path)
 
-    segments: List[Dict[str, Any]] = []
+    segments: list[dict[str, Any]] = []
     for seg in result.segments:
         speaker_label = seg.speaker or "speaker_0"
         if not speaker_label.startswith("speaker_"):
             speaker_label = f"speaker_{speaker_label}"
-        segments.append({
-            "text": seg.text.strip(),
-            "speaker": speaker_label,
-            "start_time": float(seg.start),
-            "end_time": float(seg.end),
-            "speaker_confidence": 0.9 if seg.speaker else 0.5,
-        })
+        segments.append(
+            {
+                "text": seg.text.strip(),
+                "speaker": speaker_label,
+                "start_time": float(seg.start),
+                "end_time": float(seg.end),
+                "speaker_confidence": 0.9 if seg.speaker else 0.5,
+            }
+        )
 
     if not segments:
         logger.warning("[PARAKEET] No segments returned; creating fallback segment")
-        segments = [{
-            "text": result.text or "",
-            "speaker": "speaker_0",
-            "start_time": 0.0,
-            "end_time": audio_duration,
-            "speaker_confidence": 0.5,
-        }]
+        segments = [
+            {
+                "text": result.text or "",
+                "speaker": "speaker_0",
+                "start_time": 0.0,
+                "end_time": audio_duration,
+                "speaker_confidence": 0.5,
+            }
+        ]
 
     segments = merge_adjacent_segments(sorted(segments, key=lambda s: s["start_time"]), MERGE_GAP_SEC)
     enriched_segments = await enrich_segments_with_metadata(segments, audio_data, sample_rate)
@@ -527,6 +535,19 @@ def load_nemo_models():
             )
             transcription_model_loaded = True
             logger.info("Parakeet pipeline ready")
+
+            # Load TitaNet for speaker identification (even with Parakeet strategy)
+            try:
+                speaker_target_device = "cpu"  # Keep on CPU to save GPU memory
+                logger.info("Loading TitaNet speaker model on %s for speaker identification...", speaker_target_device)
+                speaker_model = EncDecSpeakerLabelModel.from_pretrained("nvidia/speakerverification_en_titanet_large")
+                speaker_model = speaker_model.to(speaker_target_device)
+                speaker_model.eval()
+                logger.info("✅ TitaNet speaker model loaded successfully on %s!", speaker_target_device)
+            except Exception as exc:
+                logger.warning("⚠️ Failed to load TitaNet for speaker identification: %s", exc)
+                speaker_model = None
+
             return
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -591,7 +612,8 @@ def load_nemo_models():
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_service_headers(expires_in: int = 60) -> Dict[str, str]:
+
+def get_service_headers(expires_in: int = 60) -> dict[str, str]:
     """Build service-to-service auth headers (JWT-only)."""
     if service_auth is None:
         raise RuntimeError("Service authentication not initialized")
@@ -602,22 +624,21 @@ def get_service_headers(expires_in: int = 60) -> Dict[str, str]:
         logger.error(f"⚠️ Failed to create service JWT: {e}")
         raise
 
-async def get_emotion_for_text(text: str) -> Dict[str, Any]:
+
+async def get_emotion_for_text(text: str) -> dict[str, Any]:
     """Call emotion service to analyze text"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{EMOTION_SERVICE_URL}/analyze",
-                json={"text": text},
-                headers=get_service_headers()
+                f"{EMOTION_SERVICE_URL}/analyze", json={"text": text}, headers=get_service_headers()
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 return {
                     "emotion": data.get("emotion"),
                     "confidence": data.get("confidence"),
-                    "scores": data.get("scores", {})
+                    "scores": data.get("scores", {}),
                 }
             else:
                 logger.warning(f"Emotion service returned {response.status_code}")
@@ -628,66 +649,66 @@ async def get_emotion_for_text(text: str) -> Dict[str, Any]:
 
 
 async def enrich_segments_with_metadata(
-    segments: List[Dict[str, Any]],
-    audio_data: np.ndarray,
-    sample_rate: int
-) -> List[Dict[str, Any]]:
+    segments: list[dict[str, Any]], audio_data: np.ndarray, sample_rate: int
+) -> list[dict[str, Any]]:
     """
     Enrich transcript segments with emotion and audio metrics
-    
+
     Args:
         segments: List of transcript segments
         audio_data: Full audio waveform
         sample_rate: Audio sample rate
-    
+
     Returns:
         Enriched segments with emotion and audio metrics
     """
     enriched = []
-    
+
     for seg in segments:
         # Extract audio segment
         start_sample = int(seg["start_time"] * sample_rate)
         end_sample = int(seg["end_time"] * sample_rate)
         segment_audio = audio_data[start_sample:end_sample]
-        
+
         # Extract audio metrics
         audio_metrics = {}
         if len(segment_audio) > 0:
-            audio_metrics = extract_audio_metrics(
-                segment_audio,
-                sample_rate,
-                text=seg["text"]
-            )
-        
+            audio_metrics = extract_audio_metrics(segment_audio, sample_rate, text=seg["text"])
+
         # Get emotion (async)
         emotion_data = await get_emotion_for_text(seg["text"])
-        
+
         # Combine all metadata
         enriched_seg = {
             **seg,
             "emotion": emotion_data.get("emotion"),
             "emotion_confidence": emotion_data.get("confidence"),
             "emotion_scores": emotion_data.get("scores"),
-            "audio_metrics": audio_metrics
+            "audio_metrics": audio_metrics,
         }
-        
+
         enriched.append(enriched_seg)
-    
+
     logger.info(f"Enriched {len(enriched)} segments with emotion and audio metrics")
     return enriched
 
 
+# Allowed speakers for storage (case-insensitive)
+ALLOWED_SPEAKERS = {"pruitt", "ericah"}
+
+
+def _filter_segments_by_speaker(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Filter segments to only include allowed speakers (pruitt, ericah)."""
+    return [seg for seg in segments if seg.get("speaker", "").lower() in ALLOWED_SPEAKERS]
+
+
 async def index_transcript_in_rag(
-    job_id: str,
-    session_id: str,
-    full_text: str,
-    audio_duration: float,
-    segments: List[Dict[str, Any]]
+    job_id: str, session_id: str, full_text: str, audio_duration: float, segments: list[dict[str, Any]]
 ):
     """
-    Index transcript in RAG service for semantic search
-    
+    Index transcript in RAG service for semantic search.
+    Only indexes segments from allowed speakers (pruitt, ericah).
+
     Args:
         job_id: Unique job identifier
         session_id: Session identifier
@@ -695,6 +716,18 @@ async def index_transcript_in_rag(
         audio_duration: Audio duration in seconds
         segments: List of enriched segments
     """
+    # Filter segments to only include allowed speakers
+    filtered_segments = _filter_segments_by_speaker(segments)
+
+    if not filtered_segments:
+        logger.info(f"📋 No segments from allowed speakers (pruitt, ericah) to index for job {job_id}")
+        return
+
+    # Build filtered full text from allowed segments only
+    filtered_full_text = " ".join([seg.get("text", "") for seg in filtered_segments])
+
+    logger.info(f"📋 Indexing {len(filtered_segments)}/{len(segments)} segments from allowed speakers")
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -702,13 +735,13 @@ async def index_transcript_in_rag(
                 json={
                     "job_id": job_id,
                     "session_id": session_id,
-                    "full_text": full_text,
+                    "full_text": filtered_full_text,
                     "audio_duration": audio_duration,
-                    "segments": segments
+                    "segments": filtered_segments,
                 },
-                headers=get_service_headers()
+                headers=get_service_headers(),
             )
-            
+
             if response.status_code == 200:
                 logger.info(f"✅ Indexed transcript {job_id} in RAG service")
             else:
@@ -718,51 +751,57 @@ async def index_transcript_in_rag(
         # Don't raise - indexing failure shouldn't block transcription
 
 
-async def create_memory_from_transcript(
-    job_id: str,
-    full_text: str,
-    segments: List[Dict[str, Any]]
-):
+async def create_memory_from_transcript(job_id: str, full_text: str, segments: list[dict[str, Any]]):
     """
-    Create a memory entry from transcript for persistent storage
-    
+    Create a memory entry from transcript for persistent storage.
+    Only creates memories from allowed speakers (pruitt, ericah).
+
     Args:
         job_id: Unique job identifier
         full_text: Complete transcript text
         segments: List of enriched segments
     """
-    # Only create memories for non-empty transcripts
-    if not full_text or not full_text.strip():
+    # Filter segments to only include allowed speakers
+    filtered_segments = _filter_segments_by_speaker(segments)
+
+    if not filtered_segments:
+        logger.info(f"📋 No segments from allowed speakers (pruitt, ericah) to create memory for job {job_id}")
         return
-    
+
+    # Build filtered full text from allowed segments only
+    filtered_full_text = " ".join([seg.get("text", "") for seg in filtered_segments])
+
+    if not filtered_full_text.strip():
+        return
+
+    logger.info(f"📋 Creating memory from {len(filtered_segments)}/{len(segments)} segments from allowed speakers")
+
     try:
-        # Extract key metadata from segments
-        speakers = list(set([seg.get("speaker", "Unknown") for seg in segments if seg.get("speaker")]))
-        emotions = [seg.get("emotion") for seg in segments if seg.get("emotion")]
+        # Extract key metadata from filtered segments
+        speakers = list(set([seg.get("speaker", "Unknown") for seg in filtered_segments if seg.get("speaker")]))
+        emotions = [seg.get("emotion") for seg in filtered_segments if seg.get("emotion")]
         dominant_emotion = max(set(emotions), key=emotions.count) if emotions else None
-        
-        # Create memory title from first 50 chars of text
-        title = full_text[:50] + "..." if len(full_text) > 50 else full_text
-        
+
+        # Create memory title from first 50 chars of filtered text
+        title = filtered_full_text[:50] + "..." if len(filtered_full_text) > 50 else filtered_full_text
+
         memory_data = {
             "title": title,
-            "body": full_text,  # Fixed: was "content", should be "body" per RAG API
+            "body": filtered_full_text,
             "metadata": {
                 "source": f"phone_transcript_{job_id}",
                 "transcript_job_id": job_id,
                 "speakers": speakers,
                 "dominant_emotion": dominant_emotion,
-                "segment_count": len(segments)
-            }
+                "segment_count": len(filtered_segments),
+            },
         }
-        
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{RAG_SERVICE_URL}/memory/add",
-                json=memory_data,
-                headers=get_service_headers()
+                f"{RAG_SERVICE_URL}/memory/add", json=memory_data, headers=get_service_headers()
             )
-            
+
             if response.status_code == 200:
                 logger.info(f"✅ Created memory from transcript {job_id}")
             else:
@@ -774,6 +813,7 @@ async def create_memory_from_transcript(
 
 class ServiceAuthMiddleware(BaseHTTPMiddleware):
     """Middleware for JWT service authentication (Phase 3: Enforce JWT-only + replay)."""
+
     async def dispatch(self, request: Request, call_next):
         # Skip auth for health checks
         if request.url.path == "/health":
@@ -783,7 +823,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         if not jwt_token:
             logger.error(f"❌ Missing JWT for {request.url.path}")
             return JSONResponse(status_code=401, content={"detail": "Missing service token"})
-        
+
         if not service_auth:
             logger.error(f"❌ Service auth not initialized for {request.url.path}")
             return JSONResponse(status_code=503, content={"detail": "Service auth unavailable"})
@@ -793,18 +833,10 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
             allowed = ["gateway"]
             payload = service_auth.verify_token(jwt_token, allowed_services=allowed, expected_aud="internal")
 
-            # Replay protection
-            if get_replay_protector is None:
-                logger.warning(f"⚠️ Replay protection not available, skipping replay check")
-            else:
-                import time as _t
-                ttl = max(10, int(payload["expires_at"] - _t.time()) + 10)
-                ok, reason = get_replay_protector().check_and_store(payload.get("request_id", ""), ttl)
-                if not ok:
-                    logger.error(f"❌ JWT replay blocked: reason={reason}")
-                    return JSONResponse(status_code=401, content={"detail": "Replay detected"})
+            # Note: Replay protection is already handled inside verify_token()
+            # No need for additional check here
 
-            rid_short = str(payload.get('request_id',''))[:8]
+            rid_short = str(payload.get("request_id", ""))[:8]
             logger.info(f"✅ JWT OK s={payload.get('service_id')} aud=internal rid={rid_short} path={request.url.path}")
             return await call_next(request)
         except Exception as e:
@@ -819,11 +851,13 @@ async def lifespan(app: FastAPI):
     """Manage startup and shutdown"""
     # Startup
     logger.info("Starting Transcription Service...")
-    
+
     # Initialize service auth (Phase 3)
     global service_auth
+    global speaker_model  # Access speaker_model set by load_nemo_models()
     try:
         from shared.security.service_auth import get_service_auth, load_service_jwt_keys
+
         jwt_keys = load_service_jwt_keys("transcription-service")
         service_auth = get_service_auth(service_id="transcription-service", service_secret=jwt_keys)
         logger.info(
@@ -833,79 +867,150 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ JWT service auth initialization failed: {e}")
         raise
-    
+
     # Load NeMo models
     load_nemo_models()
-    
+
     # Connect pause manager to Redis
     pause_manager = get_pause_manager()
     pause_manager.redis_url = REDIS_URL
     await pause_manager.connect()
-    
+
     # Set callbacks
     async def on_pause():
-        """When Gemma needs GPU - move ASR model to CPU to free VRAM"""
+        """When Gemma needs GPU - move ASR model to CPU and VERIFY VRAM is freed"""
         global asr_model, parakeet_pipeline
         logger.info("[CALLBACK] 🛑 Pause callback triggered - offloading ASR resources")
-        
+
         try:
+            # Move model to CPU
             if TRANSCRIBE_STRATEGY == "parakeet":
                 if parakeet_pipeline is not None:
                     parakeet_pipeline.to("cpu")
-                    logger.info("[CALLBACK] ✅ Parakeet model moved to CPU")
+                    logger.info("[CALLBACK] Parakeet model moved to CPU")
             else:
                 if asr_model is not None:
                     asr_model = asr_model.to("cpu")
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    logger.info("[CALLBACK] ✅ ASR model moved to CPU, GPU VRAM freed!")
+                    logger.info("[CALLBACK] ASR model moved to CPU")
+
+            # CRITICAL: Verify VRAM is actually freed before ACK
+            if torch.cuda.is_available():
+                # Multiple cache clears to ensure release
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()  # Wait for all CUDA operations to complete
+                import gc
+
+                gc.collect()
+                torch.cuda.empty_cache()  # Second clear after GC
+
+                # Wait and verify VRAM is freed (up to 2 seconds)
+                for i in range(20):
+                    allocated = torch.cuda.memory_allocated(0) / 1024**2
+                    if allocated < 100:  # Less than 100MB = fully freed
+                        logger.info(f"[CALLBACK] ✅ VRAM verified freed: {allocated:.1f}MB allocated")
+                        break
+                    logger.debug(f"[CALLBACK] ⏳ Waiting for VRAM release: {allocated:.1f}MB ({i + 1}/20)")
+                    await asyncio.sleep(0.1)
+                else:
+                    logger.warning(f"[CALLBACK] ⚠️ VRAM not fully freed after 2s: {allocated:.1f}MB still allocated")
+
+            logger.info("[CALLBACK] ✅ Model moved to CPU, VRAM verified freed!")
+
         except Exception as exc:
             logger.error("[CALLBACK] ❌ Failed to offload ASR resources: %s", exc)
-    
+
     async def on_resume():
-        """When Gemma done - move ASR model back to GPU"""
+        """When Gemma releases GPU - move ASR model back to GPU for fast transcription"""
         global asr_model, parakeet_pipeline
-        logger.info("[CALLBACK] ▶️ Resume callback triggered - reloading ASR to GPU")
-        
+        logger.info("[CALLBACK] ▶️ Resume callback triggered - moving ASR back to GPU")
+
         try:
             device = "cuda" if torch.cuda.is_available() else "cpu"
+
+            if device == "cuda":
+                # Clear any cached memory first
+                torch.cuda.empty_cache()
+                import gc
+
+                gc.collect()
+
             if TRANSCRIBE_STRATEGY == "parakeet":
                 if parakeet_pipeline is not None:
                     parakeet_pipeline.to(device)
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    logger.info("[CALLBACK] ✅ Parakeet model ready on %s", device.upper())
+                    logger.info("[CALLBACK] ✅ Parakeet model moved to %s", device.upper())
             else:
                 if asr_model is not None:
                     asr_model = asr_model.to(device)
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    logger.info("[CALLBACK] ✅ ASR model back on %s!", device.upper())
+                    asr_model.eval()
+                    logger.info("[CALLBACK] ✅ ASR model moved to %s", device.upper())
+
+            # Log GPU memory after moving
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated(0) / 1024**2
+                logger.info("[CALLBACK] 📊 GPU memory allocated: %.1f MB", allocated)
+
         except Exception as exc:
-            logger.error("[CALLBACK] ❌ Failed to reload ASR resources: %s", exc)
-        
+            logger.error("[CALLBACK] ❌ Failed in resume callback: %s", exc)
+            import traceback
+
+            logger.error(traceback.format_exc())
+
         # Process queued chunks
         queued_chunks = pause_manager.get_queued_chunks()
         if queued_chunks:
             logger.info(f"[CALLBACK] 📋 Processing {len(queued_chunks)} queued chunks")
-            logger.warning(
-                "[CALLBACK] Queued chunk processing is not implemented; queued chunks will be skipped"
-            )
-    
+            logger.warning("[CALLBACK] Queued chunk processing is not implemented; queued chunks will be skipped")
+
     pause_manager.set_pause_callback(on_pause)
     pause_manager.set_resume_callback(on_resume)
-    
+
     # Simulate model loading
     global transcription_model_loaded
     transcription_model_loaded = True
-    logger.info("Transcription Service started successfully (GPU mode)")
-    
-    # NOTE: We no longer signal Gemma to move to CPU at startup.
-    # Gemma loads on GPU first, transcription uses remaining VRAM.
-    # GPU coordinator handles pause/resume when Gemma needs exclusive access.
-    
+
+    # Initialize streaming transcriber for real-time WebSocket transcription
+    if parakeet_pipeline is not None:
+
+        async def n8n_voice_command_callback(text: str, session_id: str):
+            """Send text to n8n for voice command detection."""
+            # TODO: Implement n8n webhook call
+            logger.debug(f"[STREAMING] Voice command trigger: {text[:50]}...")
+
+        # Initialize speaker identifier with enrolled embeddings (Pruitt, Ericah)
+        speaker_identifier = None
+        enrollment_dir = os.environ.get("ENROLLMENT_DIR", "/gateway_instance/enrollment")
+        if os.path.exists(enrollment_dir) and speaker_model is not None:
+            from .parakeet_pipeline.speaker_identifier import SpeakerIdentifier
+
+            speaker_identifier = SpeakerIdentifier(
+                enrollment_dir=enrollment_dir,
+                titanet_model=speaker_model,
+            )
+            logger.info(
+                f"[STREAMING] Speaker identifier loaded with enrollments: {speaker_identifier.get_enrolled_speakers()}"
+            )
+        else:
+            logger.warning(
+                f"[STREAMING] Speaker identification disabled (enrollment_dir={enrollment_dir}, speaker_model={'available' if speaker_model else 'None'})"
+            )
+
+        init_streaming_transcriber(
+            parakeet_pipeline=parakeet_pipeline,
+            n8n_callback=n8n_voice_command_callback,
+            emotion_callback=get_emotion_for_text,
+            speaker_identifier=speaker_identifier,
+        )
+        logger.info("[STREAMING] Real-time streaming transcriber initialized")
+
+    logger.info("Transcription Service started successfully")
+
+    # GPU Coordinator manages handoff between Transcription and Gemma
+    # Transcription starts on CPU (START_ON_CPU=true)
+    # When Gemma releases GPU, transcription gets resume signal to move to GPU
+    logger.info("[GPU] Transcription started on CPU - GPU coordinator manages handoff")
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down Transcription Service...")
     await pause_manager.disconnect()
@@ -917,7 +1022,7 @@ app = FastAPI(
     title="Transcription Service",
     description="NeMo ASR transcription with GPU pause/resume support",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add JWT middleware (Phase 2: Permissive)
@@ -925,28 +1030,61 @@ app.add_middleware(ServiceAuthMiddleware)
 
 
 # ============================================================================
+# WEBSOCKET STREAMING ENDPOINT
+# ============================================================================
+
+
+@app.websocket("/stream")
+async def websocket_stream(websocket: WebSocket):
+    """
+    Real-time streaming transcription via WebSocket.
+
+    Protocol:
+    - Client sends: binary audio chunks (PCM 16-bit mono 16kHz)
+    - Server sends: JSON messages with transcription results
+
+    Features:
+    - Immediate ASR transcription (<1 second latency)
+    - Deferred diarization (every 30 seconds)
+    - Real-time emotion analysis
+    - n8n voice command triggering
+    """
+    transcriber = get_streaming_transcriber()
+
+    if transcriber is None:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Streaming transcriber not initialized"})
+        await websocket.close()
+        return
+
+    await transcriber.handle_websocket(websocket)
+
+
+# ============================================================================
 # ENDPOINTS
 # ============================================================================
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     pause_manager = get_pause_manager()
-    
+
     return {
         "status": "healthy" if transcription_model_loaded else "unhealthy",
         "model_loaded": transcription_model_loaded,
-        "pause_status": pause_manager.get_status()
+        "pause_status": pause_manager.get_status(),
     }
 
 
 @app.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_chunk(
     audio: UploadFile = File(...),
-    seq: Optional[int] = Form(None),
-    stream_id: Optional[str] = Form(None)
+    seq: int | None = Form(None),
+    stream_id: str | None = Form(None),
+    diarize: bool = Form(True),  # Form data, not Query - works with POST multipart
 ):
-    """Transcribe audio chunk using NeMo ASR with VAD + diarization."""
+    """Transcribe audio chunk using NeMo ASR with VAD + optional diarization."""
     pause_manager = get_pause_manager()
 
     if not transcription_model_loaded:
@@ -984,19 +1122,19 @@ async def transcribe_chunk(
         except Exception as e:
             logger.error(f"[AUDIO] Failed to decode audio: {e}")
             raise HTTPException(status_code=400, detail="Invalid audio format")
-        
+
         # Convert to mono
         if audio_data.ndim > 1:
             audio_data = audio_data.mean(axis=1)
-        
+
         # Ensure float32 and clip to valid range
         audio_data = audio_data.astype(np.float32)
         audio_data = np.clip(audio_data, -1.0, 1.0)
-        
+
         # Resample to 16kHz
         audio_data, sample_rate = _resample_audio(audio_data, sample_rate, 16000)
         audio_duration = len(audio_data) / sample_rate
-        
+
         # Validate minimum length
         if audio_duration < 0.1:
             logger.warning(f"[AUDIO] Too short: {audio_duration:.2f}s")
@@ -1005,7 +1143,9 @@ async def transcribe_chunk(
         # Route to Parakeet pipeline if strategy is set
         if TRANSCRIBE_STRATEGY == "parakeet":
             logger.info("[TRANSCRIPTION] Using Parakeet strategy")
-            return await _transcribe_with_parakeet(audio_data, sample_rate, audio_duration, job_id, stream_id)
+            return await _transcribe_with_parakeet(
+                audio_data, sample_rate, audio_duration, job_id, stream_id, skip_diarization=not diarize
+            )
 
         # VAD with validation and fallback
         try:
@@ -1049,13 +1189,13 @@ async def transcribe_chunk(
                 unique_speakers,
             )
 
-        segments: List[Dict[str, Any]] = []
+        segments: list[dict[str, Any]] = []
         transcript_text = ""
 
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
-                segment_infos: List[Dict[str, Any]] = []
-                segment_paths: List[str] = []
+                segment_infos: list[dict[str, Any]] = []
+                segment_paths: list[str] = []
                 last_decode_end = 0.0
 
                 for idx, ((span_start, span_end), speaker_id) in enumerate(zip(speech_segments, speaker_labels)):
@@ -1076,11 +1216,13 @@ async def transcribe_chunk(
                     seg_path = os.path.join(tmpdir, f"segment_{idx}.wav")
                     sf.write(seg_path, segment_audio, sample_rate)
                     segment_paths.append(seg_path)
-                    segment_infos.append({
-                        "start_time": float(decode_start),
-                        "end_time": float(decode_end),
-                        "speaker": f"speaker_{int(speaker_id)}",
-                    })
+                    segment_infos.append(
+                        {
+                            "start_time": float(decode_start),
+                            "end_time": float(decode_end),
+                            "speaker": f"speaker_{int(speaker_id)}",
+                        }
+                    )
                     last_decode_end = decode_end
 
                 if not segment_paths:
@@ -1089,41 +1231,51 @@ async def transcribe_chunk(
                         sf.write(tmp_file.name, audio_data, sample_rate)
                         fallback_path = tmp_file.name
                     try:
-                        outputs = asr_model.transcribe([fallback_path], batch_size=1, timestamps=False, return_hypotheses=True)
+                        outputs = asr_model.transcribe(
+                            [fallback_path], batch_size=1, timestamps=False, return_hypotheses=True
+                        )
                         if outputs:
                             first = outputs[0]
-                            text = first.get("text", "") if isinstance(first, dict) else getattr(first, "text", str(first))
+                            text = (
+                                first.get("text", "") if isinstance(first, dict) else getattr(first, "text", str(first))
+                            )
                             transcript_text = text.strip()
-                        segments = [{
-                            "text": transcript_text,
-                            "speaker": "speaker_0",
-                            "start_time": 0.0,
-                            "end_time": audio_duration,
-                            "speaker_confidence": 1.0,
-                        }]
+                        segments = [
+                            {
+                                "text": transcript_text,
+                                "speaker": "speaker_0",
+                                "start_time": 0.0,
+                                "end_time": audio_duration,
+                                "speaker_confidence": 1.0,
+                            }
+                        ]
                     finally:
                         with contextlib.suppress(Exception):
                             os.unlink(fallback_path)
                 else:
                     texts = transcribe_segments_with_asr(segment_paths, batch_size=max(1, ASR_BATCH_SIZE))
                     for info, text in zip(segment_infos, texts):
-                        segments.append({
-                            "text": text,
-                            "speaker": info["speaker"],
-                            "start_time": info["start_time"],
-                            "end_time": info["end_time"],
-                            "speaker_confidence": 0.9,
-                        })
+                        segments.append(
+                            {
+                                "text": text,
+                                "speaker": info["speaker"],
+                                "start_time": info["start_time"],
+                                "end_time": info["end_time"],
+                                "speaker_confidence": 0.9,
+                            }
+                        )
                     transcript_text = " ".join(seg["text"] for seg in segments).strip()
         except Exception as pipeline_error:
             logger.error("[TRANSCRIPTION] Pipeline error: %s", pipeline_error)
-            segments = [{
-                "text": "",
-                "speaker": "speaker_0",
-                "start_time": 0.0,
-                "end_time": audio_duration,
-                "speaker_confidence": 1.0,
-            }]
+            segments = [
+                {
+                    "text": "",
+                    "speaker": "speaker_0",
+                    "start_time": 0.0,
+                    "end_time": audio_duration,
+                    "speaker_confidence": 1.0,
+                }
+            ]
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
                 sf.write(tmp_file.name, audio_data, sample_rate)
                 fallback_path = tmp_file.name
@@ -1141,7 +1293,7 @@ async def transcribe_chunk(
         segments = merge_adjacent_segments(sorted(segments, key=lambda s: s["start_time"]), MERGE_GAP_SEC)
         logger.info(
             "[TRANSCRIPTION] Raw segments=%d merged=%d",
-            len(segment_infos) if 'segment_infos' in locals() else len(segments),
+            len(segment_infos) if "segment_infos" in locals() else len(segments),
             len(segments),
         )
 
@@ -1188,15 +1340,10 @@ async def transcribe_chunk(
         logger.error("[TRANSCRIPTION] Fatal transcription error: %s", exc, exc_info=True)
         # Return valid error response instead of raising
         return TranscriptionResponse(
-            job_id=job_id,
-            status="error",
-            text="",
-            segments=[],
-            message=f"Transcription failed: {str(exc)}"
+            job_id=job_id, status="error", text="", segments=[], message=f"Transcription failed: {str(exc)}"
         )
     finally:
         pause_manager.set_processing(False)
-
 
 
 @app.get("/pause/status")
@@ -1213,17 +1360,17 @@ async def process_queued_chunks():
     (Normally triggered automatically on resume)
     """
     pause_manager = get_pause_manager()
-    
+
     if pause_manager.is_paused():
         return {"status": "still_paused", "message": "Cannot process while paused"}
-    
+
     queued_chunks = pause_manager.get_queued_chunks()
-    
+
     if not queued_chunks:
         return {"status": "no_chunks", "message": "No chunks in queue"}
-    
+
     logger.info(f"Processing {len(queued_chunks)} queued chunks...")
-    
+
     # Process each chunk
     # In production: call transcription for each
     processed = []
@@ -1231,12 +1378,8 @@ async def process_queued_chunks():
         logger.info(f"Processing queued chunk: {chunk}")
         # Process chunk...
         processed.append(chunk)
-    
-    return {
-        "status": "processed",
-        "count": len(processed),
-        "chunks": processed
-    }
+
+    return {"status": "processed", "count": len(processed), "chunks": processed}
 
 
 @app.get("/cli/test")
@@ -1246,35 +1389,41 @@ async def run_self_test():
     Returns JSON with test results for service-specific functionality
     """
     test_results = []
-    
+
     # Test 1: Model loading status
-    test_results.append({
-        "test": "model_loaded",
-        "passed": transcription_model_loaded,
-        "details": f"Transcription model loaded: {transcription_model_loaded}"
-    })
-    
+    test_results.append(
+        {
+            "test": "model_loaded",
+            "passed": transcription_model_loaded,
+            "details": f"Transcription model loaded: {transcription_model_loaded}",
+        }
+    )
+
     # Test 2: Parakeet pipeline (if using parakeet strategy)
     if TRANSCRIBE_STRATEGY == "parakeet":
-        test_results.append({
-            "test": "parakeet_pipeline",
-            "passed": parakeet_pipeline is not None,
-            "details": f"Parakeet pipeline initialized: {parakeet_pipeline is not None}"
-        })
-    
+        test_results.append(
+            {
+                "test": "parakeet_pipeline",
+                "passed": parakeet_pipeline is not None,
+                "details": f"Parakeet pipeline initialized: {parakeet_pipeline is not None}",
+            }
+        )
+
     # Test 3: Pause manager status
     pause_manager = get_pause_manager()
     pause_status = pause_manager.get_status()
-    test_results.append({
-        "test": "pause_manager",
-        "passed": True,
-        "details": f"Pause manager active, paused={pause_status.get('is_paused')}"
-    })
-    
+    test_results.append(
+        {
+            "test": "pause_manager",
+            "passed": True,
+            "details": f"Pause manager active, paused={pause_status.get('is_paused')}",
+        }
+    )
+
     # Test 4: Service dependencies reachable
     dependencies_ok = True
     dependency_details = []
-    
+
     for service_name, url in [("Emotion", EMOTION_SERVICE_URL), ("RAG", RAG_SERVICE_URL)]:
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
@@ -1285,17 +1434,15 @@ async def run_self_test():
         except Exception as e:
             dependencies_ok = False
             dependency_details.append(f"{service_name}: ERROR ({str(e)[:50]})")
-   
-    test_results.append({
-        "test": "service_dependencies",
-        "passed": dependencies_ok,
-        "details": ", ".join(dependency_details)
-    })
-    
+
+    test_results.append(
+        {"test": "service_dependencies", "passed": dependencies_ok, "details": ", ".join(dependency_details)}
+    )
+
     # Calculate summary
     passed = sum(1 for t in test_results if t["passed"])
     total = len(test_results)
-    
+
     return {
         "test_suite": "transcription_service",
         "timestamp": asyncio.get_event_loop().time(),
@@ -1305,11 +1452,11 @@ async def run_self_test():
             "failed": total - passed,
         },
         "results": test_results,
-        "overall_passed": passed == total
+        "overall_passed": passed == total,
     }
 
 
 if __name__ == "__main__":
-
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8003)

@@ -1,0 +1,180 @@
+# =============================================================================
+# Remote Cluster Worker Configuration
+# =============================================================================
+# This compose file runs CPU-only services that connect to the MAIN PC's
+# PostgreSQL and Redis over Tailscale. No local databases - true cluster mode.
+#
+# Usage on remote laptop:
+#   docker compose -f docker-compose.cluster.yml up -d
+#
+# Prerequisites:
+#   - Main PC running the full stack (start.sh)
+#   - Both computers connected via Tailscale
+#   - NFS share mounted from main PC
+#   - Main PC IP: 100.68.213.84
+# =============================================================================
+
+x-main-pc-ip: &main-pc-ip "100.68.213.84"
+
+# Common environment for connecting to main PC's databases
+x-cluster-env:
+  # Connect to main PC's PostgreSQL via Tailscale
+  &cluster-env
+  DATABASE_URL: postgresql://nemo:${POSTGRES_PASSWORD}@100.68.213.84:5432/nemo_queue
+  DB_BACKEND: postgres
+  POSTGRES_HOST: 100.68.213.84
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: nemo_queue
+  # Connect to main PC's Redis via Tailscale
+  REDIS_URL: redis://100.68.213.84:6379
+  REDIS_HOST: 100.68.213.84
+
+services:
+  # ============================================================================
+  # NO LOCAL DATABASES - Connect to main PC's PostgreSQL and Redis
+  # ============================================================================
+
+  # ============================================================================
+  # Emotion Service (Sentiment Analysis) - CPU Only
+  # ============================================================================
+  emotion-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.emotion
+    image: refactored-emotion-service:cluster
+    container_name: cluster_emotion
+    restart: unless-stopped
+    environment:
+      <<: *cluster-env
+      EMOTION_MODEL_PATH: "/app/models/emotion-english-distilroberta-base"
+      JWT_ONLY: "true"
+    volumes:
+      - ../models1:/app/models:ro
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+    ports:
+      - "8005:8005"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import requests; r = requests.get('http://localhost:8005/health'); exit(0 if r.json().get('status') == 'healthy' else 1)" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - nemo_cluster
+
+  # ============================================================================
+  # ML Service (Universal ML Agent) - CPU Only
+  # ============================================================================
+  ml-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ml
+    container_name: cluster_ml_service
+    restart: unless-stopped
+    environment:
+      <<: *cluster-env
+      GATEWAY_URL: http://100.68.213.84:8000
+      UPLOAD_DIR: /app/data/uploads
+      GPU_ENABLED: "false"
+      GPU_FALLBACK_TO_CPU: "true"
+    volumes:
+      - ../services/ml-service/src:/app/src
+      - ../shared:/app/shared
+      - ml_uploads:/app/data/uploads
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+    ports:
+      - "8006:8006"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8006/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nemo_cluster
+
+  # ============================================================================
+  # Insights Service (Analytics) - CPU Only
+  # ============================================================================
+  insights-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.insights
+    container_name: cluster_insights
+    restart: unless-stopped
+    environment:
+      <<: *cluster-env
+      # Use PostgreSQL instead of SQLite
+      INSIGHTS_DB_BACKEND: postgres
+    volumes:
+      - ../shared:/app/shared
+    secrets:
+      - rag_db_key
+    ports:
+      - "8010:8010"
+    networks:
+      - nemo_cluster
+
+  # ============================================================================
+  # Fiserv Banking Hub - CPU Only
+  # ============================================================================
+  fiserv-service:
+    build:
+      context: ../services/fiserv-service
+      dockerfile: Dockerfile
+    container_name: cluster_fiserv
+    restart: unless-stopped
+    environment:
+      <<: *cluster-env
+      FISERV_MOCK_MODE: "false"
+      # Phase 1 Security: Load credentials from Docker secrets
+      FISERV_API_KEY_FILE: /run/secrets/fiserv_api_key
+      FISERV_API_SECRET_FILE: /run/secrets/fiserv_api_secret
+      FISERV_ORG_ID: "999950001"
+      PYTHONUNBUFFERED: "1"
+      JWT_ONLY: "true"
+    volumes:
+      - ../services/fiserv-service/src:/app/src:ro
+      - ../shared:/app/shared:ro
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - fiserv_api_key
+      - fiserv_api_secret
+    ports:
+      - "8015:8015"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8015/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nemo_cluster
+
+# Secrets (same as main PC - NFS shared)
+secrets:
+  jwt_secret_primary:
+    file: ./secrets/jwt_secret_primary
+  jwt_secret_previous:
+    file: ./secrets/jwt_secret_previous
+  jwt_secret:
+    file: ./secrets/jwt_secret
+  rag_db_key:
+    file: ./secrets/rag_db_key
+  fiserv_api_key:
+    file: ./secrets/fiserv_api_key
+  fiserv_api_secret:
+    file: ./secrets/fiserv_api_secret
+
+networks:
+  nemo_cluster:
+    driver: bridge
+
+volumes:
+  ml_uploads:
