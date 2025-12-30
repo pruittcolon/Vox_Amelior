@@ -17,7 +17,8 @@ import {
     restoreSession,
     isAnalysisStopped,
     setAnalysisStopped,
-    getUploadState
+    getUploadState,
+    cancelSession
 } from '../core/state.js';
 import { ALL_ENGINES, getAllEngineNames, ENGINE_COUNT } from './engine-definitions.js';
 import { createEngineCard, displayEngineResults, updateEngineCardStatus } from './engine-results.js';
@@ -134,7 +135,17 @@ export function stopAnalysis() {
     setAnalysisStopped(true);
     pauseSession();
     saveSessionToStorage();
-    log('⏸️ Analysis paused. You can resume later.', 'warning');
+    log('Analysis paused. You can resume later.', 'warning');
+}
+
+/**
+ * Cancel and completely clear the current analysis.
+ * This resets all session state and allows starting fresh.
+ */
+export function cancelAnalysis() {
+    setAnalysisStopped(true);
+    cancelSession();
+    log('Session cleared. Ready for new analysis.', 'warning');
 }
 
 /**
@@ -151,6 +162,11 @@ async function runEngineLoop(startIndex, options = {}) {
         total: ENGINE_COUNT,
         startTime: performance.now()
     };
+
+    // Generate GPU session ID for session-based GPU retention
+    // This keeps GPU locked for Gemma during entire analysis instead of per-request
+    const gpuSessionId = `nexus-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    log(`GPU session started (id: ${gpuSessionId.substring(0, 12)}...)`, 'info');
 
     for (let i = startIndex; i < ALL_ENGINES.length; i++) {
         // Check if stopped
@@ -188,9 +204,9 @@ async function runEngineLoop(startIndex, options = {}) {
 
             const duration = performance.now() - engineStartTime;
 
-            // Get Gemma summary
-            log(`🤖 Getting Gemma summary for ${engine.display}...`, 'info');
-            const summary = await getGemmaSummary(engine.name, engine.display, data);
+            // Get Gemma summary (using session ID for GPU retention)
+            log(`Getting Gemma summary for ${engine.display}...`, 'info');
+            const summary = await getGemmaSummary(engine.name, engine.display, data, gpuSessionId);
 
             // Build result
             const result = {

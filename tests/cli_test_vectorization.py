@@ -80,7 +80,7 @@ def test_vectorization_flow():
             return
     except Exception as e:
         print(f"❌ Connection error during upload: {e}", flush=True)
-        print("   Ensure services are running (./start.sh)", flush=True)
+        print("   Ensure services are running (./nemo)", flush=True)
         return
 
     # --- Step 2: Vectorize ---

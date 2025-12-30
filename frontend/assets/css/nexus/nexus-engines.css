@@ -1,0 +1,1203 @@
+/**
+ * Nexus Engine Cards - Light Theme
+ * 
+ * Enterprise-grade styling for NexusAI analytics engine results.
+ * Designed to match vox-amelior.css light theme with premium aesthetics.
+ * 
+ * @author NemoServer Team
+ * @version 2.0.0
+ */
+
+/* ============================================================================
+   CSS Custom Properties - Light Theme Palette
+   ============================================================================ */
+:root {
+    /* Primary colors from vox-amelior */
+    --nexus-primary: #02559E;
+    --nexus-primary-light: #2B7FD4;
+    --nexus-primary-dark: #003D73;
+    --nexus-primary-subtle: rgba(2, 85, 158, 0.08);
+    --nexus-primary-glow: rgba(43, 127, 212, 0.15);
+
+    /* Text colors - DARK for readability on light backgrounds */
+    --nexus-text-primary: #1E293B;
+    --nexus-text-secondary: #475569;
+    --nexus-text-muted: #64748B;
+    --nexus-text-light: #94A3B8;
+
+    /* Background colors */
+    --nexus-bg-card: #FFFFFF;
+    --nexus-bg-card-hover: #F8FAFC;
+    --nexus-bg-surface: #F1F5F9;
+    --nexus-bg-accent: rgba(2, 85, 158, 0.04);
+
+    /* Border colors */
+    --nexus-border: #E2E8F0;
+    --nexus-border-hover: #CBD5E1;
+    --nexus-border-focus: #2B7FD4;
+
+    /* Status colors */
+    --nexus-success: #10B981;
+    --nexus-success-bg: rgba(16, 185, 129, 0.1);
+    --nexus-warning: #F59E0B;
+    --nexus-warning-bg: rgba(245, 158, 11, 0.1);
+    --nexus-error: #EF4444;
+    --nexus-error-bg: rgba(239, 68, 68, 0.1);
+    --nexus-info: #3B82F6;
+    --nexus-info-bg: rgba(59, 130, 246, 0.1);
+
+    /* Shadows */
+    --nexus-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --nexus-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --nexus-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+    /* Transitions */
+    --nexus-transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================================================
+   Engine Result Cards - Core Styling
+   ============================================================================ */
+.engine-result-card {
+    background: var(--nexus-bg-card);
+    border: 1px solid var(--nexus-border);
+    border-radius: 14px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: all var(--nexus-transition);
+    box-shadow: var(--nexus-shadow-sm);
+}
+
+.engine-result-card:hover {
+    border-color: var(--nexus-border-hover);
+    box-shadow: var(--nexus-shadow-md);
+}
+
+.engine-result-card.expanded {
+    box-shadow: var(--nexus-shadow-lg);
+    border-color: var(--nexus-primary-light);
+}
+
+/* ============================================================================
+   Engine Card Header
+   ============================================================================ */
+.engine-card-header {
+    padding: 16px 20px;
+    background: var(--nexus-bg-surface);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--nexus-transition);
+    border-bottom: 1px solid transparent;
+}
+
+.engine-card-header:hover {
+    background: var(--nexus-bg-card-hover);
+}
+
+.engine-result-card.expanded .engine-card-header {
+    border-bottom-color: var(--nexus-border);
+}
+
+.engine-icon {
+    font-size: 1.8rem;
+    min-width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.engine-card-header h3 {
+    flex: 1;
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--nexus-text-primary);
+    letter-spacing: -0.01em;
+}
+
+/* ============================================================================
+   Status Badges
+   ============================================================================ */
+.engine-status {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.engine-status.pending {
+    background: var(--nexus-bg-surface);
+    color: var(--nexus-text-muted);
+    border: 1px solid var(--nexus-border);
+}
+
+.engine-status.running {
+    background: var(--nexus-warning-bg);
+    color: #B45309;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    animation: statusPulse 2s infinite;
+}
+
+@keyframes statusPulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.engine-status.success {
+    background: var(--nexus-success-bg);
+    color: #047857;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.engine-status.error {
+    background: var(--nexus-error-bg);
+    color: #B91C1C;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.engine-status.fallback {
+    background: var(--nexus-warning-bg);
+    color: #B45309;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* ============================================================================
+   Engine Card Body - Expandable Content
+   ============================================================================ */
+.engine-card-body {
+    padding: 0 20px;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease, padding 0.4s ease;
+    background: var(--nexus-bg-card);
+}
+
+.engine-result-card.expanded .engine-card-body {
+    max-height: 4000px;
+    padding: 20px;
+}
+
+/* ============================================================================
+   Gemma Summary - Dark Chat Bubble Style (matches gemma.html)
+   ============================================================================ */
+.gemma-summary {
+    background: rgba(15, 23, 42, 0.95);
+    padding: 1rem 1.25rem;
+    border-radius: 1rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: 90%;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.gemma-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.gemma-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.gemma-chat-inline {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.gemma-chat-inline input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    background: rgba(30, 41, 59, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 0.5rem;
+    color: #e2e8f0;
+    font-size: 0.875rem;
+    font-family: inherit;
+}
+
+.gemma-chat-inline input::placeholder {
+    color: rgba(148, 163, 184, 0.6);
+}
+
+.gemma-chat-inline input:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.5);
+}
+
+.gemma-chat-inline button {
+    padding: 0.5rem 1rem;
+    background: #6366f1;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.gemma-chat-inline button:hover {
+    background: #4f46e5;
+}
+
+.followup-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 160px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+}
+
+.followup-msg {
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: #e2e8f0;
+}
+
+.followup-msg.user .msg-label {
+    color: #cbd5f5;
+    font-weight: 600;
+    margin-right: 0.25rem;
+}
+
+.followup-msg.assistant .msg-label {
+    color: #67e8f9;
+    font-weight: 600;
+    margin-right: 0.25rem;
+}
+
+.gemma-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.gemma-text {
+    color: #e2e8f0;
+    line-height: 1.7;
+    font-size: 0.95rem;
+    flex: 1;
+}
+
+.gemma-text strong {
+    color: #67e8f9;
+    font-weight: 600;
+}
+
+.gemma-text p {
+    margin: 0 0 0.75em 0;
+    color: #e2e8f0;
+}
+
+.gemma-text p:last-child {
+    margin-bottom: 0;
+}
+
+.gemma-text ul,
+.gemma-text ol {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+    color: #e2e8f0;
+}
+
+.gemma-text li {
+    margin: 0.25em 0;
+    color: #e2e8f0;
+}
+
+.gemma-text code {
+    background: rgba(6, 182, 212, 0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9em;
+    color: #67e8f9;
+}
+
+/* ============================================================================
+   Engine Meta Information
+   ============================================================================ */
+.engine-meta {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--nexus-border);
+}
+
+.meta-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.875rem;
+    color: var(--nexus-text-muted);
+}
+
+/* ============================================================================
+   Key Findings Section
+   ============================================================================ */
+.key-findings {
+    background: var(--nexus-bg-surface);
+    padding: 16px 20px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+}
+
+.key-findings h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--nexus-text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.key-findings ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.key-findings li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--nexus-border);
+    color: var(--nexus-text-secondary);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.key-findings li:last-child {
+    border-bottom: none;
+}
+
+.key-findings li::before {
+    content: ">";
+    color: var(--nexus-primary);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* ============================================================================
+   Raw Data Section
+   ============================================================================ */
+.raw-data-section {
+    margin-top: 16px;
+}
+
+.toggle-raw-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--nexus-bg-surface);
+    border: 1px solid var(--nexus-border);
+    border-radius: 8px;
+    color: var(--nexus-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--nexus-transition);
+}
+
+.toggle-raw-btn:hover {
+    background: var(--nexus-bg-card-hover);
+    border-color: var(--nexus-border-hover);
+    color: var(--nexus-text-primary);
+}
+
+.raw-data {
+    background: var(--nexus-bg-surface);
+    padding: 16px;
+    border-radius: 8px;
+    margin-top: 12px;
+    font-size: 0.8rem;
+    color: var(--nexus-text-secondary);
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    border: 1px solid var(--nexus-border);
+}
+
+/* ============================================================================
+   Chat Input Section
+   ============================================================================ */
+.engine-chat-input {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--nexus-border);
+}
+
+.engine-chat-input input {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--nexus-bg-surface);
+    border: 1px solid var(--nexus-border);
+    border-radius: 8px;
+    color: var(--nexus-text-primary);
+    font-size: 0.9rem;
+    transition: all var(--nexus-transition);
+}
+
+.engine-chat-input input::placeholder {
+    color: var(--nexus-text-light);
+}
+
+.engine-chat-input input:focus {
+    outline: none;
+    border-color: var(--nexus-primary-light);
+    box-shadow: 0 0 0 3px var(--nexus-primary-glow);
+}
+
+.engine-chat-input button {
+    padding: 10px 16px;
+    background: var(--nexus-primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all var(--nexus-transition);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.engine-chat-input button:hover {
+    background: var(--nexus-primary-dark);
+    transform: translateY(-1px);
+}
+
+/* ============================================================================
+   Follow-up Question Section (Chat per engine card)
+   ============================================================================ */
+.followup-section {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--nexus-border);
+}
+
+.followup-messages {
+    min-height: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 0.75rem;
+}
+
+.followup-msg {
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    border-radius: 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.followup-msg.user {
+    background: var(--nexus-primary);
+    color: white;
+    margin-left: 2rem;
+}
+
+.followup-msg.assistant {
+    background: rgba(15, 23, 42, 0.9);
+    color: #e2e8f0;
+    margin-right: 2rem;
+    border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.followup-input {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.followup-input input {
+    flex: 1;
+    padding: 0.65rem 1rem;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 0.5rem;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+    font-family: inherit;
+    transition: all 0.2s ease;
+}
+
+.followup-input input::placeholder {
+    color: rgba(148, 163, 184, 0.6);
+}
+
+.followup-input input:focus {
+    outline: none;
+    border-color: var(--nexus-primary);
+    box-shadow: 0 0 0 3px rgba(2, 85, 158, 0.15);
+}
+
+.followup-input button {
+    padding: 0.65rem 1.25rem;
+    background: var(--nexus-primary);
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.followup-input button:hover {
+    background: var(--nexus-primary-dark);
+    transform: translateY(-1px);
+}
+
+/* ============================================================================
+   Loading Spinner
+   ============================================================================ */
+.loading-spinner {
+    text-align: center;
+    color: var(--nexus-text-muted);
+    padding: 20px;
+    font-style: italic;
+}
+
+/* ============================================================================
+   Error State
+   ============================================================================ */
+.engine-error {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--nexus-error-bg);
+    border-radius: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.error-icon {
+    font-size: 1.5rem;
+}
+
+.error-message {
+    color: #B91C1C;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+/* ============================================================================
+   Engine Category Tabs
+   ============================================================================ */
+.engine-category-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    padding: 4px;
+    background: var(--nexus-bg-surface);
+    border-radius: 12px;
+}
+
+.engine-category-btn {
+    padding: 10px 18px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--nexus-text-secondary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--nexus-transition);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.engine-category-btn:hover {
+    background: var(--nexus-bg-card);
+    color: var(--nexus-text-primary);
+}
+
+.engine-category-btn.active {
+    background: var(--nexus-bg-card);
+    color: var(--nexus-primary);
+    box-shadow: var(--nexus-shadow-sm);
+    font-weight: 600;
+}
+
+.engine-category-btn .count {
+    background: var(--nexus-primary-subtle);
+    color: var(--nexus-primary);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* ============================================================================
+   Engine Category Content
+   ============================================================================ */
+.engine-category-content {
+    display: none;
+}
+
+.engine-category-content.active {
+    display: block;
+}
+
+.engine-category-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--nexus-border);
+}
+
+.engine-category-header h4 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--nexus-text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.engine-category-stats {
+    display: flex;
+    gap: 12px;
+}
+
+.engine-category-stats .stat {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.engine-category-stats .stat.success {
+    background: var(--nexus-success-bg);
+    color: #047857;
+}
+
+.engine-category-stats .stat.error {
+    background: var(--nexus-error-bg);
+    color: #B91C1C;
+}
+
+.engine-category-stats .stat.pending {
+    background: var(--nexus-bg-surface);
+    color: var(--nexus-text-muted);
+}
+
+/* ============================================================================
+   Charts Container
+   ============================================================================ */
+.engine-chart-container {
+    background: var(--nexus-bg-surface);
+    border-radius: 10px;
+    padding: 16px;
+    margin: 16px 0;
+    border: 1px solid var(--nexus-border);
+}
+
+.engine-chart-container canvas {
+    max-height: 200px;
+}
+
+/* ============================================================================
+   Run Navigation (Multi-Run Support)
+   ============================================================================ */
+.run-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    padding-left: 12px;
+}
+
+.run-nav button {
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--nexus-border);
+    background: var(--nexus-bg-card);
+    color: var(--nexus-text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--nexus-transition);
+    padding: 0 8px;
+}
+
+.run-nav button:hover:not(:disabled) {
+    background: var(--nexus-bg-surface);
+    border-color: var(--nexus-primary-light);
+    color: var(--nexus-primary);
+}
+
+.run-nav button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.run-nav .run-counter {
+    font-size: 0.8rem;
+    color: var(--nexus-primary);
+    font-weight: 600;
+    min-width: 50px;
+    text-align: center;
+    padding: 5px 12px;
+    background: var(--nexus-primary-subtle);
+    border: 1px solid rgba(2, 85, 158, 0.2);
+    border-radius: 14px;
+}
+
+/* ============================================================================
+   Responsive Design
+   ============================================================================ */
+@media (max-width: 768px) {
+    .engine-card-header {
+        padding: 14px 16px;
+    }
+
+    .engine-card-header h3 {
+        font-size: 1rem;
+    }
+
+    .engine-status {
+        font-size: 0.75rem;
+        padding: 4px 10px;
+    }
+
+    .gemma-summary {
+        flex-direction: column;
+        gap: 10px;
+        max-width: 100%;
+    }
+
+    .engine-category-tabs {
+        flex-direction: column;
+    }
+
+    .engine-category-btn {
+        justify-content: center;
+    }
+
+    .engine-meta {
+        gap: 10px;
+    }
+}
+
+/* ============================================================================
+   Engine Visualization Sections
+   ============================================================================ */
+.engine-viz-section {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--nexus-border);
+}
+
+.engine-viz-section h5 {
+    margin: 0 0 1rem 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--nexus-text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.engine-viz-section h5::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 1em;
+    background: var(--nexus-primary);
+    border-radius: 2px;
+}
+
+.waterfall-container,
+.cluster-3d-container,
+.anomaly-chart-container,
+.boxplot-container,
+.fin-chart-container {
+    height: 300px;
+    background: var(--nexus-bg-surface);
+    border-radius: 10px;
+    border: 1px solid var(--nexus-border);
+    overflow: hidden;
+    position: relative;
+}
+
+.fin-viz-premium {
+    padding: 1rem;
+    background: linear-gradient(135deg, var(--nexus-bg-surface), var(--nexus-bg-card));
+    border-radius: 12px;
+    border: 1px solid var(--nexus-border);
+}
+
+.fin-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.fin-gap-md {
+    gap: 1rem;
+}
+
+.fin-grid-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 768px) {
+    .fin-grid-2 {
+        grid-template-columns: 1fr;
+    }
+}
+
+.fin-chart-container-lg {
+    height: 400px;
+    background: var(--nexus-bg-surface);
+    border-radius: 10px;
+    border: 1px solid var(--nexus-border);
+    position: relative;
+}
+
+.fin-chart-container-xl {
+    height: 450px;
+    background: var(--nexus-bg-surface);
+    border-radius: 10px;
+    border: 1px solid var(--nexus-border);
+    position: relative;
+}
+
+/* ============================================================================
+   Visualization Grid + Cards
+   ============================================================================ */
+.engine-viz-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.engine-viz-card {
+    background: var(--nexus-bg-surface);
+    border: 1px solid var(--nexus-border);
+    border-radius: 12px;
+    padding: 0.75rem 0.75rem 0.5rem;
+    min-height: 220px;
+    position: relative;
+}
+
+.engine-viz-card .chart-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--nexus-text-secondary);
+    margin: 0 0 0.5rem 0;
+}
+
+.viz-container {
+    height: 260px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1px solid var(--nexus-border);
+    overflow: hidden;
+    position: relative;
+}
+
+.viz-container.viz-tall {
+    height: 340px;
+}
+
+.viz-container.viz-short {
+    height: 200px;
+}
+
+.scatter-3d-container,
+.anomaly-dist-container,
+.correlation-heatmap-container,
+.line-chart-container,
+.heatmap-container {
+    height: 320px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1px solid var(--nexus-border);
+    overflow: hidden;
+}
+
+/* ============================================================================
+   Metric Cards
+   ============================================================================ */
+.metric-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+}
+
+.metric-card {
+    background: #ffffff;
+    border: 1px solid var(--nexus-border);
+    border-radius: 10px;
+    padding: 0.75rem;
+    text-align: center;
+    box-shadow: var(--nexus-shadow-sm);
+}
+
+.metric-card .metric-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--nexus-primary);
+}
+
+.metric-card .metric-label {
+    font-size: 0.7rem;
+    color: var(--nexus-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 0.25rem;
+}
+
+/* ============================================================================
+   Text Summary Blocks
+   ============================================================================ */
+.text-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--nexus-text-secondary);
+}
+
+.text-summary-item {
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid var(--nexus-border);
+}
+
+/* ============================================================================
+   Clustering Layout
+   ============================================================================ */
+.clustering-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 1rem;
+}
+
+@media (max-width: 1024px) {
+    .clustering-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.clustering-sidebar {
+    background: #ffffff;
+    border: 1px solid var(--nexus-border);
+    border-radius: 12px;
+    padding: 0.75rem;
+    max-height: 420px;
+    overflow: auto;
+}
+
+.cluster-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cluster-card {
+    border: 1px solid var(--nexus-border);
+    border-radius: 10px;
+    padding: 0.6rem;
+    background: var(--nexus-bg-card);
+    transition: border-color var(--nexus-transition), box-shadow var(--nexus-transition);
+}
+
+.cluster-card:hover {
+    border-color: var(--nexus-primary-light);
+    box-shadow: var(--nexus-shadow-sm);
+}
+
+.cluster-card.selected {
+    border-color: var(--nexus-primary);
+    box-shadow: 0 0 12px rgba(2, 85, 158, 0.2);
+    background: rgba(2, 85, 158, 0.08);
+}
+
+.cluster-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+}
+
+.cluster-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.2rem 0.45rem;
+    border-radius: 6px;
+    background: var(--nexus-primary-subtle);
+    color: var(--nexus-primary-dark);
+}
+
+.cluster-size {
+    font-size: 0.7rem;
+    color: var(--nexus-text-muted);
+}
+
+.cluster-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.72rem;
+    color: var(--nexus-text-secondary);
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.stat-name {
+    color: var(--nexus-text-muted);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stat-value {
+    color: var(--nexus-text-secondary);
+    font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.stat-more {
+    font-size: 0.7rem;
+    color: var(--nexus-primary);
+    font-style: italic;
+    margin-top: 0.2rem;
+}
+
+.pca-explanation {
+    margin-top: 0.75rem;
+    padding: 0.6rem;
+    border-radius: 10px;
+    background: var(--nexus-bg-surface);
+    border: 1px solid var(--nexus-border);
+}
+
+.pca-explanation h6 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    color: var(--nexus-primary);
+}
+
+.pca-components {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.pca-component {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--nexus-text-secondary);
+}
+
+.pc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pc-variance {
+    font-size: 0.7rem;
+    color: var(--nexus-primary-dark);
+    background: rgba(2, 85, 158, 0.12);
+    padding: 0.1rem 0.35rem;
+    border-radius: 6px;
+}
+
+.pc-features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.pc-feature {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.35rem;
+    border-radius: 6px;
+    background: rgba(2, 85, 158, 0.08);
+    color: var(--nexus-primary-dark);
+}
+
+.pc-feature.positive {
+    background: rgba(16, 185, 129, 0.2);
+    color: #0f766e;
+}
+
+.pc-feature.negative {
+    background: rgba(239, 68, 68, 0.18);
+    color: #b91c1c;
+}
+
+/* ============================================================================
+   Demo Data + Error States
+   ============================================================================ */
+.demo-data-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(245, 158, 11, 0.2);
+    color: #b45309;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.demo-data-notice {
+    padding: 1.5rem;
+    text-align: center;
+    color: var(--nexus-text-muted);
+    font-size: 0.85rem;
+}

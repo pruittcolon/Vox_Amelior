@@ -155,21 +155,20 @@ services:
     environment:
       GEMMA_MODEL_PATH: /app/models/gemma-3-4b-it-UD-Q4_K_XL.gguf # 4-bit model (2.4GB) - Production
       GEMMA_GPU_LAYERS: "-1" # ALL layers on GPU
-      GEMMA_CONTEXT_SIZE: "16384" # 16K context with Q8_0 cache (tested on 6GB GPU)
+      GEMMA_CONTEXT_SIZE: "2048" # Reduced to 2k for 6GB GPU with ML service sharing
       GEMMA_BATCH_SIZE: "512" # Batch size for processing
-      GEMMA_CACHE_TYPE: "${GEMMA_CACHE_TYPE:-q8_0}" # KV cache quantization: q8_0 (default), fp16, or q4_0
       GPU_COORDINATOR_URL: http://gpu-coordinator:8002
       RAG_SERVICE_URL: http://rag-service:8004
       JWT_ONLY: "true"
     volumes:
-      - ../models1:/app/models:ro
+      - ../models:/app/models:ro
     secrets:
       - jwt_secret_primary
       - jwt_secret_previous
       - jwt_secret
-    # Internal only: rely on docker network instead of host port mapping
-    # ports:
-    #   - "8001:8001"
+    # Phase 4: Remove host port mapping - internal only
+    ports:
+      - "8001:8001"
     deploy:
       resources:
         reservations:
@@ -227,7 +226,7 @@ services:
       HF_HOME: /app/models # HuggingFace cache directory in image
       JWT_ONLY: "true"
     volumes:
-      - ../models1/diar_sortformer_4spk-v1.nemo:/app/models/diar_sortformer_4spk-v1.nemo:ro
+      - ../models/diar_sortformer_4spk-v1.nemo:/app/models/diar_sortformer_4spk-v1.nemo:ro
       - ../services/transcription-service/src:/app/src
       - ../shared:/app/shared
       # Enrollment embeddings for speaker identification (Pruitt, Ericah)
@@ -407,7 +406,7 @@ services:
       - ./rag_instance:/app/instance
       - ./faiss_index:/app/faiss_index
       - ../services/rag-service/src:/app/src
-      - ../models1:/app/models
+      - ../models:/app/models
       - ../shared:/app/shared
     secrets:
       - jwt_secret_primary
@@ -428,6 +427,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Memory limits to prevent OOM
+    mem_limit: 768m
+    mem_reservation: 256m
     networks:
       - nemo_network
 
@@ -505,7 +507,7 @@ services:
       EMOTION_MODEL_PATH: "/app/models/emotion-english-distilroberta-base"
       JWT_ONLY: "true"
     volumes:
-      - ../models1:/app/models:ro
+      - ../models:/app/models:ro
     secrets:
       - jwt_secret_primary
       - jwt_secret_previous
@@ -519,6 +521,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    # Memory limits to prevent OOM
+    mem_limit: 768m
+    mem_reservation: 256m
     networks:
       - nemo_network
 
@@ -537,9 +542,8 @@ services:
       UPLOAD_DIR: /app/data/uploads
       # GPU Coordination for ML Engines
       GPU_COORDINATOR_URL: http://gpu-coordinator:8002
-      # IMPORTANT: Disabled GPU to free VRAM for Gemma (GTX 1660 Ti only has 6GB)
-      # ML service runs fine on CPU, Gemma NEEDS GPU for acceptable performance
-      GPU_ENABLED: "false"
+      # GPU enabled for Titan AutoML engine
+      GPU_ENABLED: "true"
       GPU_REQUEST_TIMEOUT: "15"
       GPU_FALLBACK_TO_CPU: "true"
     volumes:
@@ -564,6 +568,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Memory limits to prevent OOM
+    mem_limit: 2g
+    mem_reservation: 512m
     networks:
       - nemo_network
 

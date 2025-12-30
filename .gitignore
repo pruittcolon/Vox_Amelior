@@ -260,6 +260,13 @@ EvenDemoApp-main/
 # Test artifacts (Phase 5 cleanup)
 playwright-report/
 test_reports/
+test-results/
+tests/nexus_engine_screenshots/
+
+# Local Scripts
+kill_services.sh
+scripts/gpu_handoff_test.sh
+CASchools_synthetic.csv
 
 # PII Documents - Personal files (not part of repo)
 mobile-app/Application.txt

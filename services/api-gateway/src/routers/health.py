@@ -74,3 +74,56 @@ async def audit_status() -> dict[str, Any]:
         ],
         "thresholds": audit.thresholds,
     }
+
+
+# =============================================================================
+# GPU Status Proxy Endpoints (for frontend monitoring)
+# =============================================================================
+
+ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://ml-service:8006")
+GPU_COORDINATOR_URL = os.getenv("GPU_COORDINATOR_URL", "http://gpu-coordinator:8002")
+
+
+@router.get("/api/ml/gpu-status")
+async def ml_gpu_status() -> dict[str, Any]:
+    """Proxy GPU status from ML service."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{ML_SERVICE_URL}/gpu-status")
+            if response.status_code == 200:
+                return response.json()
+            return {"cuda_available": False, "error": "ML service unavailable"}
+    except Exception as e:
+        logger.warning(f"GPU status check failed: {e}")
+        return {"cuda_available": False, "error": str(e)}
+
+
+@router.get("/api/gpu-coordinator/gpu/state")
+async def gpu_coordinator_state() -> dict[str, Any]:
+    """Proxy GPU state from coordinator."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{GPU_COORDINATOR_URL}/gpu/state")
+            if response.status_code == 200:
+                return response.json()
+            return {"owner": "unknown", "available": False}
+    except Exception as e:
+        logger.warning(f"GPU coordinator state check failed: {e}")
+        return {"owner": "unknown", "available": False, "error": str(e)}
+
+
+@router.get("/api/gpu-coordinator/status")
+async def gpu_coordinator_status() -> dict[str, Any]:
+    """Proxy status from GPU coordinator health endpoint."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{GPU_COORDINATOR_URL}/health")
+            if response.status_code == 200:
+                return response.json()
+            return {"status": "unavailable"}
+    except Exception as e:
+        logger.warning(f"GPU coordinator status check failed: {e}")
+        return {"status": "unavailable", "error": str(e)}

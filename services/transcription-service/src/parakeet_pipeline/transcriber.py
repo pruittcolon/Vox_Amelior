@@ -66,9 +66,13 @@ class ParakeetPipeline:
         else:
             self.model_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-        logger.info("Loading Parakeet model %s on %s", self.model_id, self.model_device)
-        self.model: EncDecCTCModelBPE = EncDecCTCModelBPE.from_pretrained(self.model_id)
-        self.model = self.model.to(self.model_device)
+        if self.model_device == "cpu":
+            logger.info("Loading Parakeet model on CPU strictly (map_location='cpu')")
+            self.model: EncDecCTCModelBPE = EncDecCTCModelBPE.from_pretrained(self.model_id, map_location="cpu")
+        else:
+            self.model: EncDecCTCModelBPE = EncDecCTCModelBPE.from_pretrained(self.model_id)
+            self.model = self.model.to(self.model_device)
+        
         self.model.eval()
         logger.info("Parakeet model loaded successfully")
 
@@ -107,16 +111,77 @@ class ParakeetPipeline:
             self.diarizer.to(target)
 
         if target == "cpu":
-            # Force proper CUDA memory release
-            import gc
+            self._force_cuda_cleanup()
 
-            gc.collect()  # Force garbage collection first
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()  # Wait for any pending operations
-                torch.cuda.empty_cache()  # Release cached memory
-                # Log memory freed
-                allocated = torch.cuda.memory_allocated() / 1024**2
-                logger.info("VRAM released, current allocation: %.1f MB", allocated)
+    def _force_cuda_cleanup(self) -> None:
+        """Aggressively release CUDA memory including NeMo's cached kernels."""
+        import gc
+        
+        # Force garbage collection multiple times
+        for _ in range(3):
+            gc.collect()
+        
+        if torch.cuda.is_available():
+            # Synchronize all streams
+            torch.cuda.synchronize()
+            
+            # Empty PyTorch cache
+            torch.cuda.empty_cache()
+            
+            # Reset peak memory stats
+            torch.cuda.reset_peak_memory_stats()
+            
+            # Force another collection after cache clear
+            gc.collect()
+            torch.cuda.empty_cache()
+            
+            # Log memory state
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            logger.info("VRAM released, current allocation: %.1f MB (reserved: %.1f MB)", allocated, reserved)
+
+    def offload_to_cpu(self) -> None:
+        """
+        Completely offload model to free GPU memory.
+        
+        This is more aggressive than to('cpu') - it deletes CUDA resources
+        to release memory held by NeMo's compiled kernels and CUDA context.
+        """
+        if self.model_device == "cpu":
+            logger.info("Model already on CPU, nothing to offload")
+            return
+            
+        logger.info("Offloading Parakeet model to CPU (aggressive release)")
+        
+        # Move model to CPU first
+        self.model = self.model.to("cpu")
+        self.model_device = "cpu"
+        
+        # Offload diarizer too
+        if self.diarizer and hasattr(self.diarizer, "offload_to_cpu"):
+            self.diarizer.offload_to_cpu()
+        elif self.diarizer and hasattr(self.diarizer, "to"):
+            self.diarizer.to("cpu")
+        
+        # Aggressive CUDA cleanup
+        self._force_cuda_cleanup()
+        
+        # Additional NeMo-specific cleanup
+        try:
+            # Clear NeMo's JIT compiled artifacts if any
+            if hasattr(self.model, 'preprocessor') and hasattr(self.model.preprocessor, '_featurizer'):
+                if hasattr(self.model.preprocessor._featurizer, '_mel_spec_cache'):
+                    self.model.preprocessor._featurizer._mel_spec_cache = None
+        except Exception:
+            pass  # Best effort cleanup
+        
+        # Final cleanup pass
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            logger.info("Offload complete. VRAM allocation: %.1f MB", allocated)
 
     # ------------------------------------------------------------------#
     # Direct Audio Transcription (for streaming)

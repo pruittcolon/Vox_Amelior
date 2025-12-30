@@ -200,6 +200,16 @@ export function clearSessionStorage() {
 }
 
 /**
+ * Cancel and completely reset the current session.
+ * Clears both in-memory state and localStorage.
+ */
+export function cancelSession() {
+    analysisSession = getDefaultSession();
+    analysisStopped = false;
+    clearSessionStorage();
+}
+
+/**
  * Restore session from storage into memory.
  * @param {AnalysisSession} savedSession
  */

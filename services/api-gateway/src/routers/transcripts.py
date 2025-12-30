@@ -128,7 +128,7 @@ async def transcripts_recent(limit: int = 10, session: Session = Depends(require
 async def transcript_get(job_id: str, session: Session = Depends(require_auth)):
     """Get transcript by job_id."""
     proxy_request = _get_proxy_request()
-    return await proxy_request(f"{RAG_URL}/transcripts/{job_id}", "GET")
+    return await proxy_request(f"{RAG_URL}/transcript/{job_id}", "GET")
 
 
 @router.get("/api/result/{job_id}")

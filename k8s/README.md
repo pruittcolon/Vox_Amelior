@@ -1,5 +1,10 @@
 # Kubernetes Deployment
 
+> [!WARNING]
+> **Deprecated Deployment Method**
+> The Kubernetes manifests in this directory are not actively maintained and may reference outdated image tags.
+> The primary supported deployment method is **Docker Compose** (via `./nemo` or `docker/docker-compose.yml`).
+
 This directory contains Kubernetes manifests for deploying the Nemo platform on a local or cloud K8s cluster.
 
 ## 📁 Directory Structure

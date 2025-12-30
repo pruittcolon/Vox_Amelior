@@ -32,7 +32,7 @@ graph TD
     subgraph "Memory & Analysis"
         Gateway -->|Route| RAG[RAG Service]
         Gateway -->|Route| Insights[Insights Service]
-        Gateway -->|Route| ML[ML Service - 27 Engines]
+        Gateway -->|Route| ML[ML Service - 36 Engines]
     end
     
     subgraph "Infrastructure"
@@ -41,7 +41,7 @@ graph TD
     end
 ```
 
-### Service Catalog (11 Microservices + 2 Infrastructure)
+### Service Catalog (13 Containerized Services)
 
 | Service | Internal Port | External Binding | Description | Tech Stack |
 | :--- | :---: | :---: | :--- | :--- |
@@ -56,8 +56,8 @@ graph TD
 | **Insights Service** | 8010 | Internal only | Business Analytics | Python, Pandas |
 | **Fiserv Service** | 8015 | Internal only | Banking Automation & DNA Integration | Python, FastAPI |
 | **n8n Service** | 8011 | `127.0.0.1:8011` | Workflow Automation (Webhooks) | Node.js |
-| **Redis** | 6379 | `127.0.0.1:6379` | Cache, Pub/Sub, GPU Lock | Redis 7 + Auth |
-| **PostgreSQL** | 5432 | `127.0.0.1:5432` | Relational DB | PostgreSQL 15 |
+| **Redis** | 6379 | `0.0.0.0:6379` | Cache, Pub/Sub, GPU Lock | Redis 7 + Auth |
+| **PostgreSQL** | 5432 | `0.0.0.0:5432` | Relational DB | PostgreSQL 15 |
 
 ## 3. Enterprise Features (Phase 5)
 
@@ -151,7 +151,7 @@ User Query → Gateway → Gemma (LLM) → RAG Context → Response
 ./scripts/generate_certs.sh
 
 # Start all services
-./start.sh
+./nemo
 
 # Access: https://localhost (accept self-signed cert warning)
 ```

@@ -1,6 +1,10 @@
 # Multi-Computer Development Architecture
 
-This document explains how Nemo Server operates across two computers with WireGuard VPN and VNC.
+# Multi-Computer Development Architecture
+
+**Use Case: Active Development Workflow** - Use this guide if you are developing on a powerful main PC but running the backend/docker containers on a secondary laptop (e.g. to offload compute or manage resources).
+
+This document explains how Nemo Server operates across two computers with WireGuard VPN and VNC for a seamless development experience.
 
 ## Overview
 

@@ -12,21 +12,42 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Icons (Vendored Locally) -->
+    <script src="assets/js/vendor/lucide.min.js"></script>
 
     <!-- Vox Amelior Design System (Light Theme) -->
     <link rel="stylesheet" href="assets/css/vox-amelior.css">
 
-    <!-- Engine Results Styles -->
-    <link rel="stylesheet" href="assets/css/predictions/predictions-engines.css">
+    <!-- Engine Results Styles (Light Theme) -->
+    <link rel="stylesheet" href="assets/css/nexus/nexus-engines.css">
 
-    <!-- Chart Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- 3D Quality Dashboard Styles -->
+    <link rel="stylesheet" href="assets/css/nexus/quality-3d.css">
+
+    <!-- Chart Libraries (Vendored Locally for CSP compliance and offline) -->
+    <script src="assets/js/vendor/chart.umd.min.js"></script>
+    <script src="assets/js/vendor/plotly.min.js" defer></script>
+    <script src="assets/js/vendor/echarts.min.js" defer></script>
+
+    <!-- Financial Chart Modules (Vendored Locally) -->
+    <script src="assets/js/financial-charts-core.js" defer></script>
+    <script src="assets/js/nexus/visualizations/financial-theme.js" defer></script>
+    <script src="assets/js/financial-charts-flow.js" defer></script>
+    <script src="assets/js/financial-charts-kpi.js" defer></script>
+    <script src="assets/js/financial-charts-advanced.js" defer></script>
+
+    <!-- Three.js for 3D Visualization (Vendored Locally) -->
+    <script src="assets/js/vendor/three.min.js"></script>
+    <script src="assets/js/vendor/OrbitControls.js"></script>
 
     <style>
+        /* CSS Variable Mapping */
+        :root {
+            --vox-error: var(--vox-danger, #EF4444);
+            --vox-accent: var(--vox-primary-light, #2B7FD4);
+        }
+
         /* Progress Bar */
         .analysis-progress-container {
             margin: 2rem 0;
@@ -491,12 +512,171 @@
             <div style="text-align: center; margin-top: 2rem;">
                 <button class="vox-btn vox-btn-accent" style="padding: 1rem 3rem; font-size: 1.1rem;" id="analyze-btn"
                     disabled>
-                    ⚡ Start Full Analysis
+                    Start Full Analysis
                 </button>
                 <p style="margin-top: 0.75rem; color: var(--vox-grey-500); font-size: 0.9rem;">
                     All 22 engines will analyze your data sequentially with AI summaries
                 </p>
+                <label
+                    style="display: flex; align-items: center; gap: 0.5rem; justify-content: center; margin-top: 0.75rem; color: var(--vox-grey-600); font-size: 0.85rem; cursor: pointer;">
+                    <input type="checkbox" id="use-vectors" style="accent-color: var(--vox-primary);">
+                    Enable Gemma Vectorization (experimental)
+                </label>
             </div>
+
+            <!-- Single Engine Test Panel -->
+            <div id="single-engine-panel"
+                style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--vox-grey-200); display: none;">
+                <h3
+                    style="text-align: center; font-size: 1.25rem; font-weight: 600; color: var(--vox-grey-800); margin-bottom: 1rem;">
+                    Test Individual Engines
+                </h3>
+                <p style="text-align: center; color: var(--vox-grey-500); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                    Click any engine below to run it individually. Results will appear in the Engine Results section.
+                </p>
+
+                <!-- ML Engines -->
+                <div style="margin-bottom: 1.5rem;">
+                    <h4
+                        style="font-size: 0.9rem; color: var(--vox-grey-600); margin-bottom: 0.75rem; font-weight: 600;">
+                        ML and Analytics (7 engines)</h4>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                        <button class="single-engine-btn" data-engine="titan"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Titan
+                            AutoML</button>
+                        <button class="single-engine-btn" data-engine="predictive"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Predictive</button>
+                        <button class="single-engine-btn" data-engine="clustering"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Clustering</button>
+                        <button class="single-engine-btn" data-engine="anomaly"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Anomaly</button>
+                        <button class="single-engine-btn" data-engine="statistical"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Statistical</button>
+                        <button class="single-engine-btn" data-engine="trend"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Trend</button>
+                        <button class="single-engine-btn" data-engine="graphs"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Universal
+                            Graph</button>
+                    </div>
+                </div>
+
+                <!-- Financial Engines -->
+                <div style="margin-bottom: 1.5rem;">
+                    <h4
+                        style="font-size: 0.9rem; color: var(--vox-grey-600); margin-bottom: 0.75rem; font-weight: 600;">
+                        Financial Intelligence (12 engines)</h4>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                        <button class="single-engine-btn" data-engine="cost"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Cost
+                            Optimization</button>
+                        <button class="single-engine-btn" data-engine="roi"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">ROI
+                            Prediction</button>
+                        <button class="single-engine-btn" data-engine="spend_patterns"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Spend
+                            Patterns</button>
+                        <button class="single-engine-btn" data-engine="budget_variance"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Budget
+                            Variance</button>
+                        <button class="single-engine-btn" data-engine="profit_margins"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Profit
+                            Margins</button>
+                        <button class="single-engine-btn" data-engine="revenue_forecasting"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Revenue
+                            Forecast</button>
+                        <button class="single-engine-btn" data-engine="customer_ltv"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Customer
+                            LTV</button>
+                        <button class="single-engine-btn" data-engine="cash_flow"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Cash
+                            Flow</button>
+                        <button class="single-engine-btn" data-engine="inventory_optimization"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Inventory</button>
+                        <button class="single-engine-btn" data-engine="pricing_strategy"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Pricing
+                            Strategy</button>
+                        <button class="single-engine-btn" data-engine="market_basket"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Market
+                            Basket</button>
+                        <button class="single-engine-btn" data-engine="resource_utilization"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Resource
+                            Util</button>
+                    </div>
+                </div>
+
+                <!-- Advanced Engines -->
+                <div style="margin-bottom: 1rem;">
+                    <h4
+                        style="font-size: 0.9rem; color: var(--vox-grey-600); margin-bottom: 0.75rem; font-weight: 600;">
+                        Advanced AI Lab (3 engines)</h4>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                        <button class="single-engine-btn" data-engine="rag_evaluation"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">RAG
+                            Evaluation</button>
+                        <button class="single-engine-btn" data-engine="chaos"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Chaos
+                            Engine</button>
+                        <button class="single-engine-btn" data-engine="oracle"
+                            style="padding: 0.5rem 1rem; border: 1px solid var(--vox-grey-200); background: white; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">Oracle
+                            Causality</button>
+                    </div>
+                </div>
+
+                <!-- Status Display -->
+                <div id="single-engine-status"
+                    style="margin-top: 1.5rem; padding: 1rem; background: var(--vox-grey-50); border-radius: 0.5rem; display: none;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div id="single-engine-spinner" class="spinner"
+                            style="width: 20px; height: 20px; border: 2px solid var(--vox-grey-200); border-top-color: var(--vox-primary); border-radius: 50%; animation: spin 1s linear infinite;">
+                        </div>
+                        <span id="single-engine-status-text" style="color: var(--vox-grey-600);">Running
+                            engine...</span>
+                    </div>
+                </div>
+            </div>
+
+            <style>
+                .single-engine-btn:hover {
+                    border-color: var(--vox-primary) !important;
+                    background: rgba(99, 102, 241, 0.05) !important;
+                }
+
+                .single-engine-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+
+                .single-engine-btn.running {
+                    border-color: var(--vox-primary) !important;
+                    background: rgba(99, 102, 241, 0.1) !important;
+                }
+
+                .single-engine-btn.success {
+                    border-color: var(--vox-success) !important;
+                    background: rgba(34, 197, 94, 0.1) !important;
+                }
+
+                .single-engine-btn.error {
+                    border-color: var(--vox-danger) !important;
+                    background: rgba(239, 68, 68, 0.1) !important;
+                }
+
+                @keyframes spin {
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+            </style>
+        </div>
+    </section>
+
+    <!-- Recent Analyses Section (Hidden initially) -->
+    <section style="max-width: 1200px; margin: 0 auto; padding: 1rem 1.5rem; display: none;" id="recent-section">
+        <div class="vox-card" style="padding: 1.5rem;">
+            <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--vox-grey-800); margin: 0 0 1rem 0;">📂 Resume
+                Previous Analysis</h3>
+            <div id="recent-grid"
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;"></div>
         </div>
     </section>
 
@@ -578,20 +758,143 @@
                     <span class="category-arrow">→</span>
                 </div>
             </div>
+
+            <!-- Quality Intelligence (NEW - Flagship Feature) -->
+            <div class="category-card" data-category="quality" onclick="window.NexusUI?.showQualityDashboard()"
+                style="cursor: pointer;">
+                <div class="category-icon"
+                    style="background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(99, 102, 241, 0.2));">🏔️
+                </div>
+                <h3 class="category-title">Quality Intelligence</h3>
+                <p class="category-description">3D visualization of data quality. Transform Gemma scores into actionable
+                    business savings and ML-ready assessments.</p>
+                <div class="category-tags">
+                    <span class="category-tag">3D Terrain</span>
+                    <span class="category-tag">Business Savings</span>
+                    <span class="category-tag">ML Readiness</span>
+                    <span class="category-tag">LLM Analysis</span>
+                </div>
+                <div class="category-footer">
+                    <span class="category-count" style="color: #22c55e;">✨ Flagship</span>
+                    <span class="category-arrow">→</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3D Quality Intelligence Dashboard (Hidden initially) -->
+    <section style="max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; display: none;"
+        id="quality-dashboard-section">
+        <div class="vox-card" style="padding: 0; overflow: hidden;">
+            <!-- Dashboard Header -->
+            <div
+                style="padding: 1.5rem 2rem; background: linear-gradient(135deg, #0f0f17 0%, #1a1a2e 100%); border-bottom: 1px solid rgba(99, 102, 241, 0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2 style="font-size: 1.5rem; font-weight: 700; color: #ffffff; margin: 0 0 0.25rem 0;">🏔️
+                            Quality Intelligence Dashboard</h2>
+                        <p style="color: #888; margin: 0; font-size: 0.9rem;">3D visualization of data quality from
+                            Gemma analysis</p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <select id="quality-file-select" class="vox-btn vox-btn-ghost"
+                            style="background: rgba(15, 15, 25, 0.9); border: 1px solid rgba(99, 102, 241, 0.3); color: #e0e0e0;">
+                            <option value="">Select insights file...</option>
+                        </select>
+                        <button class="vox-btn vox-btn-primary" onclick="window.NexusUI?.loadQualityData()"
+                            id="load-quality-btn">
+                            🔄 Load 3D View
+                        </button>
+                        <button class="vox-btn vox-btn-ghost" onclick="window.NexusUI?.hideQualityDashboard()"
+                            style="color: #888;">
+                            ✕ Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3D Viewer Container -->
+            <div class="quality-3d-container" id="quality-3d-viewer">
+                <!-- Three.js renders here -->
+
+                <!-- Savings Panel Overlay -->
+                <div class="savings-panel" id="savings-panel" style="display: none;">
+                    <div class="savings-header">
+                        <div class="savings-icon">💰</div>
+                        <div>
+                            <div class="savings-title">Estimated Annual Savings</div>
+                            <div class="savings-total" id="savings-total">$0</div>
+                        </div>
+                    </div>
+                    <div class="savings-issues" id="savings-issues">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Quality Legend -->
+                <div class="quality-legend">
+                    <div class="legend-title">Quality Score</div>
+                    <div class="legend-item">
+                        <div class="legend-color high"></div>
+                        <span>8-10: High (ML Ready)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color medium"></div>
+                        <span>6-7: Medium (Review)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color low"></div>
+                        <span>1-5: Low (Exclude)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info Panel -->
+            <div class="quality-info-panel"
+                style="position: relative; display: flex; gap: 1rem; padding: 1rem 2rem; background: #0f0f17;">
+                <div class="quality-stat-card">
+                    <div class="quality-stat-label">ML Readiness</div>
+                    <div class="quality-stat-value high" id="stat-ml-readiness">-%</div>
+                </div>
+                <div class="quality-stat-card">
+                    <div class="quality-stat-label">Avg Quality</div>
+                    <div class="quality-stat-value" id="stat-avg-quality">-/10</div>
+                </div>
+                <div class="quality-stat-card">
+                    <div class="quality-stat-label">Problem Rows</div>
+                    <div class="quality-stat-value low" id="stat-problem-rows">-</div>
+                </div>
+                <div class="quality-stat-card">
+                    <div class="quality-stat-label">Data Points</div>
+                    <div class="quality-stat-value" id="stat-data-points">-</div>
+                </div>
+            </div>
+
+            <!-- Recommendations -->
+            <div style="padding: 1.5rem 2rem; background: var(--vox-grey-50);">
+                <h3 style="font-size: 1rem; font-weight: 600; color: var(--vox-grey-800); margin: 0 0 1rem 0;">📋
+                    Recommendations</h3>
+                <div id="quality-recommendations" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <p style="color: var(--vox-grey-500); margin: 0;">Select an insights file to view recommendations...
+                    </p>
+                </div>
+            </div>
         </div>
     </section>
 
     <!-- Engine Results Section (Hidden initially) -->
-    <section style="max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; display: none;" id="all-engines-section">
+    <section style="max-width: 1000px; margin: 0 auto; padding: 2rem 1.5rem; display: none;" id="all-engines-section">
         <div class="vox-card" style="padding: 2rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--vox-grey-900); margin: 0;">🧪 Comprehensive
                     Analysis Results</h2>
                 <div style="display: flex; gap: 0.5rem;">
                     <button class="vox-btn vox-btn-ghost" id="stop-btn" onclick="window.NexusUI.stopAnalysis()"
-                        style="display: none;">⏸️ Pause</button>
+                        style="display: none;">Pause</button>
                     <button class="vox-btn vox-btn-ghost" id="resume-btn" onclick="window.NexusUI.resumeAnalysis()"
-                        style="display: none;">▶️ Resume</button>
+                        style="display: none;">Resume</button>
+                    <button class="vox-btn vox-btn-ghost" id="clear-btn" onclick="window.NexusUI.clearAnalysis()"
+                        style="color: var(--vox-error);">Clear/Reset</button>
                 </div>
             </div>
 
@@ -609,13 +912,17 @@
 
             <!-- Engine Category Tabs -->
             <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
-                <button class="vox-btn vox-btn-primary" onclick="window.NexusUI.switchCategory('all')">📊 All Engines
+                <button class="vox-btn vox-btn-primary engine-category-btn active" data-category="all"
+                    onclick="window.NexusUI.switchCategory('all')">📊 All Engines
                     (22)</button>
-                <button class="vox-btn vox-btn-ghost" onclick="window.NexusUI.switchCategory('ml')">🤖 ML & Analytics
+                <button class="vox-btn vox-btn-ghost engine-category-btn" data-category="ml"
+                    onclick="window.NexusUI.switchCategory('ml')">🤖 ML & Analytics
                     (7)</button>
-                <button class="vox-btn vox-btn-ghost" onclick="window.NexusUI.switchCategory('financial')">💰 Financial
+                <button class="vox-btn vox-btn-ghost engine-category-btn" data-category="financial"
+                    onclick="window.NexusUI.switchCategory('financial')">💰 Financial
                     (12)</button>
-                <button class="vox-btn vox-btn-ghost" onclick="window.NexusUI.switchCategory('advanced')">🔬 Advanced
+                <button class="vox-btn vox-btn-ghost engine-category-btn" data-category="advanced"
+                    onclick="window.NexusUI.switchCategory('advanced')">🔬 Advanced
                     (3)</button>
             </div>
 
@@ -668,7 +975,290 @@
                 item.addEventListener('mouseleave', () => item.style.background = 'transparent');
             });
         });
+
+        // ==================================================================
+        // Single Engine Test Functionality
+        // ==================================================================
+        let currentUploadedFilename = null;  // Will store UUID-prefixed filename
+        let targetColumn = 'math';  // Default target column
+
+        // Show panel when file is uploaded
+        window.showSingleEnginePanel = function (filename, defaultTarget) {
+            currentUploadedFilename = filename;
+            targetColumn = defaultTarget || 'math';
+            const panel = document.getElementById('single-engine-panel');
+            if (panel) {
+                panel.style.display = 'block';
+            }
+        };
+
+        // Hide panel
+        window.hideSingleEnginePanel = function () {
+            const panel = document.getElementById('single-engine-panel');
+            if (panel) {
+                panel.style.display = 'none';
+            }
+        };
+
+        // Run a single engine
+        window.runSingleEngine = async function (engineName) {
+            if (!currentUploadedFilename) {
+                alert('Please upload a file first');
+                return;
+            }
+
+            const btn = document.querySelector(`[data-engine="${engineName}"]`);
+            const statusEl = document.getElementById('single-engine-status');
+            const statusText = document.getElementById('single-engine-status-text');
+            const allBtns = document.querySelectorAll('.single-engine-btn');
+
+            // Update UI
+            allBtns.forEach(b => b.disabled = true);
+            btn.classList.add('running');
+            btn.classList.remove('success', 'error');
+            statusEl.style.display = 'block';
+            statusText.textContent = `Running ${engineName} engine...`;
+
+            try {
+                const response = await fetch(`/api/analytics/run-engine/${engineName}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        filename: currentUploadedFilename,
+                        target_column: targetColumn,
+                        config: {}
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || data.error || 'Engine failed');
+                }
+
+                btn.classList.remove('running');
+                btn.classList.add('success');
+                statusText.textContent = `${engineName} completed successfully!`;
+
+                // Scroll to results and show in the engine results section
+                const resultsSection = document.getElementById('category-all');
+                if (resultsSection) {
+                    const resultCard = createEngineResultCard(engineName, data);
+                    const enginesResults = document.getElementById('all-engines-results');
+                    if (enginesResults) {
+                        enginesResults.innerHTML = ''; // Clear previous single results
+                        enginesResults.appendChild(resultCard);
+                    }
+                    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+
+                console.log(`[${engineName}] Result:`, data);
+
+            } catch (error) {
+                console.error(`[${engineName}] Error:`, error);
+                btn.classList.remove('running');
+                btn.classList.add('error');
+                statusText.textContent = `Error: ${error.message}`;
+            } finally {
+                allBtns.forEach(b => b.disabled = false);
+            }
+        };
+
+        // Create result card for single engine WITH PLOTLY CHART
+        function createEngineResultCard(engineName, data) {
+            const card = document.createElement('div');
+            card.className = 'engine-card';
+            card.style.cssText = 'background: white; border: 1px solid var(--vox-grey-200); border-radius: 1rem; padding: 1.5rem; margin-bottom: 1rem;';
+
+            const engineDisplay = data.engine || data.engine_display_name || engineName;
+            const taskType = data.task_type || 'analysis';
+            const insights = data.insights || [];
+            const vizId = 'viz-' + Date.now();
+
+            let insightsHtml = '';
+            if (insights.length > 0) {
+                insightsHtml = `<div style="margin-top: 1rem; background: var(--vox-grey-50); padding: 1rem; border-radius: 0.5rem;">
+                    <h5 style="margin: 0 0 0.5rem 0; color: var(--vox-grey-800);">Insights</h5>
+                    <ul style="margin: 0; padding-left: 1.25rem; color: var(--vox-grey-600); font-size: 0.9rem;">
+                        ${insights.slice(0, 5).map(i => `<li>${i}</li>`).join('')}
+                    </ul>
+                </div>`;
+            }
+
+            let variantsHtml = '';
+            if (data.variants && data.variants.length > 0) {
+                variantsHtml = `<p style="margin-top: 0.75rem; color: var(--vox-success);">Generated ${data.variants.length} model variants</p>`;
+            }
+
+            let featuresHtml = '';
+            if (data.stable_features && data.stable_features.length > 0) {
+                featuresHtml = `<p style="margin-top: 0.5rem; color: var(--vox-grey-600); font-size: 0.9rem;">
+                    Top Features: ${data.stable_features.slice(0, 5).join(', ')}
+                </p>`;
+            }
+
+            // Add chart container for Plotly
+            let chartHtml = '';
+
+            // Check for Titan (Feature Importance)
+            if (data.feature_importance && data.feature_importance.length > 0) {
+                chartHtml = `<div style="margin-top: 1.5rem; background: var(--vox-grey-50); padding: 1rem; border-radius: 0.75rem;">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--vox-grey-800);">Feature Impact Analysis</h5>
+                    <div id="${vizId}" style="width: 100%; height: 350px;"></div>
+                </div>`;
+            }
+            // Check for Clustering (PCA 3D)
+            else if (data.pca_3d && data.pca_3d.points) {
+                chartHtml = `<div style="margin-top: 1.5rem; background: var(--vox-grey-50); padding: 1rem; border-radius: 0.75rem;">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--vox-grey-800);">3D Cluster Visualization</h5>
+                    <div id="${vizId}" style="width: 100%; height: 500px;"></div>
+                </div>`;
+            }
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h4 style="margin: 0; color: var(--vox-grey-800);">${engineDisplay}</h4>
+                    <span style="padding: 0.25rem 0.75rem; background: var(--vox-success-subtle, #dcfce7); color: var(--vox-success); border-radius: 9999px; font-size: 0.75rem;">Complete</span>
+                </div>
+                <p style="color: var(--vox-grey-600); margin: 0;">Task: ${taskType}</p>
+                ${data.target_column ? `<p style="color: var(--vox-grey-600); margin: 0.25rem 0; font-size: 0.9rem;">Target: ${data.target_column}</p>` : ''}
+                ${data.best_model ? `<p style="color: var(--vox-grey-600); margin: 0.25rem 0; font-size: 0.9rem;">Best Model: ${data.best_model}</p>` : ''}
+                ${variantsHtml}
+                ${featuresHtml}
+                ${chartHtml}
+                ${insightsHtml}
+                <details style="margin-top: 1rem;">
+                    <summary style="cursor: pointer; color: var(--vox-primary); font-size: 0.9rem;">View Raw JSON</summary>
+                    <pre style="background: var(--vox-grey-50); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.75rem; margin-top: 0.5rem;">${JSON.stringify(data, null, 2).slice(0, 3000)}...</pre>
+                </details>
+            `;
+
+            // Render Plotly chart after card is in DOM
+            setTimeout(() => {
+                if (data.feature_importance && data.feature_importance.length > 0) {
+                    renderFeatureWaterfall(data.feature_importance, vizId);
+                } else if (data.pca_3d && data.pca_3d.points) {
+                    renderClustering3D(data, vizId);
+                }
+            }, 100);
+
+            return card;
+        }
+
+        // Render feature importance waterfall chart using Plotly
+        function renderFeatureWaterfall(features, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container || !window.Plotly) {
+                console.error('Cannot render chart: container or Plotly not found');
+                return;
+            }
+
+            const getVal = f => f.stability !== undefined ? f.stability : ((f.importance || f.value || 0) * 100);
+            const sortedFeatures = [...features].sort((a, b) => getVal(b) - getVal(a)).slice(0, 10);
+
+            const contributions = sortedFeatures.map((f, i) => ({
+                name: f.feature || f.name,
+                value: getVal(f),
+                direction: f.impact === 'negative' ? -1 : 1
+            }));
+
+            const plotlyData = [{
+                type: 'waterfall',
+                orientation: 'h',
+                y: contributions.map(c => c.name),
+                x: contributions.map(c => c.value * c.direction * 0.1),
+                connector: { line: { color: 'rgba(2, 85, 158, 0.3)', width: 1 } },
+                increasing: { marker: { color: '#10b981' } },
+                decreasing: { marker: { color: '#ef4444' } },
+                totals: { marker: { color: '#6366f1' } },
+                textposition: 'outside',
+                text: contributions.map(c => c.value.toFixed(1) + '%'),
+                hovertemplate: '<b>%{y}</b><br>Stability: %{text}<extra></extra>'
+            }];
+
+            const layout = {
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { color: '#64748b', size: 11 },
+                margin: { l: 120, r: 60, t: 10, b: 40 },
+                xaxis: { title: 'Feature Impact', gridcolor: '#e2e8f0' },
+                yaxis: { autorange: 'reversed', gridcolor: '#e2e8f0' },
+                showlegend: false
+            };
+
+            Plotly.newPlot(container, plotlyData, layout, { responsive: true, displayModeBar: false });
+        }
+
+        // Render Clustering 3D Scatter Plot
+        function renderClustering3D(data, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container || !window.Plotly) return;
+
+            const points = data.pca_3d.points;
+            const clusters = [...new Set(points.map(p => p.cluster))].sort((a, b) => a - b);
+            const traces = [];
+
+            const colors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+            clusters.forEach((cluster, idx) => {
+                const clusterPoints = points.filter(p => p.cluster === cluster);
+                const color = cluster === -1 ? '#94a3b8' : (colors[cluster % colors.length] || colors[0]);
+
+                traces.push({
+                    type: 'scatter3d',
+                    mode: 'markers',
+                    name: cluster === -1 ? 'Noise' : `Cluster ${cluster + 1}`,
+                    x: clusterPoints.map(p => p.x),
+                    y: clusterPoints.map(p => p.y),
+                    z: clusterPoints.map(p => p.z),
+                    marker: {
+                        size: 5,
+                        color: color,
+                        opacity: 0.8,
+                        line: { width: 0.5, color: 'white' }
+                    },
+                    hovertemplate: '<b>Cluster %{text}</b><br>X: %{x:.2f}<br>Y: %{y:.2f}<Z: %{z:.2f}<extra></extra>',
+                    text: clusterPoints.map(() => cluster + 1)
+                });
+            });
+
+            const layout = {
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { color: '#64748b' },
+                margin: { l: 0, r: 0, t: 0, b: 0 },
+                scene: {
+                    xaxis: { title: 'PC1', gridcolor: '#e2e8f0' },
+                    yaxis: { title: 'PC2', gridcolor: '#e2e8f0' },
+                    zaxis: { title: 'PC3', gridcolor: '#e2e8f0' }
+                },
+                showlegend: true,
+                legend: { x: 0, y: 1 }
+            };
+
+            Plotly.newPlot(container, traces, layout, { responsive: true, displayModeBar: true });
+        }
+
+        // Add click handlers to all single engine buttons
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.single-engine-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const engineName = this.getAttribute('data-engine');
+                    window.runSingleEngine(engineName);
+                });
+            });
+        });
     </script>
+
+    <!-- Quality 3D Viewer (must load before quality-dashboard.js) -->
+    <script src="assets/js/nexus/main.js"></script>
+
+    <!-- Quality Dashboard Controller (extracted from inline) -->
+    <script src="assets/js/nexus/quality-dashboard.js"></script>
+
+    <!-- Engine Visualizations (Modular ES6 - Plotly charts for engine results) -->
+    <script type="module" src="assets/js/nexus/visualizations/index.js"></script>
 
     <!-- NexusAI Modular Application -->
     <script type="module" src="assets/js/nexus/pages/main.js"></script>

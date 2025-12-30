@@ -19,7 +19,7 @@ export default defineConfig({
         },
     ],
     webServer: {
-        command: './start.sh',
+        command: './scripts/start.sh --no-browser --fast',
         url: 'http://127.0.0.1:8000/health',
         reuseExistingServer: !process.env.CI,
         timeout: 120 * 1000,

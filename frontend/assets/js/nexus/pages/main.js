@@ -18,16 +18,55 @@ import {
     initSession,
     setAnalysisStopped
 } from '../core/state.js';
-import { uploadFile, runEngine, getGemmaSummary } from '../core/api.js';
+import { uploadFile, runEngine, getGemmaSummary, checkGpuHealth, checkGpuCoordinatorStatus, askGemma } from '../core/api.js';
 
 // Engine modules
 import { ALL_ENGINES, ENGINE_COUNT, getEngineByName } from '../engines/engine-definitions.js';
-import { registerCallbacks, startAnalysis, resumeAnalysis, stopAnalysis, getProgress } from '../engines/engine-runner.js';
+import { registerCallbacks, startAnalysis, resumeAnalysis, stopAnalysis, cancelAnalysis, getProgress } from '../engines/engine-runner.js';
 import { createEngineCard, displayEngineResults, updateEngineCardStatus, formatDuration } from '../engines/engine-results.js';
 
 // Component modules
 import { initLog, log, startTiming, getElapsedTime, clearLog } from '../components/log.js';
 import { initDashboard, resetDashboard, trackEnginePerformance } from '../components/dashboard.js';
+
+// ============================================================================
+// Performance Mode (Low GPU / Low RAM)
+// ============================================================================
+
+const performanceState = window.NexusPerformance || { lowPower: false, reason: '' };
+window.NexusPerformance = performanceState;
+
+function enableLowPowerMode(reason) {
+    if (!performanceState.lowPower) {
+        performanceState.lowPower = true;
+    }
+    if (reason) {
+        if (performanceState.reason) {
+            if (!performanceState.reason.includes(reason)) {
+                performanceState.reason += `; ${reason}`;
+            }
+        } else {
+            performanceState.reason = reason;
+        }
+    }
+}
+
+function evaluateClientPerformance() {
+    const hints = [];
+    const deviceMemory = navigator.deviceMemory || 0;
+    const cores = navigator.hardwareConcurrency || 0;
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+
+    if (deviceMemory && deviceMemory <= 6) hints.push(`device memory ${deviceMemory}GB`);
+    if (cores && cores <= 4) hints.push(`${cores} CPU cores`);
+    if (prefersReducedMotion) hints.push('reduced motion');
+
+    if (hints.length) {
+        enableLowPowerMode(hints.join(', '));
+    }
+}
+
+evaluateClientPerformance();
 
 // ============================================================================
 // Global UI Interface (for onclick handlers in HTML)
@@ -68,8 +107,9 @@ window.NexusUI = {
 
     // Toggle engine card expansion
     toggleEngineCard(engineName) {
-        const cards = document.querySelectorAll(`[id^="engine-card-${engineName}"]`);
+        const cards = document.querySelectorAll(`.engine-result-card[data-engine="${engineName}"]`);
         cards.forEach(card => card.classList.toggle('expanded'));
+        setTimeout(() => window.NexusViz?.resizeVisibleCharts?.(), 150);
     },
 
     // Toggle raw data visibility
@@ -86,25 +126,33 @@ window.NexusUI = {
     // Switch engine category tab
     switchCategory(category) {
         // Update buttons
-        document.querySelectorAll('.engine-category-btn').forEach(btn => btn.classList.remove('active'));
-        event.target.closest('.engine-category-btn').classList.add('active');
+        document.querySelectorAll('.engine-category-btn').forEach(btn => {
+            btn.classList.remove('active', 'vox-btn-primary');
+            btn.classList.add('vox-btn-ghost');
+        });
+        const activeBtn = document.querySelector(`.engine-category-btn[data-category="${category}"]`);
+        if (activeBtn) {
+            activeBtn.classList.remove('vox-btn-ghost');
+            activeBtn.classList.add('active', 'vox-btn-primary');
+        }
 
         // Show/hide content
-        document.querySelectorAll('.engine-category-content').forEach(content => {
-            content.style.display = 'none';
-            content.classList.remove('active');
+        ['all', 'ml', 'financial', 'advanced'].forEach(cat => {
+            const content = document.getElementById(`category-${cat}`);
+            if (content) {
+                content.style.display = cat === category ? 'block' : 'none';
+            }
         });
-        const targetContent = document.getElementById(`category-${category}`);
-        if (targetContent) {
-            targetContent.style.display = 'block';
-            targetContent.classList.add('active');
-        }
+
+        window.NexusViz?.resizeVisibleCharts?.();
     },
 
     // Send follow-up question
-    async sendFollowUp(engineName) {
-        const input = document.getElementById(`input-${engineName}`);
-        const messages = document.getElementById(`messages-${engineName}`);
+    async sendFollowUp(engineName, cardId) {
+        const inputId = cardId ? `input-${cardId}` : `input-${engineName}`;
+        const messagesId = cardId ? `messages-${cardId}` : `messages-${engineName}`;
+        const input = document.getElementById(inputId);
+        const messages = document.getElementById(messagesId);
         if (!input || !messages || !input.value.trim()) return;
 
         const question = input.value.trim();
@@ -124,22 +172,14 @@ window.NexusUI = {
 
         // Ask Gemma
         try {
-            const response = await fetch(`${API_BASE}/api/public/chat`, {
-                method: 'POST',
-                headers: getAuthHeaders(),
-                credentials: 'include',
-                body: JSON.stringify({
-                    messages: [{ role: 'user', content: `Based on this ${engineName} analysis result:\n${JSON.stringify(result?.data).substring(0, 1500)}\n\nUser question: ${question}` }],
-                    max_tokens: 300
-                })
-            });
-            const data = await response.json();
-            const answer = data.message || data.response || 'Unable to get response.';
+            const context = result?.data ? JSON.stringify(result.data).substring(0, 1500) : 'No engine data available.';
+            const prompt = `Based on this ${engineName} analysis result:\n${context}\n\nUser question: ${question}`;
+            const answer = await askGemma(prompt, { maxTokens: 300 });
 
             messages.innerHTML += `
         <div class="followup-msg assistant">
           <span class="msg-label">🤖 Gemma:</span>
-          <span class="msg-text">${escapeHtml(answer)}</span>
+          <span class="msg-text">${escapeHtml(answer || 'Unable to get response.')}</span>
         </div>
       `;
         } catch (err) {
@@ -171,20 +211,21 @@ window.NexusUI = {
         }
     },
 
-    // Clear analysis
+    // Clear/Cancel analysis
     clearAnalysis() {
-        if (!confirm('Clear all analysis results?')) return;
-        clearSessionStorage();
+        if (!confirm('Clear all analysis results and reset session?')) return;
+        cancelAnalysis();
         ['all', 'ml', 'financial', 'advanced'].forEach(cat => {
             const container = document.getElementById(`${cat}-engines-results`);
             if (container) container.innerHTML = '';
         });
         document.getElementById('engines-progress').textContent = '0/22';
-        document.getElementById('engines-status').textContent = 'Cleared';
+        document.getElementById('engines-status').textContent = 'Ready';
         document.getElementById('engines-total-time').textContent = '0.0s';
         document.getElementById('all-engines-section').style.display = 'none';
+        document.getElementById('stop-btn').style.display = 'none';
+        document.getElementById('resume-btn').style.display = 'none';
         document.getElementById('analyze-btn').disabled = false;
-        log('🗑️ Analysis cleared', 'info');
     }
 };
 
@@ -277,6 +318,9 @@ async function handleFileUpload(file) {
     try {
         const result = await uploadFile(file);
 
+        // CRITICAL: Save upload state so runFullAnalysis() can access it
+        setUploadState(result.filename, result.columns);
+
         uploadArea.innerHTML = `
       <div class="upload-icon">✅</div>
       <div class="upload-title">${escapeHtml(result.filename)}</div>
@@ -291,9 +335,15 @@ async function handleFileUpload(file) {
     `;
 
         analyzeBtn.disabled = false;
-        analyzeBtn.innerHTML = `⚡ Start Full Analysis on ${escapeHtml(result.filename)}`;
+        analyzeBtn.innerHTML = `Start Full Analysis on ${escapeHtml(result.filename)}`;
 
-        log(`✅ Uploaded: ${result.filename} (${result.columns.length} cols, ${result.row_count.toLocaleString()} rows)`, 'success');
+        // Show single engine test panel for individual testing
+        if (window.showSingleEnginePanel) {
+            const defaultTarget = result.columns.length > 0 ? result.columns[0] : 'value';
+            window.showSingleEnginePanel(result.filename, defaultTarget);
+        }
+
+        log(`Uploaded: ${result.filename} (${result.columns.length} cols, ${result.row_count.toLocaleString()} rows)`, 'success');
     } catch (err) {
         uploadArea.innerHTML = `
       <div class="upload-icon">❌</div>
@@ -318,6 +368,37 @@ async function runFullAnalysis() {
     if (!uploadState.filename) return;
 
     const useVectorization = document.getElementById('use-vectors')?.checked || false;
+
+    // GPU Health Check - informational only, does not block analysis
+    try {
+        const [gpuHealth, coordinatorStatus] = await Promise.all([
+            checkGpuHealth(),
+            checkGpuCoordinatorStatus()
+        ]);
+
+        // Log GPU status (informational only)
+        if (gpuHealth.available) {
+            log(`GPU available (${gpuHealth.vramFreeGb.toFixed(1)}GB estimated free)`, 'info');
+        } else if (gpuHealth.warning) {
+            log(`GPU info: ${gpuHealth.warning}`, 'info');
+        }
+
+        if (!gpuHealth.available || gpuHealth.vramFreeGb < 4 || gpuHealth.warning) {
+            const reason = gpuHealth.warning || 'GPU not available';
+            enableLowPowerMode(reason);
+        }
+
+        if (!coordinatorStatus.available && coordinatorStatus.owner !== 'unknown') {
+            log(`GPU owned by ${coordinatorStatus.owner} - ML engines will use CPU`, 'info');
+        }
+
+        if (performanceState.lowPower) {
+            log(`Low graphics mode enabled (${performanceState.reason || 'resource constraints'})`, 'info');
+        }
+    } catch (err) {
+        // GPU check failures are non-blocking - just log and continue
+        console.log('GPU check skipped:', err.message);
+    }
 
     // Show results section
     document.getElementById('all-engines-section').style.display = 'block';
@@ -353,8 +434,8 @@ async function runFullAnalysis() {
     clearLog();
     startTiming();
 
-    log(`🧪 Starting comprehensive analysis with all ${ENGINE_COUNT} engines...`, 'info');
-    log(`📁 Database: ${uploadState.filename}`, 'info');
+    log(`Starting comprehensive analysis with all ${ENGINE_COUNT} engines...`, 'info');
+    log(`Database: ${uploadState.filename}`, 'info');
 
     // Start analysis
     await startAnalysis({ useVectorization });
@@ -390,19 +471,24 @@ function updateProgressUI(completed, total, engineName) {
 
 function handleEngineStart(engine, index) {
     // Create cards in both "all" and category containers
-    const card = createEngineCard(engine, index);
-    const cardClone = card.cloneNode(true);
+    const card = createEngineCard(engine, index, 'all');
+    const categoryCard = createEngineCard(engine, index, engine.category);
 
     document.getElementById('all-engines-results').appendChild(card);
-    document.getElementById(`${engine.category}-engines-results`).appendChild(cardClone);
+    document.getElementById(`${engine.category}-engines-results`).appendChild(categoryCard);
+
+    // AUTO-EXPAND: Expand cards immediately when engine starts running
+    // This ensures users see the loading state without needing to click
+    card.classList.add('expanded');
+    categoryCard.classList.add('expanded');
 
     updateEngineCardStatus(card, 'running');
-    updateEngineCardStatus(cardClone, 'running');
+    updateEngineCardStatus(categoryCard, 'running');
 }
 
 function handleEngineComplete(engine, result, duration) {
     // Find and update cards
-    const cards = document.querySelectorAll(`#engine-card-${engine.name}`);
+    const cards = document.querySelectorAll(`.engine-result-card[data-engine="${engine.name}"]`);
     cards.forEach(card => {
         displayEngineResults(card, result);
         updateEngineCardStatus(card, result.status === 'success' ? 'success' : 'fallback');
@@ -416,7 +502,7 @@ function handleEngineComplete(engine, result, duration) {
 }
 
 function handleEngineError(engine, error, duration) {
-    const cards = document.querySelectorAll(`#engine-card-${engine.name}`);
+    const cards = document.querySelectorAll(`.engine-result-card[data-engine="${engine.name}"]`);
     cards.forEach(card => {
         displayEngineResults(card, { status: 'error', error: error.message, duration });
         updateEngineCardStatus(card, 'error');
@@ -483,24 +569,34 @@ function loadRecentAnalyses() {
         if (saved) {
             const session = JSON.parse(saved);
             if (session.filename && Object.keys(session.results).length > 0) {
-                document.getElementById('recent-section').style.display = 'block';
+                const recentSection = document.getElementById('recent-section');
                 const grid = document.getElementById('recent-grid');
+
+                if (!recentSection || !grid) {
+                    console.log('Recent section elements not found');
+                    return;
+                }
+
+                recentSection.style.display = 'block';
                 grid.innerHTML = `
-          <div class="nexus-recent-card" onclick="window.NexusUI.resumeAnalysis()">
-            <div class="nexus-recent-card-header">
-              <span class="nexus-recent-card-icon">📄</span>
-              <span class="nexus-recent-card-title">${escapeHtml(session.filename)}</span>
+          <div class="vox-card" style="padding: 1rem; cursor: pointer; transition: all 0.2s ease;" 
+               onmouseover="this.style.borderColor='var(--vox-primary)'; this.style.transform='translateY(-2px)'"
+               onmouseout="this.style.borderColor=''; this.style.transform=''"
+               onclick="window.NexusUI.resumeAnalysis()">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+              <span style="font-size: 1.5rem;">📄</span>
+              <span style="font-weight: 600; color: var(--vox-grey-800);">${escapeHtml(session.filename)}</span>
             </div>
-            <div class="nexus-recent-card-meta">
-              <span>${Object.keys(session.results).length}/${ENGINE_COUNT} engines</span>
-              <span>${session.status}</span>
+            <div style="display: flex; gap: 1rem; font-size: 0.85rem; color: var(--vox-grey-500);">
+              <span>🔄 ${Object.keys(session.results).length}/${ENGINE_COUNT} engines</span>
+              <span>📊 ${session.status === 'paused' ? 'Paused' : session.status}</span>
             </div>
           </div>
         `;
             }
         }
     } catch (e) {
-        console.log('No recent analyses found');
+        console.log('No recent analyses found:', e);
     }
 }
 

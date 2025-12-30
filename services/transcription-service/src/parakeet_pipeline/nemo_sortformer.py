@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
+import torch
 from nemo.collections.asr.models import SortformerEncLabelModel
 
 from .diarizer import SpeakerSegment

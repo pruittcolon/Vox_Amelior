@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    <script src="assets/js/remote-config.js"></script>
+  <script src="assets/js/remote-config.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
@@ -42,8 +42,12 @@
   <script src="assets/js/app.js?v=2024110101"></script>
   <script src="assets/js/auth.js?v=2024110101"></script>
   <script src="assets/js/gemma_analyzer_ui.js?v=2024110802"></script>
+  <script src="assets/js/database_viewer.js?v=2024110802"></script>
 
   <!-- Chart.js for Emotions tab -->
+
+  <!-- Quality Intelligence Module (self-contained 3D dashboard) -->
+  <script src="assets/js/quality_intelligence.js?v=2024122601"></script>
 
 </head>
 
@@ -344,15 +348,31 @@
     <!-- ============================================ -->
     <div id="tab-transcripts" class="gemma-tab-content">
       <div class="glass-card">
-        <h3 style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;">
-          <i data-lucide="file-text" style="width: 24px; height: 24px; color: var(--primary);"></i>
-          Transcription Analysis
-        </h3>
+        <!-- Header with View Mode Toggle -->
+        <div
+          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.75rem;">
+            <i data-lucide="file-text" style="width: 24px; height: 24px; color: var(--primary);"></i>
+            Transcription Analysis
+          </h3>
+          <!-- View Mode Toggle -->
+          <div class="excel-view-toggle"
+            style="display: flex; gap: 0.25rem; background: rgba(0,82,204,0.05); border-radius: 0.5rem; padding: 0.25rem;">
+            <button type="button" class="view-mode-btn active" data-mode="standard"
+              onclick="toggleTranscriptViewMode('standard')" title="Card View">
+              <i data-lucide="layout-grid" style="width: 16px; height: 16px;"></i> Cards
+            </button>
+            <button type="button" class="view-mode-btn" data-mode="excel" onclick="toggleTranscriptViewMode('excel')"
+              title="Excel Grid View">
+              <i data-lucide="table" style="width: 16px; height: 16px;"></i> Excel
+            </button>
+          </div>
+        </div>
         <p class="text-muted" style="margin-bottom: 1rem;">
           Browse transcripts with emotion filtering and AI-powered insights.
         </p>
 
-        <!-- Emotion Filter Chips -->
+        <!-- Emotion Filter Chips (shared between views) -->
         <div class="chip-toolbar" style="margin-bottom: 1rem;">
           <div class="chip-group" id="transcript-emotion-filters">
             <button type="button" class="chip-toggle chip-all active" data-emotion="all"
@@ -370,7 +390,7 @@
           </div>
         </div>
 
-        <!-- Transcript Navigation -->
+        <!-- Transcript Navigation (for detail view) -->
         <div class="transcript-nav" id="transcript-nav" style="display: none;">
           <button class="transcript-nav-btn" onclick="navigateTranscript('prev')" id="prev-transcript-btn" disabled>
             <i data-lucide="chevron-left" style="width: 16px; height: 16px;"></i> Previous
@@ -384,13 +404,61 @@
           </button>
         </div>
 
-        <!-- Transcript Content -->
+        <!-- Transcript Content Container -->
         <div id="transcript-content">
+          <!-- STANDARD VIEW: Card List (Default) -->
           <div id="transcript-list" class="transcript-list">
             <div class="skeleton" style="height: 60px; margin-bottom: 0.5rem;"></div>
             <div class="skeleton" style="height: 60px; margin-bottom: 0.5rem;"></div>
             <div class="skeleton" style="height: 60px;"></div>
           </div>
+
+          <!-- EXCEL VIEW: Spreadsheet Grid (Hidden by default) -->
+          <div id="excel-transcript-grid" class="excel-grid" style="display: none;">
+            <!-- Excel Toolbar -->
+            <div class="excel-toolbar">
+              <div class="excel-search-wrapper">
+                <i data-lucide="search" style="width: 16px; height: 16px; color: #5a6a7f;"></i>
+                <input type="text" id="excel-quick-filter" class="excel-search"
+                  placeholder="Quick filter all columns..." oninput="filterExcelGrid(this.value)">
+              </div>
+              <div class="excel-toolbar-actions">
+                <span id="excel-row-count" class="excel-row-count">0 transcripts</span>
+                <button type="button" class="excel-btn" onclick="exportTranscriptsCSV()">
+                  <i data-lucide="download" style="width: 14px; height: 14px;"></i> Export CSV
+                </button>
+              </div>
+            </div>
+
+            <!-- Excel Table -->
+            <div class="excel-table-wrapper">
+              <table class="excel-table" id="excel-transcript-table">
+                <thead class="excel-header">
+                  <tr>
+                    <th class="excel-th sortable" data-sort="created_at" onclick="sortExcelColumn('created_at')">
+                      <span>Date</span><span class="sort-icon">↕</span>
+                    </th>
+                    <th class="excel-th sortable" data-sort="speaker" onclick="sortExcelColumn('speaker')">
+                      <span>Speaker</span><span class="sort-icon">↕</span>
+                    </th>
+                    <th class="excel-th sortable" data-sort="duration" onclick="sortExcelColumn('duration')">
+                      <span>Duration</span><span class="sort-icon">↕</span>
+                    </th>
+                    <th class="excel-th sortable" data-sort="emotion" onclick="sortExcelColumn('emotion')">
+                      <span>Emotion</span><span class="sort-icon">↕</span>
+                    </th>
+                    <th class="excel-th" style="min-width: 300px;">Preview</th>
+                    <th class="excel-th" style="width: 100px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="excel-transcript-body">
+                  <!-- Rows populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Detail Viewer (shared) -->
           <div id="transcript-viewer" class="transcript-viewer"
             style="display: none; max-height: 400px; overflow-y: auto;"></div>
         </div>
@@ -613,6 +681,7 @@
     <!-- Tab Content: Databases                       -->
     <!-- ============================================ -->
     <div id="tab-databases" class="gemma-tab-content">
+      <!-- Upload Section -->
       <div class="glass-card">
         <h3 style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;">
           <i data-lucide="database" style="width: 24px; height: 24px; color: var(--primary);"></i>
@@ -636,14 +705,207 @@
         </div>
       </div>
 
-      <!-- Existing Databases -->
-      <div class="glass-card" style="margin-top: 1.5rem;">
-        <h4 style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;">
-          <i data-lucide="folder-open" style="width: 20px; height: 20px;"></i>
-          Uploaded Databases
-        </h4>
-        <div id="existing-databases">
-          <p class="text-muted">No custom databases uploaded yet.</p>
+      <!-- ============================================ -->
+      <!-- Gemma Quality Analysis Panel                -->
+      <!-- ============================================ -->
+      <div id="quality-analysis-panel" class="glass-card" style="margin-top: 1.5rem; display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+          <h4 style="margin: 0; display: flex; align-items: center; gap: 0.75rem;">
+            <i data-lucide="sparkles" style="width: 24px; height: 24px; color: var(--primary);"></i>
+            Quality Analysis
+          </h4>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <select id="scoring-row-range" class="btn btn-ghost btn-sm" style="padding: 0.375rem 0.75rem;"
+              title="Which portion of the database to score">
+              <option value="full">Full Database</option>
+              <option value="last_10pct">Last 10%</option>
+              <option value="last_25pct" selected>Last 25%</option>
+              <option value="last_50pct">Last 50%</option>
+              <option value="last_1000">Last 1,000 rows</option>
+              <option value="last_10000">Last 10,000 rows</option>
+              <option value="last_100000">Last 100,000 rows</option>
+            </select>
+            <select id="scoring-chunk-size" class="btn btn-ghost btn-sm" style="padding: 0.375rem 0.75rem;"
+              title="Rows per Gemma call">
+              <option value="1">1 row/chunk</option>
+              <option value="5">5 rows/chunk</option>
+              <option value="20" selected>20 rows/chunk</option>
+              <option value="100">100 rows/chunk</option>
+              <option value="1000">1,000 rows/chunk</option>
+              <option value="5000">5,000 rows/chunk</option>
+              <option value="10000">10,000 rows/chunk</option>
+              <option value="25000">25,000 rows/chunk</option>
+              <option value="100000">100,000 rows/chunk</option>
+            </select>
+            <button id="btn-test-scoring" class="btn btn-ghost btn-sm" onclick="startQualityAnalysis(true)">
+              <i data-lucide="beaker" style="width: 14px; height: 14px;"></i> Test
+            </button>
+            <button id="btn-start-scoring" class="btn btn-primary btn-sm" onclick="startQualityAnalysis(false)">
+              <i data-lucide="play" style="width: 14px; height: 14px;"></i> Analyze
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress Section (hidden until started) -->
+        <div id="scoring-progress-section" style="display: none;">
+          <div style="display: grid; grid-template-columns: 140px 1fr; gap: 2rem; align-items: center;">
+            <!-- Circular Progress Ring -->
+            <div style="position: relative; width: 120px; height: 120px;">
+              <svg class="scoring-progress-ring" viewBox="0 0 120 120" style="transform: rotate(-90deg);">
+                <circle cx="60" cy="60" r="54" stroke="var(--border-color)" stroke-width="8" fill="none" />
+                <circle id="scoring-progress-circle" cx="60" cy="60" r="54" stroke="url(#progress-gradient)"
+                  stroke-width="8" fill="none" stroke-dasharray="339.29" stroke-dashoffset="339.29"
+                  stroke-linecap="round" style="transition: stroke-dashoffset 0.5s ease;" />
+                <defs>
+                  <linearGradient id="progress-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#6366f1" />
+                    <stop offset="100%" stop-color="#a855f7" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div
+                style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                <div id="scoring-percent" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0%
+                </div>
+              </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+              <div style="background: var(--card-bg); padding: 1rem; border-radius: 0.5rem; text-align: center;">
+                <div id="scoring-chunks-done" style="font-size: 1.25rem; font-weight: 600; color: var(--primary);">0
+                </div>
+                <div id="scoring-chunks-total" style="font-size: 0.75rem; color: var(--text-muted);">/ 0 chunks</div>
+              </div>
+              <div style="background: var(--card-bg); padding: 1rem; border-radius: 0.5rem; text-align: center;">
+                <div id="scoring-eta" style="font-size: 1.25rem; font-weight: 600; color: var(--warning);">--</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">ETA</div>
+              </div>
+              <div style="background: var(--card-bg); padding: 1rem; border-radius: 0.5rem; text-align: center;">
+                <div id="scoring-avg" style="font-size: 1.25rem; font-weight: 600; color: var(--success);">--</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">Avg Score</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="scoring-status-text"
+            style="margin-top: 1rem; padding: 0.75rem; background: var(--card-bg); border-radius: 0.5rem; font-size: 0.875rem; color: var(--text-secondary);">
+            <i data-lucide="loader" class="scoring-spinner"
+              style="width: 14px; height: 14px; animation: spin 1s linear infinite; margin-right: 0.5rem;"></i>
+            <span>Initializing...</span>
+          </div>
+        </div>
+
+        <!-- Results Section (hidden until complete) -->
+        <div id="scoring-results-section" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin-bottom: 1rem;">
+            <div class="score-card" data-dimension="completeness">
+              <div class="score-value">--</div>
+              <div class="score-label">Completeness</div>
+              <div class="score-bar">
+                <div class="score-fill"></div>
+              </div>
+            </div>
+            <div class="score-card" data-dimension="accuracy">
+              <div class="score-value">--</div>
+              <div class="score-label">Accuracy</div>
+              <div class="score-bar">
+                <div class="score-fill"></div>
+              </div>
+            </div>
+            <div class="score-card" data-dimension="consistency">
+              <div class="score-value">--</div>
+              <div class="score-label">Consistency</div>
+              <div class="score-bar">
+                <div class="score-fill"></div>
+              </div>
+            </div>
+            <div class="score-card" data-dimension="relevance">
+              <div class="score-value">--</div>
+              <div class="score-label">Relevance</div>
+              <div class="score-bar">
+                <div class="score-fill"></div>
+              </div>
+            </div>
+            <div class="score-card" data-dimension="overall"
+              style="background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); color: white;">
+              <div class="score-value">--</div>
+              <div class="score-label">Overall</div>
+              <div class="score-bar" style="background: rgba(255,255,255,0.3);">
+                <div class="score-fill" style="background: white;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quality Intelligence Dashboard is dynamically injected by quality_intelligence.js -->
+
+
+      <!-- ============================================ -->
+      <!-- Excel-Like Database Viewer                   -->
+      <!-- ============================================ -->
+      <div id="database-excel-viewer" class="glass-card database-excel-viewer"
+        style="margin-top: 1.5rem; display: none;">
+        <!-- Viewer Header -->
+        <div
+          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+          <h4 style="margin: 0; display: flex; align-items: center; gap: 0.75rem;">
+            <i data-lucide="table" style="width: 20px; height: 20px; color: var(--primary);"></i>
+            <span id="db-viewer-title">Database Preview</span>
+          </h4>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button class="btn btn-ghost btn-sm" onclick="DatabaseViewer.hide()" title="Close viewer">
+              <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Excel Grid Container -->
+        <div class="excel-grid">
+          <!-- Toolbar -->
+          <div class="excel-toolbar">
+            <div class="excel-search-wrapper">
+              <i data-lucide="search" style="width: 16px; height: 16px; color: #5a6a7f;"></i>
+              <input type="text" id="db-excel-filter" class="excel-search" placeholder="Search all columns..."
+                oninput="DatabaseViewer.search(this.value)">
+            </div>
+            <div class="excel-toolbar-actions">
+              <span id="db-excel-row-count" class="excel-row-count">0 rows</span>
+              <button type="button" class="excel-btn" onclick="DatabaseViewer.exportCSV()" title="Export current page">
+                <i data-lucide="download" style="width: 14px; height: 14px;"></i> Export Page
+              </button>
+              <button type="button" class="excel-btn btn-primary" onclick="DatabaseViewer.exportAllCSV()"
+                title="Download complete file">
+                <i data-lucide="file-down" style="width: 14px; height: 14px;"></i> Export All
+              </button>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div class="excel-table-wrapper">
+            <table class="excel-table" id="db-excel-table">
+              <thead class="excel-header">
+                <tr id="db-excel-header-row">
+                  <!-- Headers populated by JS -->
+                </tr>
+              </thead>
+              <tbody id="db-excel-body">
+                <!-- Rows populated by JS -->
+                <tr>
+                  <td colspan="10" class="excel-empty-state">
+                    <i data-lucide="inbox" style="width: 48px; height: 48px;"></i>
+                    <p style="margin-top: 1rem;">Upload a database to view its contents</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Pagination -->
+        <div id="db-pagination" class="db-pagination" style="margin-top: 1rem;">
+          <!-- Pagination controls populated by JS -->
         </div>
       </div>
 
@@ -669,6 +931,18 @@
           </div>
         </div>
       </div>
+
+      <!-- Existing Databases (moved to bottom) -->
+      <div class="glass-card" style="margin-top: 1.5rem;">
+        <h4 style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem;">
+          <i data-lucide="folder-open" style="width: 20px; height: 20px;"></i>
+          Uploaded Databases
+        </h4>
+        <div id="existing-databases">
+          <p class="text-muted">No custom databases uploaded yet.</p>
+        </div>
+      </div>
+
     </div><!-- End Databases Tab -->
 
     </div><!-- End gemma-shell -->
@@ -1179,12 +1453,238 @@
     let allTranscripts = [];
     let currentTranscriptIndex = -1;
 
+    // Excel view state
+    let currentViewMode = localStorage.getItem('transcriptViewMode') || 'standard';
+    let excelSortColumn = 'created_at';
+    let excelSortDirection = 'desc';
+    let excelFilteredTranscripts = [];
+    let selectedExcelRow = -1;
+
+    // Initialize view mode on load
+    function initTranscriptViewMode() {
+      const mode = localStorage.getItem('transcriptViewMode') || 'standard';
+      toggleTranscriptViewMode(mode, false);
+    }
+
+    // Toggle between standard (cards) and excel (grid) view
+    function toggleTranscriptViewMode(mode, shouldRerender = true) {
+      currentViewMode = mode;
+      localStorage.setItem('transcriptViewMode', mode);
+
+      const listEl = document.getElementById('transcript-list');
+      const excelEl = document.getElementById('excel-transcript-grid');
+      const viewBtns = document.querySelectorAll('.view-mode-btn');
+
+      viewBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+
+      if (mode === 'excel') {
+        if (listEl) listEl.style.display = 'none';
+        if (excelEl) excelEl.style.display = 'block';
+        if (shouldRerender && transcriptsLoaded) renderExcelGrid(allTranscripts);
+      } else {
+        if (listEl) listEl.style.display = 'flex';
+        if (excelEl) excelEl.style.display = 'none';
+      }
+
+      lucide.createIcons();
+    }
+
+    // Render Excel grid with transcripts
+    function renderExcelGrid(transcripts) {
+      const tbody = document.getElementById('excel-transcript-body');
+      const countEl = document.getElementById('excel-row-count');
+      if (!tbody) return;
+
+      excelFilteredTranscripts = [...transcripts];
+
+      // Sort transcripts
+      excelFilteredTranscripts.sort((a, b) => {
+        let aVal, bVal;
+        switch (excelSortColumn) {
+          case 'created_at':
+            aVal = new Date(a.created_at || a.timestamp || 0).getTime();
+            bVal = new Date(b.created_at || b.timestamp || 0).getTime();
+            break;
+          case 'speaker':
+            aVal = (a.speakers?.[0] || a.speaker || '').toLowerCase();
+            bVal = (b.speakers?.[0] || b.speaker || '').toLowerCase();
+            break;
+          case 'duration':
+            aVal = a.audio_duration || a.duration || 0;
+            bVal = b.audio_duration || b.duration || 0;
+            break;
+          case 'emotion':
+            aVal = (a.dominant_emotion || '').toLowerCase();
+            bVal = (b.dominant_emotion || '').toLowerCase();
+            break;
+          default:
+            aVal = a[excelSortColumn] || '';
+            bVal = b[excelSortColumn] || '';
+        }
+        const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        return excelSortDirection === 'asc' ? cmp : -cmp;
+      });
+
+      // Update count
+      if (countEl) countEl.textContent = `${excelFilteredTranscripts.length} transcripts`;
+
+      // Render rows
+      if (excelFilteredTranscripts.length === 0) {
+        tbody.innerHTML = `
+          <tr><td colspan="6" class="excel-empty-state">
+            <i data-lucide="inbox" style="width: 48px; height: 48px;"></i>
+            No transcripts found
+          </td></tr>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      tbody.innerHTML = excelFilteredTranscripts.map((t, idx) => {
+        const date = new Date(t.created_at || t.timestamp || Date.now());
+        const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const speaker = t.speakers?.[0] || t.speaker || 'Unknown';
+        const duration = formatDuration(t.audio_duration || t.duration || 0);
+        const emotion = t.dominant_emotion || 'neutral';
+        const preview = (t.full_text || t.text || '').substring(0, 80) + ((t.full_text || t.text || '').length > 80 ? '...' : '');
+
+        return `
+          <tr class="excel-tr" tabindex="0" data-idx="${idx}" onclick="viewTranscriptFromExcel(${idx})" onkeydown="handleExcelKeydown(event, ${idx})">
+            <td class="excel-td"><span class="cell-date">${escapeHtml(dateStr)}</span></td>
+            <td class="excel-td"><span class="cell-speaker">${escapeHtml(speaker)}</span></td>
+            <td class="excel-td"><span class="cell-duration">${escapeHtml(duration)}</span></td>
+            <td class="excel-td"><span class="excel-emotion-badge ${emotion.toLowerCase()}">${escapeHtml(emotion)}</span></td>
+            <td class="excel-td"><span class="cell-preview">${escapeHtml(preview)}</span></td>
+            <td class="excel-td">
+              <button class="excel-action-btn" onclick="event.stopPropagation(); viewTranscriptFromExcel(${idx})">View</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      // Update sort indicators
+      document.querySelectorAll('.excel-th.sortable').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.sort === excelSortColumn) {
+          th.classList.add(excelSortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+      });
+
+      lucide.createIcons();
+    }
+
+    // Sort column
+    function sortExcelColumn(column) {
+      if (excelSortColumn === column) {
+        excelSortDirection = excelSortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        excelSortColumn = column;
+        excelSortDirection = 'desc';
+      }
+      renderExcelGrid(allTranscripts);
+    }
+
+    // Quick filter across all columns
+    function filterExcelGrid(query) {
+      const q = query.toLowerCase().trim();
+      if (!q) {
+        renderExcelGrid(allTranscripts);
+        return;
+      }
+
+      const filtered = allTranscripts.filter(t => {
+        const text = (t.full_text || t.text || '').toLowerCase();
+        const speaker = (t.speakers?.[0] || t.speaker || '').toLowerCase();
+        const emotion = (t.dominant_emotion || '').toLowerCase();
+        const jobId = (t.job_id || '').toLowerCase();
+        return text.includes(q) || speaker.includes(q) || emotion.includes(q) || jobId.includes(q);
+      });
+
+      renderExcelGrid(filtered);
+    }
+
+    // Keyboard navigation in Excel grid
+    function handleExcelKeydown(event, idx) {
+      const rows = document.querySelectorAll('#excel-transcript-body .excel-tr');
+
+      if (event.key === 'ArrowDown' && idx < rows.length - 1) {
+        event.preventDefault();
+        rows[idx + 1].focus();
+      } else if (event.key === 'ArrowUp' && idx > 0) {
+        event.preventDefault();
+        rows[idx - 1].focus();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        viewTranscriptFromExcel(idx);
+      }
+    }
+
+    // View transcript from Excel grid
+    function viewTranscriptFromExcel(idx) {
+      const transcript = excelFilteredTranscripts[idx];
+      if (!transcript) return;
+
+      // Find the original index in allTranscripts
+      const originalIdx = allTranscripts.findIndex(t => t.job_id === transcript.job_id);
+
+      // Hide both views
+      document.getElementById('transcript-list').style.display = 'none';
+      document.getElementById('excel-transcript-grid').style.display = 'none';
+
+      // Show detail view
+      document.getElementById('transcript-viewer').style.display = 'block';
+      document.getElementById('transcript-nav').style.display = 'flex';
+
+      currentTranscriptIndex = originalIdx >= 0 ? originalIdx : idx;
+      updateTranscriptNav();
+      loadTranscriptDetail(transcript.job_id || transcript.id);
+    }
+
+    // Export transcripts to CSV
+    function exportTranscriptsCSV() {
+      const csvRows = [];
+      const headers = ['Date', 'Speaker', 'Duration', 'Emotion', 'Text', 'Job ID'];
+      csvRows.push(headers.join(','));
+
+      const data = excelFilteredTranscripts.length > 0 ? excelFilteredTranscripts : allTranscripts;
+
+      data.forEach(t => {
+        const date = new Date(t.created_at || t.timestamp || Date.now()).toISOString();
+        const speaker = t.speakers?.[0] || t.speaker || 'Unknown';
+        const duration = t.audio_duration || t.duration || 0;
+        const emotion = t.dominant_emotion || 'neutral';
+        const text = (t.full_text || t.text || '').replace(/"/g, '""').replace(/\n/g, ' ');
+        const jobId = t.job_id || '';
+
+        csvRows.push([
+          `"${date}"`,
+          `"${speaker}"`,
+          duration.toFixed(2),
+          `"${emotion}"`,
+          `"${text}"`,
+          `"${jobId}"`
+        ].join(','));
+      });
+
+      const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `transcripts_export_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
     async function loadTranscriptList() {
       const listEl = document.getElementById('transcript-list');
       if (!listEl) return;
 
       try {
-        const response = await fetch('/api/transcripts?limit=50', {
+        const response = await fetch('/api/transcripts/recent?limit=50', {
           credentials: 'include'
         });
 
@@ -1203,6 +1703,7 @@
           return;
         }
 
+        // Render standard card view
         listEl.innerHTML = allTranscripts.map((t, idx) => `
           <div class="transcript-item" onclick="viewTranscript(${idx})">
             <div class="transcript-info">
@@ -1216,6 +1717,12 @@
             <i data-lucide="chevron-right" style="width: 20px; height: 20px; color: var(--text-secondary);"></i>
           </div>
         `).join('');
+
+        // Also render Excel grid
+        renderExcelGrid(allTranscripts);
+
+        // Initialize correct view mode
+        initTranscriptViewMode();
 
         lucide.createIcons();
 
@@ -1263,14 +1770,28 @@
       if (insightsPanel) insightsPanel.style.display = 'block';
 
       try {
-        const response = await fetch(`/api/transcripts/${jobId}`, {
+        const response = await fetch(`/api/transcript/${jobId}`, {
           credentials: 'include'
         });
 
-        if (!response.ok) throw new Error('Failed to load transcript');
+        // Handle authentication failures - redirect to login
+        if (response.status === 401) {
+          console.warn('[Transcript] Session expired, redirecting to login');
+          window.location.href = '/ui/login.html?redirect=' + encodeURIComponent(window.location.pathname);
+          return;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => '');
+          throw new Error(`Failed to load transcript (${response.status}): ${errorText}`);
+        }
 
         const data = await response.json();
-        currentTranscriptSegments = data.segments || data.transcript || [];
+        // API returns {transcript: {segments: [...]}} - extract segments properly
+        const transcript = data.transcript || data;
+        currentTranscriptSegments = Array.isArray(transcript)
+          ? transcript
+          : (transcript.segments || data.segments || []);
 
         // Update metrics
         const speakers = new Set(currentTranscriptSegments.map(s => s.speaker).filter(Boolean));
@@ -1297,7 +1818,7 @@
 
       } catch (error) {
         console.error('Error loading transcript detail:', error);
-        viewer.innerHTML = '<p class="text-muted">Error loading transcript details.</p>';
+        viewer.innerHTML = '<p class="text-muted">Error loading transcript details. Please try refreshing the page or logging in again.</p>';
       }
     }
 
@@ -1399,9 +1920,15 @@
 Transcript:
 ${transcriptText.slice(0, 4000)}`;
 
-        const response = await fetch('/gemma/chat', {
+        // Get CSRF token for POST request
+        const summaryCSRF = document.cookie.split('; ').find(row => row.startsWith('ws_csrf='))?.split('=')[1] || '';
+
+        const response = await fetch('/api/gemma/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': summaryCSRF
+          },
           credentials: 'include',
           body: JSON.stringify({
             message: prompt,
@@ -1448,7 +1975,18 @@ ${transcriptText.slice(0, 4000)}`;
     }
 
     function returnToTranscriptList() {
-      document.getElementById('transcript-list').style.display = 'block';
+      // Restore correct view based on current mode
+      const listEl = document.getElementById('transcript-list');
+      const excelEl = document.getElementById('excel-transcript-grid');
+
+      if (currentViewMode === 'excel') {
+        if (listEl) listEl.style.display = 'none';
+        if (excelEl) excelEl.style.display = 'block';
+      } else {
+        if (listEl) listEl.style.display = 'flex';
+        if (excelEl) excelEl.style.display = 'none';
+      }
+
       document.getElementById('transcript-viewer').style.display = 'none';
       document.getElementById('transcript-nav').style.display = 'none';
       const insightsPanel = document.getElementById('transcript-insights-panel');
@@ -1734,9 +2272,15 @@ ${transcriptText.slice(0, 4000)}`;
       resultsEl.innerHTML = '<div class="skeleton" style="height: 100px;"></div>';
 
       try {
-        const response = await fetch('/api/search', {
+        // Get CSRF token from cookie
+        const csrfToken = document.cookie.split('; ').find(row => row.startsWith('ws_csrf='))?.split('=')[1] || '';
+
+        const response = await fetch('/api/search/semantic', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
+          },
           credentials: 'include',
           body: JSON.stringify({ query, limit: 10 })
         });
@@ -1817,15 +2361,35 @@ ${transcriptText.slice(0, 4000)}`;
           // ========================================
           // RAG MODE: Query the active database
           // ========================================
-          response = await fetch('/ask', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              filename: activeDatabase.filename,
-              question: message
-            })
-          });
+          // Get CSRF token from cookie
+          const csrfToken = document.cookie.split('; ').find(row => row.startsWith('ws_csrf='))?.split('=')[1] || '';
+
+          // Use 60s timeout since Gemma can take up to 30s
+          const askController = new AbortController();
+          const askTimeout = setTimeout(() => askController.abort(), 60000);
+
+          try {
+            response = await fetch('/ask', {
+              method: 'POST',
+              credentials: 'include',
+              signal: askController.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+              },
+              body: JSON.stringify({
+                filename: activeDatabase.filename,
+                question: message
+              })
+            });
+            clearTimeout(askTimeout);
+          } catch (fetchError) {
+            clearTimeout(askTimeout);
+            if (fetchError.name === 'AbortError') {
+              throw new Error('Request timed out. Please try a simpler question.');
+            }
+            throw fetchError;
+          }
 
           if (response.ok) {
             const data = await response.json();
@@ -2059,32 +2623,105 @@ ${transcriptText.slice(0, 4000)}`;
         const statusEl = document.querySelector(`#${fileId} .db-file-status`);
 
         try {
-          // Step 1: Upload file
-          statusEl.textContent = 'Uploading...';
-          statusEl.className = 'db-file-status processing';
-
+          // Step 1: Upload file with progress tracking
           const formData = new FormData();
           formData.append('file', file);
 
-          const uploadResponse = await fetch('/upload', {
-            method: 'POST',
-            body: formData,
-            credentials: 'include'
+          // Get CSRF token for all POST requests
+          const uploadCsrf = document.cookie.split('; ').find(row => row.startsWith('ws_csrf='))?.split('=')[1] || '';
+
+          // Update UI to show progress bar
+          const fileItem = document.getElementById(fileId);
+          fileItem.innerHTML = `
+            <div class="db-file-info">
+              <i data-lucide="file-text" style="width: 20px; height: 20px;"></i>
+              <div style="flex: 1;">
+                <div style="font-weight: 500;">${file.name}</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">
+                  <span id="${fileId}-progress-text">0%</span> - 
+                  <span id="${fileId}-progress-mb">0 / ${(file.size / 1024 / 1024).toFixed(1)} MB</span>
+                </div>
+                <div style="width: 100%; height: 6px; background: var(--border-color); border-radius: 3px; margin-top: 4px;">
+                  <div id="${fileId}-progress-bar" style="width: 0%; height: 100%; background: var(--primary-color); border-radius: 3px; transition: width 0.2s;"></div>
+                </div>
+              </div>
+            </div>
+            <span class="db-file-status processing">Uploading...</span>
+          `;
+          if (window.lucide) window.lucide.createIcons();
+
+          // Use XMLHttpRequest for progress tracking
+          const uploadData = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                const loadedMB = (e.loaded / 1024 / 1024).toFixed(1);
+                const totalMB = (e.total / 1024 / 1024).toFixed(1);
+
+                const progressBar = document.getElementById(`${fileId}-progress-bar`);
+                const progressText = document.getElementById(`${fileId}-progress-text`);
+                const progressMB = document.getElementById(`${fileId}-progress-mb`);
+
+                if (progressBar) progressBar.style.width = `${percent}%`;
+                if (progressText) progressText.textContent = `${percent}%`;
+                if (progressMB) progressMB.textContent = `${loadedMB} / ${totalMB} MB`;
+              }
+            };
+
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  resolve(JSON.parse(xhr.responseText));
+                } catch (e) {
+                  reject(new Error('Invalid response'));
+                }
+              } else {
+                try {
+                  const errorData = JSON.parse(xhr.responseText);
+                  reject(new Error(errorData.detail || `Upload failed (${xhr.status})`));
+                } catch (e) {
+                  reject(new Error(`Upload failed (${xhr.status})`));
+                }
+              }
+            };
+
+            xhr.onerror = () => {
+              console.error('XHR onerror - status:', xhr.status, 'readyState:', xhr.readyState);
+              reject(new Error('Network error during upload. Check your connection.'));
+            };
+            xhr.ontimeout = () => reject(new Error('Upload timed out after 10 minutes'));
+            xhr.onabort = () => reject(new Error('Upload was cancelled'));
+
+            // Log progress for debugging
+            xhr.onloadend = () => {
+              console.log('XHR complete - status:', xhr.status, 'response length:', xhr.responseText?.length || 0);
+            };
+
+            xhr.open('POST', '/upload');
+            xhr.timeout = 600000; // 10 minute timeout for large files
+            xhr.setRequestHeader('X-CSRF-Token', uploadCsrf);
+            xhr.withCredentials = true;
+            xhr.send(formData);
           });
 
-          const uploadData = await uploadResponse.json();
-
-          if (!uploadResponse.ok || !uploadData.filename) {
+          if (!uploadData.filename) {
             throw new Error(uploadData.detail || 'Upload failed');
           }
+
+          // Update status element reference after innerHTML change
+          const statusEl = document.querySelector(`#${fileId} .db-file-status`);
 
           // Step 2: Run full ML analysis (this caches insights for Q&A)
           statusEl.textContent = 'Running ML analysis...';
 
           try {
+            const analyzeCsrf = document.cookie.split('; ').find(row => row.startsWith('ws_csrf='))?.split('=')[1] || '';
             const analyzeResponse = await fetch(`/analyze-full/${uploadData.filename}`, {
               method: 'POST',
-              credentials: 'include'
+              credentials: 'include',
+              headers: { 'X-CSRF-Token': analyzeCsrf }
             });
 
             if (analyzeResponse.ok) {
@@ -2101,9 +2738,13 @@ ${transcriptText.slice(0, 4000)}`;
           // Step 3: Create embeddings for semantic search (optional, runs in background)
           statusEl.textContent = 'Creating search index...';
 
+          const embedCsrf = document.cookie.split('; ').find(row => row.startsWith('ws_csrf='))?.split('=')[1] || '';
           fetch('/embed', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': embedCsrf
+            },
             credentials: 'include',
             body: JSON.stringify({ filename: uploadData.filename })
           }).then(r => {
@@ -2121,22 +2762,300 @@ ${transcriptText.slice(0, 4000)}`;
           statusEl.textContent = '✅ Ready';
           statusEl.className = 'db-file-status complete';
 
-          // Show success message in chat
-          switchTab('chat');
-          addChatMessage(`📊 Database "${file.name}" analyzed and ready! Ask me anything about your data - I've already analyzed the distributions, correlations, and anomalies.`, 'ai');
+          // Show Excel-like viewer with the uploaded data
+          if (typeof DatabaseViewer !== 'undefined') {
+            // For large files, show processing status
+            const fileSizeMB = file.size / 1024 / 1024;
+            if (fileSizeMB > 50) {
+              statusEl.textContent = '⏳ Processing large database...';
+              statusEl.className = 'db-file-status processing';
+            }
+
+            await DatabaseViewer.show(uploadData.filename, file.name);
+
+            // Update status after loading
+            statusEl.textContent = '✅ Ready';
+            statusEl.className = 'db-file-status complete';
+
+            // Smooth scroll to viewer - use 'nearest' to avoid jumping if already visible
+            const viewer = document.getElementById('database-excel-viewer');
+            if (viewer) {
+              // Only scroll if viewer is not already in viewport
+              const rect = viewer.getBoundingClientRect();
+              const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+              if (!isVisible) {
+                viewer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }
+            }
+          }
+
+          // Also update the database indicator for RAG queries
+          addChatMessage(`📊 Database "${file.name}" is ready! You can view the data above or switch to Chat to ask questions about it.`, 'ai');
+
+          // Show Quality Analysis panel
+          const qualityPanel = document.getElementById('quality-analysis-panel');
+          if (qualityPanel) {
+            qualityPanel.style.display = 'block';
+            window.currentScoringFilename = uploadData.filename;
+            if (lucide) lucide.createIcons();
+          }
 
         } catch (error) {
           console.error('Upload error:', error);
-          statusEl.textContent = `Error: ${error.message}`;
-          statusEl.className = 'db-file-status pending';
+          // Update the file item to show error state
+          const fileItem = document.getElementById(fileId);
+          if (fileItem) {
+            const statusSpan = fileItem.querySelector('.db-file-status');
+            if (statusSpan) {
+              statusSpan.textContent = `Error: ${error.message}`;
+              statusSpan.className = 'db-file-status pending';
+            }
+          }
         }
+      }
+    }
+
+    // ================================================
+    // Quality Analysis (Gemma Scoring)
+    // ================================================
+    let currentScoringJobId = null;
+    let scoringPollInterval = null;
+
+    async function startQualityAnalysis(testMode = false) {
+      const filename = window.currentScoringFilename;
+      if (!filename) {
+        alert('Please upload a database first');
+        return;
+      }
+
+      const chunkSize = document.getElementById('scoring-chunk-size')?.value || '20';
+      const rowRange = document.getElementById('scoring-row-range')?.value || 'full';
+      const progressSection = document.getElementById('scoring-progress-section');
+      const resultsSection = document.getElementById('scoring-results-section');
+      const btnStart = document.getElementById('btn-start-scoring');
+      const btnTest = document.getElementById('btn-test-scoring');
+
+      // Reset UI
+      if (progressSection) progressSection.style.display = 'block';
+      if (resultsSection) resultsSection.style.display = 'none';
+      if (btnStart) btnStart.disabled = true;
+      if (btnTest) btnTest.disabled = true;
+
+      updateScoringProgress(0, 0, 0, -1, 0);
+      document.querySelector('#scoring-status-text span').textContent = `Starting analysis (${rowRange})...`;
+
+      try {
+        const csrf = document.cookie.split('; ').find(row => row.startsWith('ws_csrf='))?.split('=')[1] || '';
+        const endpoint = testMode
+          ? `/database-scoring/test/${encodeURIComponent(filename)}`
+          : `/database-scoring/score/${encodeURIComponent(filename)}`;
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+          credentials: 'include',
+          body: JSON.stringify({
+            chunk_size: parseInt(chunkSize),
+            row_range: rowRange,
+            test_mode: testMode
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to start scoring: ${response.status}`);
+        }
+
+        const result = await response.json();
+        currentScoringJobId = result.job_id;
+        console.log('📊 Scoring job started:', currentScoringJobId);
+
+        document.querySelector('#scoring-status-text span').textContent =
+          `Processing ${result.total_chunks} chunks with Gemma...`;
+
+        // Start polling
+        pollScoringStatus();
+
+      } catch (error) {
+        console.error('Scoring error:', error);
+        document.querySelector('#scoring-status-text span').textContent = `Error: ${error.message}`;
+        if (btnStart) btnStart.disabled = false;
+        if (btnTest) btnTest.disabled = false;
+      }
+    }
+
+    async function pollScoringStatus() {
+      if (!currentScoringJobId) return;
+
+      try {
+        const response = await fetch(`/database-scoring/status/${currentScoringJobId}`, {
+          credentials: 'include'
+        });
+
+        if (!response.ok) {
+          throw new Error(`Status check failed: ${response.status}`);
+        }
+
+        const status = await response.json();
+        console.log('📊 Scoring status:', status.processed_chunks, '/', status.total_chunks);
+
+        updateScoringProgress(
+          status.processed_chunks,
+          status.total_chunks,
+          status.eta_ms,
+          status.avg_overall || 0
+        );
+
+        if (status.status === 'complete') {
+          console.log('✅ Scoring complete');
+          clearInterval(scoringPollInterval);
+          currentScoringJobId = null;
+          displayScoringResults(status);
+          return;
+        }
+
+        if (status.status === 'failed') {
+          document.querySelector('#scoring-status-text span').textContent = `Error: ${status.error}`;
+          clearInterval(scoringPollInterval);
+          document.getElementById('btn-start-scoring').disabled = false;
+          document.getElementById('btn-test-scoring').disabled = false;
+          return;
+        }
+
+        // Poll again
+        scoringPollInterval = setTimeout(pollScoringStatus, 2000);
+
+      } catch (error) {
+        console.error('Poll error:', error);
+        scoringPollInterval = setTimeout(pollScoringStatus, 3000);
+      }
+    }
+
+    function updateScoringProgress(done, total, etaMs, avgScore) {
+      const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+      const progressCircle = document.getElementById('scoring-progress-circle');
+      const circumference = 2 * Math.PI * 54; // r=54
+
+      if (progressCircle) {
+        const offset = circumference - (percent / 100) * circumference;
+        progressCircle.style.strokeDashoffset = offset;
+      }
+
+      document.getElementById('scoring-percent').textContent = `${percent}%`;
+      document.getElementById('scoring-chunks-done').textContent = done.toLocaleString();
+      document.getElementById('scoring-chunks-total').textContent = `/ ${total.toLocaleString()} chunks`;
+      document.getElementById('scoring-avg').textContent = avgScore > 0 ? avgScore.toFixed(1) : '--';
+
+      if (etaMs > 0) {
+        document.getElementById('scoring-eta').textContent = formatETA(etaMs);
+      } else if (etaMs === -1) {
+        document.getElementById('scoring-eta').textContent = 'Calculating...';
+      }
+
+      document.querySelector('#scoring-status-text span').textContent =
+        `Analyzing chunk ${done} of ${total}...`;
+    }
+
+    function formatETA(ms) {
+      const seconds = Math.floor(ms / 1000);
+      if (seconds < 60) return `${seconds}s`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+      const hours = Math.floor(minutes / 60);
+      return `${hours}h ${minutes % 60}m`;
+    }
+
+    async function displayScoringResults(status) {
+      const progressSection = document.getElementById('scoring-progress-section');
+      const resultsSection = document.getElementById('scoring-results-section');
+
+      if (progressSection) progressSection.style.display = 'none';
+      if (resultsSection) resultsSection.style.display = 'block';
+
+      document.getElementById('btn-start-scoring').disabled = false;
+      document.getElementById('btn-test-scoring').disabled = false;
+
+      // Fetch full results
+      try {
+        const response = await fetch(`/database-scoring/results/${status.job_id}`, {
+          credentials: 'include'
+        });
+
+        if (response.ok) {
+          const results = await response.json();
+          const summary = results.summary || {};
+
+          // Update score cards with new Q1-Q5 format
+          const dimensions = ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'overall'];
+          dimensions.forEach(dim => {
+            const card = document.querySelector(`.score-card[data-dimension="${dim}"]`);
+            if (card) {
+              const value = summary[`avg_${dim}`] || 0;
+              card.querySelector('.score-value').textContent = value.toFixed(1);
+              const fill = card.querySelector('.score-fill');
+              if (fill) {
+                fill.style.width = `${value * 10}%`;
+              }
+            }
+          });
+
+          console.log('📊 Final scores:', summary);
+
+          // Calculate insights filename from original
+          const originalFilename = currentScoringFilename || results.filename || '';
+          const baseName = originalFilename.replace(/\.[^/.]+$/, '');
+          const insightsFilename = `${baseName}_insights.csv`;
+
+          // Show message about enhanced database
+          const statusText = document.querySelector('#scoring-status-text span');
+          if (statusText) {
+            statusText.innerHTML = `✅ Complete! Loading enhanced database with score columns...`;
+          }
+
+          // Reload database list to show the new insights file
+          await loadSavedDatabases();
+
+          console.log('📁 Insights database created:', insightsFilename);
+
+          // AUTO-SWITCH: Find and display the insights file
+          // Wait a moment for database list to update, then switch to insights file
+          setTimeout(async () => {
+            try {
+              const dbResponse = await fetch('/databases', { credentials: 'include' });
+              if (dbResponse.ok) {
+                const dbData = await dbResponse.json();
+                // Find the insights file in the database list
+                const insightsDb = dbData.databases.find(db => db.filename.includes('_insights'));
+                if (insightsDb) {
+                  console.log('📊 Auto-switching to insights database:', insightsDb.filename);
+                  // Auto-select the insights database to show score columns
+                  selectDatabase(insightsDb.filename, insightsDb.display_name || insightsFilename);
+
+                  if (statusText) {
+                    statusText.innerHTML = `✅ Showing enhanced database with Gemma score columns!`;
+                  }
+
+                  // 🏔️ TRIGGER 3D QUALITY DASHBOARD
+                  console.log('🏔️ Launching 3D Quality Intelligence Dashboard...');
+                  setTimeout(() => {
+                    showQuality3D(insightsFilename);
+                  }, 800);
+                }
+              }
+            } catch (e) {
+              console.warn('Could not auto-switch to insights database:', e);
+            }
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Failed to fetch results:', error);
       }
     }
 
     // ================================================
     // Saved Databases Management
     // ================================================
-    async function loadSavedDatabases() {
+    async function loadSavedDatabases(retryCount = 0) {
+      const MAX_RETRIES = 3;
       const container = document.getElementById('existing-databases');
       if (!container) return;
 
@@ -2181,8 +3100,14 @@ ${transcriptText.slice(0, 4000)}`;
         lucide.createIcons();
 
       } catch (error) {
+        // Retry on network errors
+        if (retryCount < MAX_RETRIES && (error.name === 'TypeError' || error.message?.includes('NetworkError'))) {
+          console.warn(`Network error loading databases, retry ${retryCount + 1}/${MAX_RETRIES}...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+          return loadSavedDatabases(retryCount + 1);
+        }
         console.error('Error loading databases:', error);
-        container.innerHTML = '<p class="text-muted">Error loading databases.</p>';
+        container.innerHTML = '<p class="text-muted">Error loading databases. <a href="#" onclick="loadSavedDatabases()">Retry</a></p>';
       }
     }
 
@@ -2194,9 +3119,17 @@ ${transcriptText.slice(0, 4000)}`;
         isReady: true
       });
 
-      // Notify user and switch to chat
-      switchTab('chat');
-      addChatMessage(`📊 Switched to database "${displayName}". Ask me anything about it!`, 'ai');
+      // Show the database viewer inline
+      if (typeof DatabaseViewer !== 'undefined') {
+        DatabaseViewer.show(filename, displayName);
+        // Scroll to the viewer
+        const viewer = document.getElementById('database-excel-viewer');
+        if (viewer) {
+          viewer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+
+      addChatMessage(`📊 Switched to database "${displayName}". View the data above or ask me anything about it!`, 'ai');
     }
 
     async function embedDatabase(filename, buttonEl) {

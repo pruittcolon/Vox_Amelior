@@ -13,9 +13,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Get script directory
+# Get script directory and repo root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+cd "$REPO_ROOT"
 
 # Configuration
 # Allow overrides via environment variables
@@ -26,7 +27,7 @@ SHOULD_EXIT=false
 FAST_MODE="${FAST_MODE:-false}"
 VALIDATE_PORTS="${VALIDATE_PORTS:-false}"
 
-LOG_ROOT="$SCRIPT_DIR/logs/startup"
+LOG_ROOT="$REPO_ROOT/logs/startup"
 
 # ============================================================================
 # Helper Functions
@@ -70,8 +71,8 @@ capture_diagnostics() {
     mkdir -p "$dest"
     print_warning "Capturing diagnostic logs (${reason}) → ${dest}"
 
-    if [ -d "$SCRIPT_DIR/docker" ]; then
-        pushd "$SCRIPT_DIR/docker" >/dev/null 2>&1 || return
+    if [ -d "$REPO_ROOT/docker" ]; then
+        pushd "$REPO_ROOT/docker" >/dev/null 2>&1 || return
         {
             compose_cmd ps
         } &> "${dest}/compose_ps.txt" || true
@@ -199,8 +200,8 @@ cleanup() {
     SHOULD_EXIT=true
     echo -e "\n${YELLOW}Stopping Nemo Server services...${NC}"
 
-    if [ -d "$SCRIPT_DIR/docker" ]; then
-        pushd "$SCRIPT_DIR/docker" >/dev/null 2>&1 || true
+    if [ -d "$REPO_ROOT/docker" ]; then
+        pushd "$REPO_ROOT/docker" >/dev/null 2>&1 || true
         if command -v docker-compose &> /dev/null; then
             docker-compose down >/dev/null 2>&1 || true
         else
@@ -265,9 +266,9 @@ check_dependencies() {
 run_security_hardening() {
     print_header "Running Security Hardening"
     
-    if [ -f "scripts/security_hardening.py" ]; then
+    if [ -f "$REPO_ROOT/scripts/security_hardening.py" ]; then
         print_info "Generating/verifying secrets for Phase 5..."
-        python3 scripts/security_hardening.py
+        python3 "$REPO_ROOT/scripts/security_hardening.py"
         if [ $? -ne 0 ]; then
             print_error "Security hardening failed"
             exit 1
@@ -281,9 +282,9 @@ run_security_hardening() {
 verify_security_implementation() {
     print_header "Verifying Security Implementation"
     
-    if [ -f "scripts/verify_security.py" ]; then
+    if [ -f "$REPO_ROOT/scripts/verify_security.py" ]; then
         print_info "Checking Phases 1-5 implementation..."
-        if python3 scripts/verify_security.py; then
+        if python3 "$REPO_ROOT/scripts/verify_security.py"; then
             print_success "All security checks passed!"
         else
             print_warning "Some security checks failed - review output above"
@@ -332,22 +333,22 @@ prepare_host_dirs() {
     # Ensure bind mounts exist with SECURE permissions
     local dirs=("gemma_instance")
     for d in "${dirs[@]}"; do
-        if [ ! -d "$SCRIPT_DIR/$d" ]; then
-            mkdir -p "$SCRIPT_DIR/$d"
+        if [ ! -d "$REPO_ROOT/$d" ]; then
+            mkdir -p "$REPO_ROOT/$d"
             print_info "Created $d"
         fi
         # Phase 5 Security: Use restrictive permissions matching container user (UID 1000)
         # 0750 = owner rwx, group rx, others none
-        chown 1000:1000 "$SCRIPT_DIR/$d" 2>/dev/null || true
-        chmod 0750 "$SCRIPT_DIR/$d" || true
-        print_success "Ready: $d ($(ls -ld "$SCRIPT_DIR/$d"))"
+        chown 1000:1000 "$REPO_ROOT/$d" 2>/dev/null || true
+        chmod 0750 "$REPO_ROOT/$d" || true
+        print_success "Ready: $d ($(ls -ld "$REPO_ROOT/$d"))"
     done
 }
 
 stop_existing_services() {
     print_header "Stopping Existing Services"
     
-    cd docker
+    cd "$REPO_ROOT/docker"
     
     print_info "Stopping all Nemo/Refactored containers..."
     # Only wipe volumes when explicitly requested
@@ -370,7 +371,7 @@ start_services() {
     local DO_BUILD=${1:-false}
     local BUILD_ALL=${2:-false}
 
-    cd docker
+    cd "$REPO_ROOT/docker"
     
     if [ "$DO_BUILD" = true ]; then
         if [ "$BUILD_ALL" = true ]; then
@@ -393,20 +394,15 @@ start_services() {
     compose_cmd up -d gpu-coordinator
     sleep 2
     
-    print_info "Starting Gemma service (loading model on GPU first)..."
+    # CORRECT ORDER: Gemma starts first on CPU (transcription depends_on gemma in compose)
+    print_info "Starting Gemma service (CPU standby, GPU on demand)..."
     compose_cmd up -d gemma-service
     
-    # Wait for Gemma to load on GPU before starting transcription
-    print_info "Waiting for Gemma to load model on GPU..."
-    local gemma_ready=false
+    # Wait for Gemma to load on CPU before transcription
+    print_info "Waiting for Gemma to initialize..."
     for i in {1..60}; do
-        if docker logs refactored_gemma 2>&1 | grep -q "Model loaded on GPU successfully\|Loaded on GPU successfully"; then
-            gemma_ready=true
-            print_success "Gemma loaded on GPU!"
-            break
-        fi
-        if docker logs refactored_gemma 2>&1 | grep -q "CPU fallback mode"; then
-            print_warning "Gemma fell back to CPU mode - check VRAM"
+        if docker logs refactored_gemma 2>&1 | grep -q "Application startup complete\|Model loaded on CPU\|CPU standby mode"; then
+            print_success "Gemma initialized!"
             break
         fi
         sleep 2
@@ -415,11 +411,8 @@ start_services() {
         fi
     done
     
-    print_info "Starting transcription service..."
-    compose_cmd up -d transcription-service
-    sleep 3
-    
-    print_info "Starting remaining services..."
+    # Now start transcription (it will wait for its dependencies via compose)
+    print_info "Starting remaining services (transcription, rag, emotion, etc)..."
     if compose_cmd up -d; then
         print_success "All services started successfully"
     else
@@ -705,7 +698,7 @@ interactive_loop() {
             case "$key" in
                 r|R)
                     echo -e "\n${YELLOW}Restarting all services...${NC}"
-                    pushd "$SCRIPT_DIR/docker" >/dev/null 2>&1 || continue
+                    pushd "$REPO_ROOT/docker" >/dev/null 2>&1 || continue
                     compose_cmd restart
                     popd >/dev/null 2>&1 || true
                     echo -e "${GREEN}Services restarted!${NC}\n"

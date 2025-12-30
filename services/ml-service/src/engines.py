@@ -25,9 +25,9 @@ class VectorEngine:
     @classmethod
     def get_model(cls):
         if cls._model is None:
-            # Use a small, fast model optimized for CPU
-            print("🧠 Loading Embedding Model (all-MiniLM-L6-v2)...")
-            cls._model = SentenceTransformer("all-MiniLM-L6-v2")
+            # Use a small, fast model - FORCE CPU to avoid CUDA OOM with Gemma
+            print("Embedding Model (all-MiniLM-L6-v2) loading on CPU...")
+            cls._model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
         return cls._model
 
     def __init__(self, index_path: str = None):

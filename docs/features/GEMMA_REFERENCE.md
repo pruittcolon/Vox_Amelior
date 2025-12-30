@@ -59,11 +59,12 @@ const data = await response.json();
 const answer = data.message || data.response || data.text;
 ```
 
-**Gateway Routing (`main.py` line 1242-1247):**
+**Gateway Routing (`services/api-gateway/src/routers/gemma.py`):**
 ```python
-@app.post("/api/public/chat")
-async def public_chat(request: Dict[str, Any], http_request: Request):
-    """Public chat endpoint for unauthenticated chatbot access (IP rate-limited)"""
+@router.post("/api/public/chat")
+async def public_chat(request: dict[str, Any], http_request: Request):
+    """Public chat endpoint for unauthenticated chatbot access (IP rate-limited)."""
+    proxy_request = _get_proxy_request()
     result = await proxy_request(f"{GEMMA_URL}/chat", "POST", json=request)
     return result
 ```
@@ -501,17 +502,28 @@ def load_model_gpu():
     """Load model directly on GPU at startup"""
     global gemma_model, model_on_gpu
     
-    gemma_model = Llama(
-        model_path=GEMMA_MODEL_PATH,
-        n_ctx=GEMMA_CONTEXT_SIZE,  # Context window (25k tokens)
-        n_batch=512,               # Larger batch for faster prompt processing
-        n_gpu_layers=-1,           # ALL layers on GPU
-        n_threads=4,               # Fewer CPU threads since GPU does the work
-        use_mlock=False,           # Don't lock memory
-        use_mmap=True,             # Use memory mapping
-        flash_attn=True,           # Flash attention for performance
-        verbose=True,
-    )
+    # ... logging ...
+
+    # Build kwargs for model loading
+    model_kwargs = {
+        "model_path": GEMMA_MODEL_PATH,
+        "n_ctx": GEMMA_CONTEXT_SIZE,
+        "n_batch": 512,
+        "n_gpu_layers": GEMMA_GPU_LAYERS,  # Use configured layers
+        "n_threads": 4,
+        "use_mlock": False,
+        "use_mmap": True,
+        "flash_attn": True,
+        "verbose": True,
+    }
+    
+    # Add quantized KV cache if supported
+    if GGML_TYPES_AVAILABLE:
+        cache_ggml_type = CACHE_TYPE_MAP.get(current_cache_type, GGML_TYPE_Q8_0)
+        model_kwargs["type_k"] = cache_ggml_type
+        model_kwargs["type_v"] = cache_ggml_type
+    
+    gemma_model = Llama(**model_kwargs)
     model_on_gpu = True
 ```
 

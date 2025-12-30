@@ -169,7 +169,7 @@ services:
     volumes:
       - ./rag_instance:/app/instance
       - ./faiss_index:/app/faiss_index
-      - ../models1:/app/models
+      - ../models:/app/models
       - ../shared:/app/shared
     secrets:
       - jwt_secret_primary
@@ -228,7 +228,7 @@ services:
       EMOTION_MODEL_PATH: "/app/models/emotion-english-distilroberta-base"
       JWT_ONLY: "true"
     volumes:
-      - ../models1:/app/models:ro
+      - ../models:/app/models:ro
     secrets:
       - jwt_secret_primary
       - jwt_secret_previous

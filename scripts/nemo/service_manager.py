@@ -15,7 +15,7 @@ from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKER_DIR = REPO_ROOT / "docker"
-START_SCRIPT = REPO_ROOT / "start.sh"
+START_SCRIPT = REPO_ROOT / "scripts" / "start.sh"
 
 # Service name mapping (CLI name -> Docker service name)
 SERVICE_MAP = {

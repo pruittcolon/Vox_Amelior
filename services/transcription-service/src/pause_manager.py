@@ -129,20 +129,29 @@ class PauseManager:
         # Set paused flag
         self.paused = True
 
-        # Call pause callback if set
-        if self.pause_callback:
-            try:
-                await self.pause_callback()
-            except Exception as e:
-                logger.error(f"Error in pause callback: {e}")
-
-        # Acknowledge pause to coordinator
+        # CRITICAL FIX: Acknowledge pause to coordinator IMMEDIATELY
+        # This prevents coordinator timeout while model offloads
         await self.redis_client.publish(
             "transcription_paused",
             json.dumps(
-                {"status": "paused", "timestamp": datetime.now().isoformat(), "queued_chunks": len(self.chunk_queue)}
+                {"status": "paused", "offloading": True, "timestamp": datetime.now().isoformat(), "queued_chunks": len(self.chunk_queue)}
             ),
         )
+        logger.info("Transcription PAUSED - ACK sent, now offloading models...")
+
+        # Call pause callback to offload models (can take 10-60s)
+        if self.pause_callback:
+            try:
+                await self.pause_callback()
+                logger.info("Pause callback completed - VRAM should be freed")
+                # Signal coordinator that VRAM is now available
+                await self.redis_client.publish(
+                    "vram_freed",
+                    json.dumps({"status": "freed", "timestamp": datetime.now().isoformat()})
+                )
+                logger.info("VRAM freed signal sent to coordinator")
+            except Exception as e:
+                logger.error(f"Error in pause callback: {e}")
 
         logger.info(f"Transcription PAUSED - queuing new chunks (queue size: {len(self.chunk_queue)})")
 

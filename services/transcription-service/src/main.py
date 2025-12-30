@@ -903,18 +903,26 @@ async def lifespan(app: FastAPI):
                 gc.collect()
                 torch.cuda.empty_cache()  # Second clear after GC
 
-                # Wait and verify VRAM is freed (up to 2 seconds)
-                for i in range(20):
+                # Wait and verify VRAM is freed (up to 10 seconds - NeMo takes longer)
+                vram_threshold_mb = 500  # Allow up to 500MB for CUDA context
+                for i in range(100):  # 10 seconds max
                     allocated = torch.cuda.memory_allocated(0) / 1024**2
-                    if allocated < 100:  # Less than 100MB = fully freed
-                        logger.info(f"[CALLBACK] ✅ VRAM verified freed: {allocated:.1f}MB allocated")
+                    if allocated < vram_threshold_mb:
+                        logger.info(f"[CALLBACK] VRAM freed: {allocated:.1f}MB allocated (threshold: {vram_threshold_mb}MB)")
                         break
-                    logger.debug(f"[CALLBACK] ⏳ Waiting for VRAM release: {allocated:.1f}MB ({i + 1}/20)")
+                    if i % 10 == 0:  # Log every second
+                        logger.debug(f"[CALLBACK] Waiting for VRAM release: {allocated:.1f}MB ({i / 10 + 1}/10s)")
                     await asyncio.sleep(0.1)
                 else:
-                    logger.warning(f"[CALLBACK] ⚠️ VRAM not fully freed after 2s: {allocated:.1f}MB still allocated")
+                    allocated = torch.cuda.memory_allocated(0) / 1024**2
+                    logger.error(f"[CALLBACK] VRAM NOT FREED after 10s: {allocated:.1f}MB still allocated!")
+                    # Don't claim freed if it isn't - this is critical for Gemma to load
+                    return False
 
-            logger.info("[CALLBACK] ✅ Model moved to CPU, VRAM verified freed!")
+            logger.info("[CALLBACK] Model moved to CPU, VRAM verified freed!")
+
+            # Add explicit coordinator notification if needed here
+            return True
 
         except Exception as exc:
             logger.error("[CALLBACK] ❌ Failed to offload ASR resources: %s", exc)
@@ -922,43 +930,40 @@ async def lifespan(app: FastAPI):
     async def on_resume():
         """When Gemma releases GPU - move ASR model back to GPU for fast transcription"""
         global asr_model, parakeet_pipeline
-        logger.info("[CALLBACK] ▶️ Resume callback triggered - moving ASR back to GPU")
+        logger.info("[CALLBACK] Resume callback triggered - moving ASR back to GPU")
 
         try:
+            import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
             if device == "cuda":
-                # Clear any cached memory first
                 torch.cuda.empty_cache()
                 import gc
-
                 gc.collect()
 
             if TRANSCRIBE_STRATEGY == "parakeet":
                 if parakeet_pipeline is not None:
                     parakeet_pipeline.to(device)
-                    logger.info("[CALLBACK] ✅ Parakeet model moved to %s", device.upper())
+                    logger.info("[CALLBACK] Parakeet model moved to %s", device.upper())
             else:
                 if asr_model is not None:
                     asr_model = asr_model.to(device)
                     asr_model.eval()
-                    logger.info("[CALLBACK] ✅ ASR model moved to %s", device.upper())
+                    logger.info("[CALLBACK] ASR model moved to %s", device.upper())
 
-            # Log GPU memory after moving
             if torch.cuda.is_available():
                 allocated = torch.cuda.memory_allocated(0) / 1024**2
-                logger.info("[CALLBACK] 📊 GPU memory allocated: %.1f MB", allocated)
+                logger.info("[CALLBACK] GPU memory allocated: %.1f MB", allocated)
 
         except Exception as exc:
-            logger.error("[CALLBACK] ❌ Failed in resume callback: %s", exc)
+            logger.error("[CALLBACK] Failed in resume callback: %s", exc)
             import traceback
-
             logger.error(traceback.format_exc())
 
         # Process queued chunks
         queued_chunks = pause_manager.get_queued_chunks()
         if queued_chunks:
-            logger.info(f"[CALLBACK] 📋 Processing {len(queued_chunks)} queued chunks")
+            logger.info(f"[CALLBACK] Processing {len(queued_chunks)} queued chunks")
             logger.warning("[CALLBACK] Queued chunk processing is not implemented; queued chunks will be skipped")
 
     pause_manager.set_pause_callback(on_pause)

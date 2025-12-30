@@ -34,6 +34,8 @@ const _getPlotlyConfig = () => window.PlotlyBaseConfig || (typeof PlotlyBaseConf
     responsive: true
 });
 
+const _isLowPower = () => Boolean(window.NexusPerformance?.lowPower);
+
 // =============================================================================
 // TREEMAP CHART (Plotly)
 // =============================================================================
@@ -560,15 +562,30 @@ const NetworkGraph = {
             console.error('NetworkGraph: Container not found:', containerId);
             return null;
         }
-        
+
+        const lowPower = _isLowPower();
+        let nodesInput = Array.isArray(data.nodes) ? data.nodes : [];
+        let linksInput = Array.isArray(data.links) ? data.links : [];
+
+        if (lowPower && nodesInput.length > 80) {
+            nodesInput = [...nodesInput]
+                .sort((a, b) => (b.value || 1) - (a.value || 1))
+                .slice(0, 80);
+            const nodeIds = new Set(nodesInput.map(node => node.id || node.name));
+            linksInput = linksInput.filter(link => nodeIds.has(link.source) && nodeIds.has(link.target));
+            if (linksInput.length > 120) {
+                linksInput = linksInput.slice(0, 120);
+            }
+        }
+
         // Initialize ECharts
         const chart = echarts.init(container, null, { renderer: 'canvas' });
         
         // Process nodes with premium styling
-        const { nodes, maxNodeValue } = this._processNodes(data.nodes, options);
+        const { nodes, maxNodeValue } = this._processNodes(nodesInput, options);
         
         // Process links with premium gradient styling
-        const links = this._processLinks(data.links);
+        const links = this._processLinks(linksInput);
         
         const option = {
             backgroundColor: 'transparent',
@@ -602,16 +619,16 @@ const NetworkGraph = {
                     return '';
                 }
             },
-            animationDuration: 1500,
-            animationEasingUpdate: 'quinticInOut',
+            animationDuration: lowPower ? 0 : 1500,
+            animationEasingUpdate: lowPower ? 'linear' : 'quinticInOut',
             series: [{
                 type: 'graph',
-                layout: 'force',
+                layout: lowPower ? 'circular' : 'force',
                 data: nodes,
                 links: links,
-                roam: true,
-                draggable: true,
-                force: {
+                roam: !lowPower,
+                draggable: !lowPower,
+                force: lowPower ? undefined : {
                     repulsion: 350,
                     gravity: 0.08,
                     edgeLength: [60, 220],
@@ -823,7 +840,50 @@ const SurfaceChart = {
         if (!container) return null;
         
         const theme = window.FinancialTheme || FinancialTheme;
-        
+        const baseLayout = _getPlotlyLayout();
+        const baseConfig = _getPlotlyConfig();
+        const lowPower = _isLowPower();
+
+        if (lowPower) {
+            const heatmapTrace = {
+                type: 'heatmap',
+                z: data.z,
+                x: data.x,
+                y: data.y,
+                colorscale: [
+                    [0, theme.colors.danger],
+                    [0.25, theme.colors.warning],
+                    [0.5, theme.colors.info],
+                    [0.75, theme.colors.primary],
+                    [1, theme.colors.success]
+                ],
+                hovertemplate: `${options.xLabel || 'X'}: %{x}<br>${options.yLabel || 'Y'}: %{y}<br>${options.zLabel || 'Z'}: %{z:$,.0f}<extra></extra>`
+            };
+
+            const heatmapLayout = {
+                ...baseLayout,
+                title: {
+                    text: `${data.title || 'Pricing Surface'} • Low-Graphics Mode`,
+                    font: { color: '#f8fafc', size: 16, family: theme.fonts.primary },
+                    x: 0.02,
+                    xanchor: 'left'
+                },
+                xaxis: {
+                    ...baseLayout.xaxis,
+                    title: { text: options.xLabel || 'X Axis', font: { color: '#94a3b8' } }
+                },
+                yaxis: {
+                    ...baseLayout.yaxis,
+                    title: { text: options.yLabel || 'Y Axis', font: { color: '#94a3b8' } }
+                },
+                height: options.height || 400,
+                margin: { l: 60, r: 30, t: 60, b: 60 }
+            };
+
+            Plotly.newPlot(containerId, [heatmapTrace], heatmapLayout, baseConfig);
+            return { containerId, type: 'heatmap' };
+        }
+
         const trace = {
             type: 'surface',
             z: data.z,
@@ -848,7 +908,7 @@ const SurfaceChart = {
         };
         
         const layout = {
-            ...PlotlyBaseLayout,
+            ...baseLayout,
             title: {
                 text: data.title || '3D Analysis',
                 font: { color: '#f8fafc', size: 16, family: theme.fonts.primary },
@@ -884,7 +944,7 @@ const SurfaceChart = {
         };
         
         const config = { 
-            ...PlotlyBaseConfig,
+            ...baseConfig,
             displayModeBar: true,
             modeBarButtonsToRemove: ['toImage', 'sendDataToCloud']
         };
