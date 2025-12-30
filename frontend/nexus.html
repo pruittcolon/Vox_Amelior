@@ -1066,6 +1066,7 @@
         };
 
         // Create result card for single engine WITH PLOTLY CHART
+        // Create result card for single engine using Modular NexusViz System
         function createEngineResultCard(engineName, data) {
             const card = document.createElement('div');
             card.className = 'engine-card';
@@ -1074,7 +1075,38 @@
             const engineDisplay = data.engine || data.engine_display_name || engineName;
             const taskType = data.task_type || 'analysis';
             const insights = data.insights || [];
+            
+            // Use NexusViz modular system for visualization
             const vizId = 'viz-' + Date.now();
+            let chartHtml = '';
+            
+            if (window.NexusViz && typeof window.NexusViz.buildVizSection === 'function') {
+                // Ensure engine name is lowercase for mapping and handle variations
+                const map = {
+                    'titan_automl': 'titan',
+                    'clustering': 'clustering',
+                    'anomaly_detection': 'anomaly',
+                    'statistical_analysis': 'statistical',
+                    'trend_analysis': 'trend',
+                    'predictive_modeling': 'predictive',
+                    'universal_graph': 'graphs'
+                };
+                
+                const mappedName = map[engineName.toLowerCase()] || engineName.toLowerCase();
+                
+                console.log(`[Nexus] Requesting visualization for: ${mappedName}`);
+                chartHtml = window.NexusViz.buildVizSection(mappedName, data, vizId);
+                
+                // Render after card is in DOM
+                if (chartHtml) {
+                    setTimeout(() => {
+                        console.log(`[Nexus] Rendering visualization for: ${mappedName}`);
+                        window.NexusViz.renderEngineVisualizations(mappedName, data, vizId);
+                    }, 150);
+                }
+            } else {
+                console.warn('[Nexus] NexusViz module not loaded, charts will be skipped');
+            }
 
             let insightsHtml = '';
             if (insights.length > 0) {
@@ -1098,24 +1130,6 @@
                 </p>`;
             }
 
-            // Add chart container for Plotly
-            let chartHtml = '';
-
-            // Check for Titan (Feature Importance)
-            if (data.feature_importance && data.feature_importance.length > 0) {
-                chartHtml = `<div style="margin-top: 1.5rem; background: var(--vox-grey-50); padding: 1rem; border-radius: 0.75rem;">
-                    <h5 style="margin: 0 0 1rem 0; color: var(--vox-grey-800);">Feature Impact Analysis</h5>
-                    <div id="${vizId}" style="width: 100%; height: 350px;"></div>
-                </div>`;
-            }
-            // Check for Clustering (PCA 3D)
-            else if (data.pca_3d && data.pca_3d.points) {
-                chartHtml = `<div style="margin-top: 1.5rem; background: var(--vox-grey-50); padding: 1rem; border-radius: 0.75rem;">
-                    <h5 style="margin: 0 0 1rem 0; color: var(--vox-grey-800);">3D Cluster Visualization</h5>
-                    <div id="${vizId}" style="width: 100%; height: 500px;"></div>
-                </div>`;
-            }
-
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h4 style="margin: 0; color: var(--vox-grey-800);">${engineDisplay}</h4>
@@ -1134,111 +1148,12 @@
                 </details>
             `;
 
-            // Render Plotly chart after card is in DOM
-            setTimeout(() => {
-                if (data.feature_importance && data.feature_importance.length > 0) {
-                    renderFeatureWaterfall(data.feature_importance, vizId);
-                } else if (data.pca_3d && data.pca_3d.points) {
-                    renderClustering3D(data, vizId);
-                }
-            }, 100);
-
             return card;
         }
 
-        // Render feature importance waterfall chart using Plotly
-        function renderFeatureWaterfall(features, containerId) {
-            const container = document.getElementById(containerId);
-            if (!container || !window.Plotly) {
-                console.error('Cannot render chart: container or Plotly not found');
-                return;
-            }
 
-            const getVal = f => f.stability !== undefined ? f.stability : ((f.importance || f.value || 0) * 100);
-            const sortedFeatures = [...features].sort((a, b) => getVal(b) - getVal(a)).slice(0, 10);
-
-            const contributions = sortedFeatures.map((f, i) => ({
-                name: f.feature || f.name,
-                value: getVal(f),
-                direction: f.impact === 'negative' ? -1 : 1
-            }));
-
-            const plotlyData = [{
-                type: 'waterfall',
-                orientation: 'h',
-                y: contributions.map(c => c.name),
-                x: contributions.map(c => c.value * c.direction * 0.1),
-                connector: { line: { color: 'rgba(2, 85, 158, 0.3)', width: 1 } },
-                increasing: { marker: { color: '#10b981' } },
-                decreasing: { marker: { color: '#ef4444' } },
-                totals: { marker: { color: '#6366f1' } },
-                textposition: 'outside',
-                text: contributions.map(c => c.value.toFixed(1) + '%'),
-                hovertemplate: '<b>%{y}</b><br>Stability: %{text}<extra></extra>'
-            }];
-
-            const layout = {
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-                font: { color: '#64748b', size: 11 },
-                margin: { l: 120, r: 60, t: 10, b: 40 },
-                xaxis: { title: 'Feature Impact', gridcolor: '#e2e8f0' },
-                yaxis: { autorange: 'reversed', gridcolor: '#e2e8f0' },
-                showlegend: false
-            };
-
-            Plotly.newPlot(container, plotlyData, layout, { responsive: true, displayModeBar: false });
-        }
 
         // Render Clustering 3D Scatter Plot
-        function renderClustering3D(data, containerId) {
-            const container = document.getElementById(containerId);
-            if (!container || !window.Plotly) return;
-
-            const points = data.pca_3d.points;
-            const clusters = [...new Set(points.map(p => p.cluster))].sort((a, b) => a - b);
-            const traces = [];
-
-            const colors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
-            clusters.forEach((cluster, idx) => {
-                const clusterPoints = points.filter(p => p.cluster === cluster);
-                const color = cluster === -1 ? '#94a3b8' : (colors[cluster % colors.length] || colors[0]);
-
-                traces.push({
-                    type: 'scatter3d',
-                    mode: 'markers',
-                    name: cluster === -1 ? 'Noise' : `Cluster ${cluster + 1}`,
-                    x: clusterPoints.map(p => p.x),
-                    y: clusterPoints.map(p => p.y),
-                    z: clusterPoints.map(p => p.z),
-                    marker: {
-                        size: 5,
-                        color: color,
-                        opacity: 0.8,
-                        line: { width: 0.5, color: 'white' }
-                    },
-                    hovertemplate: '<b>Cluster %{text}</b><br>X: %{x:.2f}<br>Y: %{y:.2f}<Z: %{z:.2f}<extra></extra>',
-                    text: clusterPoints.map(() => cluster + 1)
-                });
-            });
-
-            const layout = {
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-                font: { color: '#64748b' },
-                margin: { l: 0, r: 0, t: 0, b: 0 },
-                scene: {
-                    xaxis: { title: 'PC1', gridcolor: '#e2e8f0' },
-                    yaxis: { title: 'PC2', gridcolor: '#e2e8f0' },
-                    zaxis: { title: 'PC3', gridcolor: '#e2e8f0' }
-                },
-                showlegend: true,
-                legend: { x: 0, y: 1 }
-            };
-
-            Plotly.newPlot(container, traces, layout, { responsive: true, displayModeBar: true });
-        }
 
         // Add click handlers to all single engine buttons
         document.addEventListener('DOMContentLoaded', function () {
