@@ -114,12 +114,56 @@ def _validate_file_extension(filename: str) -> None:
 
 @router.post("/upload")
 async def ml_upload(file: UploadFile = File(...)):
-    """Proxy file upload to ML service (with file type validation)."""
-    proxy_request = _get_proxy_request()
+    """Proxy file upload to ML service (with file type validation).
+    
+    Uses streaming for large files to avoid memory issues.
+    """
     _validate_file_extension(file.filename)
-    file_content = await file.read()
-    files = {"file": (file.filename, file_content, file.content_type)}
-    return await proxy_request(f"{ML_SERVICE_URL}/upload", "POST", files=files)
+    
+    # For large files, use streaming approach with httpx
+    # Read file in chunks to avoid loading entire file into memory
+    import httpx
+    from src.main import service_auth
+    
+    headers = {}
+    if service_auth:
+        try:
+            token = service_auth.create_token(expires_in=120, aud="internal")
+            headers["X-Service-Token"] = token
+        except Exception as e:
+            logger.error(f"Failed to create service token: {e}")
+            raise HTTPException(status_code=503, detail="Service auth unavailable")
+    
+    try:
+        # Stream the file content
+        file_content = await file.read()
+        files = {"file": (file.filename, file_content, file.content_type or "application/octet-stream")}
+        
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=600.0, connect=30.0)) as client:
+            response = await client.post(
+                f"{ML_SERVICE_URL}/upload",
+                headers=headers,
+                files=files
+            )
+            response.raise_for_status()
+            
+            # Return with explicit keep-alive headers to prevent browser connection drop
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                content=response.json(),
+                headers={
+                    "Connection": "keep-alive",
+                    "Keep-Alive": "timeout=600"
+                }
+            )
+            
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Upload timeout - file may be too large")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        raise HTTPException(status_code=503, detail=f"Upload failed: {str(e)}")
 
 
 @router.post("/api/upload")
@@ -139,6 +183,144 @@ async def list_databases():
 async def api_list_databases():
     """Alias for /databases with /api prefix."""
     return await list_databases()
+
+
+# =============================================================================
+# Database Viewer Endpoints (Excel-like grid viewer)
+# =============================================================================
+
+
+@router.get("/databases/{filename}/rows")
+async def get_database_rows(filename: str, request: Request):
+    """
+    Proxy to ML service for paginated database rows.
+    Supports: page, page_size, sort_by, sort_order, search query params.
+    """
+    proxy_request = _get_proxy_request()
+    # Forward query params
+    query_string = str(request.query_params)
+    url = f"{ML_SERVICE_URL}/databases/{filename}/rows"
+    if query_string:
+        url = f"{url}?{query_string}"
+    return await proxy_request(url, "GET")
+
+
+@router.get("/api/databases/{filename}/rows")
+async def api_get_database_rows(filename: str, request: Request):
+    """Alias for /databases/{filename}/rows with /api prefix."""
+    return await get_database_rows(filename, request)
+
+
+@router.get("/databases/{filename}/schema")
+async def get_database_schema(filename: str):
+    """Proxy to ML service for database schema information."""
+    proxy_request = _get_proxy_request()
+    return await proxy_request(f"{ML_SERVICE_URL}/databases/{filename}/schema", "GET")
+
+
+@router.get("/api/databases/{filename}/schema")
+async def api_get_database_schema(filename: str):
+    """Alias for /databases/{filename}/schema with /api prefix."""
+    return await get_database_schema(filename)
+
+
+@router.get("/databases/{filename}/download")
+async def download_database(filename: str):
+    """Proxy to ML service for complete file download (Export All)."""
+    from fastapi.responses import StreamingResponse
+    import httpx
+    from src.main import service_auth
+    
+    headers = {}
+    if service_auth:
+        try:
+            token = service_auth.create_token(expires_in=300, aud="internal")
+            headers["X-Service-Token"] = token
+        except Exception:
+            pass
+    
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        response = await client.get(
+            f"{ML_SERVICE_URL}/databases/{filename}/download",
+            headers=headers
+        )
+        response.raise_for_status()
+        
+        return StreamingResponse(
+            iter([response.content]),
+            media_type=response.headers.get("content-type", "text/csv"),
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+# =============================================================================
+# Database Quality Scoring Endpoints (Gemma-powered)
+# =============================================================================
+
+
+@router.post("/database-scoring/score/{filename}")
+async def start_database_scoring(filename: str, request: Request):
+    """Start a Gemma-powered database quality scoring job."""
+    proxy_request = _get_proxy_request()
+    body = await request.json() if await request.body() else {}
+    return await proxy_request(f"{ML_SERVICE_URL}/database-scoring/score/{filename}", "POST", json=body)
+
+
+@router.get("/database-scoring/status/{job_id}")
+async def get_scoring_status(job_id: str):
+    """Get the status of a database scoring job."""
+    proxy_request = _get_proxy_request()
+    return await proxy_request(f"{ML_SERVICE_URL}/database-scoring/status/{job_id}", "GET")
+
+
+@router.get("/database-scoring/results/{job_id}")
+async def get_scoring_results(job_id: str):
+    """Get the full results of a completed scoring job."""
+    proxy_request = _get_proxy_request()
+    return await proxy_request(f"{ML_SERVICE_URL}/database-scoring/results/{job_id}", "GET")
+
+
+@router.post("/database-scoring/test/{filename}")
+async def test_database_scoring(filename: str):
+    """Test mode: score only the first chunk to verify integration."""
+    proxy_request = _get_proxy_request()
+    return await proxy_request(f"{ML_SERVICE_URL}/database-scoring/test/{filename}", "POST")
+
+
+@router.get("/database-scoring/jobs")
+async def list_scoring_jobs():
+    """List all scoring jobs."""
+    proxy_request = _get_proxy_request()
+    return await proxy_request(f"{ML_SERVICE_URL}/database-scoring/jobs", "GET")
+
+
+# =============================================================================
+# Quality Insights Endpoints (3D Quality Intelligence Dashboard)
+# =============================================================================
+
+
+@router.post("/quality-insights/analyze")
+async def quality_insights_analyze(request: Request):
+    """Analyze insights file for 3D visualization."""
+    proxy_request = _get_proxy_request()
+    body = await request.json()
+    return await proxy_request(f"{ML_SERVICE_URL}/quality-insights/analyze", "POST", json=body)
+
+
+@router.post("/quality-insights/business-savings")
+async def quality_insights_savings(request: Request):
+    """Get business savings estimates from quality analysis."""
+    proxy_request = _get_proxy_request()
+    body = await request.json()
+    return await proxy_request(f"{ML_SERVICE_URL}/quality-insights/business-savings", "POST", json=body)
+
+
+@router.get("/quality-insights/files")
+async def quality_insights_files():
+    """List available insights files."""
+    proxy_request = _get_proxy_request()
+    return await proxy_request(f"{ML_SERVICE_URL}/quality-insights/files", "GET")
 
 
 # =============================================================================
@@ -187,7 +369,8 @@ async def ml_vectorize(filename: str, session: Session = Depends(require_auth)):
 async def vectorize_path_post(path: str, request: Request, session: Session = Depends(require_auth)):
     """Path-based vectorization POST."""
     proxy_request = _get_proxy_request()
-    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    content_type = request.headers.get("content-type", "")
+    body = await request.json() if content_type.startswith("application/json") else {}
     return await proxy_request(f"{ML_SERVICE_URL}/vectorize/{path}", "POST", json=body)
 
 
@@ -212,10 +395,14 @@ async def vectorize_path_delete(path: str, session: Session = Depends(require_au
 
 @router.post("/embed")
 async def embed(request: Request, session: Session = Depends(require_auth)):
-    """Generate embeddings for text."""
+    """Generate embeddings for a file. Proxies to ML service /embed/{filename}."""
     proxy_request = _get_proxy_request()
     body = await request.json()
-    return await proxy_request(f"{ML_SERVICE_URL}/embed", "POST", json=body)
+    filename = body.get("filename", "")
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename is required")
+    # ML service expects /embed/{filename} not /embed with JSON body
+    return await proxy_request(f"{ML_SERVICE_URL}/embed/{filename}", "POST", json=body)
 
 
 @router.post("/ask")
@@ -230,7 +417,8 @@ async def ask(request: Request, session: Session = Depends(require_auth)):
 async def analyze_full(filename: str, request: Request, session: Session = Depends(require_auth)):
     """Run full analysis on a file."""
     proxy_request = _get_proxy_request()
-    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    content_type = request.headers.get("content-type", "")
+    body = await request.json() if content_type.startswith("application/json") else {}
     return await proxy_request(f"{ML_SERVICE_URL}/analyze-full/{filename}", "POST", json=body)
 
 
@@ -243,8 +431,18 @@ async def analyze_full(filename: str, request: Request, session: Session = Depen
 async def analytics_post(path: str, request: Request, session: Session = Depends(require_auth)):
     """Analytics POST proxy (premium engines)."""
     proxy_request = _get_proxy_request()
-    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
-    return await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "POST", json=body)
+    content_type = request.headers.get("content-type", "")
+    body = await request.json() if content_type.startswith("application/json") else {}
+    
+    logger.info(f"[ANALYTICS] Proxying POST /analytics/{path} body_keys={list(body.keys())}")
+    
+    try:
+        result = await proxy_request(f"{ML_SERVICE_URL}/analytics/{path}", "POST", json=body)
+        logger.info(f"[ANALYTICS] Success for /analytics/{path}")
+        return result
+    except Exception as e:
+        logger.error(f"[ANALYTICS] Failed /analytics/{path}: {type(e).__name__}: {e}")
+        raise
 
 
 @router.post("/api/analytics/{path:path}")

@@ -37,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Default models directory
-MODELS_DIR = Path(os.getenv("MODELS_DIR", "models1"))
+MODELS_DIR = Path(os.getenv("MODELS_DIR", "models"))
 
 
 def download_file(url: str, dest_path: Path, chunk_size: int = 8192) -> bool:
@@ -182,7 +182,7 @@ def main() -> int:
     parser.add_argument(
         "--models-dir",
         type=str,
-        default="models1",
+        default="models",
         help="Models directory path"
     )
     

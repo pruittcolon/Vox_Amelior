@@ -405,9 +405,11 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             "/scim/ResourceTypes",
         ]
         self.exempt_prefixes = [
-            "/analytics/",     # ML analytics endpoints
-            "/api/analytics/", # ML analytics with /api prefix
-            "/vectorize/",     # Vectorization endpoints
+            "/analytics/",           # ML analytics endpoints
+            "/api/analytics/",       # ML analytics with /api prefix
+            "/vectorize/",           # Vectorization endpoints
+            "/database-scoring/",    # Database quality scoring
+            "/quality-insights/",    # Quality Intelligence 3D Dashboard
         ]
         self.bearer_auth_paths = [
             "/api/mobile/",
@@ -502,6 +504,7 @@ async def proxy_request(
     params: dict[str, Any] | None = None,
     files: dict[str, Any] | None = None,
     extra_headers: dict[str, str] | None = None,
+    timeout_seconds: float = 600.0,  # Increased from 120 for large file uploads
 ):
     """Proxy request to backend service with JWT authentication."""
     headers: dict[str, str] = {}
@@ -519,7 +522,7 @@ async def proxy_request(
         headers.update(extra_headers)
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             if method == "GET":
                 response = await client.get(url, headers=headers, params=params)
             elif method == "POST":

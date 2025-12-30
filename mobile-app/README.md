@@ -27,13 +27,15 @@ Environment variables are loaded from the bundled `.env` file (see `pubspec.yaml
 
 | Key | Purpose | Default |
 | --- | ------- | ------- |
-| `MEMORY_SERVER_BASE` | WhisperServer FastAPI endpoint | `http://127.0.0.1:8000/api/v1` |
-| `WHISPER_SERVER_BASE` | Audio ingestion endpoint | `http://127.0.0.1:8000/api/v1` |
-| `ASR_SERVER_BASE` | Optional ASR service | `http://127.0.0.1:8000/api/v1` |
+| `MEMORY_SERVER_BASE` | WhisperServer FastAPI endpoint | `http://YOUR_SERVER_IP:8000` |
+| `WHISPER_SERVER_BASE` | Audio ingestion endpoint | `http://YOUR_SERVER_IP:8000` |
+| `ASR_SERVER_BASE` | Optional ASR service | `http://YOUR_SERVER_IP:8000` |
+| `WHISPER_CHUNK_SECS` | Audio chunk size in seconds | `30` |
 | `DEEPGRAM_API_KEY` | Deepgram realtime transcription | _blank_ |
 | `OPENAI_API_KEY` | Follow-up responses | _blank_ |
 | `VOICEMONKEY_TRIGGER_URL` | Alexa Voice Monkey | _blank_ |
 | `ROKU_BASE_URL` | Roku remote integration | _blank_ |
+| `N8N_SERVICE_URL` | n8n Integration Service (Port 8011) | `http://YOUR_SERVER_IP:8011` |
 
 To customize per environment, create a copy (e.g. `.env.prod`) and load it manually in
 `lib/main.dart` before building release builds.

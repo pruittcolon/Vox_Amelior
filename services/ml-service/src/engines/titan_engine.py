@@ -1143,7 +1143,7 @@ class TitanEngine:
 
             if len(train_idx) >= inner_folds and inner_folds >= 2:
                 inner_cv = KFold(n_splits=inner_folds, shuffle=True, random_state=42)
-                grid_search = GridSearchCV(base_model, param_grid, cv=inner_cv, scoring=scoring, n_jobs=-1)
+                grid_search = GridSearchCV(base_model, param_grid, cv=inner_cv, scoring=scoring, n_jobs=2)
                 grid_search.fit(X_train, y_train)
                 best_estimator = grid_search.best_estimator_
             else:
@@ -1208,9 +1208,9 @@ class TitanEngine:
 
             # Train model
             if task_type == "classification":
-                model = RandomForestClassifier(n_estimators=50, random_state=i, n_jobs=-1)
+                model = RandomForestClassifier(n_estimators=50, random_state=i, n_jobs=2)
             else:
-                model = RandomForestRegressor(n_estimators=50, random_state=i, n_jobs=-1)
+                model = RandomForestRegressor(n_estimators=50, random_state=i, n_jobs=2)
 
             model.fit(X_boot, y_boot)
 
@@ -1265,7 +1265,7 @@ class TitanEngine:
     def _train_final_model(self, X: np.ndarray, y: np.ndarray, task_type: str) -> tuple[Any, float]:
         """Train final ensemble model on stable features"""
         if task_type == "classification":
-            model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+            model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=2)
             # Determine appropriate number of CV folds based on minimum class size
             from collections import Counter
 
@@ -1273,7 +1273,7 @@ class TitanEngine:
             min_class_size = min(class_counts.values())
             cv_folds = min(5, max(2, min_class_size))
         else:
-            model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+            model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=2)
             cv_folds = min(5, max(2, len(y) // 10))  # At least 10 samples per fold
 
         # Cross-validated score

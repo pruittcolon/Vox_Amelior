@@ -81,8 +81,8 @@ class GPULockManager:
         self.redis_client = redis.from_url(self.redis_url, encoding="utf-8", decode_responses=True)
         self.pubsub = self.redis_client.pubsub()
 
-        # Subscribe to transcription acknowledgment
-        await self.pubsub.subscribe("transcription_paused")
+        # Subscribe to transcription acknowledgments
+        await self.pubsub.subscribe("transcription_paused", "vram_freed")
 
         # Set initial state
         await self.redis_client.set("gpu_state", self.state.value)
@@ -93,7 +93,7 @@ class GPULockManager:
     async def disconnect(self):
         """Disconnect from Redis"""
         if self.pubsub:
-            await self.pubsub.unsubscribe("transcription_paused")
+            await self.pubsub.unsubscribe("transcription_paused", "vram_freed")
             await self.pubsub.close()
         if self.redis_client:
             await self.redis_client.close()
@@ -138,10 +138,14 @@ class GPULockManager:
             logger.info(f"[GPU] Transcription paused successfully for task {task_id}")
 
         # CRITICAL: Wait for VRAM to be actually available before granting
-        vram_ready = await self._wait_for_vram_available(min_free_mb=3000, timeout=5.0)
+        # Longer timeout (60s) since model offload can take time
+        vram_ready = await self._wait_for_vram_available(min_free_mb=2500, timeout=60.0)
 
         if not vram_ready:
-            logger.warning("[GPU] ⚠️ VRAM not available after 5s, proceeding anyway (may OOM)")
+            logger.error("[GPU] VRAM not available after 60s - ABORTING GPU grant to prevent OOM")
+            self.state = GPUState.TRANSCRIPTION_ACTIVE
+            await self.redis_client.set("gpu_state", self.state.value)
+            return False  # Don't grant GPU if no VRAM
         else:
             logger.info(f"[GPU] ✅ VRAM verified available for task {task_id}")
 
@@ -221,53 +225,79 @@ class GPULockManager:
         except TimeoutError:
             return False
 
-    async def _wait_for_vram_available(self, min_free_mb: int = 3000, timeout: float = 5.0) -> bool:
+    async def _wait_for_vram_available(self, min_free_mb: int = 2500, timeout: float = 60.0) -> bool:
         """
         Wait for VRAM to be available before granting GPU to Gemma
 
-        This polls nvidia-smi until enough free VRAM is available.
-        Essential for avoiding OOM errors when transcription is releasing GPU.
+        Listens for 'vram_freed' Redis signal from transcription service.
+        This approach works without needing nvidia-smi access in the container.
 
         Args:
-            min_free_mb: Minimum free VRAM required (default 3GB for Gemma)
+            min_free_mb: Unused (kept for API compatibility)
             timeout: Maximum time to wait in seconds
 
         Returns:
-            True if VRAM is available, False if timeout
+            True if VRAM freed signal received, False if timeout
         """
-        import subprocess
-
         start_time = time.time()
-        last_free = 0
+        request_timestamp = datetime.now()
+
+        logger.info(f"[GPU] Waiting for VRAM freed signal (timeout: {timeout}s)...")
+
+        # CRITICAL FIX: Flush any stale messages from pubsub buffer before waiting
+        # This prevents race conditions where old vram_freed signals are processed
+        flushed_count = 0
+        while True:
+            try:
+                stale_msg = await asyncio.wait_for(
+                    self.pubsub.get_message(ignore_subscribe_messages=True), 
+                    timeout=0.05
+                )
+                if stale_msg and stale_msg["type"] == "message":
+                    flushed_count += 1
+                    logger.debug(f"[GPU] Flushed stale pubsub message: {stale_msg['channel']}")
+                else:
+                    break  # No more messages
+            except asyncio.TimeoutError:
+                break  # Buffer is empty
+        
+        if flushed_count > 0:
+            logger.info(f"[GPU] Flushed {flushed_count} stale pubsub messages before waiting")
 
         while (time.time() - start_time) < timeout:
             try:
-                result = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
+                # Check for vram_freed message
+                message = await asyncio.wait_for(
+                    self.pubsub.get_message(ignore_subscribe_messages=True), 
+                    timeout=0.5
                 )
-                if result.returncode == 0:
-                    free_mb = int(result.stdout.strip().split("\n")[0])
-                    last_free = free_mb
 
-                    if free_mb >= min_free_mb:
-                        logger.info(f"[GPU] ✅ VRAM ready: {free_mb}MB free (need {min_free_mb}MB)")
+                if message and message["type"] == "message":
+                    if message["channel"] == "vram_freed":
+                        data = json.loads(message["data"])
+                        
+                        # Validate timestamp is recent (within 30 seconds of our request)
+                        msg_timestamp_str = data.get("timestamp", "")
+                        try:
+                            msg_timestamp = datetime.fromisoformat(msg_timestamp_str)
+                            age_seconds = (request_timestamp - msg_timestamp).total_seconds()
+                            if age_seconds > 30:
+                                logger.warning(f"[GPU] Ignoring stale vram_freed signal (age: {age_seconds:.1f}s)")
+                                continue  # Skip stale message, keep waiting
+                        except (ValueError, TypeError):
+                            pass  # No valid timestamp, accept the message
+                        
+                        logger.info(f"[GPU] VRAM freed signal received: {data}")
                         return True
-                    else:
-                        elapsed = time.time() - start_time
-                        logger.info(
-                            f"[GPU] ⏳ Waiting for VRAM: {free_mb}MB free (need {min_free_mb}MB) [{elapsed:.1f}s]"
-                        )
-            except subprocess.TimeoutExpired:
-                logger.debug("[GPU] nvidia-smi timed out")
-            except Exception as e:
-                logger.debug(f"[GPU] VRAM check error: {e}")
 
-            await asyncio.sleep(0.2)  # Poll every 200ms
+            except asyncio.TimeoutError:
+                elapsed = time.time() - start_time
+                if int(elapsed) % 10 == 0 and elapsed > 1:
+                    logger.info(f"[GPU] Still waiting for VRAM freed signal... [{elapsed:.0f}s]")
 
-        logger.warning(f"[GPU] VRAM wait timeout: {last_free}MB free after {timeout}s")
+            await asyncio.sleep(0.1)
+
+        logger.warning(f"[GPU] VRAM freed signal not received after {timeout}s")
         return False
 
     async def get_status(self) -> dict[str, Any]:

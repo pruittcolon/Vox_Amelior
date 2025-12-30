@@ -197,7 +197,7 @@ def load_model_gpu():
         "model_path": GEMMA_MODEL_PATH,
         "n_ctx": GEMMA_CONTEXT_SIZE,
         "n_batch": 512,
-        "n_gpu_layers": -1,
+        "n_gpu_layers": GEMMA_GPU_LAYERS,  # Use configured layers (default 25)
         "n_threads": 4,
         "use_mlock": False,
         "use_mmap": True,
@@ -314,8 +314,8 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     """Middleware for JWT service authentication (Phase 3: Enforce JWT-only + replay)."""
 
     async def dispatch(self, request: Request, call_next):
-        # Skip auth for health checks (internal utility)
-        if request.url.path in ["/health", "/settings"]:
+        # Skip auth for health checks and internal scoring (container-to-container only)
+        if request.url.path in ["/health", "/settings", "/score-chunk"]:
             return await call_next(request)
         
         # Allow localhost/container-internal requests for stress testing
@@ -404,14 +404,15 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ JWT service auth initialization failed: {e}")
         raise
 
-    # START ON GPU DIRECTLY (transcription now starts on CPU)
-    # With START_ON_CPU=true for transcription, Gemma can claim GPU at startup
-    logger.info("[GEMMA] 🚀 Loading model DIRECTLY on GPU (transcription on CPU)...")
+    # START ON CPU (Transcription owns GPU by default)
+    # GPU Coordinator will swap Gemma to GPU when chat is requested
+    logger.info("[GEMMA] Loading model on CPU (Transcription has GPU)...")
     try:
-        load_model_gpu()
+        load_model_cpu()
         gemma_analyzer = GemmaAnalyzer(rag_url=RAG_SERVICE_URL)
-        logger.info("[GEMMA] ✅ Loaded on GPU successfully with full 25k context!")
-        logger.info("Gemma AI Service started successfully (GPU mode)")
+        logger.info("[GEMMA] Model loaded on CPU successfully!")
+        logger.info("[GEMMA] Ready for GPU handoff when chat is requested")
+        logger.info("Gemma AI Service started successfully (CPU standby mode)")
     except Exception as e:
         logger.error(f"[GEMMA] ❌ Failed to load on GPU: {e}")
         logger.info("[GEMMA] ⚠️ Falling back to CPU mode...")
@@ -496,6 +497,9 @@ class ChatRequest(BaseModel):
     mirostat: int | None = None
     mirostat_tau: float | None = None
     mirostat_eta: float | None = None
+    # Session-based GPU retention: if provided, GPU is held for entire session
+    # instead of being released after each request (for analytics workloads)
+    session_id: str | None = None
 
 
 class GemmaAnalyzeRequest(BaseModel):
@@ -1056,6 +1060,145 @@ async def generate_text(request: GenerateRequest):
     )
 
 
+class ScoreChunkRequest(BaseModel):
+    """Request to score a database chunk for quality."""
+    chunk_content: str
+    columns: list[str]
+    row_count: int
+    filename: str = ""
+    row_start: int = 0
+    row_end: int = 0
+    questions: list[str] = []  # User-defined analysis questions
+
+
+@app.post("/score-chunk")
+async def score_database_chunk(request: ScoreChunkRequest):
+    """
+    Score a database chunk for quality using Gemma analysis.
+    
+    Enhanced prompt with line-by-line output for reliability.
+    Supports custom user-defined questions.
+    """
+    if gemma_model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    # Default questions if none provided
+    questions = request.questions if request.questions else [
+        "Are there ANOMALIES? (outliers, unusual values)",
+        "Are values BUSINESS-REASONABLE? (realistic for context)",
+        "Are data TYPES VALID? (correct formats, types)",
+        "Is data COMPLETE? (missing values, blanks)",
+        "Is data CONSISTENT? (related columns align)",
+    ]
+    
+    # Build question format for prompt
+    question_lines = "\n".join([f"Q{i+1}: {q}" for i, q in enumerate(questions)])
+    response_format = "\n".join([f"Q{i+1}: [score 1-10]" for i in range(len(questions))])
+    
+    # Build strict JSON prompt - research shows this works best for numerical output
+    # NOTE: Removed per-row "findings" to save tokens - batch findings generated separately
+    scoring_prompt = f"""You are a data quality analyzer. Score this data chunk on a scale of 1-10 (integers only).
+
+DATA:
+{request.chunk_content}
+
+Respond ONLY with valid JSON. No other text allowed.
+
+JSON Schema:
+{{"Q1": integer 1-10, "Q2": integer 1-10, "Q3": integer 1-10, "Q4": integer 1-10, "Q5": integer 1-10}}
+
+Where:
+- Q1 = Anomaly detection (1=many anomalies, 10=no anomalies)
+- Q2 = Business reasonableness (1=unrealistic, 10=very reasonable)
+- Q3 = Data type validity (1=many invalid, 10=all valid)
+- Q4 = Completeness (1=many missing, 10=complete)
+- Q5 = Consistency (1=inconsistent, 10=consistent)
+
+Example valid response:
+{{"Q1": 7, "Q2": 8, "Q3": 9, "Q4": 6, "Q5": 8}}
+
+Your JSON response:"""
+
+    logger.info(f"[SCORE-CHUNK] Processing rows {request.row_start}-{request.row_end}, {len(questions)} questions")
+    
+    try:
+        result = await run_llm_task(
+            "gemma-score",
+            scoring_prompt,
+            max_tokens=50,  # JSON response is compact - reduced from 80
+            temperature=0.1,  # Low temp for consistent structured output
+        )
+        
+        response_text = result.get("text", "")
+        logger.info(f"[SCORE-CHUNK] Gemma response: {response_text[:300]}...")
+        
+        # Parse JSON response
+        import re
+        import json
+        
+        scores = {}
+        findings = ""
+        
+        # Try to extract JSON from response
+        try:
+            # Look for JSON object in response
+            json_match = re.search(r'\{[^}]+\}', response_text)
+            if json_match:
+                json_str = json_match.group(0)
+                parsed = json.loads(json_str)
+                
+                # Extract scores with validation
+                for i in range(1, 6):
+                    q_key = f"Q{i}"
+                    if q_key in parsed:
+                        val = parsed[q_key]
+                        if isinstance(val, (int, float)):
+                            scores[q_key] = max(1, min(10, int(val)))
+                        else:
+                            scores[q_key] = 5
+                    else:
+                        scores[q_key] = 5
+                
+                findings = parsed.get("findings", "")
+                logger.info(f"[SCORE-CHUNK] JSON parse success: {scores}")
+            else:
+                logger.warning("[SCORE-CHUNK] No JSON found, using regex fallback")
+                raise ValueError("No JSON object found")
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"[SCORE-CHUNK] JSON parse failed ({e}), using regex fallback")
+            # Fallback to regex parsing
+            for i in range(1, 6):
+                q_key = f"Q{i}"
+                pattern = rf'["\']?{q_key}["\']?\s*[:\-=]\s*(\d+)'
+                match = re.search(pattern, response_text, re.IGNORECASE)
+                if match:
+                    scores[q_key] = max(1, min(10, int(match.group(1))))
+                else:
+                    scores[q_key] = 5
+            
+            # Try to find findings
+            findings_match = re.search(r'findings["\']?\s*[:\-=]\s*["\']?([^"\'}\n]+)', response_text, re.IGNORECASE)
+            if findings_match:
+                findings = findings_match.group(1).strip().rstrip('",}')
+        
+        # Calculate overall score as average
+        q_scores = [scores.get(f"Q{i}", 5) for i in range(1, 6)]
+        scores["overall"] = round(sum(q_scores) / len(q_scores), 1)
+        scores["findings"] = findings
+        
+        logger.info(f"[SCORE-CHUNK] Final parsed scores: {scores}")
+        return scores
+        
+    except Exception as e:
+        logger.error(f"[SCORE-CHUNK] Error: {e}")
+        # Return default scores with question keys
+        default = {f"Q{i+1}": 5 for i in range(len(questions))}
+        default["overall"] = 5.0
+        default["findings"] = f"Error: {str(e)}"
+        return default
+
+
 @app.post("/analyze")
 async def gemma_quick_analyze(request: GemmaAnalyzeRequest):
     if gemma_analyzer is None:
@@ -1240,21 +1383,29 @@ async def chat(request: ChatRequest):
             **vram_stats,
         }
 
-        logger.info(f"✅ [TASK {task_id}] Inference complete - Generated {result['tokens_generated']} tokens")
-        logger.info(f"💬 [TASK {task_id}] Response: {result['message'][:200]}...")
+        logger.info(f"[TASK {task_id}] Inference complete - Generated {result['tokens_generated']} tokens")
+        logger.info(f"[TASK {task_id}] Response: {result['message'][:200]}...")
 
-        # Release GPU slot back to coordinator
-        if gpu_slot_acquired and not gpu_slot_released:
-            logger.info(f"🔓 [TASK {task_id}] Releasing GPU slot...")
+        # Session-based GPU retention: if session_id is provided, keep GPU for the session
+        # This is used by analytics workloads (nexus) that need many back-to-back requests
+        if request.session_id:
+            logger.info(f"[TASK {task_id}] Session mode (session_id={request.session_id[:8]}...) - keeping GPU for session")
+            # Don't release GPU or move to CPU - caller will release via /release-session
+        elif gpu_slot_acquired and not gpu_slot_released:
+            # Normal mode: release GPU after each request
+            logger.info(f"[TASK {task_id}] Releasing GPU slot...")
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(
                     f"{GPU_COORDINATOR_URL}/gemma/release/{task_id}",
                     json={"result": result},
                     headers=get_service_headers(),
                 )
-            logger.info(f"✅ [TASK {task_id}] GPU slot released, model remains on GPU")
+            logger.info(f"[TASK {task_id}] GPU slot released")
             gpu_slot_released = True
-        logger.info("=" * 80)
+            
+            # Move model back to CPU to free VRAM for transcription
+            move_model_to_cpu()
+            logger.info(f"[TASK {task_id}] Model moved to CPU, VRAM freed for transcription")
 
         return result
 

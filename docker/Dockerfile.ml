@@ -42,11 +42,12 @@ COPY services/ml-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt || \
     (sed -i 's/faiss-gpu/faiss-cpu/g' requirements.txt && pip install --no-cache-dir -r requirements.txt)
 
-# Install torch-geometric with CUDA support (after PyTorch) - optional, may fail
-RUN pip install --no-cache-dir torch-scatter torch-sparse torch-cluster torch-spline-conv \
-    -f https://data.pyg.org/whl/torch-2.1.0+cu121.html 2>/dev/null || \
-    pip install --no-cache-dir torch-geometric 2>/dev/null || \
-    echo "torch-geometric installation skipped (optional)"
+# Install torch-geometric with CUDA support (after PyTorch)
+# Using direct pip install with correct CUDA version
+RUN pip install --no-cache-dir pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv \
+    -f https://data.pyg.org/whl/torch-2.5.0+cu121.html 2>/dev/null && \
+    pip install --no-cache-dir torch-geometric || \
+    echo "Warning: torch-geometric installation failed (GNN engines will be disabled)"
 
 # Copy service code into /app/src
 RUN mkdir -p /app/src

@@ -25,8 +25,12 @@ class ChatService {
   /// Advanced model for complex queries
   static const String advancedModel = 'gpt-4o-2024-11-20';
 
-  /// System prompt for the AI assistant
-  static const String systemPrompt = 'You are a helpful assistant.';
+  /// System prompt for the AI assistant - optimized for smart glasses display
+  static const String systemPrompt = 
+      'You are a helpful assistant for smart glasses. '
+      'Give SHORT and CLEAR responses. '
+      'Be concise - limit answers to 2-3 short sentences when possible. '
+      'Avoid long explanations unless specifically asked.';
 
   /// System prompt for advanced mode - more thorough
   static const String advancedSystemPrompt = 

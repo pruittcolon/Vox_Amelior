@@ -2,6 +2,8 @@
 
 Deploy Nemo Server on a secondary laptop (no NVIDIA GPU required) and access it from your main PC over WiFi.
 
+**Use Case: Headless Server / Demo** - Use this guide if you simply want to *run* the server on a secondary device to access it from other devices on the network, without the complex development sync setup.
+
 ## Requirements
 
 | Component | Minimum | Recommended |

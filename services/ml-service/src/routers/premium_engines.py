@@ -497,7 +497,7 @@ async def list_premium_engines():
 EXTENDED_ENGINE_MAP = {
     # Core premium engines
     "titan": "titan",
-    "predictive": "titan",  # Alias
+    "predictive": "chronos",  # Time-series forecasting engine
     "clustering": "scout",  
     "anomaly": "chaos",
     "statistical": "newton",
@@ -529,8 +529,8 @@ async def run_single_engine(engine_name: str, request: dict):
     """
     Run a single ML engine by name.
     
-    This endpoint provides compatibility with the predictions.html frontend
-    by mapping engine names to the appropriate premium engine.
+    First checks ENGINE_REGISTRY for proper schema-agnostic engines,
+    then falls back to premium engines for compatibility.
     
     Args:
         engine_name: Name of engine to run (e.g., 'titan', 'clustering', 'anomaly')
@@ -553,19 +553,73 @@ async def run_single_engine(engine_name: str, request: dict):
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail={"error": f"File not found: {filename}"})
         
-        # Map engine name to premium engine
         engine_name_lower = engine_name.lower().replace("-", "_")
+        
+        # FIRST: Try ENGINE_REGISTRY for proper schema-agnostic engines
+        # This ensures clustering, anomaly, statistical, etc. return correct data structures
+        try:
+            from ..engines.engine_registry import ENGINE_REGISTRY
+        except ImportError:
+            try:
+                from engines.engine_registry import ENGINE_REGISTRY
+            except ImportError:
+                ENGINE_REGISTRY = {}
+        
+        if engine_name_lower in ENGINE_REGISTRY:
+            # Use the proper engine from registry
+            df = load_dataset(file_path)
+            engine_info = ENGINE_REGISTRY[engine_name_lower]
+            engine_class = engine_info.engine_class
+            engine = engine_class()
+            
+            # Build config
+            engine_config = {
+                "target_column": target_column,
+                **config,
+            }
+            
+            # Run engine with proper calling convention
+            result = None
+            if hasattr(engine, "analyze_async"):
+                try:
+                    result = await engine.analyze_async(df=df, config=engine_config)
+                except Exception:
+                    pass
+            
+            if result is None:
+                try:
+                    result = engine.analyze(df=df, target_column=target_column, config=engine_config)
+                except TypeError:
+                    try:
+                        result = engine.analyze(df=df, config=engine_config)
+                    except TypeError:
+                        result = engine.analyze(df)
+            
+            # Convert result to dict if needed
+            if hasattr(result, "to_dict"):
+                result = result.to_dict()
+            
+            result_dict = convert_to_native(result) if result else {}
+            result_dict["engine_name"] = engine_name_lower
+            result_dict["engine_display_name"] = getattr(engine_info, 'display_name', engine_name_lower)
+            result_dict["engine_icon"] = getattr(engine_info, 'icon', '')
+            result_dict["_engine_metadata"] = {
+                "source": "ENGINE_REGISTRY",
+                "requested_engine": engine_name,
+                "filename": filename,
+            }
+            return result_dict
+        
+        # FALLBACK: Use premium engine mapping for engines not in registry
         mapped_engine = EXTENDED_ENGINE_MAP.get(engine_name_lower, engine_name_lower)
         
         # Check if it's a valid premium engine
         if mapped_engine not in PREMIUM_ENGINES:
-            # Return a helpful error with available engines
-            available = list(EXTENDED_ENGINE_MAP.keys()) + list(PREMIUM_ENGINES.keys())
+            available = list(ENGINE_REGISTRY.keys()) + list(EXTENDED_ENGINE_MAP.keys())
             raise HTTPException(
                 status_code=404,
                 detail={
                     "error": f"Engine '{engine_name}' not found",
-                    "mapped_to": mapped_engine,
                     "available_engines": sorted(set(available)),
                 },
             )
@@ -588,6 +642,7 @@ async def run_single_engine(engine_name: str, request: dict):
             engine = EngineClass(gemma_client=gemma_client)
         else:
             engine = EngineClass()
+
         
         # Run analysis with timeout
         HEAVY_ENGINES = {"mirror", "titan", "oracle"}

@@ -944,3 +944,493 @@
         transform: translateY(0);
     }
 }
+
+/* ========================================== */
+/* Excel-Like Grid View Styles               */
+/* Microsoft Excel Blue Theme                */
+/* ========================================== */
+
+/* Color Variables */
+:root {
+    --excel-header-bg: #1f4e79;
+    --excel-header-text: #ffffff;
+    --excel-row-even: #f3f9ff;
+    --excel-row-odd: #ffffff;
+    --excel-row-hover: #d6e9f8;
+    --excel-row-selected: #b4d6e8;
+    --excel-border: #c5d9e8;
+    --excel-accent: #217346;
+    --excel-toolbar-bg: #f0f6fc;
+}
+
+/* View Mode Toggle Buttons */
+.view-mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0.9rem;
+    background: transparent;
+    border: none;
+    border-radius: 0.35rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.view-mode-btn:hover {
+    background: rgba(0, 82, 204, 0.08);
+    color: var(--primary);
+}
+
+.view-mode-btn.active {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 82, 204, 0.3);
+}
+
+/* Excel Grid Container */
+.excel-grid {
+    border: 1px solid var(--excel-border);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background: #fff;
+}
+
+/* Excel Toolbar */
+.excel-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--excel-toolbar-bg);
+    border-bottom: 1px solid var(--excel-border);
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.excel-search-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    max-width: 400px;
+    min-width: 200px;
+}
+
+.excel-search {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--excel-border);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: #fff;
+    transition: all 0.2s;
+}
+
+.excel-search:focus {
+    outline: none;
+    border-color: var(--excel-header-bg);
+    box-shadow: 0 0 0 2px rgba(31, 78, 121, 0.15);
+}
+
+.excel-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.excel-row-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.excel-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    background: var(--excel-accent);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.excel-btn:hover {
+    background: #1a5c38;
+    box-shadow: 0 2px 8px rgba(33, 115, 70, 0.3);
+}
+
+/* Excel Table Wrapper */
+.excel-table-wrapper {
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* Excel Table */
+.excel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+/* Excel Header */
+.excel-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.excel-th {
+    background: var(--excel-header-bg);
+    color: var(--excel-header-text);
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+    user-select: none;
+}
+
+.excel-th:last-child {
+    border-right: none;
+}
+
+.excel-th.sortable {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.excel-th.sortable:hover {
+    background: #2a5f8e;
+}
+
+.excel-th .sort-icon {
+    margin-left: 0.5rem;
+    opacity: 0.6;
+    font-size: 0.75rem;
+}
+
+.excel-th.sorted-asc .sort-icon,
+.excel-th.sorted-desc .sort-icon {
+    opacity: 1;
+}
+
+.excel-th.sorted-asc .sort-icon::after {
+    content: '↑';
+}
+
+.excel-th.sorted-desc .sort-icon::after {
+    content: '↓';
+}
+
+/* Excel Body Rows */
+.excel-tr {
+    transition: background 0.15s;
+}
+
+.excel-tr:nth-child(even) {
+    background: var(--excel-row-even);
+}
+
+.excel-tr:nth-child(odd) {
+    background: var(--excel-row-odd);
+}
+
+.excel-tr:hover {
+    background: var(--excel-row-hover);
+}
+
+.excel-tr.selected {
+    background: var(--excel-row-selected);
+}
+
+.excel-tr:focus {
+    outline: 2px solid var(--excel-header-bg);
+    outline-offset: -2px;
+}
+
+/* Excel Cells */
+.excel-td {
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--excel-border);
+    border-right: 1px solid #e8f0f8;
+    vertical-align: middle;
+}
+
+.excel-td:last-child {
+    border-right: none;
+}
+
+/* Cell Content Styles */
+.excel-td .cell-date {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    color: #555;
+}
+
+.excel-td .cell-speaker {
+    font-weight: 500;
+    color: var(--primary);
+}
+
+.excel-td .cell-duration {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85rem;
+    background: #f0f4f8;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+}
+
+.excel-td .cell-preview {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    max-width: 350px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Emotion Badge in Excel */
+.excel-emotion-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.excel-emotion-badge.joy {
+    background: #d1fae5;
+    color: #047857;
+}
+
+.excel-emotion-badge.anger {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.excel-emotion-badge.sadness {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.excel-emotion-badge.fear {
+    background: #ede9fe;
+    color: #6d28d9;
+}
+
+.excel-emotion-badge.surprise {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.excel-emotion-badge.neutral {
+    background: #f3f4f6;
+    color: #4b5563;
+}
+
+.excel-emotion-badge.disgust {
+    background: #fce7f3;
+    color: #9d174d;
+}
+
+/* Action Buttons in Excel */
+.excel-action-btn {
+    padding: 0.35rem 0.6rem;
+    background: rgba(0, 82, 204, 0.08);
+    border: 1px solid rgba(0, 82, 204, 0.2);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--primary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.excel-action-btn:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+/* Empty State */
+.excel-empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+}
+
+.excel-empty-state i {
+    display: block;
+    margin: 0 auto 1rem;
+    opacity: 0.5;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .excel-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .excel-search-wrapper {
+        max-width: 100%;
+    }
+
+    .excel-toolbar-actions {
+        justify-content: space-between;
+    }
+
+    .excel-th,
+    .excel-td {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .view-mode-btn {
+        padding: 0.4rem 0.7rem;
+        font-size: 0.8rem;
+    }
+}
+
+/* ========================================== */
+/* Database Viewer Styles                     */
+/* Pagination, PII cells, cell formatting     */
+/* ========================================== */
+
+/* Database Viewer Container */
+.database-excel-viewer {
+    animation: fadeInUp 0.3s ease;
+}
+
+/* Pagination Controls */
+.db-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--excel-toolbar-bg);
+    border-radius: 0.5rem;
+    border: 1px solid var(--excel-border);
+}
+
+.db-pagination-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.db-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.db-pagination-page {
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0 0.75rem;
+}
+
+.db-pagination-size {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.db-pagination-size select {
+    padding: 0.35rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid var(--excel-border);
+    background: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+/* Cell Formatting */
+.cell-null {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.cell-pii {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.8rem;
+}
+
+.cell-currency {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+    color: var(--excel-accent);
+}
+
+.cell-number {
+    font-family: 'IBM Plex Mono', monospace;
+    color: #1e3a5f;
+}
+
+.cell-bool {
+    font-weight: 600;
+}
+
+.cell-bool-true {
+    color: var(--success, #10b981);
+}
+
+.cell-bool-false {
+    color: var(--danger, #ef4444);
+}
+
+.cell-preview {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+
+/* PII Column Styles */
+.pii-cell {
+    background: rgba(251, 191, 36, 0.05);
+}
+
+.excel-th i[data-lucide="shield"] {
+    color: #f59e0b;
+}
+
+/* Responsive Database Pagination */
+@media (max-width: 768px) {
+    .db-pagination {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+    }
+
+    .db-pagination-controls {
+        justify-content: center;
+    }
+
+    .db-pagination-info,
+    .db-pagination-size {
+        text-align: center;
+        justify-content: center;
+    }
+}

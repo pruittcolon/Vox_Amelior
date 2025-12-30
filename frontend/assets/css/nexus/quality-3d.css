@@ -1,0 +1,363 @@
+/**
+ * Quality 3D Dashboard Styles
+ * 
+ * Premium styling for the flagship 3D Quality Intelligence Dashboard.
+ * Follows Vox Amelior design system.
+ * 
+ * @author Enterprise Analytics Team
+ */
+
+/* ============================================
+   3D Viewer Container
+   ============================================ */
+
+.quality-3d-container {
+    position: relative;
+    width: 100%;
+    height: 600px;
+    min-height: 500px;
+    background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+    border-radius: 1rem;
+    overflow: hidden;
+    box-shadow:
+        0 0 0 1px rgba(99, 102, 241, 0.1),
+        0 20px 40px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.quality-3d-container canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Loading state */
+.quality-3d-container.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 60px;
+    height: 60px;
+    margin: -30px 0 0 -30px;
+    border: 3px solid rgba(99, 102, 241, 0.2);
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ============================================
+   Controls Overlay
+   ============================================ */
+
+.quality-3d-controls {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    z-index: 10;
+}
+
+.quality-3d-btn {
+    padding: 0.5rem 1rem;
+    background: rgba(15, 15, 25, 0.9);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 0.5rem;
+    color: #e0e0e0;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+}
+
+.quality-3d-btn:hover {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: rgba(99, 102, 241, 0.6);
+    transform: translateY(-1px);
+}
+
+.quality-3d-btn:active {
+    transform: translateY(0);
+}
+
+.quality-3d-btn.active {
+    background: rgba(99, 102, 241, 0.3);
+    border-color: #6366f1;
+}
+
+/* ============================================
+   Info Panel
+   ============================================ */
+
+.quality-info-panel {
+    position: absolute;
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    z-index: 10;
+}
+
+.quality-stat-card {
+    flex: 1;
+    padding: 1rem 1.25rem;
+    background: rgba(15, 15, 25, 0.95);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: 0.75rem;
+    backdrop-filter: blur(10px);
+}
+
+.quality-stat-label {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.quality-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.quality-stat-value.high {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+
+.quality-stat-value.medium {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+
+.quality-stat-value.low {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+
+/* ============================================
+   Savings Panel
+   ============================================ */
+
+.savings-panel {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    max-width: 300px;
+    padding: 1.25rem;
+    background: rgba(15, 15, 25, 0.95);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 0.75rem;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+}
+
+.savings-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.savings-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1));
+    border-radius: 0.5rem;
+    font-size: 1.25rem;
+}
+
+.savings-title {
+    font-size: 0.85rem;
+    color: #888;
+}
+
+.savings-total {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #22c55e;
+}
+
+.savings-issues {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.savings-issue {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    font-size: 0.85rem;
+}
+
+.savings-issue-name {
+    color: #e0e0e0;
+}
+
+.savings-issue-impact {
+    color: #f59e0b;
+    font-weight: 600;
+}
+
+/* ============================================
+   Legend
+   ============================================ */
+
+.quality-legend {
+    position: absolute;
+    bottom: 5rem;
+    right: 1rem;
+    padding: 1rem;
+    background: rgba(15, 15, 25, 0.9);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: 0.5rem;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+}
+
+.legend-title {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #c0c0c0;
+    margin-bottom: 0.5rem;
+}
+
+.legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.legend-color.high {
+    background: #22c55e;
+}
+
+.legend-color.medium {
+    background: #f59e0b;
+}
+
+.legend-color.low {
+    background: #ef4444;
+}
+
+/* ============================================
+   Tooltip
+   ============================================ */
+
+.quality-tooltip {
+    position: absolute;
+    padding: 0.75rem 1rem;
+    background: rgba(15, 15, 25, 0.98);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    border-radius: 0.5rem;
+    font-size: 0.85rem;
+    color: #e0e0e0;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 100;
+    max-width: 250px;
+}
+
+.quality-tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.tooltip-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.tooltip-score {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+    .quality-3d-container {
+        height: 400px;
+    }
+
+    .quality-info-panel {
+        flex-direction: column;
+    }
+
+    .savings-panel {
+        max-width: none;
+        left: 0.5rem;
+        right: 0.5rem;
+    }
+
+    .quality-legend {
+        display: none;
+    }
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.7;
+        transform: scale(0.98);
+    }
+}
+
+@keyframes glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+    }
+
+    50% {
+        box-shadow: 0 0 40px rgba(99, 102, 241, 0.5);
+    }
+}
+
+.quality-3d-container.ready {
+    animation: glow 3s ease-in-out infinite;
+}

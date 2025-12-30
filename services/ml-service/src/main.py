@@ -631,47 +631,81 @@ def list_databases():
     """
     List all available databases with embedding status.
     Used by gemma.html to show saved databases and allow switching.
+    
+    Filters out:
+    - .analysis.json files (cached analysis results)
+    - .index files (embedding indexes)
+    - Other metadata files
+    
+    Deduplicates by display name, keeping the newest version.
     """
     databases = []
+    seen_display_names = {}  # For deduplication
 
     try:
         for filename in os.listdir(UPLOAD_DIR):
-            # Only include data files, not index/meta files
-            if filename.endswith((".csv", ".xlsx", ".xls", ".json", ".parquet")):
-                file_path = os.path.join(UPLOAD_DIR, filename)
+            # Skip metadata/analysis files - only include actual data files
+            if filename.endswith(".analysis.json"):
+                continue
+            if filename.endswith(".index"):
+                continue
+            if filename.endswith(".meta.json"):
+                continue
+            if filename.endswith(".pkl"):
+                continue
+                
+            # Only include data files
+            if not filename.endswith((".csv", ".xlsx", ".xls", ".parquet")):
+                continue
+                
+            file_path = os.path.join(UPLOAD_DIR, filename)
+            
+            # Skip if not a file
+            if not os.path.isfile(file_path):
+                continue
 
-                # Check if embeddings exist
-                index_path = file_path + ".index"
-                has_embeddings = os.path.exists(index_path)
+            # Check if embeddings exist
+            index_path = file_path + ".index"
+            has_embeddings = os.path.exists(index_path)
 
-                # Get file stats
-                try:
-                    stats = os.stat(file_path)
-                    size_bytes = stats.st_size
-                    modified_at = datetime.fromtimestamp(stats.st_mtime).isoformat()
-                except OSError:
-                    size_bytes = 0
-                    modified_at = None
+            # Get file stats
+            try:
+                stats = os.stat(file_path)
+                size_bytes = stats.st_size
+                modified_at = datetime.fromtimestamp(stats.st_mtime).isoformat()
+            except OSError:
+                size_bytes = 0
+                modified_at = None
 
-                # Create display name (remove UUID prefix if present)
-                display_name = filename
-                if "_" in filename:
-                    parts = filename.split("_", 1)
-                    if len(parts[0]) == 8:  # UUID prefix is 8 chars
-                        display_name = parts[1]
+            # Create display name (remove UUID prefix if present)
+            display_name = filename
+            if "_" in filename:
+                parts = filename.split("_", 1)
+                if len(parts[0]) == 8:  # UUID prefix is 8 chars
+                    display_name = parts[1]
 
-                databases.append(
-                    {
-                        "filename": filename,
-                        "display_name": display_name,
-                        "has_embeddings": has_embeddings,
-                        "size_bytes": size_bytes,
-                        "modified_at": modified_at,
-                    }
-                )
+            db_entry = {
+                "filename": filename,
+                "display_name": display_name,
+                "has_embeddings": has_embeddings,
+                "size_bytes": size_bytes,
+                "modified_at": modified_at,
+            }
+            
+            # Deduplicate by display_name - keep the newest version
+            if display_name in seen_display_names:
+                existing = seen_display_names[display_name]
+                if (modified_at or "") > (existing.get("modified_at") or ""):
+                    seen_display_names[display_name] = db_entry
+            else:
+                seen_display_names[display_name] = db_entry
+                
     except Exception as e:
         logger.error(f"Error listing databases: {e}")
 
+    # Get deduplicated list
+    databases = list(seen_display_names.values())
+    
     # Sort by modification time (newest first)
     databases.sort(key=lambda x: x.get("modified_at") or "", reverse=True)
 
@@ -751,28 +785,78 @@ def profile_dataframe(df: pd.DataFrame, filename: str, total_rows: int | None = 
     return profile
 
 
+# =============================================================================
+# Security imports for upload validation
+# =============================================================================
+try:
+    from shared.security.audit_logger import get_audit_logger
+    from shared.security.file_validator import validate_file, is_extension_allowed
+    from shared.security.content_sanitizer import scan_dataframe_for_injection
+    UPLOAD_SECURITY_ENABLED = True
+    logger.info("✅ Upload security modules loaded")
+except ImportError as e:
+    logger.warning(f"⚠️ Upload security modules not available: {e}")
+    UPLOAD_SECURITY_ENABLED = False
+
+
 @app.post("/ingest", response_model=DatasetProfile)
 async def ingest_file(file: UploadFile = File(...)):
+    """
+    Ingest and profile a data file.
+    
+    Security features:
+    - File size limits (1GB max)
+    - ZIP bomb protection
+    - Magic byte validation
+    - Extension allowlist
+    - LLM prompt injection scanning
+    - Comprehensive audit logging
+    """
     filename = file.filename
     file_ext = filename.split(".")[-1].lower()
+    
+    # Initialize audit logger
+    audit_logger = None
+    if UPLOAD_SECURITY_ENABLED:
+        try:
+            audit_logger = get_audit_logger()
+        except Exception as e:
+            logger.warning(f"Audit logger unavailable: {e}")
 
-    # 0. File Size Limit (Approximate via seek/tell or read chunks)
+    # 0. Extension allowlist check
+    if UPLOAD_SECURITY_ENABLED and not is_extension_allowed(file_ext):
+        if audit_logger:
+            audit_logger.log_file_upload(
+                filename=filename,
+                file_size_bytes=0,
+                file_type=file_ext,
+                success=False,
+                rejection_reason=f"Extension '{file_ext}' not allowed",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type '{file_ext}' is not allowed. Allowed: csv, xlsx, xls, json, parquet, zip"
+        )
+
+    # 1. File Size Limit
     MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1GB
-    MAX_UNCOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024  # 2GB max uncompressed (ZIP bomb protection)
+    MAX_UNCOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024  # 2GB (ZIP bomb protection)
 
-    # Stream to disk to avoid memory explosion, checking size
+    # Stream to disk to avoid memory explosion
     unique_id = uuid.uuid4().hex[:8]
     safe_filename = f"{unique_id}_{filename}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
 
     # Track temp files/dirs for cleanup
     temp_paths_to_cleanup = []
+    file_size = 0
 
     try:
         size = 0
 
         def sync_write(f, chunk):
             f.write(chunk)
+
 
         with open(file_path, "wb") as f:
             while True:
@@ -781,10 +865,47 @@ async def ingest_file(file: UploadFile = File(...)):
                     break
                 size += len(chunk)
                 if size > MAX_FILE_SIZE:
+                    if audit_logger:
+                        audit_logger.log_file_upload(
+                            filename=filename,
+                            file_size_bytes=size,
+                            file_type=file_ext,
+                            success=False,
+                            rejection_reason="File too large (exceeds 1GB limit)",
+                        )
                     raise HTTPException(status_code=400, detail="File too large. Max size is 1GB.")
                 await run_in_threadpool(sync_write, f, chunk)
 
-        temp_paths_to_cleanup.append(file_path)  # Track original upload for cleanup
+        file_size = size  # Track for audit logging
+        temp_paths_to_cleanup.append(file_path)  # Track for cleanup
+
+        # SECURITY: Validate file type using magic bytes
+        validation_result = None
+        if UPLOAD_SECURITY_ENABLED:
+            try:
+                validation_result = validate_file(file_path, file_ext)
+                if not validation_result.is_valid:
+                    logger.warning(f"File validation failed: {validation_result.rejection_reason}")
+                    if audit_logger:
+                        audit_logger.log_file_upload(
+                            filename=filename,
+                            file_size_bytes=file_size,
+                            file_type=file_ext,
+                            success=False,
+                            rejection_reason=validation_result.rejection_reason,
+                            validation_results={
+                                "declared_type": validation_result.declared_type,
+                                "detected_type": validation_result.detected_type,
+                            },
+                        )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File validation failed: {validation_result.rejection_reason}"
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"File validation error (non-blocking): {e}")
 
         # Handle ZIP
         target_file_path = file_path
@@ -866,17 +987,63 @@ async def ingest_file(file: UploadFile = File(...)):
 
         except Exception as e:
             traceback.print_exc()
+            if audit_logger:
+                audit_logger.log_file_upload(
+                    filename=filename,
+                    file_size_bytes=file_size,
+                    file_type=file_ext,
+                    success=False,
+                    rejection_reason=f"Parsing error: {str(e)}",
+                )
             raise HTTPException(status_code=400, detail=f"Error normalizing file: {str(e)}")
+
+        # SECURITY: Scan content for LLM prompt injection
+        injection_scan_result = None
+        if UPLOAD_SECURITY_ENABLED:
+            try:
+                injection_scan_result = scan_dataframe_for_injection(df)
+                if injection_scan_result.should_quarantine:
+                    logger.warning(
+                        f"Potential prompt injection detected in {filename}: "
+                        f"{len(injection_scan_result.findings)} findings, risk={injection_scan_result.risk_level}"
+                    )
+                    # Log security event but don't reject - quarantine for review
+                    if audit_logger:
+                        audit_logger.log_security_event(
+                            event_description="Potential prompt injection in uploaded file",
+                            details={
+                                "filename": filename,
+                                "risk_level": injection_scan_result.risk_level,
+                                "findings_count": len(injection_scan_result.findings),
+                                "findings": injection_scan_result.findings[:5],  # First 5
+                            },
+                        )
+            except Exception as e:
+                logger.warning(f"Content scan error (non-blocking): {e}")
 
         # Profile
         # Pass total_rows if known, though profile_dataframe calculates it too.
         profile = profile_dataframe(df, filename, total_rows=total_rows)
 
         # Update profile filename to match saved file (with UUID) so frontend can reference it
-        # Actually proper behavior is usually to return the display name (original filename)
-        # but the backend needs the safe_filename for future operations.
-        # The existing code returned 'safe_filename' in profile.filename.
         profile.filename = safe_filename
+
+        # SECURITY: Log successful upload
+        if audit_logger:
+            audit_logger.log_file_upload(
+                filename=filename,
+                file_size_bytes=file_size,
+                file_type=file_ext,
+                success=True,
+                validation_results={
+                    "row_count": total_rows,
+                    "column_count": len(df.columns),
+                    "injection_scan": {
+                        "risk_level": injection_scan_result.risk_level if injection_scan_result else "not_scanned",
+                        "findings_count": len(injection_scan_result.findings) if injection_scan_result else 0,
+                    } if injection_scan_result else None,
+                },
+            )
 
         return profile
 
@@ -902,6 +1069,14 @@ async def ingest_file(file: UploadFile = File(...)):
             except Exception:
                 pass
         traceback.print_exc()
+        if audit_logger:
+            audit_logger.log_file_upload(
+                filename=filename,
+                file_size_bytes=file_size if 'file_size' in dir() else 0,
+                file_type=file_ext,
+                success=False,
+                rejection_reason=f"Processing failed: {str(e)}",
+            )
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 
@@ -1815,12 +1990,36 @@ ANSWER:"""
         answer = gateway.generate(prompt, max_tokens=300)
 
         if not answer:
-            # Fallback to context summary
-            answer = f"Based on the analysis of {actual_filename}: " + (
-                cached.get("analyses", {}).get("general_overview", {}).get("summary", "")
-                if cached
-                else "Please try asking a more specific question."
-            )
+            # Fallback: Match question keywords to appropriate cached analysis
+            question_lower = req.question.lower()
+            analyses = cached.get("analyses", {}) if cached else {}
+            
+            # Keyword to analysis mapping
+            if any(kw in question_lower for kw in ["correlation", "correlate", "relationship", "related"]):
+                fallback_analysis = analyses.get("correlation_analysis", {})
+                analysis_title = "Correlation Analysis"
+            elif any(kw in question_lower for kw in ["anomaly", "outlier", "unusual", "abnormal"]):
+                fallback_analysis = analyses.get("anomaly_detection", {})
+                analysis_title = "Anomaly Detection"
+            elif any(kw in question_lower for kw in ["churn", "retention", "leave"]):
+                fallback_analysis = analyses.get("churn_analysis", {})
+                analysis_title = "Churn Analysis"
+            elif any(kw in question_lower for kw in ["forecast", "predict", "future", "trend"]):
+                fallback_analysis = analyses.get("forecast_analysis", {})
+                analysis_title = "Forecast Analysis"
+            else:
+                fallback_analysis = analyses.get("general_overview", {})
+                analysis_title = "Distribution Analysis"
+            
+            summary = fallback_analysis.get("summary", "")
+            insights = fallback_analysis.get("insights", [])
+            
+            if summary or insights:
+                answer = f"Based on the {analysis_title} of {actual_filename}:\n\n{summary}"
+                if insights:
+                    answer += "\n\nKey insights:\n" + "\n".join(f"• {i}" for i in insights[:3])
+            else:
+                answer = f"I analyzed {actual_filename} but couldn't find specific {analysis_title.lower()} data. Try asking about distributions, statistics, or column details."
 
         return AskResponse(
             answer=answer, context=[context[:500] + "..." if len(context) > 500 else context], related_chart=None
@@ -2329,7 +2528,10 @@ try:
         quick_router,
         history_router,
         cide_router,
+        database_viewer_router,
     )
+    from .routers.database_scoring import router as database_scoring_router
+    from .routers.quality_insights import router as quality_insights_router
 
     app.include_router(core_router, prefix="/analytics")
     app.include_router(premium_router, prefix="/analytics")
@@ -2340,19 +2542,30 @@ try:
     # CIDE - Contextual Insight Discovery Engine
     if cide_router:
         app.include_router(cide_router)
-        logger.info("✅ CIDE router loaded (Contextual Insight Discovery)")
+        logger.info("CIDE router loaded (Contextual Insight Discovery)")
     
-    logger.info("✅ Using modular analytics routers")
-except ImportError:
-    # Fallback: Use legacy monolithic analytics_routes
-    try:
-        from .analytics_routes import analytics_router
-    except ImportError:
-        from analytics_routes import analytics_router
-    app.include_router(analytics_router)
-    logger.info("⚠️ Using legacy monolithic analytics_router")
+    # Database Viewer - Excel-like content viewer
+    if database_viewer_router:
+        app.include_router(database_viewer_router)
+        logger.info("Database Viewer router loaded")
+    
+    # Database Scoring - Gemma-powered quality analysis
+    app.include_router(database_scoring_router)
+    logger.info("Database Scoring router loaded")
+    
+    # Quality Insights - 3D Quality Intelligence Dashboard
+    app.include_router(quality_insights_router)
+    logger.info("Quality Insights router loaded (3D Dashboard)")
+    
+    logger.info("Using modular analytics routers (legacy analytics_routes.py quarantined)")
+except ImportError as e:
+    # No fallback - modular routers are required
+    logger.error(f"CRITICAL: Failed to load modular analytics routers: {e}")
+    logger.error("The legacy analytics_routes.py has been quarantined. Fix the modular router imports.")
+    raise
 
 if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8006)
+

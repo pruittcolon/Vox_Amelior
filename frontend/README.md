@@ -35,12 +35,11 @@ A custom CSS design system (`assets/css/design-tokens.css`) utilizing CSS Variab
 | **Cognitive Chat** | `gemma.html` | Interface for the Gemma LLM with RAG context injection |
 | **Memory Bank** | `memories.html` | CRUD interface for the Vector Database (FAISS) |
 | **Emotions** | `emotions.html` | Speaker emotion tracking and visualization |
-| **Speakers** | `speakers.html` | Audio enrollment interface for Voice Biometrics |
+| **Nexus** | `nexus.html` | Unified visualization of all 22+ engine outputs |
 
 ### Analytics & ML
 | Module | File | Description |
 | :--- | :--- | :--- |
-| **Predictions** | `predictions.html` | 36 ML engine interface for data analysis |
 | **Databases** | `databases.html` | Database vectorization and analysis |
 | **Analytics** | `analytics.html` | Business intelligence visualizations |
 | **ML Dashboard** | `ml_dashboard.html` | ML engine monitoring and results |

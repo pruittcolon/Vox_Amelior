@@ -8,73 +8,100 @@ This runbook provides step-by-step procedures for responding to production incid
 
 ## Severity Levels
 
-| Level | Definition | Response Time | Examples |
-|-------|------------|---------------|----------|
-| **SEV1** | Complete outage | 15 minutes | All services down |
-| **SEV2** | Major degradation | 30 minutes | Core feature unavailable |
-| **SEV3** | Minor issue | 4 hours | Single endpoint slow |
-| **SEV4** | Low impact | 24 hours | Minor bug reported |
+## Severity Levels
+
+| Level | Description | Response Time | Examples |
+|-------|-------------|---------------|----------|
+| **P0** | Complete outage | 15 minutes | All services down, data loss risk |
+| **P1** | Major degradation | 1 hour | GPU failure, LLM unavailable |
+| **P2** | Minor degradation | 4 hours | Slow responses, single engine down |
+| **P3** | Minimal impact | 24 hours | UI bugs, non-critical errors |
 
 ---
 
-## Incident Response Process
+## P0: Complete Outage
 
-### 1. Detection
-- Automated alerts from monitoring
-- User reports via support channels
-- Health check failures
+### Immediate Actions (0-15 minutes)
 
-### 2. Triage (First 5 minutes)
-```bash
-# Check overall health
-curl http://localhost:8000/health
+1. **Verify the outage**
+   ```bash
+   curl -s http://localhost:8000/health | jq
+   # Expected: {"status": "ok"}
+   ```
 
-# Check container status
-docker ps --format "table {{.Names}}\t{{.Status}}"
+2. **Check Docker status**
+   ```bash
+   cd docker && docker compose ps -a
+   ```
 
-# Check recent logs
-docker logs refactored_gateway --tail 100
-```
+3. **View recent logs**
+   ```bash
+   docker compose logs --tail=100 --timestamps
+   ```
 
-### 3. Assess Severity
-- How many users affected?
-- Which services impacted?
-- Data integrity at risk?
+4. **Attempt restart**
+   ```bash
+   ./nemo --no-browser
+   ```
 
-### 4. Communicate
-- Update status page
-- Notify stakeholders (SEV1/SEV2)
+5. **Resource Check**
+   ```bash
+   df -h      # Disk
+   free -h    # Memory
+   nvidia-smi # GPU
+   ```
+
+### Escalation
 - Create incident channel
+- Page on-call if not resolved in 15 minutes
 
-### 5. Investigate
+---
+
+## P1: GPU/LLM Failure
+
+### Symptoms
+- 503 errors from Gemma service
+- Slow/no LLM responses
+
+### Diagnosis & Resolution
+
+1. **Check Service Health**
+   ```bash
+   curl -s http://localhost:8000/api/gemma/stats | jq
+   # Verify "model_on_gpu": true
+   ```
+
+2. **Force GPU Warmup**
+   ```bash
+   curl -X POST http://localhost:8000/api/gemma/warmup
+   ```
+
+3. **Restart Stack (if stuck)**
+   ```bash
+   docker compose restart gpu-coordinator
+   sleep 5
+   docker compose restart gemma-service transcription-service
+   ```
+
+---
+
+## P2: Database/Auth Issues
+
+### Diagnosis
 ```bash
-# Check API gateway logs
-docker logs refactored_gateway --since 10m
-
-# Check database connectivity
-docker exec refactored_postgres pg_isready
+# Check Postgres
+docker logs refactored_postgres --tail=50
+docker exec refactored_postgres pg_isready -U postgres
 
 # Check Redis
+docker logs refactored_redis --tail=50
 docker exec refactored_redis redis-cli ping
-
-# Check GPU services
-docker logs refactored_gemma --tail 50
 ```
 
-### 6. Mitigate
-- Rollback if deployment-related
-- Scale up if capacity issue
-- Restart affected containers
-
-### 7. Resolve
-- Verify fix in production
-- Update status page
-- Monitor for recurrence
-
-### 8. Post-Incident
-- Document timeline
-- Conduct blameless postmortem
-- Create follow-up action items
+### Resolution
+```bash
+docker compose restart postgres redis
+```
 
 ---
 
@@ -85,30 +112,8 @@ docker logs refactored_gemma --tail 50
 docker restart refactored_gateway
 ```
 
-### Database Connection Issues
-```bash
-# Check PostgreSQL
-docker logs refactored_postgres
-docker exec refactored_postgres pg_isready -U postgres
-
-# Restart if needed
-docker restart refactored_postgres
-```
-
-### GPU Service Failures
-```bash
-# Check VRAM
-nvidia-smi
-
-# Restart Gemma service
-docker restart refactored_gemma
-```
-
 ### Memory Issues
 ```bash
-# Check system memory
-free -h
-
 # Identify memory-heavy containers
 docker stats --no-stream
 ```

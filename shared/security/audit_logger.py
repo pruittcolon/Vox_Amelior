@@ -5,6 +5,7 @@ Comprehensive event logging with encryption
 
 import json
 import logging
+import os
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -26,6 +27,7 @@ class AuditEventType(Enum):
     GEMMA_TASK = "gemma_task"
     TRANSCRIPTION_EVENT = "transcription_event"
     SYSTEM_EVENT = "system_event"
+    FILE_UPLOAD = "file_upload"  # Track all file uploads
 
 
 class AuditLogger:
@@ -213,6 +215,49 @@ class AuditLogger:
             details={"description": event_description, "paused": paused, "queued_chunks": queued_chunks},
         )
 
+    def log_file_upload(
+        self,
+        filename: str,
+        file_size_bytes: int,
+        file_type: str,
+        ip_address: str | None = None,
+        user_id: str | None = None,
+        success: bool = True,
+        rejection_reason: str | None = None,
+        validation_results: dict[str, Any] | None = None,
+    ):
+        """
+        Log file upload attempt.
+        
+        OWASP-compliant audit logging for all uploads.
+        Tracks both successful uploads and rejections.
+        
+        Args:
+            filename: Original filename (sanitized)
+            file_size_bytes: File size in bytes
+            file_type: Detected/declared file type
+            ip_address: Client IP address
+            user_id: User identifier if authenticated
+            success: Whether upload was accepted
+            rejection_reason: Why upload was rejected (if applicable)
+            validation_results: Magic bytes, content scan results
+        """
+        self.log_event(
+            event_type=AuditEventType.FILE_UPLOAD,
+            user_id=user_id,
+            ip_address=ip_address,
+            service_id="ml-service",
+            endpoint="/ingest",
+            details={
+                "filename": filename,
+                "file_size_bytes": file_size_bytes,
+                "file_type": file_type,
+                "rejection_reason": rejection_reason,
+                "validation_results": validation_results or {},
+            },
+            success=success,
+        )
+
 
 # Singleton instance
 _audit_logger: AuditLogger | None = None
@@ -229,6 +274,3 @@ def get_audit_logger(db_path: str | None = None, use_encryption: bool = True) ->
             log_to_stdout=test_mode or True,  # Always log to stdout for now
         )
     return _audit_logger
-
-
-import os  # Add missing import

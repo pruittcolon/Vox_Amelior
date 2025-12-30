@@ -49,7 +49,7 @@ services:
       EMOTION_MODEL_PATH: "/app/models/emotion-english-distilroberta-base"
       JWT_ONLY: "true"
     volumes:
-      - ../models1:/app/models:ro
+      - ../models:/app/models:ro
     secrets:
       - jwt_secret_primary
       - jwt_secret_previous

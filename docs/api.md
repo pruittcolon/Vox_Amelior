@@ -4,6 +4,10 @@
 > Generated: 2024-12-23  
 > **Total Endpoints: 245**
 
+> [!IMPORTANT]
+> **This document provides a high-level overview.**
+> For the most up-to-date and interactive API documentation, please refer to the [OpenAPI Specification](api/openapi.yaml) or run the server and visit `http://localhost:8000/docs`.
+
 Privacy-first cognitive AI platform providing real-time transcription, LLM chat, semantic search, and ML predictions.
 
 ---

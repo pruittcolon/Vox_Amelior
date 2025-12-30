@@ -341,6 +341,142 @@ async def get_pending_tasks():
     return {"tasks": tasks, "count": len(tasks)}
 
 
+# ============================================================================
+# NEW GPU PROTOCOL ENDPOINTS (v2)
+# ============================================================================
+
+from shared.gpu.protocol import (
+    GPUAcquireRequest,
+    GPUAcquireResponse,
+    GPUReleaseRequest,
+    GPUReleaseResponse,
+    GPUStatusResponse,
+)
+from datetime import datetime
+
+
+@app.post("/gpu/acquire", response_model=GPUAcquireResponse)
+async def acquire_gpu(request: GPUAcquireRequest):
+    """
+    Acquire GPU for a service (new simplified protocol).
+    
+    This endpoint:
+    1. Validates the request
+    2. Signals transcription to pause
+    3. Waits for pause acknowledgment
+    4. Returns success (service will then use GPU)
+    
+    Replaces legacy /gemma/request endpoint.
+    """
+    import time
+    start_time = time.time()
+    
+    lock_manager = get_lock_manager()
+    persistence = get_task_persistence()
+
+    # Add task to persistence
+    if persistence.enabled:
+        await persistence.add_task(
+            task_id=request.session_id, 
+            payload=request.model_dump(mode="json")
+        )
+
+    # Request GPU using existing lock manager
+    success = await lock_manager.request_gpu_for_gemma(
+        task_id=request.session_id, 
+        task_data={"requester": request.requester, "priority": request.priority.value}
+    )
+
+    wait_time = (time.time() - start_time) * 1000
+
+    if not success:
+        return GPUAcquireResponse(
+            success=False,
+            session_id=request.session_id,
+            error="Failed to acquire GPU - transcription did not pause in time",
+            wait_time_ms=wait_time,
+        )
+
+    # Mark as running
+    if persistence.enabled:
+        await persistence.mark_running(request.session_id)
+
+    return GPUAcquireResponse(
+        success=True,
+        session_id=request.session_id,
+        acquired_at=datetime.now(),
+        wait_time_ms=wait_time,
+    )
+
+
+@app.post("/gpu/release", response_model=GPUReleaseResponse)
+async def release_gpu(request: GPUReleaseRequest):
+    """
+    Release GPU back to transcription (new simplified protocol).
+    
+    This endpoint:
+    1. Signals transcription to resume
+    2. Clears the current session
+    3. Returns success
+    
+    Replaces legacy /gemma/release/{task_id} endpoint.
+    """
+    import time
+    
+    lock_manager = get_lock_manager()
+    persistence = get_task_persistence()
+
+    # Calculate session duration if we have start time
+    session_duration = 0.0
+    if lock_manager.current_gemma_task:
+        start_time = lock_manager.current_gemma_task.get("requested_at", 0)
+        if start_time:
+            session_duration = (time.time() - start_time) * 1000
+
+    # Release GPU
+    await lock_manager.release_gpu_from_gemma(request.session_id, request.result)
+
+    # Mark as completed
+    if persistence.enabled:
+        if request.result and request.result.get("error"):
+            await persistence.mark_failed(request.session_id, request.result["error"])
+        else:
+            await persistence.mark_completed(request.session_id, request.result)
+
+    return GPUReleaseResponse(
+        success=True,
+        session_id=request.session_id,
+        released_at=datetime.now(),
+        session_duration_ms=session_duration,
+    )
+
+
+@app.get("/gpu/state", response_model=GPUStatusResponse)
+async def get_gpu_state():
+    """
+    Get current GPU ownership state (new endpoint).
+    
+    Returns structured state information including current owner,
+    session ID, and connection status.
+    """
+    lock_manager = get_lock_manager()
+    persistence = get_task_persistence()
+
+    status = await lock_manager.get_status()
+    
+    return GPUStatusResponse(
+        owner=status.get("current_owner", "transcription"),
+        session_id=status.get("current_task"),
+        requester=lock_manager.current_gemma_task.get("data", {}).get("requester") if lock_manager.current_gemma_task else None,
+        acquired_at=None,  # Could be enhanced to track this
+        state=status.get("state", "transcription"),
+        redis_connected=lock_manager.redis_client is not None,
+        postgres_connected=persistence.enabled,
+    )
+
+
+
+
 @app.post("/admin/force-reset")
 async def force_reset_gpu():
     """
