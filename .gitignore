@@ -9,8 +9,6 @@
 database/
 pytest.ini
 nemo
-playwright.config.ts
-pyproject.toml
 .pre-commit-config.yaml
 Makefile
 
