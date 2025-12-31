@@ -1,8 +1,8 @@
-# Nemo Server Architecture
+# Vox Amelior Architecture
 
 ## 1. System Overview
 
-Nemo Server is a local-first, privacy-focused cognitive AI platform designed to run enterprise-grade AI workloads on consumer hardware (single-GPU setups like GTX 1660 Ti with 6GB VRAM). It employs a "System 2" architecture, distinguishing between fast, intuitive responses (LLM) and slow, deliberate reasoning (AutoML/Symbolic Regression).
+Vox Amelior is a local-first, privacy-focused cognitive AI platform designed to run enterprise-grade AI workloads on consumer hardware (single-GPU setups like GTX 1660 Ti with 6GB VRAM). It employs a "System 2" architecture, distinguishing between fast, intuitive responses (LLM) and slow, deliberate reasoning (AutoML/Symbolic Regression).
 
 ### Key Design Principles
 - **Zero Data Exfiltration**: All processing happens locally.
@@ -32,7 +32,7 @@ graph TD
     subgraph "Memory & Analysis"
         Gateway -->|Route| RAG[RAG Service]
         Gateway -->|Route| Insights[Insights Service]
-        Gateway -->|Route| ML[ML Service - 36 Engines]
+        Gateway -->|Route| ML[ML Service - 22 Engines]
     end
     
     subgraph "Infrastructure"
@@ -52,7 +52,7 @@ graph TD
 | **Transcription** | 8003 | Internal only | ASR + Speaker Diarization | PyTorch, NeMo |
 | **RAG Service** | 8004 | Internal only | Vector DB + Semantic Search | FAISS, Sentence-Transformers |
 | **Emotion Service** | 8005 | Internal only | Sentiment Analysis | DistilRoBERTa |
-| **ML Service** | 8006 | Internal only | 36 AutoML/Causal Engines | Scikit-Learn, XGBoost |
+| **ML Service** | 8006 | Internal only | 22 AutoML/Causal Engines | Scikit-Learn, XGBoost |
 | **Insights Service** | 8010 | Internal only | Business Analytics | Python, Pandas |
 | **Fiserv Service** | 8015 | Internal only | Banking Automation & DNA Integration | Python, FastAPI |
 | **n8n Service** | 8011 | `127.0.0.1:8011` | Workflow Automation (Webhooks) | Node.js |

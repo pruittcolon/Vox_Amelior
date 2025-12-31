@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function resetUI() {
         dropZone.classList.remove('hidden');
-        
+
         // Reset internal states
         const content = document.getElementById('drop-zone-content');
         const loading = document.getElementById('drop-zone-loading');
@@ -49,24 +49,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    const API_BASE_URL = `http://${window.location.hostname}:8006`;
+    // Use Gateway (origin) instead of direct ML Service port 8006
+    const API_BASE_URL = window.location.origin;
 
     async function handleFileUpload(file) {
         resetUI(); // Clear previous analysis
-        
+
         // Show loading state
         const content = document.getElementById('drop-zone-content');
         const loading = document.getElementById('drop-zone-loading');
         if (content) content.classList.add('hidden');
         if (loading) loading.classList.remove('hidden');
-        
+
         lucide.createIcons();
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            const response = await fetch(`${API_BASE_URL}/ingest`, {
+            const response = await fetch(`${API_BASE_URL}/api/ml/ingest`, {
                 method: 'POST',
                 body: formData
             });
@@ -83,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error(error);
             uploadStatus.innerHTML = `❌ Error: ${error.message}`;
-            
+
             // Revert loading state on error
             if (content) content.classList.remove('hidden');
             if (loading) loading.classList.add('hidden');
@@ -111,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         lucide.createIcons();
 
-        const response = await fetch('http://localhost:8006/propose-goals', {
+        const response = await fetch(`${API_BASE_URL}/api/ml/propose-goals`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(profile)
@@ -169,7 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
         analysisContainer.scrollIntoView({ behavior: 'smooth' });
 
         try {
-            const response = await fetch(`${API_BASE_URL}/analyze`, {
+            const response = await fetch(`${API_BASE_URL}/api/ml/execute-analysis`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: profile.filename, goal_id: goal.id })
@@ -334,12 +335,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // DataSourceManager Implementation
 const DataSourceManager = {
-    openModal: function() {
+    openModal: function () {
         const modal = document.getElementById('source-modal');
         if (modal) {
             modal.classList.remove('hidden');
             this.renderSourceSelector();
-            
+
             // Add click listener to close on background click
             modal.onclick = (e) => {
                 if (e.target === modal) {
@@ -349,7 +350,7 @@ const DataSourceManager = {
         }
     },
 
-    closeModal: function() {
+    closeModal: function () {
         const modal = document.getElementById('source-modal');
         if (modal) {
             modal.classList.add('hidden');
@@ -357,14 +358,14 @@ const DataSourceManager = {
         }
     },
 
-    renderSourceSelector: function() {
+    renderSourceSelector: function () {
         const selector = document.getElementById('source-selector');
         const form = document.getElementById('source-form');
-        
+
         if (selector && form) {
             selector.classList.remove('hidden');
             form.classList.add('hidden');
-            
+
             const sources = [
                 { id: 'local', name: 'Local File', icon: 'upload-cloud' },
                 { id: 'postgres', name: 'PostgreSQL', icon: 'database' },
@@ -384,12 +385,12 @@ const DataSourceManager = {
                     <div style="font-size: 0.85rem;">${src.name}</div>
                 </div>
             `).join('');
-            
+
             lucide.createIcons();
         }
     },
 
-    selectSource: function(sourceId) {
+    selectSource: function (sourceId) {
         if (sourceId === 'local') {
             document.getElementById('file-input').click();
             this.closeModal();
@@ -405,7 +406,7 @@ const DataSourceManager = {
             selector.classList.add('hidden');
             form.classList.remove('hidden');
             title.textContent = `Configure ${sourceId.toUpperCase()}`;
-            
+
             // Generate fields based on source type (Simplified for now)
             let inputs = '';
             if (['postgres', 'mysql'].includes(sourceId)) {
@@ -425,57 +426,57 @@ const DataSourceManager = {
             } else {
                 inputs = `<p class="text-muted">Configuration for ${sourceId} is coming soon.</p>`;
             }
-            
+
             fields.innerHTML = inputs;
-            
+
             // Handle form submission
             form.onsubmit = async (e) => {
                 e.preventDefault();
                 const formData = new FormData(form);
                 const data = Object.fromEntries(formData.entries());
-                
+
                 // Construct payload for /ingest/source
                 const payload = {
                     source_type: sourceId,
                     connection_params: { ...data }, // naive spread, refinement needed based on specific loaders
                     query_params: { query: data.query }
                 };
-                
+
                 // Clean up payload
                 delete payload.connection_params.query;
-                
+
                 try {
                     const btn = form.querySelector('button[type="submit"]');
                     const originalText = btn.innerHTML;
                     btn.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Connecting...';
-                    
+
                     // Use the globally defined API_BASE_URL, falling back to dynamic construction if undefined (for safety)
                     const baseUrl = (typeof API_BASE_URL !== 'undefined') ? API_BASE_URL : `http://${window.location.hostname}:8006`;
-                    
+
                     const response = await fetch(`${baseUrl}/ingest/source`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
-                    
+
                     if (!response.ok) throw new Error('Connection failed');
-                    
+
                     const profile = await response.json();
                     this.closeModal();
-                    
+
                     // Trigger main flow
                     const uploadStatus = document.getElementById('upload-status');
                     if (uploadStatus) {
                         uploadStatus.innerHTML = `✅ Connected to <strong>${sourceId}</strong> (${profile.row_count} rows).`;
                     }
                     window.initiateConversation(profile);
-                    
+
                     const dropZone = document.getElementById('drop-zone');
                     if (dropZone) dropZone.classList.add('hidden');
                     if (uploadStatus) uploadStatus.innerHTML = '';
                     const tasksContainer = document.getElementById('tasks-container');
                     if (tasksContainer) tasksContainer.classList.remove('hidden');
-                    
+
                 } catch (err) {
                     alert(`Error: ${err.message}`);
                 } finally {
@@ -487,7 +488,7 @@ const DataSourceManager = {
         }
     },
 
-    resetSelection: function() {
+    resetSelection: function () {
         this.renderSourceSelector();
     }
 };

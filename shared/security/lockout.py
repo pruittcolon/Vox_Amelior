@@ -113,7 +113,8 @@ class AccountLockout:
     - Track failed login attempts per user
     - Lock account after MAX_FAILED_ATTEMPTS
     - Exponential backoff for repeat offenders
-    - Automatic unlock after timeout
+    - Automatic unlock after timeoutImplement Account Lockout
+
     
     Usage:
         lockout = AccountLockout()

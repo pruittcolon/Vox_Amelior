@@ -26,10 +26,76 @@ function renderInventoryTreemap(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const items = data?.items || data?.inventory || [];
+    console.log('[Inventory] Data keys:', Object.keys(data || {}));
+
+    // Check if this is a fallback response (engine couldn't find required columns)
+    if (data?.fallback_used || data?.summary?.status === 'fallback_summary') {
+        const reason = data?.summary?.reason || 'Inventory optimization requires columns like product_id, stock_level, reorder_point.';
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #94a3b8;">
+                <p style="margin-bottom: 0.5rem; font-weight: 500;">Data Requirements Not Met</p>
+                <p style="font-size: 0.85rem; color: #64748b;">${reason}</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Try to extract items from various possible API response structures
+    let items = data?.items || data?.inventory || [];
+
+
+    // Check abc_analysis (actual API response structure)
+    if (!items.length && data?.abc_analysis) {
+        const abc = data.abc_analysis;
+        items = [];
+        // Extract items from each class
+        ['classA', 'classB', 'classC'].forEach(cls => {
+            if (abc[cls] && typeof abc[cls] === 'object') {
+                Object.entries(abc[cls]).forEach(([name, value]) => {
+                    items.push({
+                        name: name,
+                        value: value,
+                        turnover: cls === 'classA' ? 3 : cls === 'classB' ? 1.5 : 0.3
+                    });
+                });
+            }
+        });
+    }
+
+    // Try recommendations as fallback
+    if (!items.length && data?.recommendations?.length > 0) {
+        items = data.recommendations.map(r => ({
+            name: r.product || 'Unknown',
+            value: 1000,
+            turnover: r.action === 'Reorder Immediately' ? 0.2 : 1
+        }));
+    }
 
     if (!items.length) {
-        container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No inventory data available</p>';
+        // Show summary info if we have it
+        const summary = data?.summary || {};
+        if (summary.total_inventory_value || summary.total_items) {
+            container.innerHTML = `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 1rem; color: ${VIZ_COLORS.textMuted};">
+                    <div style="text-align: center;">
+                        <div style="font-size: 2rem; font-weight: 700; color: ${VIZ_COLORS.success};">$${(summary.total_inventory_value || 0).toLocaleString()}</div>
+                        <div style="font-size: 0.9rem;">Total Inventory Value</div>
+                    </div>
+                    <div style="display: flex; gap: 2rem;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.25rem; color: ${VIZ_COLORS.primary};">${summary.total_items || 0}</div>
+                            <div style="font-size: 0.8rem;">Items</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.25rem; color: ${VIZ_COLORS.primary};">${(summary.avg_turnover || 0).toFixed(1)}x</div>
+                            <div style="font-size: 0.8rem;">Avg Turnover</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No inventory data available</p>';
+        }
         return;
     }
 

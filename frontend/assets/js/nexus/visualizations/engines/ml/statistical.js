@@ -63,11 +63,21 @@ function renderBoxPlots(data, containerId) {
             name,
             ...stats
         }));
-    } else if (data?.summary) {
-        columns = Object.entries(data.summary).slice(0, 10).map(([name, stats]) => ({
+    } else if (data?.descriptive?.numeric) {
+        // Common structure from ML service
+        columns = Object.entries(data.descriptive.numeric).map(([name, stats]) => ({
             name,
             ...stats
         }));
+    } else if (data?.summary && typeof data.summary === 'object') {
+        // Only use summary if it contains column data, not metadata
+        const firstVal = Object.values(data.summary)[0];
+        if (typeof firstVal === 'object' && (firstVal.mean !== undefined || firstVal.median !== undefined)) {
+            columns = Object.entries(data.summary).slice(0, 10).map(([name, stats]) => ({
+                name,
+                ...stats
+            }));
+        }
     }
 
     if (!columns.length) {

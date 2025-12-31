@@ -26,7 +26,40 @@ function renderResourceGauge(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const utilization = (data?.utilization || data?.average_utilization || data?.efficiency || 0) * 100;
+    // Check if this is a fallback response (engine couldn't find required columns)
+    if (data?.fallback_used || data?.summary?.status === 'fallback_summary') {
+        const reason = data?.summary?.reason || 'Resource utilization analysis requires columns like resource_id, usage, capacity.';
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #94a3b8;">
+                <p style="margin-bottom: 0.5rem; font-weight: 500;">Data Requirements Not Met</p>
+                <p style="font-size: 0.85rem; color: #64748b;">${reason}</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Extract utilization from various possible API response structures
+    let utilization = 0;
+
+    // Check summary.avg_utilization (actual API response)
+    if (data?.summary?.avg_utilization !== undefined) {
+        utilization = data.summary.avg_utilization;
+    } else if (data?.utilization !== undefined) {
+        utilization = data.utilization * 100;
+    } else if (data?.average_utilization !== undefined) {
+        utilization = data.average_utilization * 100;
+    } else if (data?.efficiency !== undefined) {
+        utilization = data.efficiency * 100;
+    } else if (data?.summary?.peak_utilization !== undefined) {
+        // Fallback to peak if avg not available
+        utilization = data.summary.peak_utilization;
+    }
+
+    // Handle both decimal (0-1) and percentage (0-100) formats
+    if (utilization > 0 && utilization < 1) {
+        utilization = utilization * 100;
+    }
+
 
     Plotly.newPlot(container, [{
         type: 'indicator',
@@ -55,3 +88,4 @@ function renderResourceGauge(data, containerId) {
         title: { text: 'Average Resource Utilization', font: { size: 12 } }
     }, { responsive: true, displayModeBar: false });
 }
+

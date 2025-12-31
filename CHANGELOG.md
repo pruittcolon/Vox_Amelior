@@ -21,13 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `SECURE_MODE=true` now enforced in docker-compose.yml
 - Moved WireGuard configuration to docker/secrets/
-- Updated documentation to reflect 36 ML engines (was 27)
+- Updated documentation to reflect 22 ML engines
 - Added Fiserv and n8n services to Architecture documentation
 - Updated `CONTRIBUTING.md` setup instructions to use `scripts/setup_secrets.sh`
 - Regenerated `REPO_MAP.md` with latest file structure (excluding .venv)
 
 ### Bug Fixes
-- CODE_OF_CONDUCT.md placeholder email replaced with security@nemoserver.dev
+- CODE_OF_CONDUCT.md placeholder email updated
 
 ### Security
 - **Removed DummyServiceAuth**: Gateway now fails startup without valid auth
@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Architecture**: 10 microservices with Docker Compose orchestration
-- **AI/ML**: 27 ML prediction engines (Titan, Mirror, Chronos, etc.)
+- **AI/ML**: 22 ML prediction engines (Titan, Mirror, Chronos, etc.)
 - **LLM**: Gemma 2B integration with GPU coordination
 - **Transcription**: Real-time ASR with Parakeet 1.1B + Pyannote diarization
 - **RAG**: FAISS-based semantic search with email ingestion
@@ -58,5 +58,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/pruittcolon/Nemo_Server/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/pruittcolon/Nemo_Server/releases/tag/v1.0.0
+[Unreleased]: https://github.com/pruittcolon/Vox_Amelior/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/pruittcolon/Vox_Amelior/releases/tag/v1.0.0

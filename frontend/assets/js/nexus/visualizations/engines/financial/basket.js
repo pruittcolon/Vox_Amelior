@@ -43,7 +43,33 @@ function renderBasketNetwork(data, containerId) {
     });
 
     if (nodes.size === 0) {
-        container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No association rules found</p>';
+        // Show summary info if available
+        const summary = data?.summary || {};
+        const insights = data?.insights || [];
+
+        if (summary.total_transactions || summary.unique_items) {
+            container.innerHTML = `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 1rem; color: ${VIZ_COLORS.textMuted};">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.5rem; font-weight: 600; color: ${VIZ_COLORS.primary};">No Strong Associations Found</div>
+                        <div style="font-size: 0.9rem; margin-top: 0.5rem;">Rules found: ${summary.rules_found || 0}</div>
+                    </div>
+                    <div style="display: flex; gap: 2rem;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.25rem;">${summary.total_transactions || 0}</div>
+                            <div style="font-size: 0.8rem;">Transactions</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.25rem;">${summary.unique_items || 0}</div>
+                            <div style="font-size: 0.8rem;">Items</div>
+                        </div>
+                    </div>
+                    ${insights.length > 0 ? `<div style="font-size: 0.85rem; max-width: 400px; text-align: center;">${escapeHtml(insights[0])}</div>` : ''}
+                </div>
+            `;
+        } else {
+            container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No association rules found</p>';
+        }
         return;
     }
 

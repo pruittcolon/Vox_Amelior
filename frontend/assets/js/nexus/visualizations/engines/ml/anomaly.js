@@ -50,10 +50,23 @@ function renderAnomalyDistribution(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    // Extract anomaly scores
+    // Extract anomaly scores from various possible locations
     let scores = data?.scores || data?.anomaly_scores || [];
-    const threshold = data?.threshold || data?.contamination_threshold || null;
+    let threshold = data?.threshold || data?.contamination_threshold || null;
     const anomalyIndices = data?.anomaly_indices || [];
+
+    // Check nested method_results for scores (common structure from ML service)
+    if (!scores.length && data?.method_results) {
+        const methods = ['isolation_forest', 'ensemble', 'lof', 'zscore'];
+        for (const method of methods) {
+            const mr = data.method_results[method];
+            if (mr?.scores?.length) {
+                scores = mr.scores;
+                threshold = mr.contamination || threshold;
+                break;
+            }
+        }
+    }
 
     if (!scores.length && data?.results) {
         scores = data.results.map(r => r.score || r.anomaly_score || 0);

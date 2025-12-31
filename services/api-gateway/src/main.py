@@ -699,19 +699,19 @@ app.include_router(gemma_router)
 logger.info("✅ Gemma Router mounted")
 
 app.include_router(rag_router)
-logger.info("✅ RAG Router mounted")
-
-app.include_router(ml_router)
-logger.info("✅ ML Router mounted")
-
-app.include_router(email_router)
-logger.info("✅ Email Analyzer Router mounted")
-
-app.include_router(transcription_router)
-logger.info("✅ Transcription Router mounted")
+logger.info("RAG Router mounted")
 
 app.include_router(transcripts_router)
-logger.info("✅ Transcripts Router mounted")
+logger.info("Transcripts Router mounted")
+
+app.include_router(ml_router)
+logger.info("ML Router mounted")
+
+app.include_router(email_router)
+logger.info("Email Analyzer Router mounted")
+
+app.include_router(transcription_router)
+logger.info("Transcription Router mounted")
 
 app.include_router(analysis_router)
 logger.info("✅ Analysis Router mounted")

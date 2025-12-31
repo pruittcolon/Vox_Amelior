@@ -153,13 +153,52 @@ class ResourceUtilizationEngine:
                 results["insights"] = self._generate_insights(results)
 
             else:
-                # Use Gemma fallback when columns can't be detected
-                return GemmaSummarizer.generate_fallback_summary(
-                    df,
-                    engine_name="resource_utilization",
-                    error_reason="Could not detect resource and usage columns. Expected columns like 'resource', 'usage', 'capacity'.",
-                    config=config,
-                )
+                # FALLBACK: Compute utilization from any two numeric columns as a ratio
+                # This allows the engine to work with ANY dataset
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+                
+                if len(numeric_cols) >= 2 and len(cat_cols) >= 1:
+                    # Try to find a meaningful ratio (e.g., students/teachers, usage/capacity)
+                    # Pick first categorical as grouping, first two numeric as ratio
+                    group_col = cat_cols[0]
+                    num1, num2 = numeric_cols[0], numeric_cols[1]
+                    
+                    # Calculate ratio (smaller/larger for a percentage-like value)
+                    df["_computed_util"] = (df[num1] / df[num2].replace(0, np.nan) * 100).fillna(0)
+                    
+                    # Cap at 100 if it looks like a percentage
+                    if df["_computed_util"].max() > 200:
+                        # Normalize to 0-100
+                        df["_computed_util"] = (df["_computed_util"] / df["_computed_util"].max()) * 100
+                    
+                    avg_util = df.groupby(group_col)["_computed_util"].mean().sort_values(ascending=False)
+                    
+                    results["summary"] = {
+                        "avg_utilization": float(avg_util.mean()),
+                        "peak_utilization": float(df["_computed_util"].max()),
+                        "computed_from": f"{num1}/{num2} grouped by {group_col}",
+                    }
+                    
+                    # Bar chart
+                    bar = {
+                        "type": "bar_chart",
+                        "title": f"Computed Utilization ({num1}/{num2})",
+                        "x_data": avg_util.head(10).index.tolist(),
+                        "y_data": avg_util.head(10).values.tolist(),
+                        "x_label": group_col,
+                        "y_label": "Computed Util (%)",
+                    }
+                    results["graphs"].append(bar)
+                    results["insights"].append(f"📊 Computed utilization from {num1}/{num2} by {group_col}")
+                else:
+                    # True fallback - no usable columns
+                    return GemmaSummarizer.generate_fallback_summary(
+                        df,
+                        engine_name="resource_utilization",
+                        error_reason="Could not detect resource and usage columns. Expected columns like 'resource', 'usage', 'capacity'.",
+                        config=config,
+                    )
 
         except Exception as e:
             logger.error(f"Resource utilization analysis failed: {e}")
@@ -167,6 +206,7 @@ class ResourceUtilizationEngine:
             return GemmaSummarizer.generate_fallback_summary(
                 df, engine_name="resource_utilization", error_reason=str(e), config=config
             )
+
 
         return results
 

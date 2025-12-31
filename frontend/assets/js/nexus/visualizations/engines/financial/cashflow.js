@@ -163,8 +163,40 @@ function renderCashFlowGauge(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const ratio = data?.health_ratio || data?.liquidity_ratio ||
-        ((data?.summary?.total_inflow || 0) / Math.max(1, data?.summary?.total_outflow || 1));
+    // Try to calculate ratio from various API response structures
+    let ratio = 0;
+
+    if (data?.health_ratio !== undefined) {
+        ratio = data.health_ratio;
+    } else if (data?.liquidity_ratio !== undefined) {
+        ratio = data.liquidity_ratio;
+    } else {
+        // Calculate from inflows/outflows (API returns these as objects)
+        let totalInflow = 0;
+        let totalOutflow = 0;
+
+        if (data?.inflows && typeof data.inflows === 'object') {
+            totalInflow = Object.values(data.inflows).reduce((sum, v) => sum + (Number(v) || 0), 0);
+        } else if (data?.summary?.total_inflow) {
+            totalInflow = data.summary.total_inflow;
+        }
+
+        if (data?.outflows && typeof data.outflows === 'object') {
+            totalOutflow = Object.values(data.outflows).reduce((sum, v) => sum + (Number(v) || 0), 0);
+        } else if (data?.summary?.total_outflow) {
+            totalOutflow = data.summary.total_outflow;
+        }
+
+        // Fallback to summary fields
+        if (!totalInflow && data?.summary?.net_cash_flow > 0) {
+            totalInflow = data.summary.net_cash_flow;
+        }
+        if (!totalOutflow && data?.summary?.burn_rate) {
+            totalOutflow = data.summary.burn_rate * 12; // Annualize monthly burn
+        }
+
+        ratio = totalOutflow > 0 ? totalInflow / totalOutflow : (totalInflow > 0 ? 2.5 : 0);
+    }
 
     Plotly.newPlot(container, [{
         type: 'indicator',

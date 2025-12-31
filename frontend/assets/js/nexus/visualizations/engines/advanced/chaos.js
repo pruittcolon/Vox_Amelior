@@ -19,6 +19,7 @@ export function buildSection(data, vizId) {
 }
 
 export function render(data, vizId) {
+    console.log('[Chaos] Rendering with data keys:', Object.keys(data || {}));
     renderChaosHeatmap(data, `chaos-heatmap-${vizId}`);
 }
 
@@ -26,10 +27,40 @@ function renderChaosHeatmap(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const matrix = data?.correlation_matrix || data?.chaos_matrix || data?.heatmap || null;
-    const labels = data?.labels || data?.variables || [];
+    // Try multiple data sources - backend sends mutual_information as dict
+    let matrix = null;
+    let labels = [];
 
-    if (!matrix) {
+    // Option 1: Direct matrix (legacy format)
+    if (data?.correlation_matrix || data?.chaos_matrix || data?.heatmap) {
+        matrix = data.correlation_matrix || data.chaos_matrix || data.heatmap;
+        labels = data.labels || data.variables || [];
+    }
+
+    // Option 2: Convert mutual_information dict to matrix (actual backend format)
+    else if (data?.mutual_information && typeof data.mutual_information === 'object') {
+        const mi = data.mutual_information;
+        const cols = data.numeric_columns || [];
+
+        if (cols.length >= 2) {
+            // Build symmetric matrix from dict with "col1__col2" keys
+            const n = cols.length;
+            matrix = Array(n).fill(null).map(() => Array(n).fill(0));
+            labels = cols;
+
+            for (let i = 0; i < n; i++) {
+                matrix[i][i] = 1; // Diagonal = 1
+                for (let j = i + 1; j < n; j++) {
+                    const key = `${cols[i]}__${cols[j]}`;
+                    const val = mi[key] || 0;
+                    matrix[i][j] = val;
+                    matrix[j][i] = val; // Symmetric
+                }
+            }
+        }
+    }
+
+    if (!matrix || matrix.length === 0) {
         container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No chaos analysis data available</p>';
         return;
     }
@@ -44,15 +75,15 @@ function renderChaosHeatmap(data, containerId) {
             [0.5, VIZ_COLORS.surface],
             [1, VIZ_COLORS.success]
         ],
-        zmin: -1,
+        zmin: 0,
         zmax: 1,
-        hovertemplate: '%{x} vs %{y}<br>Correlation: %{z:.3f}<extra></extra>'
+        hovertemplate: '%{x} vs %{y}<br>MI: %{z:.3f}<extra></extra>'
     }], {
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
         font: { color: VIZ_COLORS.textMuted, size: 11 },
         margin: { l: 100, r: 40, t: 30, b: 100 },
-        title: { text: 'Correlation Heatmap', font: { size: 12 } },
+        title: { text: 'Mutual Information Heatmap', font: { size: 12 } },
         xaxis: { tickangle: -45 },
         yaxis: {}
     }, { responsive: true, displayModeBar: false });

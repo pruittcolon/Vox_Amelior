@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="NexusAI Enterprise Intelligence Platform - Where Data Meets Decision">
-    <title>NexusAI™ - Enterprise Intelligence Platform</title>
+    <title>Vox Amelior - Enterprise Intelligence Platform</title>
 
     <!-- Google Fonts - Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -402,13 +402,12 @@
                 <div class="vox-logo-mark">
                     <img src="assets/images/logo.png" alt="Vox Amelior Logo">
                 </div>
-                <span class="vox-logo-text">NexusAI</span>
+                <span class="vox-logo-text">Vox Amelior</span>
             </a>
 
             <div class="vox-nav-links">
                 <a href="index.html" class="vox-nav-link">Home</a>
                 <a href="gemma.html" class="vox-nav-link">AI Assistant</a>
-                <a href="predictions.html" class="vox-nav-link">Legacy View</a>
 
                 <!-- Enterprise Dropdown -->
                 <div class="vox-nav-dropdown" style="position: relative; display: inline-block;">
@@ -437,7 +436,7 @@
 
             <div style="display: flex; gap: 0.75rem;">
                 <a href="settings.html" class="vox-btn vox-btn-ghost">Settings</a>
-                <a href="nexus.html" class="vox-btn vox-btn-primary">NexusAI</a>
+                <a href="nexus.html" class="vox-btn vox-btn-primary">Nexus</a>
             </div>
         </div>
     </nav>
@@ -464,9 +463,7 @@
                 <a href="#quick-start" class="vox-btn vox-btn-accent" style="padding: 1rem 2rem; font-size: 1.1rem;">
                     🚀 Get Started
                 </a>
-                <a href="predictions.html" class="vox-btn vox-btn-ghost" style="padding: 1rem 2rem; font-size: 1.1rem;">
-                    📊 Classic View
-                </a>
+
             </div>
         </div>
     </header>
@@ -521,6 +518,11 @@
                     style="display: flex; align-items: center; gap: 0.5rem; justify-content: center; margin-top: 0.75rem; color: var(--vox-grey-600); font-size: 0.85rem; cursor: pointer;">
                     <input type="checkbox" id="use-vectors" style="accent-color: var(--vox-primary);">
                     Enable Gemma Vectorization (experimental)
+                </label>
+                <label
+                    style="display: flex; align-items: center; gap: 0.5rem; justify-content: center; margin-top: 0.5rem; color: var(--vox-warning, #F59E0B); font-size: 0.85rem; cursor: pointer; font-weight: 500;">
+                    <input type="checkbox" id="skip-gemma-toggle" style="accent-color: var(--vox-warning, #F59E0B);">
+                    Skip Gemma Summaries (Fast Mode)
                 </label>
             </div>
 
@@ -1020,6 +1022,7 @@
             statusText.textContent = `Running ${engineName} engine...`;
 
             try {
+                const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
                 const response = await fetch(`/api/analytics/run-engine/${engineName}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1027,7 +1030,8 @@
                     body: JSON.stringify({
                         filename: currentUploadedFilename,
                         target_column: targetColumn,
-                        config: {}
+                        config: {},
+                        skip_gemma: skipGemma
                     })
                 });
 
@@ -1075,11 +1079,19 @@
             const engineDisplay = data.engine || data.engine_display_name || engineName;
             const taskType = data.task_type || 'analysis';
             const insights = data.insights || [];
-            
+
             // Use NexusViz modular system for visualization
             const vizId = 'viz-' + Date.now();
             let chartHtml = '';
-            
+
+            // DEBUG: Log data structure for troubleshooting visualization issues
+            console.log(`[Nexus Debug] Engine: ${engineName}`);
+            console.log(`[Nexus Debug] Data keys:`, Object.keys(data || {}));
+            console.log(`[Nexus Debug] NexusViz loaded:`, !!window.NexusViz);
+            if (data?.descriptive) console.log(`[Nexus Debug] data.descriptive:`, Object.keys(data.descriptive));
+            if (data?.pca_3d) console.log(`[Nexus Debug] data.pca_3d:`, Object.keys(data.pca_3d));
+            if (data?.method_results) console.log(`[Nexus Debug] data.method_results:`, Object.keys(data.method_results));
+
             if (window.NexusViz && typeof window.NexusViz.buildVizSection === 'function') {
                 // Ensure engine name is lowercase for mapping and handle variations
                 const map = {
@@ -1091,12 +1103,12 @@
                     'predictive_modeling': 'predictive',
                     'universal_graph': 'graphs'
                 };
-                
+
                 const mappedName = map[engineName.toLowerCase()] || engineName.toLowerCase();
-                
+
                 console.log(`[Nexus] Requesting visualization for: ${mappedName}`);
                 chartHtml = window.NexusViz.buildVizSection(mappedName, data, vizId);
-                
+
                 // Render after card is in DOM
                 if (chartHtml) {
                     setTimeout(() => {

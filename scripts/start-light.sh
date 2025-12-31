@@ -68,6 +68,8 @@ cat << "EOF"
 EOF
 echo -e "${NC}\n"
 
+# Navigate to project root, then docker
+cd "$SCRIPT_DIR/.."
 cd docker
 
 if [ "$ACTION" = "stop" ]; then
