@@ -1,4 +1,4 @@
-FROM nginx:1.27-alpine
+FROM nginx:1.29-alpine
 
 LABEL maintainer="Nemo Server"
 LABEL description="HTTPS Reverse Proxy with TLS termination"
