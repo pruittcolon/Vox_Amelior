@@ -115,7 +115,7 @@ cd Vox_Amelior
 ./scripts/generate_certs.sh
 
 # Launch all services
-./nemo
+./scripts/start.sh
 
 # Access: https://localhost (accept self-signed certificate)
 ```
