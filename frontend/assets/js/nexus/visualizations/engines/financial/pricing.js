@@ -82,6 +82,46 @@ function renderPricingSurface(data, containerId) {
 }
 
 function renderPricingSimple(data, container) {
+    // The API returns recommendations and elasticity, not optimal_price
+    const recommendations = data?.recommendations || [];
+    const elasticities = data?.elasticity || [];
+    const insights = data?.insights || [];
+
+    // If we have recommendations, show them
+    if (recommendations.length > 0 || elasticities.length > 0) {
+        const rec = recommendations[0] || {};
+        const elast = elasticities[0] || {};
+
+        const avgPrice = elast.avg_price || 0;
+        const elasticity = elast.elasticity || rec.elasticity || 0;
+        const action = rec.action || 'Maintain';
+        const reason = rec.reason || 'Analysis complete';
+
+        container.innerHTML = `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 1.5rem; padding: 1rem;">
+                <div style="text-align: center;">
+                    <div style="font-size: 0.9rem; color: ${VIZ_COLORS.textMuted};">Recommendation</div>
+                    <div style="font-size: 2rem; font-weight: 700; color: ${action === 'Raise Price' ? VIZ_COLORS.success : action === 'Lower Price' ? VIZ_COLORS.warning : VIZ_COLORS.primary};">${action}</div>
+                </div>
+                <div style="display: flex; gap: 2rem;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 0.8rem; color: ${VIZ_COLORS.textMuted};">Elasticity</div>
+                        <div style="font-size: 1.25rem; color: ${VIZ_COLORS.primary};">${elasticity.toFixed(2)}</div>
+                    </div>
+                    ${avgPrice > 0 ? `
+                    <div style="text-align: center;">
+                        <div style="font-size: 0.8rem; color: ${VIZ_COLORS.textMuted};">Avg Price</div>
+                        <div style="font-size: 1.25rem; color: ${VIZ_COLORS.textMuted};">$${avgPrice.toLocaleString()}</div>
+                    </div>
+                    ` : ''}
+                </div>
+                <div style="font-size: 0.85rem; color: ${VIZ_COLORS.textMuted}; text-align: center; max-width: 400px;">${reason}</div>
+            </div>
+        `;
+        return;
+    }
+
+    // Fallback for legacy data format
     const optimal = data?.optimal_price || data?.recommended_price || 0;
     const current = data?.current_price || 0;
     const range = data?.price_range || [current * 0.8, current * 1.2];

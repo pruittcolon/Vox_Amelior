@@ -1,4 +1,4 @@
-# Contributing to Nemo Server
+# Contributing to Vox Amelior
 
 Thank you for your interest in contributing. We value your time and expertise.
 
@@ -38,8 +38,8 @@ Enhancement suggestions are tracked as GitHub issues. Please provide:
 
 ```bash
 # 1. Clone fork
-git clone https://github.com/YOUR_USERNAME/NeMo_Server.git
-cd NeMo_Server
+git clone https://github.com/YOUR_USERNAME/Vox_Amelior.git
+cd Vox_Amelior
 
 # 2. Setup environment
 ./scripts/setup_secrets.sh
@@ -70,7 +70,7 @@ cd NeMo_Server
 ## Repository Structure
 
 ```
-NeMo_Server/
+Vox_Amelior/
 ├── services/              # Microservices
 │   ├── api-gateway/       # Main API entry point (Port 8000)
 │   ├── gemma-service/     # LLM service (Port 8001)

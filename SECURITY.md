@@ -9,7 +9,7 @@ We use GitHub Private Vulnerability Reporting.
 3. We will respond within **48 hours**.
 
 ### Alternative Contact
-If GitHub PVR is not available, contact: **security@nemoserver.dev**
+If GitHub PVR is not available, contact: **security@voxamelior.dev**
 
 ## Supported Versions
 

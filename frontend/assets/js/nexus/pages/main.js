@@ -170,7 +170,20 @@ window.NexusUI = {
         const session = getSession();
         const result = session.results[engineName];
 
-        // Ask Gemma
+        // Ask Gemma (if not skipped)
+        const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
+
+        if (skipGemma) {
+            messages.innerHTML += `
+        <div class="followup-msg assistant">
+          <span class="msg-label">System:</span>
+          <span class="msg-text">Gemma AI is disabled in Fast Mode. Uncheck "Skip Gemma Summaries" to enable follow-up questions.</span>
+        </div>
+      `;
+            messages.scrollTop = messages.scrollHeight;
+            return;
+        }
+
         try {
             const context = result?.data ? JSON.stringify(result.data).substring(0, 1500) : 'No engine data available.';
             const prompt = `Based on this ${engineName} analysis result:\n${context}\n\nUser question: ${question}`;
@@ -207,7 +220,11 @@ window.NexusUI = {
         if (savedSession) {
             document.getElementById('stop-btn').style.display = 'inline-block';
             document.getElementById('resume-btn').style.display = 'none';
-            await resumeAnalysis(savedSession, { useVectorization: document.getElementById('use-vectors')?.checked });
+            const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
+            await resumeAnalysis(savedSession, {
+                useVectorization: document.getElementById('use-vectors')?.checked,
+                skipGemma
+            });
         }
     },
 
@@ -437,8 +454,14 @@ async function runFullAnalysis() {
     log(`Starting comprehensive analysis with all ${ENGINE_COUNT} engines...`, 'info');
     log(`Database: ${uploadState.filename}`, 'info');
 
+    // Read Skip Gemma toggle
+    const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
+    if (skipGemma) {
+        log(`[Skip Gemma] Gemma summaries disabled - using fallback summaries`, 'info');
+    }
+
     // Start analysis
-    await startAnalysis({ useVectorization });
+    await startAnalysis({ useVectorization, skipGemma });
 }
 
 // ============================================================================

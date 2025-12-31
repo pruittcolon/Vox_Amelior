@@ -533,13 +533,13 @@
       <!-- Period Filter -->
       <div class="chip-toolbar" style="margin-bottom: 1.5rem;">
         <div class="chip-group" id="emotions-period-chips">
-          <button type="button" class="chip-toggle active" data-period="today"
+          <button type="button" class="chip-toggle" data-period="today"
             onclick="filterEmotionsPeriod('today')">Today</button>
           <button type="button" class="chip-toggle" data-period="week" onclick="filterEmotionsPeriod('week')">This
             Week</button>
           <button type="button" class="chip-toggle" data-period="month" onclick="filterEmotionsPeriod('month')">This
             Month</button>
-          <button type="button" class="chip-toggle" data-period="all" onclick="filterEmotionsPeriod('all')">All
+          <button type="button" class="chip-toggle active" data-period="all" onclick="filterEmotionsPeriod('all')">All
             Time</button>
         </div>
       </div>
@@ -2029,9 +2029,9 @@ ${transcriptText.slice(0, 4000)}`;
     let emotionsPieChart = null;
     let emotionsTrendChart = null;
     let emotionsRadarChart = null;
-    let currentEmotionsPeriod = 'today';
+    let currentEmotionsPeriod = 'all';
 
-    async function loadEmotionsDashboard(period = 'today') {
+    async function loadEmotionsDashboard(period = 'all') {
       currentEmotionsPeriod = period;
 
       try {

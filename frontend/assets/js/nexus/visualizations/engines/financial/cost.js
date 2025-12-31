@@ -49,7 +49,22 @@ function renderCostTreemap(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const categories = data?.cost_breakdown || data?.categories || [];
+    // Backend returns cost_categories as dict {name: value}, convert to array
+    let categories = [];
+
+    // Option 1: cost_categories dict format from backend
+    if (data?.cost_categories && typeof data.cost_categories === 'object' && !Array.isArray(data.cost_categories)) {
+        categories = Object.entries(data.cost_categories)
+            .filter(([_, val]) => val > 0) // Filter out zero values
+            .map(([name, value]) => ({ name, value }));
+    }
+    // Option 2: Array format (legacy)
+    else if (Array.isArray(data?.cost_breakdown)) {
+        categories = data.cost_breakdown;
+    }
+    else if (Array.isArray(data?.categories)) {
+        categories = data.categories;
+    }
 
     if (!categories.length) {
         container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No cost breakdown data available</p>';
@@ -79,29 +94,56 @@ function renderCostTreemap(data, containerId) {
     }, { responsive: true, displayModeBar: false });
 }
 
+
 function renderCostPareto(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const items = data?.pareto_data || data?.cost_breakdown || [];
+    let labels = [];
+    let values = [];
+    let cumulative = [];
 
-    if (!items.length) {
+    // Option 1: Backend pareto.graph format with x_data, y_data, cumulative
+    if (data?.pareto?.graph?.x_data && data?.pareto?.graph?.y_data) {
+        labels = data.pareto.graph.x_data;
+        values = data.pareto.graph.y_data;
+        cumulative = data.pareto.graph.cumulative || [];
+    }
+    // Option 2: cost_categories dict - build pareto from it
+    else if (data?.cost_categories && typeof data.cost_categories === 'object') {
+        const entries = Object.entries(data.cost_categories)
+            .filter(([_, val]) => val > 0)
+            .sort((a, b) => b[1] - a[1]); // Sort desc by value
+
+        labels = entries.map(([name]) => name);
+        values = entries.map(([_, val]) => val);
+
+        // Calculate cumulative
+        const total = values.reduce((a, b) => a + b, 0);
+        let cumSum = 0;
+        cumulative = values.map(v => {
+            cumSum += v;
+            return (cumSum / total) * 100;
+        });
+    }
+    // Option 3: Legacy array format
+    else if (Array.isArray(data?.pareto_data) && data.pareto_data.length) {
+        const sorted = [...data.pareto_data].sort((a, b) => (b.value || b.cost || 0) - (a.value || a.cost || 0));
+        labels = sorted.map(i => i.name || i.category);
+        values = sorted.map(i => i.value || i.cost || 0);
+
+        const total = values.reduce((a, b) => a + b, 0);
+        let cumSum = 0;
+        cumulative = values.map(v => {
+            cumSum += v;
+            return (cumSum / total) * 100;
+        });
+    }
+
+    if (!labels.length) {
         container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No pareto data available</p>';
         return;
     }
-
-    // Sort by value descending
-    const sorted = [...items].sort((a, b) => (b.value || b.cost || 0) - (a.value || a.cost || 0));
-    const labels = sorted.map(i => i.name || i.category);
-    const values = sorted.map(i => i.value || i.cost || 0);
-
-    // Calculate cumulative percentage
-    const total = values.reduce((a, b) => a + b, 0);
-    let cumSum = 0;
-    const cumulative = values.map(v => {
-        cumSum += v;
-        return (cumSum / total) * 100;
-    });
 
     Plotly.newPlot(container, [
         {
@@ -134,3 +176,4 @@ function renderCostPareto(data, containerId) {
         legend: { x: 0, y: 1, bgcolor: 'transparent' }
     }, { responsive: true, displayModeBar: false });
 }
+

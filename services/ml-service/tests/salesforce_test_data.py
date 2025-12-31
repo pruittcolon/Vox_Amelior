@@ -543,14 +543,15 @@ async def main():
     print("Salesforce Test Data Creator")
     print("=" * 60)
 
-    # Configure connection
+    # Configure connection - credentials from environment
+    import os
     config = SalesforceConfig(
-        client_id="REDACTED",
-        client_secret="REDACTED",
-        username="",
-        password="",
-        security_token="",
-        domain="orgfarm-59f0e8606a-dev-ed.develop.my.salesforce.com",
+        client_id=os.getenv("SALESFORCE_CLIENT_ID", ""),
+        client_secret=os.getenv("SALESFORCE_CLIENT_SECRET", ""),
+        username=os.getenv("SALESFORCE_USERNAME", ""),
+        password=os.getenv("SALESFORCE_PASSWORD", ""),
+        security_token=os.getenv("SALESFORCE_SECURITY_TOKEN", ""),
+        domain=os.getenv("SALESFORCE_DOMAIN", "login.salesforce.com"),
     )
 
     loader = SalesforceLoader(config)

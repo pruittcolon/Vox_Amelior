@@ -5,7 +5,7 @@
  * @module nexus/engines/engine-runner
  */
 
-import { runEngine, getGemmaSummary } from '../core/api.js';
+import { runEngine, getGemmaSummary, buildFallbackSummary } from '../core/api.js';
 import {
     getSession,
     initSession,
@@ -205,8 +205,15 @@ async function runEngineLoop(startIndex, options = {}) {
             const duration = performance.now() - engineStartTime;
 
             // Get Gemma summary (using session ID for GPU retention)
-            log(`Getting Gemma summary for ${engine.display}...`, 'info');
-            const summary = await getGemmaSummary(engine.name, engine.display, data, gpuSessionId);
+            // Skip if skipGemma option is set (for testing without Gemma)
+            let summary;
+            if (options.skipGemma) {
+                log(`[Skip Gemma] Using fallback summary for ${engine.display}`, 'info');
+                summary = buildFallbackSummary(engine.name, data);
+            } else {
+                log(`Getting Gemma summary for ${engine.display}...`, 'info');
+                summary = await getGemmaSummary(engine.name, engine.display, data, gpuSessionId);
+            }
 
             // Build result
             const result = {

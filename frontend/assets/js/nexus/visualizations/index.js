@@ -138,6 +138,8 @@ function buildVizSection(engineName, data, vizId) {
  * @param {string} vizId - Unique visualization ID
  */
 function renderEngineVisualizations(engineName, data, vizId) {
+    console.log(`[NexusViz] renderEngineVisualizations called for: ${engineName}`, 'data keys:', data ? Object.keys(data) : 'null');
+
     const viz = engineVizMap[engineName];
     if (!viz || typeof viz.render !== 'function') {
         console.log(`[NexusViz] No render function for engine: ${engineName}`);
@@ -147,6 +149,7 @@ function renderEngineVisualizations(engineName, data, vizId) {
     try {
         // Delay rendering slightly to ensure DOM is ready
         requestAnimationFrame(() => {
+            console.log(`[NexusViz] Calling ${engineName}.render() with vizId: ${vizId}`);
             viz.render(data, vizId);
         });
     } catch (err) {
@@ -223,5 +226,8 @@ window.NexusViz = {
     getClusterColor,
     VIZ_COLORS
 };
+
+// Signal that NexusViz is ready for use
+window.dispatchEvent(new CustomEvent('nexusviz-ready'));
 
 console.log('[NexusViz] Modular visualization system loaded - 22 engines supported');

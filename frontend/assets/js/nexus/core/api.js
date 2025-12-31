@@ -90,7 +90,7 @@ async function fetchJsonWithRetry(url, options, timeoutMs, retries = GEMMA_MAX_R
 
 function enqueueGemmaRequest(task) {
     const next = gemmaQueue.then(task, task);
-    gemmaQueue = next.catch(() => {});
+    gemmaQueue = next.catch(() => { });
     return next;
 }
 
@@ -283,6 +283,13 @@ export async function runEngine(engineName, options = {}) {
  * @returns {Promise<string>} Gemma's response text
  */
 export async function askGemma(prompt, options = {}) {
+    // Global skip check - when toggle is checked, don't call Gemma API
+    const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
+    if (skipGemma) {
+        console.log('[askGemma] Skipped - toggle is checked');
+        return '';
+    }
+
     const maxTokens = options.maxTokens || 500;
     const sessionId = options.sessionId || null;
     const timeoutMs = options.timeoutMs || GEMMA_TIMEOUT_MS;
@@ -323,6 +330,18 @@ export async function askGemma(prompt, options = {}) {
  * @returns {Promise<{target: string, features: string[]}|null>}
  */
 export async function askGemmaForColumns(columns, excludedTargets = []) {
+    // Skip check - return sensible defaults when Gemma is disabled
+    const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
+    if (skipGemma) {
+        console.log('[askGemmaForColumns] Skipped - using first numeric-looking column as target');
+        const availableColumns = columns.filter(col => !excludedTargets.includes(col));
+        // Default: first column as target, next 5 as features
+        return {
+            target: availableColumns[0] || 'target',
+            features: availableColumns.slice(1, 6)
+        };
+    }
+
     const availableColumns = columns.filter(col => !excludedTargets.includes(col));
     const columnsStr = availableColumns.map((col, i) => `${i + 1}. ${col}`).join('\n');
 
@@ -376,6 +395,13 @@ features: [column1, column2, column3, ...]`;
  * @returns {Promise<string>} Summary text
  */
 export async function getGemmaSummary(engineName, engineDisplay, data, sessionId = null) {
+    // Skip check - return fallback summary when Gemma is disabled
+    const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
+    if (skipGemma) {
+        console.log(`[getGemmaSummary] Skipped for ${engineName} - using fallback`);
+        return buildFallbackSummary(engineName, data);
+    }
+
     // Extract key metrics based on data structure
     const dataStr = JSON.stringify(data).substring(0, 2000);
 
@@ -394,7 +420,7 @@ Be concise and focus on actionable insights.`;
     return summary || buildFallbackSummary(engineName, data);
 }
 
-function buildFallbackSummary(engineName, data) {
+export function buildFallbackSummary(engineName, data) {
     if (!data || typeof data !== 'object') {
         return 'Analysis complete. Review the details below.';
     }

@@ -11,7 +11,9 @@ redis==5.0.1
 # PostgreSQL for task persistence
 asyncpg==0.29.0
 
-
+# HTTP clients for shared modules
+httpx==0.28.1
+requests==2.31.0
 
 
 

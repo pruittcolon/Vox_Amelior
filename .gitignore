@@ -271,3 +271,10 @@ CASchools_synthetic.csv
 # PII Documents - Personal files (not part of repo)
 mobile-app/Application.txt
 mobile-app/Job_Description.txt
+
+# Mobile app secrets - CRITICAL
+mobile-app/.env
+
+# Resume/Personal files at root
+Pruitt_Colon_Resume.html
+Pruitt_Colon_Resume.pdf

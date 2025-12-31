@@ -105,12 +105,23 @@ class ClusteringEngine:
             min_rows=10,  # Need enough data for meaningful clusters
         )
 
-    def analyze(self, df: pd.DataFrame, config: dict[str, Any] = None) -> dict[str, Any]:
+    def analyze(self, df: pd.DataFrame, config: dict[str, Any] = None, **kwargs) -> dict[str, Any]:
         """
         Standard analyze() interface that wraps cluster().
         Required for compatibility with testing framework.
+        
+        Accepts **kwargs for compatibility with engine runner (target_column, etc.)
         """
-        return self.cluster(df, config)
+        try:
+            return self.cluster(df, config)
+        except ValueError as e:
+            # Return graceful error instead of crashing
+            return {
+                "status": "error",
+                "error": str(e),
+                "engine": "clustering",
+                "recommendation": "Upload a dataset with numeric columns for clustering analysis."
+            }
 
     def cluster(self, df: pd.DataFrame, config: dict[str, Any] = None) -> dict[str, Any]:
         """

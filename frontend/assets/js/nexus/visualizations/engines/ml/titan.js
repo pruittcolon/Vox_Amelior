@@ -59,12 +59,30 @@ function renderFeatureWaterfall(features, containerId) {
         return;
     }
 
-    // Extract stability or importance score
-    const getVal = f => f.stability !== undefined ? f.stability : ((f.importance || f.value || 0) * 100);
-    const sortedFeatures = [...features].sort((a, b) => getVal(b) - getVal(a)).slice(0, 10);
+    // Debug: log data structure
+    console.log('[Titan] Feature data structure:', features[0]);
+
+    // Extract stability or importance score with robust NaN handling
+    const getVal = f => {
+        if (f.stability !== undefined && !isNaN(f.stability)) return f.stability;
+        if (f.importance !== undefined && !isNaN(f.importance)) return f.importance * 100;
+        if (f.value !== undefined && !isNaN(f.value)) return f.value * 100;
+        if (f.score !== undefined && !isNaN(f.score)) return f.score * 100;
+        return 0; // Default to 0 instead of NaN
+    };
+
+    const sortedFeatures = [...features]
+        .filter(f => !isNaN(getVal(f))) // Filter out any remaining NaN
+        .sort((a, b) => getVal(b) - getVal(a))
+        .slice(0, 10);
+
+    if (sortedFeatures.length === 0) {
+        container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No valid feature importance values</p>';
+        return;
+    }
 
     const contributions = sortedFeatures.map((f, i) => ({
-        name: f.feature || f.name,
+        name: f.feature || f.name || `Feature ${i + 1}`,
         value: getVal(f),
         direction: i % 3 === 0 ? -1 : 1
     }));

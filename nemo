@@ -6,9 +6,8 @@
 #   ./nemo           - Start full stack
 #   ./nemo --help    - Show help
 #   ./nemo --stop    - Stop all services
-#   ./nemo --light   - Start without transcription
+#   ./nemo --light   - Start lightweight (no Gemma/Transcription)
 #   ./nemo --https   - Start with HTTPS
-#   ./nemo --remote  - Start for remote access
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -21,9 +20,6 @@ case "${1:-}" in
         ;;
     --https|https)
         exec "$SCRIPT_DIR/scripts/start-https.sh" "$@"
-        ;;
-    --remote|remote)
-        exec "$SCRIPT_DIR/scripts/start-remote.sh" "$@"
         ;;
     --frontend|frontend)
         exec "$SCRIPT_DIR/scripts/start-frontend-only.sh" "$@"
@@ -39,9 +35,8 @@ case "${1:-}" in
         echo "Options:"
         echo "  (no args)         Start full stack (default)"
         echo "  --stop            Stop all services"
-        echo "  --light           Start without transcription service"
+        echo "  --light           Start lightweight (no Gemma/Transcription)"
         echo "  --https           Start with HTTPS/TLS"
-        echo "  --remote          Start for remote network access"
         echo "  --frontend        Start frontend-only mode"
         echo "  --no-transcription Start without transcription"
         echo "  --help            Show this help"

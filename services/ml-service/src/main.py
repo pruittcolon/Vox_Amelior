@@ -264,8 +264,20 @@ class GatewaySession:
         print("❌ Failed to login to Gateway. Gemma features will be disabled.")
         return False
 
-    def generate(self, prompt: str, max_tokens=512, timeout: int = 30):
-        """Generate text using Gemma via public chat endpoint (no auth needed)"""
+    def generate(self, prompt: str, max_tokens=512, timeout: int = 30, skip_gemma: bool = False):
+        """Generate text using Gemma via public chat endpoint (no auth needed)
+        
+        Args:
+            prompt: The prompt to send to Gemma
+            max_tokens: Maximum tokens to generate
+            timeout: Request timeout in seconds
+            skip_gemma: If True, return placeholder text instead of calling Gemma
+        """
+        # Check environment variable or parameter for skip
+        if skip_gemma or os.getenv("SKIP_GEMMA", "false").lower() == "true":
+            logger.info("[SKIP_GEMMA] Returning placeholder instead of calling Gemma")
+            return "[Gemma summary skipped for testing]"
+        
         try:
             # Use public chat endpoint - no authentication required
             resp = self.session.post(
@@ -278,12 +290,12 @@ class GatewaySession:
                 # Public chat returns {"message": "..."} format
                 return data.get("message", data.get("text", ""))
             else:
-                print(f"⚠️ Gemma request failed with status {resp.status_code}")
+                print(f"Gemma request failed with status {resp.status_code}")
         except requests.exceptions.Timeout:
-            print(f"⚠️ Gemma request timed out after {timeout}s - continuing without summary")
+            print(f"Gemma request timed out after {timeout}s - continuing without summary")
             return None
         except Exception as e:
-            print(f"❌ Gemma generation error: {e}")
+            print(f"Gemma generation error: {e}")
         return None
 
 
@@ -2271,6 +2283,77 @@ async def execute_action(request: ActionRequest):
 # ==============================================================================
 # PHASE 6: AGENTIC ORCHESTRATION
 # ==============================================================================
+
+
+class ExecutionRequest(BaseModel):
+    filename: str
+    goal_id: str
+
+
+@app.post("/execute-analysis")
+async def execute_analysis_endpoint(req: ExecutionRequest):
+    """
+    Execute a specific analysis goal on a dataset.
+    Used by ml-agent.js via Gateway.
+    """
+    file_path = os.path.join(UPLOAD_DIR, req.filename)
+    if not os.path.exists(file_path):
+        # Try prefix match
+        found = False
+        for f in os.listdir(UPLOAD_DIR):
+            if f.endswith(req.filename) or f == req.filename:
+                req.filename = f
+                file_path = os.path.join(UPLOAD_DIR, f)
+                found = True
+                break
+        if not found:
+            raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        # Load and schema
+        try:
+            df = pd.read_csv(file_path, engine="python", on_bad_lines="skip")
+        except:
+             df = pd.read_csv(file_path, sep=None, engine="python", on_bad_lines="skip")
+        
+        schema = SemanticMapper.infer_schema(df)
+        
+        # Engines
+        analytic_engine = AnalyticEngine(df, schema)
+        recipe_engine = RecipeEngine(df, schema)
+        ts_engine = TimeSeriesEngine(df, schema)
+
+        res = {}
+        # Route based on goal_id
+        if req.goal_id == "general_overview":
+            res = analytic_engine.analyze_distributions()
+        elif req.goal_id == "correlation_analysis":
+            res = analytic_engine.analyze_correlations()
+        elif req.goal_id == "anomaly_detection":
+            res = recipe_engine.analyze_anomalies()
+        elif req.goal_id == "churn_analysis":
+            res = recipe_engine.analyze_churn()
+        elif req.goal_id == "cohort_analysis":
+            res = recipe_engine.analyze_cohorts()
+        elif req.goal_id == "forecast_analysis":
+            res = ts_engine.analyze_forecast()
+        elif req.goal_id == "seasonality_analysis":
+            res = ts_engine.analyze_seasonality()
+        else:
+            res = {"summary": f"Goal {req.goal_id} not implemented yet", "insights": [], "charts": []}
+
+        # Add narration
+        try:
+            narration_prompt = f"Summarize this analysis for an executive: {res.get('summary')} {res.get('insights')}"
+            res["gemma_narration"] = gateway.generate(narration_prompt, max_tokens=100)
+        except Exception:
+            pass
+
+        return res
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class AutoAnalyzeRequest(BaseModel):

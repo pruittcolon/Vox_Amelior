@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["transcripts"])
 
 RAG_URL = os.getenv("RAG_URL", "http://rag-service:8001")
+INSIGHTS_URL = os.getenv("INSIGHTS_URL", "http://insights-service:8010")
 
 
 def _get_proxy_request():
@@ -57,7 +58,7 @@ async def analytics_signals(
     if speakers:
         params["speakers"] = speakers
 
-    return await proxy_request(f"{RAG_URL}/analytics/signals", "GET", params=params)
+    return await proxy_request(f"{INSIGHTS_URL}/analytics/signals", "GET", params=params)
 
 
 @router.get("/api/analytics/segments")
@@ -88,7 +89,35 @@ async def analytics_segments(
     if emotions:
         params["emotions"] = emotions
 
-    return await proxy_request(f"{RAG_URL}/analytics/segments", "GET", params=params)
+    return await proxy_request(f"{INSIGHTS_URL}/analytics/segments", "GET", params=params)
+
+
+# Non-prefixed aliases (frontend api.js calls these without /api prefix)
+@router.get("/analytics/signals")
+async def analytics_signals_alias(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    speakers: str | None = None,
+    limit: int = 50,
+    session: Session = Depends(require_auth),
+):
+    """Alias for /api/analytics/signals (frontend compatibility)."""
+    return await analytics_signals(start_date, end_date, speakers, limit, session)
+
+
+@router.get("/analytics/segments")
+async def analytics_segments_alias(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    speakers: str | None = None,
+    emotions: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    order: str = "desc",
+    session: Session = Depends(require_auth),
+):
+    """Alias for /api/analytics/segments (frontend compatibility)."""
+    return await analytics_segments(start_date, end_date, speakers, emotions, limit, offset, order, session)
 
 
 # =============================================================================

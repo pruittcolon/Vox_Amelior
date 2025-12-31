@@ -414,11 +414,11 @@ async def lifespan(app: FastAPI):
         logger.info("[GEMMA] Ready for GPU handoff when chat is requested")
         logger.info("Gemma AI Service started successfully (CPU standby mode)")
     except Exception as e:
-        logger.error(f"[GEMMA] ❌ Failed to load on GPU: {e}")
-        logger.info("[GEMMA] ⚠️ Falling back to CPU mode...")
+        logger.error(f"[GEMMA] Failed to load on CPU: {e}")
+        logger.info("[GEMMA] Falling back to CPU mode...")
         load_model_cpu()
         gemma_analyzer = GemmaAnalyzer(rag_url=RAG_SERVICE_URL)
-        logger.info("[GEMMA] ✅ Loaded on CPU successfully!")
+        logger.info("[GEMMA] Loaded on CPU successfully!")
         logger.info("Gemma AI Service started (CPU fallback mode)")
     logger.info("=" * 80)
 
