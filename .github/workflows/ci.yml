@@ -25,7 +25,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv (fast package manager)
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Install Ruff
         run: uv pip install ruff --system
@@ -52,7 +52,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Install test dependencies
         run: uv pip install -r tests/requirements.txt --system
@@ -98,7 +98,7 @@ jobs:
           sudo apt-get install -y ffmpeg libsndfile1 sox
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Install test dependencies
         run: uv pip install -r tests/requirements.txt --system
