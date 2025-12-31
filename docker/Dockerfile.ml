@@ -1,6 +1,6 @@
 # ML Service - Universal ML Agent with CUDA Support
 # Using NVIDIA CUDA base image for GPU acceleration
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM nvidia/cuda:13.1.0-runtime-ubuntu22.04
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
