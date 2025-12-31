@@ -2,7 +2,7 @@
 # FastAPI & Server
 fastapi==0.110.3
 uvicorn[standard]==0.30.6
-pydantic==2.10.6
+pydantic==2.12.5
 python-dotenv==1.0.1
 
 # HTTP Client
