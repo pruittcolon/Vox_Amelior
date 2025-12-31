@@ -1,6 +1,6 @@
 # Emotion Service Dependencies
 # FastAPI & Server
-fastapi==0.110.3
+fastapi==0.128.0
 uvicorn[standard]==0.30.6
 pydantic==2.7.1
 python-multipart==0.0.9
