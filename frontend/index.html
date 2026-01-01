@@ -86,6 +86,54 @@
 
 <body>
   <!-- Navigation -->
+  <style>
+    /* Mobile Menu Override */
+    @media (max-width: 768px) {
+      .vox-nav-toggle {
+        display: flex !important;
+        z-index: 99999 !important;
+      }
+
+      .vox-nav-links {
+        display: none !important;
+        position: fixed !important;
+        top: 64px !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        flex-direction: column !important;
+        background: #FFFFFF !important;
+        padding: 2rem !important;
+        z-index: 99998 !important;
+        overflow-y: auto !important;
+      }
+
+      .vox-nav-links.open {
+        display: flex !important;
+      }
+
+      .vox-nav-link {
+        font-size: 1.25rem !important;
+        padding: 0.75rem 1rem !important;
+        width: 100% !important;
+      }
+
+      .vox-nav-inner>div:last-child {
+        display: none !important;
+      }
+
+      .vox-nav-dropdown {
+        width: 100% !important;
+        position: static !important;
+      }
+
+      .vox-nav-dropdown-menu {
+        position: static !important;
+        display: none !important;
+        box-shadow: none !important;
+      }
+    }
+  </style>
   <nav class="vox-nav">
     <div class="vox-nav-inner">
       <a href="index.html" class="vox-logo">
@@ -94,6 +142,12 @@
         </div>
         <span class="vox-logo-text">Vox Amelior</span>
       </a>
+
+      <button class="vox-nav-toggle" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
 
       <div class="vox-nav-links">
         <a href="#features" class="vox-nav-link">Features</a>
@@ -114,15 +168,15 @@
             style="display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); min-width: 200px; background: #FFFFFF; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 0.75rem; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15); padding: 0.5rem 0; z-index: 1000; margin-top: 0.25rem;">
             <a href="enterprise/index.html"
               style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem; transition: all 0.15s ease;">
-              <span>🏢</span> Overview
+              Overview
             </a>
             <a href="enterprise/salesforce/index.html"
               style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem; transition: all 0.15s ease;">
-              <span>☁️</span> Salesforce CRM
+              Salesforce CRM
             </a>
             <a href="enterprise/fiserv/index.html"
               style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem; transition: all 0.15s ease;">
-              <span>🏦</span> Fiserv Banking
+              Fiserv Banking
             </a>
           </div>
         </div>
@@ -134,6 +188,24 @@
       </div>
     </div>
   </nav>
+  <script>
+    // Mobile nav toggle
+    document.addEventListener('DOMContentLoaded', () => {
+      const toggle = document.querySelector('.vox-nav-toggle');
+      const links = document.querySelector('.vox-nav-links');
+      toggle?.addEventListener('click', () => {
+        toggle.classList.toggle('active');
+        links?.classList.toggle('open');
+        document.body.style.overflow = links?.classList.contains('open') ? 'hidden' : '';
+      });
+      // Enterprise dropdown hover
+      document.querySelectorAll('.vox-nav-dropdown').forEach(d => {
+        const m = d.querySelector('.vox-nav-dropdown-menu');
+        d.addEventListener('mouseenter', () => m.style.display = 'block');
+        d.addEventListener('mouseleave', () => m.style.display = 'none');
+      });
+    });
+  </script>
 
   <!-- Hero Section -->
   <header class="vox-hero">
@@ -192,7 +264,7 @@
         <i data-lucide="mic" style="width: 24px;"></i>
       </div>
       <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem;">Precision Transcription</h3>
-      <p style="color: var(--vox-grey-500);">99.8% accurate real-time speech-to-text powered by next-gen neural
+      <p style="color: var(--vox-grey-500);">98% accurate real-time speech-to-text powered by next-gen neural
         networks.</p>
     </div>
 
