@@ -30,7 +30,27 @@ function renderSpendSankey(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const categories = data?.categories || data?.spend_categories || [];
+    // Support multiple backend formats:
+    // 1. data.categories or data.spend_categories (array of {name, amount})
+    // 2. data.category_totals (dict: {category_name: amount})
+    // 3. data.patterns?.category_breakdown?.top_categories (array of {category, total_spend})
+    let categories = data?.categories || data?.spend_categories || [];
+
+    // Try category_totals dict format
+    if (!categories.length && data?.category_totals) {
+        categories = Object.entries(data.category_totals).map(([name, amount]) => ({
+            name,
+            amount: parseFloat(amount) || 0
+        }));
+    }
+
+    // Try patterns.category_breakdown.top_categories format
+    if (!categories.length && data?.patterns?.category_breakdown?.top_categories) {
+        categories = data.patterns.category_breakdown.top_categories.map(cat => ({
+            name: cat.category || cat.name,
+            amount: cat.total_spend || cat.amount || 0
+        }));
+    }
 
     if (!categories.length) {
         container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No spend category data</p>';
@@ -49,7 +69,7 @@ function renderSpendSankey(data, containerId) {
         link: {
             source: categories.map(() => 0),
             target: categories.map((_, i) => i + 1),
-            value: categories.map(c => c.amount || c.value || 0)
+            value: categories.map(c => c.amount || c.value || c.total_spend || 0)
         }
     }], {
         paper_bgcolor: 'transparent',
@@ -63,8 +83,18 @@ function renderSpendTrend(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const periods = data?.periods || data?.dates || [];
-    const spending = data?.spending || data?.values || [];
+    // Support multiple backend formats:
+    // 1. data.periods / data.dates and data.spending / data.values (flat arrays)
+    // 2. data.patterns?.temporal?.graph.x_data and y_data
+    let periods = data?.periods || data?.dates || [];
+    let spending = data?.spending || data?.values || [];
+
+    // Try patterns.temporal.graph format
+    if (!periods.length && data?.patterns?.temporal?.graph) {
+        const graph = data.patterns.temporal.graph;
+        periods = graph.x_data || [];
+        spending = graph.y_data || [];
+    }
 
     if (!periods.length) {
         container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No trend data</p>';
@@ -90,3 +120,4 @@ function renderSpendTrend(data, containerId) {
         yaxis: { title: 'Spend ($)', gridcolor: VIZ_COLORS.border }
     }, { responsive: true, displayModeBar: false });
 }
+

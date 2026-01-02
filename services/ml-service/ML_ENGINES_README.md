@@ -4,7 +4,9 @@
 
 ## Table of Contents
 
+- [Nexus Frontend Integration](#nexus-frontend-integration)
 - [Architecture Overview](#architecture-overview)
+- [The 22 Nexus Engines](#the-22-nexus-engines)
 - [Engine Types](#engine-types)
 - [API Endpoints](#api-endpoints)
 - [Adding a New Engine](#adding-a-new-engine)
@@ -14,7 +16,189 @@
 
 ---
 
-## Architecture Overview
+## Nexus Frontend Integration
+
+The Nexus AI platform (`nexus.html`) provides a unified interface for running all 22 ML engines on uploaded datasets. This section documents the complete data flow.
+
+### End-to-End Flow Diagram
+
+```
+User drops CSV/JSON file
+        |
+        v
+[Frontend: pages/main.js]
+        |
+        v
+POST /upload --> Backend stores file, returns {filename, columns, row_count}
+        |
+        v
+[State: state.js] --> setUploadState(filename, columns)
+        |
+        v
+User clicks "Start Full Analysis"
+        |
+        v
+[Engine Runner: engine-runner.js] --> initSession(), loops through ALL_ENGINES
+        |
+        +---> For each of 22 engines:
+        |         |
+        |         v
+        |     POST /analytics/run-engine/{engine_name}
+        |         |
+        |         v
+        |     [Backend: premium_engines.py:run_single_engine()]
+        |         |
+        |         +--> Check ENGINE_REGISTRY
+        |         |         |
+        |         |         v
+        |         |    Instantiate engine class
+        |         |         |
+        |         |         v
+        |         |    engine.analyze(df, config)
+        |         |         |
+        |         v         v
+        |     Return JSON result
+        |         |
+        |         v
+        |     [Frontend: api.js] --> getGemmaSummary() for AI explanation
+        |         |
+        |         v
+        |     [State: state.js] --> recordEngineResult(engine_name, result)
+        |         |
+        |         v
+        |     [UI: engine-results.js] --> displayEngineResults() with visualization
+        |
+        v
+All 22 engines complete --> completeSession()
+```
+
+### Frontend Module Architecture
+
+| Module | Path | Responsibility |
+|--------|------|----------------|
+| **Orchestrator** | `nexus/pages/main.js` | Wires upload, callbacks, triggers analysis |
+| **Engine Runner** | `nexus/engines/engine-runner.js` | Sequential engine loop with pause/resume |
+| **Engine Definitions** | `nexus/engines/engine-definitions.js` | Registry of all 22 engine names, icons, categories |
+| **Engine Results** | `nexus/engines/engine-results.js` | Card creation, status updates, key finding extraction |
+| **API Layer** | `nexus/core/api.js` | HTTP calls to `/upload`, `/run-engine`, `/chat` |
+| **State Manager** | `nexus/core/state.js` | Session, upload, column selection persistence |
+| **Visualizations** | `nexus/visualizations/index.js` | Aggregates 22 engine-specific visualization modules |
+| **Dashboard** | `nexus/components/dashboard.js` | ECharts/Plotly real-time performance charts |
+
+### Request Format (Frontend to Backend)
+
+```javascript
+// nexus/core/api.js:runEngine()
+POST /analytics/run-engine/{engine_name}
+Content-Type: application/json
+
+{
+    "filename": "uploaded_data.csv",
+    "target_column": "revenue",      // Optional - Gemma AI recommends or user selects
+    "config": {},                    // Engine-specific config overrides
+    "use_vectorization": false       // Enable Gemma embeddings
+}
+```
+
+### Response Format (Backend to Frontend)
+
+```json
+{
+    "status": "success",
+    "engine_name": "clustering",
+    "engine_display_name": "Clustering Analysis",
+    "_engine_metadata": {
+        "source": "ENGINE_REGISTRY",
+        "requested_engine": "clustering",
+        "filename": "uploaded_data.csv"
+    },
+    "n_clusters": 5,
+    "cluster_labels": [0, 1, 2, 0, 1, ...],
+    "cluster_centers": [[...], [...], ...],
+    "silhouette_score": 0.72,
+    "insights": ["Cluster 0 has highest average revenue", ...]
+}
+```
+
+### Pause/Resume Capability
+
+The frontend supports pausing and resuming analysis mid-run:
+
+```javascript
+// Pause: saves currentEngineIndex to localStorage
+stopAnalysis() --> setAnalysisStopped(true) + pauseSession() + saveSessionToStorage()
+
+// Resume: loads session and continues from saved index
+resumeAnalysis(savedSession) --> restoreSession() + runEngineLoop(currentEngineIndex)
+```
+
+Session data persisted in `localStorage` under key `nemo_analysis_session`.
+
+---
+
+## The 22 Nexus Engines
+
+All 22 engines defined in the frontend have dedicated backend implementations in `ENGINE_REGISTRY`:
+
+### ML and Analytics (7 Engines)
+
+| Frontend Name | Backend Class | Category | Description |
+|--------------|---------------|----------|-------------|
+| `titan` | `TitanEngine` | AUTOML | Enterprise AutoML with stability selection |
+| `predictive` | `PredictiveEngine` | PREDICTIVE | Time-series forecasting |
+| `clustering` | `ClusteringEngine` | CLUSTERING | K-Means, DBSCAN, Hierarchical |
+| `anomaly` | `AnomalyEngine` | ANOMALY | Multi-method outlier detection |
+| `statistical` | `StatisticalEngine` | STATISTICAL | Comprehensive statistics and correlations |
+| `trend` | `TrendEngine` | PREDICTIVE | Trend detection and seasonality |
+| `graphs` | `UniversalGraphEngine` | GRAPH | Auto-generate visualizations |
+
+### Financial Intelligence (12 Engines)
+
+| Frontend Name | Backend Class | Category | Description |
+|--------------|---------------|----------|-------------|
+| `cost` | `CostOptimizationEngine` | FINANCIAL | Cost reduction analysis |
+| `roi` | `ROIPredictionEngine` | FINANCIAL | ROI prediction |
+| `spend_patterns` | `SpendPatternEngine` | FINANCIAL | Spending pattern analysis |
+| `budget_variance` | `BudgetVarianceEngine` | FINANCIAL | Budget vs actual |
+| `profit_margins` | `ProfitMarginEngine` | FINANCIAL | Profit margin analysis |
+| `revenue_forecasting` | `RevenueForecastingEngine` | FINANCIAL | Revenue prediction |
+| `customer_ltv` | `CustomerLTVEngine` | FINANCIAL | Customer lifetime value |
+| `cash_flow` | `CashFlowEngine` | FINANCIAL | Cash flow analysis |
+| `inventory_optimization` | `InventoryOptimizationEngine` | FINANCIAL | Inventory optimization |
+| `pricing_strategy` | `PricingStrategyEngine` | FINANCIAL | Price optimization |
+| `market_basket` | `MarketBasketAnalysisEngine` | FINANCIAL | Product associations |
+| `resource_utilization` | `ResourceUtilizationEngine` | FINANCIAL | Resource efficiency |
+
+### Advanced AI Lab (3 Engines)
+
+| Frontend Name | Backend Class | Category | Description |
+|--------------|---------------|----------|-------------|
+| `rag_evaluation` | `RAGEvaluationEngine` | ADVANCED | RAG quality evaluation |
+| `chaos` | `ChaosEngine` | ADVANCED | Non-linear relationship detection |
+| `oracle` | `OracleEngine` | ADVANCED | Granger causality analysis |
+
+### Engine Resolution Priority
+
+The `/run-engine/{engine_name}` endpoint resolves engines in this order:
+
+1. **ENGINE_REGISTRY** (primary) - Dedicated engine classes with proper schema
+2. **EXTENDED_ENGINE_MAP** (fallback) - Maps to premium engines for compatibility
+
+```python
+# premium_engines.py:run_single_engine()
+if engine_name_lower in ENGINE_REGISTRY:
+    # Use dedicated engine from registry
+    engine_class = ENGINE_REGISTRY[engine_name_lower].engine_class
+    engine = engine_class()
+    result = engine.analyze(df, config)
+else:
+    # Fallback to premium engine mapping
+    mapped_engine = EXTENDED_ENGINE_MAP.get(engine_name_lower)
+    engine = PREMIUM_ENGINES[mapped_engine]()
+    result = engine.analyze(df, config)
+```
+
+---
 
 The ML Service uses a **modular router architecture** with engines organized into logical groups:
 

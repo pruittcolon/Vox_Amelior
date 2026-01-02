@@ -15,6 +15,13 @@ from pydantic import BaseModel
 # =============================================================================
 
 
+class ColumnClassificationRequest(BaseModel):
+    """Request for column classification using the statistical classifier."""
+
+    filename: str
+
+
+
 class StatisticalAnalysisRequest(BaseModel):
     """Request for comprehensive statistical analysis."""
 

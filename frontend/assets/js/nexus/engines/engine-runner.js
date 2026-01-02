@@ -289,3 +289,82 @@ export function getProgress() {
         percent: Math.round((completed / ENGINE_COUNT) * 100)
     };
 }
+
+/**
+ * Run a single engine independently (for retesting).
+ * @param {Object} engine - Engine definition with name, display, etc.
+ * @param {string} filename - The filename to analyze
+ * @param {Object} options - Options like skipGemma, useVectorization
+ * @returns {Promise<Object>} The result object
+ */
+export async function runSingleEngine(engine, filename, options = {}) {
+    const session = getSession();
+    const engineStartTime = performance.now();
+
+    // Notify start
+    if (callbacks.onEngineStart) {
+        callbacks.onEngineStart(engine, ALL_ENGINES.findIndex(e => e.name === engine.name));
+    }
+
+    log(`Re-running ${engine.display}...`, 'info');
+
+    try {
+        // Execute engine
+        const data = await runEngine(engine.name, {
+            useVectorization: options.useVectorization || false
+        });
+
+        const duration = performance.now() - engineStartTime;
+
+        // Get Gemma summary
+        let summary;
+        if (options.skipGemma) {
+            summary = buildFallbackSummary(engine.name, data);
+        } else {
+            const gpuSessionId = `nexus-retest-${Date.now()}`;
+            summary = await getGemmaSummary(engine.name, engine.display, data, gpuSessionId);
+        }
+
+        // Build result
+        const result = {
+            status: 'success',
+            data: data,
+            gemmaSummary: summary,
+            dataSize: JSON.stringify(data).length,
+            duration: duration
+        };
+
+        // Record in session (update existing)
+        recordEngineResult(engine.name, result);
+        saveSessionToStorage();
+
+        // Log and notify
+        log(`Retest complete: ${engine.display}`, 'success', duration);
+
+        if (callbacks.onEngineComplete) {
+            callbacks.onEngineComplete(engine, result, duration);
+        }
+
+        return result;
+    } catch (err) {
+        const duration = performance.now() - engineStartTime;
+
+        const errorResult = {
+            status: 'error',
+            error: err.message,
+            duration: duration
+        };
+
+        recordEngineResult(engine.name, errorResult);
+        saveSessionToStorage();
+
+        log(`Retest failed: ${engine.display} - ${err.message}`, 'error', duration);
+
+        if (callbacks.onEngineError) {
+            callbacks.onEngineError(engine, err, duration);
+        }
+
+        throw err;
+    }
+}
+

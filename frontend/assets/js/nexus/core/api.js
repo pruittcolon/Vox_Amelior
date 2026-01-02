@@ -271,6 +271,28 @@ export async function runEngine(engineName, options = {}) {
     return data;
 }
 
+/**
+ * Classify columns in a dataset using the backend statistical classifier.
+ * @param {string} filename - The name of the file to classify
+ * @returns {Promise<Object>} classification results (target, features, ignored)
+ */
+export async function classifyColumns(filename) {
+    const response = await fetchWithTimeout(`${API_BASE}/analytics/classify-columns`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({ filename })
+    }, 30000); // 30s timeout
+
+    const data = await response.json();
+
+    if (data.error) {
+        throw new Error(data.error);
+    }
+
+    return data.classification;
+}
+
 // ============================================================================
 // Gemma AI Chat
 // ============================================================================

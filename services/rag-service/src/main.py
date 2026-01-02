@@ -99,6 +99,10 @@ class TranscriptIndexRequest(BaseModel):
     full_text: str
     audio_duration: float
     segments: list[TranscriptSegment]
+    # Source tracking for multi-source transcription
+    source_type: str = "mobile_phone"  # mobile_phone, web_browser, desktop_app, tablet, api_integration
+    device_id: str | None = None  # Unique device identifier (UUID)
+    device_name: str | None = None  # Human-readable device name
 
 
 class SemanticSearchRequest(BaseModel):
@@ -286,6 +290,7 @@ class RAGService:
                 )
             """)
             self._ensure_segment_column_extensions(cur)
+            self._ensure_transcript_source_columns(cur)
 
             # Memories table
             cur.execute("""
@@ -1432,7 +1437,15 @@ class RAGService:
             return np.zeros(self.embedding_dim, dtype=np.float32)
 
     def index_transcript(
-        self, job_id: str, session_id: str, full_text: str, audio_duration: float, segments: list[dict[str, Any]]
+        self,
+        job_id: str,
+        session_id: str,
+        full_text: str,
+        audio_duration: float,
+        segments: list[dict[str, Any]],
+        source_type: str = "mobile_phone",
+        device_id: str | None = None,
+        device_name: str | None = None,
     ) -> int:
         """
         Index a full transcript with all segments and metadata
@@ -1446,14 +1459,16 @@ class RAGService:
 
                 timestamp = datetime.utcnow().isoformat()
 
-                # Store transcript record
+                # Store transcript record with source tracking
                 cur.execute(
                     """
                     INSERT OR REPLACE INTO transcript_records
-                    (job_id, session_id, full_text, audio_duration, timestamp, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (job_id, session_id, full_text, audio_duration, timestamp, created_at,
+                     source_type, device_id, device_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (job_id, session_id, full_text, audio_duration, timestamp, timestamp),
+                    (job_id, session_id, full_text, audio_duration, timestamp, timestamp,
+                     source_type, device_id, device_name),
                 )
 
                 transcript_id = cur.lastrowid
@@ -1593,6 +1608,34 @@ class RAGService:
             if name not in existing:
                 # Using f-string is safe here as name/decl are internal constants
                 cursor.execute(f"ALTER TABLE transcript_segments ADD COLUMN {name} {decl}")
+
+    def _ensure_transcript_source_columns(self, cursor: sqlite3.Cursor) -> None:
+        """Ensure source tracking columns exist on transcript_records table.
+        
+        Adds columns for multi-source transcription support:
+        - source_type: Type of audio source (mobile_phone, web_browser, etc.)
+        - device_id: Unique device identifier (UUID)
+        - device_name: Human-readable device name
+        """
+        cursor.execute("PRAGMA table_info(transcript_records)")
+        existing = set()
+        for row in cursor.fetchall():
+            try:
+                existing.add(row["name"])
+            except (KeyError, TypeError):
+                # row can be tuple (index, name, type, ...); name at position 1
+                existing.add(row[1])
+        
+        # columns_to_add is hardcoded and trusted, so f-string usage here is safe from injection
+        columns_to_add = [
+            ("source_type", "TEXT DEFAULT 'mobile_phone'"),
+            ("device_id", "TEXT"),
+            ("device_name", "TEXT"),
+        ]
+        for name, decl in columns_to_add:
+            if name not in existing:
+                logger.info(f"[RAG] Adding column {name} to transcript_records")
+                cursor.execute(f"ALTER TABLE transcript_records ADD COLUMN {name} {decl}")
 
     def _compute_segment_features(
         self,
@@ -2309,6 +2352,9 @@ def index_transcript(
             full_text=request.full_text,
             audio_duration=request.audio_duration,
             segments=segments_dict,
+            source_type=request.source_type,
+            device_id=request.device_id,
+            device_name=request.device_name,
         )
 
         return {

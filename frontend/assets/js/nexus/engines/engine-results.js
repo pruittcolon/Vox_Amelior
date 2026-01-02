@@ -30,7 +30,15 @@ export function createEngineCard(engine, index, instanceId = 'all') {
     <div class="engine-card-header" onclick="window.NexusUI.toggleEngineCard('${engine.name}')">
       <span class="engine-icon">${engine.icon}</span>
       <h3>${index + 1}. ${engine.display}</h3>
-      <span class="engine-status pending" id="status-${cardId}">⏳ Pending</span>
+      <div class="engine-header-controls">
+        <button class="engine-retest-btn" onclick="event.stopPropagation(); window.NexusUI.retestEngine('${engine.name}')" title="Re-run this analysis">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 4v6h6"/>
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+          </svg>
+        </button>
+        <span class="engine-status pending" id="status-${cardId}">Pending</span>
+      </div>
     </div>
     <div class="engine-card-body" id="body-${cardId}">
       <div class="loading-spinner">Analyzing your data with AI engine...</div>
@@ -39,6 +47,7 @@ export function createEngineCard(engine, index, instanceId = 'all') {
 
   return card;
 }
+
 
 /**
  * Update card status indicator.

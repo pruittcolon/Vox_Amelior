@@ -36,8 +36,11 @@ RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86
     && apt-get update \
     && apt-get install -y --no-install-recommends \
     cuda-cudart-12-6 \
+    cuda-cudart-dev-12-6 \
     cuda-nvrtc-12-6 \
     libcublas-12-6 \
+    libcublas-dev-12-6 \
+    cuda-nvcc-12-6 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

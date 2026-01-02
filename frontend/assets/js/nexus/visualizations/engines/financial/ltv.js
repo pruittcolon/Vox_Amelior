@@ -30,7 +30,16 @@ function renderLTVRadar(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const segments = data?.segments || data?.customer_segments || [];
+    // Support multiple backend formats:
+    // 1. data.segments (array of segment objects)
+    // 2. data.segments?.stats (array from _segment_analysis)
+    // 3. data.customer_segments
+    let segments = data?.segments || data?.customer_segments || [];
+
+    // Backend returns segments.stats when analysis succeeds
+    if (!Array.isArray(segments) && segments?.stats) {
+        segments = segments.stats;
+    }
 
     if (!segments.length) {
         container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No segment data available</p>';
@@ -43,7 +52,7 @@ function renderLTVRadar(data, containerId) {
         r: categories.map(c => seg[c.toLowerCase()] || seg.scores?.[c.toLowerCase()] || Math.random() * 100),
         theta: categories,
         fill: 'toself',
-        name: seg.name || `Segment ${i + 1}`,
+        name: seg.name || seg.segment || `Segment ${i + 1}`,
         line: { color: `hsl(${i * 60}, 70%, 50%)` }
     }));
 
@@ -65,10 +74,14 @@ function renderLTVKPIs(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const avgLTV = data?.average_ltv || data?.avg_ltv || 0;
-    const totalLTV = data?.total_ltv || 0;
-    const churnRate = (data?.churn_rate || 0) * 100;
-    const retentionRate = (data?.retention_rate || 1 - (data?.churn_rate || 0)) * 100;
+    // Support multiple backend formats:
+    // 1. data.avg_clv, data.total_clv, data.churn_rate (direct)
+    // 2. data.summary.avg_clv, data.summary.total_clv, data.summary.churn_rate
+    const summary = data?.summary || {};
+    const avgLTV = data?.average_ltv || data?.avg_ltv || summary?.avg_clv || 0;
+    const totalLTV = data?.total_ltv || summary?.total_clv || 0;
+    const churnRate = (data?.churn_rate || summary?.churn_rate || 0);
+    const retentionRate = 100 - churnRate;
 
     container.innerHTML = `
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; height: 100%; align-content: center;">
@@ -91,3 +104,4 @@ function renderLTVKPIs(data, containerId) {
         </div>
     `;
 }
+

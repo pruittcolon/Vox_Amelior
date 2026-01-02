@@ -143,6 +143,39 @@ def get_service_headers(expires_in: int = 60) -> dict[str, str]:
 
 
 # ============================================================================
+# REMOTE OFFLOAD
+# ============================================================================
+
+async def _generate_remote(
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    **kwargs
+) -> dict[str, Any]:
+    """Offload generation to remote GPU worker."""
+    if not REMOTE_GPU_URL:
+        raise ValueError("REMOTE_GPU_URL not set")
+
+    logger.info(f"Offloading generation to remote GPU: {REMOTE_GPU_URL}")
+    
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{REMOTE_GPU_URL}/generate",
+                json={
+                    "prompt": prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                }
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        logger.error(f"Remote generation failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Remote GPU error: {str(e)}")
+
+
+# ============================================================================
 # MODEL MANAGEMENT
 # ============================================================================
 
@@ -216,6 +249,9 @@ def load_model_gpu():
     gemma_model = Llama(**model_kwargs)
     model_on_gpu = True
     logger.info("[GEMMA] Model loaded on GPU successfully!")
+
+    if REMOTE_GPU_URL:
+        logger.info(f"🚀 REMOTE_GPU_URL set to {REMOTE_GPU_URL}. Local model loading bypassed/shadowed.")
 
     # Log VRAM usage
     try:
@@ -1042,6 +1078,15 @@ async def run_llm_task(
 
 @app.post("/generate")
 async def generate_text(request: GenerateRequest):
+    if REMOTE_GPU_URL:
+        resp = await _generate_remote(
+            request.prompt, 
+            request.max_tokens, 
+            request.temperature
+        )
+        # Format response to match run_llm_task output style if needed
+        return resp
+
     return await run_llm_task(
         "gemma-gen",
         request.prompt,
@@ -1241,8 +1286,39 @@ async def chat(request: ChatRequest):
     Chat with conversation history
     Uses GPU coordinator for exclusive GPU access
     """
-    if gemma_model is None:
+    if gemma_model is None and not REMOTE_GPU_URL:
         raise HTTPException(status_code=503, detail="Model not loaded")
+        
+    if REMOTE_GPU_URL:
+        # Build prompt from messages
+        prompt = "You are a helpful AI assistant. Always respond in English.\n\n"
+        # Add context if provided
+        if request.context:
+            prompt += "Context from memories:\n"
+            for ctx in request.context[:3]:
+                prompt += f"- {ctx.get('content', '')[:200]}\n"
+            prompt += "\n"
+        # Add conversation history
+        for msg in request.messages:
+            role = msg.role.upper()
+            prompt += f"{role}: {msg.content}\n"
+        prompt += "ASSISTANT: "
+        
+        resp = await _generate_remote(
+            prompt, 
+            request.max_tokens, 
+            request.temperature
+        )
+        # Wrap in expected format
+        return {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": resp.get("text", "")
+                }
+            }],
+            "usage": resp.get("usage", {})
+        }
 
     task_id = f"gemma-chat-{uuid.uuid4().hex[:12]}"
 

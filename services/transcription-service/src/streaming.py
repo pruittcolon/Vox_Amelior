@@ -329,6 +329,11 @@ class StreamingSession:
     # Offset for segment timestamps
     time_offset: float = 0.0
 
+    # Source tracking for multi-source transcription
+    source_type: str = "mobile_phone"  # mobile_phone, web_browser, desktop_app, etc.
+    device_id: str | None = None  # Unique device identifier
+    device_name: str | None = None  # Human-readable device name
+
     def __post_init__(self):
         """Initialize stateful ASR after dataclass init."""
         if self.asr_state is None:
@@ -783,7 +788,17 @@ class StreamingTranscriber:
             data = json.loads(message)
             msg_type = data.get("type")
 
-            if msg_type == "force_diarize":
+            if msg_type == "session_start":
+                # Client sends source metadata at session start
+                session.source_type = data.get("source_type", "mobile_phone")
+                session.device_id = data.get("device_id")
+                session.device_name = data.get("device_name")
+                logger.info(
+                    f"[STREAMING] Session {session.session_id} source configured: "
+                    f"type={session.source_type}, device={session.device_name or session.device_id}"
+                )
+
+            elif msg_type == "force_diarize":
                 # Client requests immediate diarization
                 await self._run_diarization(session)
 

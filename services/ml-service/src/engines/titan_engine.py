@@ -124,15 +124,15 @@ TITAN_CONFIG_SCHEMA = {
     "n_bootstrap": {
         "type": "int",
         "min": 10,
-        "max": 500,
-        "default": 100,
+        "max": 100,
+        "default": 30,
         "description": "Bootstrap samples for stability selection",
     },
     "n_variants": {
         "type": "int",
         "min": 1,
-        "max": 50,
-        "default": 10,
+        "max": 10,
+        "default": 3,
         "description": "Number of analysis variants to generate",
     },
     "stability_threshold": {
@@ -170,14 +170,14 @@ def _create_model_configs(use_gpu: bool = False):
             "name": "RandomForest",
             "classifier": RandomForestClassifier,
             "regressor": RandomForestRegressor,
-            "params": {"n_estimators": 100, "max_depth": 10, "random_state": 42},
+            "params": {"n_estimators": 50, "max_depth": 8, "random_state": 42},
             "gpu": False,
         },
         {
             "name": "GradientBoosting",
             "classifier": GradientBoostingClassifier,
             "regressor": GradientBoostingRegressor,
-            "params": {"n_estimators": 100, "max_depth": 5, "random_state": 42},
+            "params": {"n_estimators": 50, "max_depth": 4, "random_state": 42},
             "gpu": False,
         },
         {
@@ -198,7 +198,7 @@ def _create_model_configs(use_gpu: bool = False):
                 "classifier": xgb.XGBClassifier,
                 "regressor": xgb.XGBRegressor,
                 "params": {
-                    "n_estimators": 100,
+                    "n_estimators": 50,
                     "max_depth": 6,
                     "tree_method": "hist",  # hist works with device='cuda'
                     "device": "cuda",  # XGBoost 2.0+ GPU parameter
@@ -216,7 +216,7 @@ def _create_model_configs(use_gpu: bool = False):
                 "classifier": xgb.XGBClassifier,
                 "regressor": xgb.XGBRegressor,
                 "params": {
-                    "n_estimators": 100,
+                    "n_estimators": 50,
                     "max_depth": 6,
                     "tree_method": "hist",  # CPU histogram method
                     "device": "cpu",
@@ -452,7 +452,7 @@ class TitanEngine:
         logger.info(f"[TITAN] Data prepared: {X.shape}, {time.time() - step_start:.2f}s")
 
         # 5a. Sample large datasets for speed (nested CV is O(n²))
-        max_samples = config.get("max_samples", 2000)
+        max_samples = config.get("max_samples", 1000)
         if len(X) > max_samples:
             logger.info(f"[TITAN] Sampling from {len(X)} to {max_samples} rows")
             sample_idx = np.random.RandomState(42).choice(len(X), max_samples, replace=False)
@@ -509,7 +509,7 @@ class TitanEngine:
         logger.info("[TITAN] Step 7: Running Stability Selection...")
         step_start = time.time()
         # Reduce bootstrap samples for speed on larger datasets
-        n_bootstrap = min(config.get("n_bootstrap", 100), 30) if len(X) > 500 else config.get("n_bootstrap", 100)
+        n_bootstrap = min(config.get("n_bootstrap", 30), 20) if len(X) > 500 else min(config.get("n_bootstrap", 30), 30)
         stable_features, feature_importance = self._stability_selection(
             X, y, feature_names, task_type, n_bootstrap=n_bootstrap, threshold=config.get("stability_threshold", 0.8)
         )

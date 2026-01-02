@@ -1201,3 +1201,170 @@
     color: var(--nexus-text-muted);
     font-size: 0.85rem;
 }
+
+/* ============================================================================
+   Engine Header Controls (Retest Button, Status)
+   ============================================================================ */
+.engine-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.engine-retest-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--nexus-border);
+    background: var(--nexus-bg-card);
+    color: var(--nexus-text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--nexus-transition);
+    opacity: 0;
+}
+
+.engine-result-card:hover .engine-retest-btn,
+.engine-result-card.expanded .engine-retest-btn {
+    opacity: 1;
+}
+
+.engine-retest-btn:hover {
+    background: var(--nexus-primary-subtle);
+    border-color: var(--nexus-primary-light);
+    color: var(--nexus-primary);
+    transform: rotate(-30deg);
+}
+
+.engine-retest-btn:active {
+    transform: rotate(-180deg);
+}
+
+.engine-retest-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Stop Button for Running Engines */
+.engine-stop-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: var(--nexus-error-bg);
+    color: #B91C1C;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--nexus-transition);
+}
+
+.engine-stop-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: var(--nexus-error);
+}
+
+.engine-stop-btn svg {
+    width: 12px;
+    height: 12px;
+    fill: currentColor;
+}
+
+/* ============================================================================
+   Analysis Control Buttons
+   ============================================================================ */
+.analysis-control-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+    border-radius: 0.5rem;
+}
+
+.analysis-control-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.analysis-control-btn svg {
+    flex-shrink: 0;
+}
+
+.analysis-control-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+#running-controls,
+#paused-controls {
+    display: none;
+}
+
+#running-controls.active,
+#paused-controls.active {
+    display: flex !important;
+}
+
+/* Animated running indicator */
+.analysis-running-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(16, 185, 129, 0.1);
+    border-radius: 20px;
+    color: #047857;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.analysis-running-indicator::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    background: #10B981;
+    border-radius: 50%;
+    animation: analysisPulse 1.5s infinite;
+}
+
+@keyframes analysisPulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+    }
+}
+
+.analysis-paused-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(245, 158, 11, 0.1);
+    border-radius: 20px;
+    color: #B45309;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.analysis-paused-indicator::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    background: #F59E0B;
+    border-radius: 50%;
+}

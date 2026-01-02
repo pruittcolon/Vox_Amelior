@@ -67,6 +67,7 @@ RAG_SERVICE_URL = os.getenv("RAG_SERVICE_URL", "http://rag-service:8004")
 NEMO_MODEL_PATH = os.getenv("NEMO_MODEL_PATH", "")  # Local .nemo file path
 NEMO_MODEL_NAME = os.getenv("NEMO_MODEL_NAME", "nvidia/parakeet-rnnt-0.6b")  # Use smaller 0.6B model (fallback)
 JWT_ONLY = os.getenv("JWT_ONLY", "false").lower() in {"1", "true", "yes"}
+REMOTE_GPU_URL = os.getenv("REMOTE_GPU_URL")  # e.g. http://100.x.x.x:8000
 
 TRANSCRIBE_USE_VAD = os.getenv("TRANSCRIBE_USE_VAD", "true").lower() == "true"
 VAD_MODEL_NAME = os.getenv("VAD_MODEL_NAME", "vad_multilingual_marblenet")
@@ -434,6 +435,55 @@ def merge_adjacent_segments(segments: list[dict[str, Any]], gap_threshold: float
     return merged
 
 
+async def _transcribe_remote(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    audio_duration: float,
+    job_id: str,
+) -> TranscriptionResponse:
+    """Offload transcription to remote GPU worker (Colab/Kaggle)."""
+    if not REMOTE_GPU_URL:
+        raise ValueError("REMOTE_GPU_URL not set")
+
+    # Encode audio to base64
+    with io.BytesIO() as bio:
+        sf.write(bio, audio_data, sample_rate, format="WAV")
+        bio.seek(0)
+        audio_b64 = base64.b64encode(bio.read()).decode("utf-8")
+
+    logger.info(f"Offloading job {job_id} to remote GPU: {REMOTE_GPU_URL}")
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{REMOTE_GPU_URL}/transcribe",
+                json={"audio_base64": audio_b64}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = data.get("text", "")
+            
+            # Create a simple fallback segment since remote only returns text
+            segments = [{
+                "text": text,
+                "speaker": "speaker_0",
+                "start_time": 0.0,
+                "end_time": audio_duration,
+                "speaker_confidence": 0.9
+            }]
+            
+            return TranscriptionResponse(
+                job_id=job_id,
+                status="complete",
+                text=text,
+                segments=segments,
+                message="Remote transcription successful"
+            )
+    except Exception as e:
+        logger.error(f"Remote transcription failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Remote GPU error: {str(e)}")
+
+
 async def _transcribe_with_parakeet(
     audio_data: np.ndarray,
     sample_rate: int,
@@ -441,9 +491,16 @@ async def _transcribe_with_parakeet(
     job_id: str,
     stream_id: str | None,
     skip_diarization: bool = False,
+    source_type: str = "mobile_phone",
+    device_id: str | None = None,
+    device_name: str | None = None,
 ) -> TranscriptionResponse:
     """Handle transcription using the Parakeet pipeline."""
     global parakeet_pipeline
+
+    # Check for remote offload first
+    if REMOTE_GPU_URL:
+        return await _transcribe_remote(audio_data, sample_rate, audio_duration, job_id)
 
     if parakeet_pipeline is None:
         raise HTTPException(status_code=503, detail="Parakeet pipeline not initialised")
@@ -498,6 +555,9 @@ async def _transcribe_with_parakeet(
             full_text=full_text,
             audio_duration=audio_duration,
             segments=enriched_segments,
+            source_type=source_type,
+            device_id=device_id,
+            device_name=device_name,
         )
     )
     asyncio.create_task(
@@ -524,6 +584,11 @@ def load_nemo_models():
     global parakeet_pipeline
 
     try:
+        if REMOTE_GPU_URL:
+            logger.info(f"🚀 REMOTE_GPU_URL set to {REMOTE_GPU_URL}. Skipping local model loading.")
+            transcription_model_loaded = True
+            return
+
         if TRANSCRIBE_STRATEGY == "parakeet":
             logger.info("Initialising Parakeet transcription strategy")
             parakeet_pipeline = ParakeetPipeline(
@@ -703,7 +768,14 @@ def _filter_segments_by_speaker(segments: list[dict[str, Any]]) -> list[dict[str
 
 
 async def index_transcript_in_rag(
-    job_id: str, session_id: str, full_text: str, audio_duration: float, segments: list[dict[str, Any]]
+    job_id: str,
+    session_id: str,
+    full_text: str,
+    audio_duration: float,
+    segments: list[dict[str, Any]],
+    source_type: str = "mobile_phone",
+    device_id: str | None = None,
+    device_name: str | None = None,
 ):
     """
     Index transcript in RAG service for semantic search.
@@ -715,18 +787,21 @@ async def index_transcript_in_rag(
         full_text: Complete transcript text
         audio_duration: Audio duration in seconds
         segments: List of enriched segments
+        source_type: Type of audio source (mobile_phone, web_browser, etc.)
+        device_id: Unique device identifier
+        device_name: Human-readable device name
     """
     # Filter segments to only include allowed speakers
     filtered_segments = _filter_segments_by_speaker(segments)
 
     if not filtered_segments:
-        logger.info(f"📋 No segments from allowed speakers (pruitt, ericah) to index for job {job_id}")
+        logger.info(f"No segments from allowed speakers (pruitt, ericah) to index for job {job_id}")
         return
 
     # Build filtered full text from allowed segments only
     filtered_full_text = " ".join([seg.get("text", "") for seg in filtered_segments])
 
-    logger.info(f"📋 Indexing {len(filtered_segments)}/{len(segments)} segments from allowed speakers")
+    logger.info(f"Indexing {len(filtered_segments)}/{len(segments)} segments from allowed speakers (source={source_type})")
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -738,12 +813,15 @@ async def index_transcript_in_rag(
                     "full_text": filtered_full_text,
                     "audio_duration": audio_duration,
                     "segments": filtered_segments,
+                    "source_type": source_type,
+                    "device_id": device_id,
+                    "device_name": device_name,
                 },
                 headers=get_service_headers(),
             )
 
             if response.status_code == 200:
-                logger.info(f"✅ Indexed transcript {job_id} in RAG service")
+                logger.info(f"Indexed transcript {job_id} in RAG service (source={source_type})")
             else:
                 logger.warning(f"RAG indexing failed with status {response.status_code}: {response.text}")
     except Exception as e:
@@ -1088,6 +1166,10 @@ async def transcribe_chunk(
     seq: int | None = Form(None),
     stream_id: str | None = Form(None),
     diarize: bool = Form(True),  # Form data, not Query - works with POST multipart
+    # Source tracking for multi-source transcription
+    source_type: str = Form("mobile_phone"),  # mobile_phone, web_browser, desktop_app, etc.
+    device_id: str | None = Form(None),  # Unique device identifier
+    device_name: str | None = Form(None),  # Human-readable device name
 ):
     """Transcribe audio chunk using NeMo ASR with VAD + optional diarization."""
     pause_manager = get_pause_manager()
@@ -1312,6 +1394,9 @@ async def transcribe_chunk(
                 full_text=full_text,
                 audio_duration=audio_duration,
                 segments=enriched_segments,
+                source_type=source_type,
+                device_id=device_id,
+                device_name=device_name,
             )
         )
 

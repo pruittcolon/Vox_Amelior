@@ -55,6 +55,54 @@
 <body class="gemma-theme">
 
   <!-- Navigation (Vox Amelior) -->
+  <style>
+    /* Mobile Menu Override */
+    @media (max-width: 768px) {
+      .vox-nav-toggle {
+        display: flex !important;
+        z-index: 99999 !important;
+      }
+
+      .vox-nav-links {
+        display: none !important;
+        position: fixed !important;
+        top: 64px !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        flex-direction: column !important;
+        background: #FFFFFF !important;
+        padding: 2rem !important;
+        z-index: 99998 !important;
+        overflow-y: auto !important;
+      }
+
+      .vox-nav-links.open {
+        display: flex !important;
+      }
+
+      .vox-nav-link {
+        font-size: 1.25rem !important;
+        padding: 0.75rem 1rem !important;
+        width: 100% !important;
+      }
+
+      .vox-nav-inner>div:last-child {
+        display: none !important;
+      }
+
+      .vox-nav-dropdown {
+        width: 100% !important;
+        position: static !important;
+      }
+
+      .vox-nav-dropdown-menu {
+        position: static !important;
+        display: none !important;
+        box-shadow: none !important;
+      }
+    }
+  </style>
   <nav class="vox-nav">
     <div class="vox-nav-inner">
       <a href="index.html" class="vox-logo">
@@ -64,21 +112,66 @@
         <span class="vox-logo-text">Vox Amelior</span>
       </a>
 
+      <button class="vox-nav-toggle" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+
       <div class="vox-nav-links">
         <a href="index.html" class="vox-nav-link">Dashboard</a>
         <a href="gemma.html" class="vox-nav-link active">AI Assistant</a>
         <a href="nexus.html" class="vox-nav-link">Analytics</a>
-        <a href="banking.html" class="vox-nav-link">Enterprise</a>
+        <!-- Enterprise Dropdown -->
+        <div class="vox-nav-dropdown">
+          <button class="vox-nav-link"
+            style="background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
+            Enterprise
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          <div class="vox-nav-dropdown-menu"
+            style="display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); min-width: 200px; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 0.75rem; box-shadow: 0 12px 40px rgba(0,0,0,0.15); padding: 0.5rem 0; z-index: 1000;">
+            <a href="enterprise/index.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem;">Overview</a>
+            <a href="enterprise/salesforce/index.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem;">Salesforce
+              CRM</a>
+            <a href="enterprise/fiserv/index.html"
+              style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #64748b; text-decoration: none; font-size: 0.875rem;">Fiserv
+              Banking</a>
+          </div>
+        </div>
         <a href="settings.html" class="vox-nav-link">Settings</a>
       </div>
 
       <div style="display: flex; gap: 0.75rem; align-items: center;">
         <span id="current-user" style="color: var(--vox-grey-500); font-size: 0.9rem;"></span>
         <div id="api-status"></div>
-        <a href="login.html" class="vox-btn vox-btn-ghost">Sign Out</a>
+        <a href="login.html" class="vox-btn vox-btn-primary">Sign Out</a>
       </div>
     </div>
   </nav>
+  <script>
+    // Mobile nav toggle
+    document.addEventListener('DOMContentLoaded', () => {
+      const toggle = document.querySelector('.vox-nav-toggle');
+      const links = document.querySelector('.vox-nav-links');
+      toggle?.addEventListener('click', () => {
+        toggle.classList.toggle('active');
+        links?.classList.toggle('open');
+        document.body.style.overflow = links?.classList.contains('open') ? 'hidden' : '';
+      });
+      // Enterprise dropdown hover
+      document.querySelectorAll('.vox-nav-dropdown').forEach(d => {
+        const m = d.querySelector('.vox-nav-dropdown-menu');
+        d.addEventListener('mouseenter', () => m.style.display = 'block');
+        d.addEventListener('mouseleave', () => m.style.display = 'none');
+      });
+    });
+  </script>
 
   <main class="container" style="padding-top: 2rem; padding-bottom: 2rem;">
     <div class="gemma-shell">

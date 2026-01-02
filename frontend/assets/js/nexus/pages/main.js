@@ -18,7 +18,7 @@ import {
     initSession,
     setAnalysisStopped
 } from '../core/state.js';
-import { uploadFile, runEngine, getGemmaSummary, checkGpuHealth, checkGpuCoordinatorStatus, askGemma } from '../core/api.js';
+import { uploadFile, runEngine, getGemmaSummary, checkGpuHealth, checkGpuCoordinatorStatus, askGemma, classifyColumns } from '../core/api.js';
 
 // Engine modules
 import { ALL_ENGINES, ENGINE_COUNT, getEngineByName } from '../engines/engine-definitions.js';
@@ -28,6 +28,7 @@ import { createEngineCard, displayEngineResults, updateEngineCardStatus, formatD
 // Component modules
 import { initLog, log, startTiming, getElapsedTime, clearLog } from '../components/log.js';
 import { initDashboard, resetDashboard, trackEnginePerformance } from '../components/dashboard.js';
+import { initColumnMapper, populateColumnMapper } from '../components/column-mapper.js';
 
 // ============================================================================
 // Performance Mode (Low GPU / Low RAM)
@@ -207,44 +208,175 @@ window.NexusUI = {
         messages.scrollTop = messages.scrollHeight;
     },
 
-    // Stop analysis
-    stopAnalysis() {
-        stopAnalysis();
-        document.getElementById('stop-btn').style.display = 'none';
-        document.getElementById('resume-btn').style.display = 'inline-block';
+    // =========================================================================
+    // Analysis Control State Management
+    // =========================================================================
+
+    // Show running state controls (Pause + Stop)
+    showRunningControls() {
+        document.getElementById('analyze-btn').style.display = 'none';
+        document.getElementById('running-controls').classList.add('active');
+        document.getElementById('paused-controls').classList.remove('active');
+        document.getElementById('analysis-status-indicator').style.display = 'block';
+        document.getElementById('running-indicator').style.display = 'inline-flex';
+        document.getElementById('paused-indicator').style.display = 'none';
+        document.getElementById('analysis-helper-text').textContent = 'Analysis in progress... You can pause or stop at any time.';
     },
 
-    // Resume analysis
+    // Show paused state controls (Resume + Cancel)
+    showPausedControls() {
+        document.getElementById('analyze-btn').style.display = 'none';
+        document.getElementById('running-controls').classList.remove('active');
+        document.getElementById('paused-controls').classList.add('active');
+        document.getElementById('analysis-status-indicator').style.display = 'block';
+        document.getElementById('running-indicator').style.display = 'none';
+        document.getElementById('paused-indicator').style.display = 'inline-flex';
+        document.getElementById('analysis-helper-text').textContent = 'Analysis paused. Resume to continue or cancel to start fresh.';
+    },
+
+    // Show idle state controls (Start button)
+    showIdleControls() {
+        const analyzeBtn = document.getElementById('analyze-btn');
+        analyzeBtn.style.display = 'inline-flex';
+        // Reset button text to default
+        analyzeBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 8px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>Start Full Analysis';
+
+        document.getElementById('running-controls').classList.remove('active');
+        document.getElementById('paused-controls').classList.remove('active');
+        document.getElementById('analysis-status-indicator').style.display = 'none';
+        document.getElementById('analysis-helper-text').textContent = 'All 22 engines will analyze your data sequentially with AI summaries';
+    },
+
+    // Pause analysis (stop but allow resume)
+    pauseAnalysis() {
+        stopAnalysis();
+        this.showPausedControls();
+        const statusEl = document.getElementById('engines-status');
+        if (statusEl) statusEl.textContent = 'Paused';
+    },
+
+    // Resume a paused analysis
     async resumeAnalysis() {
         const savedSession = loadSessionFromStorage();
         if (savedSession) {
-            document.getElementById('stop-btn').style.display = 'inline-block';
-            document.getElementById('resume-btn').style.display = 'none';
+            this.showRunningControls();
             const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
             await resumeAnalysis(savedSession, {
                 useVectorization: document.getElementById('use-vectors')?.checked,
                 skipGemma
             });
+        } else {
+            console.warn('[NexusUI] No saved session to resume');
+            this.showIdleControls();
         }
     },
 
-    // Clear/Cancel analysis
-    clearAnalysis() {
-        if (!confirm('Clear all analysis results and reset session?')) return;
+    // Stop and cancel analysis completely
+    stopAndCancelAnalysis() {
+        if (!confirm('Stop analysis and discard all progress?')) return;
         cancelAnalysis();
+        this.showIdleControls();
         ['all', 'ml', 'financial', 'advanced'].forEach(cat => {
             const container = document.getElementById(`${cat}-engines-results`);
             if (container) container.innerHTML = '';
         });
-        document.getElementById('engines-progress').textContent = '0/22';
-        document.getElementById('engines-status').textContent = 'Ready';
-        document.getElementById('engines-total-time').textContent = '0.0s';
+        const progressEl = document.getElementById('engines-progress');
+        const statusEl = document.getElementById('engines-status');
+        const timeEl = document.getElementById('engines-total-time');
+        if (progressEl) progressEl.textContent = '0/22';
+        if (statusEl) statusEl.textContent = 'Stopped';
+        if (timeEl) timeEl.textContent = '0.0s';
         document.getElementById('all-engines-section').style.display = 'none';
-        document.getElementById('stop-btn').style.display = 'none';
-        document.getElementById('resume-btn').style.display = 'none';
+        document.getElementById('progress-container').classList.remove('active');
+    },
+
+    // Clear/Cancel analysis (alias for clearAnalysis used by Cancel button)
+    clearAnalysis() {
+        if (!confirm('Clear all analysis results and reset session?')) return;
+        cancelAnalysis();
+        this.showIdleControls();
+        ['all', 'ml', 'financial', 'advanced'].forEach(cat => {
+            const container = document.getElementById(`${cat}-engines-results`);
+            if (container) container.innerHTML = '';
+        });
+        const progressEl = document.getElementById('engines-progress');
+        const statusEl = document.getElementById('engines-status');
+        const timeEl = document.getElementById('engines-total-time');
+        if (progressEl) progressEl.textContent = '0/22';
+        if (statusEl) statusEl.textContent = 'Ready';
+        if (timeEl) timeEl.textContent = '0.0s';
+        document.getElementById('all-engines-section').style.display = 'none';
+        document.getElementById('progress-container').classList.remove('active');
         document.getElementById('analyze-btn').disabled = false;
+    },
+
+    // Re-run a single engine analysis
+    async retestEngine(engineName) {
+        const session = getSession();
+        if (!session.filename) {
+            console.warn('[NexusUI] No active session, cannot retest engine');
+            return;
+        }
+
+        // Find the engine definition
+        const engine = ALL_ENGINES.find(e => e.name === engineName);
+        if (!engine) {
+            console.error(`[NexusUI] Engine not found: ${engineName}`);
+            return;
+        }
+
+        // Update card status to running
+        const cards = document.querySelectorAll(`.engine-result-card[data-engine="${engineName}"]`);
+        cards.forEach(card => {
+            const statusEl = card.querySelector('.engine-status');
+            if (statusEl) {
+                statusEl.classList.remove('success', 'error', 'pending', 'fallback');
+                statusEl.classList.add('running');
+                statusEl.textContent = 'Re-running...';
+            }
+            const bodyEl = card.querySelector('.engine-card-body');
+            if (bodyEl) {
+                bodyEl.innerHTML = '<div class="loading-spinner">Re-analyzing your data with AI engine...</div>';
+            }
+        });
+
+        try {
+            // Import and call runSingleEngine
+            const { runSingleEngine } = await import('../engines/engine-runner.js');
+            const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
+
+            await runSingleEngine(engine, session.filename, {
+                useVectorization: document.getElementById('use-vectors')?.checked,
+                skipGemma
+            });
+        } catch (err) {
+            console.error(`[NexusUI] Error retesting ${engineName}:`, err);
+            cards.forEach(card => {
+                const statusEl = card.querySelector('.engine-status');
+                if (statusEl) {
+                    statusEl.classList.remove('running');
+                    statusEl.classList.add('error');
+                    statusEl.textContent = 'Failed';
+                }
+                const bodyEl = card.querySelector('.engine-card-body');
+                if (bodyEl) {
+                    bodyEl.innerHTML = `<div class="engine-error"><span class="error-icon">X</span><span class="error-message">${err.message}</span></div>`;
+                }
+            });
+        }
+    },
+
+    // Pause the current analysis run (allows resuming later)
+    pauseAnalysis() {
+        stopAnalysis();
+        const pauseBtn = document.getElementById('pause-btn');
+        const resumeBtn = document.getElementById('resume-btn');
+        if (pauseBtn) pauseBtn.style.display = 'none';
+        if (resumeBtn) resumeBtn.style.display = 'inline-block';
+        document.getElementById('engines-status').textContent = 'Paused';
     }
 };
+
 
 // ============================================================================
 // Initialization
@@ -316,6 +448,20 @@ document.addEventListener('DOMContentLoaded', () => {
         onAllComplete: handleAllComplete,
         onLog: log
     });
+
+    // Check for resumable session on page load
+    const savedSession = loadSessionFromStorage();
+    if (savedSession && savedSession.completedEngines && savedSession.completedEngines.length > 0 &&
+        savedSession.completedEngines.length < ENGINE_COUNT) {
+        // There's a partially completed session - show paused state
+        console.log('[Nexus] Found resumable session: ' + savedSession.completedEngines.length + '/' + ENGINE_COUNT + ' engines complete');
+        window.NexusUI.showPausedControls();
+        document.getElementById('analysis-helper-text').textContent =
+            'Previous session found (' + savedSession.completedEngines.length + '/' + ENGINE_COUNT + ' engines). Resume to continue.';
+    }
+
+    // Initialize Column Mapper
+    initColumnMapper('#column-mapper-root');
 });
 
 // ============================================================================
@@ -327,7 +473,7 @@ async function handleFileUpload(file) {
     const analyzeBtn = document.getElementById('analyze-btn');
 
     uploadArea.innerHTML = `
-    <div class="upload-icon">⏳</div>
+    <div class="upload-icon">...</div>
     <div class="upload-title">Uploading ${escapeHtml(file.name)}...</div>
     <div class="upload-subtitle">Please wait</div>
   `;
@@ -339,20 +485,20 @@ async function handleFileUpload(file) {
         setUploadState(result.filename, result.columns);
 
         uploadArea.innerHTML = `
-      <div class="upload-icon">✅</div>
+      <div class="upload-icon">OK</div>
       <div class="upload-title">${escapeHtml(result.filename)}</div>
       <div class="upload-subtitle">
-        ${result.columns.length} columns • ${result.row_count.toLocaleString()} rows
+        ${result.columns.length} columns - ${result.row_count.toLocaleString()} rows
       </div>
       <div style="margin-top: 1rem;">
         <span class="vox-btn vox-btn-ghost" style="font-size: 0.85rem;" onclick="event.stopPropagation(); window.NexusUI.resetUpload()">
-          🔄 Upload Different File
+          Upload Different File
         </span>
       </div>
     `;
 
         analyzeBtn.disabled = false;
-        analyzeBtn.innerHTML = `Start Full Analysis on ${escapeHtml(result.filename)}`;
+        analyzeBtn.innerHTML = `Start Full Analysis on ${escapeHtml(result.filename)} `;
 
         // Show single engine test panel for individual testing
         if (window.showSingleEnginePanel) {
@@ -360,10 +506,30 @@ async function handleFileUpload(file) {
             window.showSingleEnginePanel(result.filename, defaultTarget);
         }
 
+        // --- NEW: Run Statistical Classifier & Populate Drag-and-Drop UI ---
+        try {
+            log('🤖 Auto-classifying columns...', 'info');
+            const classification = await classifyColumns(result.filename);
+
+            // Show the mapper container
+            const mapperRoot = document.getElementById('column-mapper-root');
+            if (mapperRoot) mapperRoot.style.display = 'block';
+
+            // Populate with data
+            populateColumnMapper(result.columns, classification);
+            log('✨ Columns auto-mapped to Target/Features', 'success');
+        } catch (classErr) {
+            console.error(classErr);
+            log(`⚠️ Column classification failed: ${classErr.message} `, 'warning');
+            // Fallback: just show all as ignored or features? 
+            // The mapper handles empty/default state gracefully usually.
+        }
+        // -------------------------------------------------------------------
+
         log(`Uploaded: ${result.filename} (${result.columns.length} cols, ${result.row_count.toLocaleString()} rows)`, 'success');
     } catch (err) {
         uploadArea.innerHTML = `
-      <div class="upload-icon">❌</div>
+    < div class="upload-icon" >❌</div >
       <div class="upload-title">Upload Failed</div>
       <div class="upload-subtitle" style="color: var(--vox-error);">${escapeHtml(err.message)}</div>
       <div style="margin-top: 1rem;">
@@ -371,8 +537,8 @@ async function handleFileUpload(file) {
           🔄 Try Again
         </span>
       </div>
-    `;
-        log(`❌ Upload failed: ${err.message}`, 'error');
+`;
+        log(`❌ Upload failed: ${err.message} `, 'error');
     }
 }
 
@@ -380,9 +546,39 @@ async function handleFileUpload(file) {
 // Analysis Execution
 // ============================================================================
 
+// Track if we've shown the mapper for this session
+let mapperConfirmed = false;
+
 async function runFullAnalysis() {
     const uploadState = getUploadState();
     if (!uploadState.filename) return;
+
+    // Check if this is a re-run (session exists with completed engines)
+    const existingSession = getSession();
+    const isRerun = existingSession && existingSession.completedEngines &&
+        existingSession.completedEngines.length > 0;
+
+    // Show column mapper on re-run if not already confirmed
+    const mapperContainer = document.getElementById('column-mapper-root');
+    if (isRerun && mapperContainer && !mapperConfirmed) {
+        // Show the mapper for reconfiguration
+        mapperContainer.style.display = 'block';
+
+        // Change button text to indicate confirmation needed
+        const analyzeBtn = document.getElementById('analyze-btn');
+        analyzeBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 8px;"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></svg>Confirm & Start Analysis';
+
+        // Mark that user needs to confirm
+        mapperConfirmed = true;
+
+        // Scroll to mapper
+        mapperContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        return; // Wait for user to click again to confirm
+    }
+
+    // Reset for next re-run
+    mapperConfirmed = false;
 
     const useVectorization = document.getElementById('use-vectors')?.checked || false;
 
@@ -395,9 +591,9 @@ async function runFullAnalysis() {
 
         // Log GPU status (informational only)
         if (gpuHealth.available) {
-            log(`GPU available (${gpuHealth.vramFreeGb.toFixed(1)}GB estimated free)`, 'info');
+            log(`GPU available(${gpuHealth.vramFreeGb.toFixed(1)}GB estimated free)`, 'info');
         } else if (gpuHealth.warning) {
-            log(`GPU info: ${gpuHealth.warning}`, 'info');
+            log(`GPU info: ${gpuHealth.warning} `, 'info');
         }
 
         if (!gpuHealth.available || gpuHealth.vramFreeGb < 4 || gpuHealth.warning) {
@@ -410,7 +606,7 @@ async function runFullAnalysis() {
         }
 
         if (performanceState.lowPower) {
-            log(`Low graphics mode enabled (${performanceState.reason || 'resource constraints'})`, 'info');
+            log(`Low graphics mode enabled(${performanceState.reason || 'resource constraints'})`, 'info');
         }
     } catch (err) {
         // GPU check failures are non-blocking - just log and continue
@@ -423,7 +619,7 @@ async function runFullAnalysis() {
 
     // Clear previous results
     ['all', 'ml', 'financial', 'advanced'].forEach(cat => {
-        const container = document.getElementById(`${cat}-engines-results`);
+        const container = document.getElementById(`${cat} -engines - results`);
         if (container) container.innerHTML = '';
     });
 
@@ -431,8 +627,9 @@ async function runFullAnalysis() {
     resetDashboard();
     initDashboard();
 
-    // Disable analyze button
+    // Disable analyze button and show running controls
     document.getElementById('analyze-btn').disabled = true;
+    window.NexusUI.showRunningControls();
 
     // Show and reset progress bar
     const progressContainer = document.getElementById('progress-container');
@@ -452,7 +649,7 @@ async function runFullAnalysis() {
     startTiming();
 
     log(`Starting comprehensive analysis with all ${ENGINE_COUNT} engines...`, 'info');
-    log(`Database: ${uploadState.filename}`, 'info');
+    log(`Database: ${uploadState.filename} `, 'info');
 
     // Read Skip Gemma toggle
     const skipGemma = document.getElementById('skip-gemma-toggle')?.checked || false;
@@ -541,6 +738,9 @@ function handleAllComplete(stats) {
     document.getElementById('engines-total-time').textContent = elapsed;
     document.getElementById('analyze-btn').disabled = false;
 
+    // Reset to idle controls (show Start button again)
+    window.NexusUI.showIdleControls();
+
     // Update progress bar to complete
     const progressBar = document.getElementById('progress-bar');
     const progressStats = document.getElementById('progress-stats');
@@ -551,10 +751,10 @@ function handleAllComplete(stats) {
         progressBar.classList.remove('animated');
     }
     if (progressStats) progressStats.textContent = `${ENGINE_COUNT}/${ENGINE_COUNT} engines complete`;
-    if (progressEngine) progressEngine.textContent = '✅ Analysis Complete!';
+    if (progressEngine) progressEngine.textContent = 'Analysis Complete!';
 
-    log(`🎉 All ${ENGINE_COUNT} engines complete!`, 'success', stats.totalTime);
-    log(`📊 Results: ${stats.success} succeeded, ${stats.error} failed`, 'info');
+    log(`All ${ENGINE_COUNT} engines complete!`, 'success', stats.totalTime);
+    log(`Results: ${stats.success} succeeded, ${stats.error} failed`, 'info');
 }
 
 function updateCategoryStats() {

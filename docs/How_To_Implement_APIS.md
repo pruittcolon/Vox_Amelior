@@ -64,10 +64,6 @@ const response = await fetchWithTimeout(`${API_BASE}${endpoint}`, {
 });
 ```
 
-## Legacy Code Warning
-- **Do NOT** import engine classes directly into the API Gateway.
-- **Do NOT** use `run_standard_engine` in the Gateway.
-- Always implement logic in the Microservice (ML Service).
 
 ## GPU Access
 For services requiring GPU (Gemma, Transcription):

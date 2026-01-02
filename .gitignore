@@ -286,5 +286,10 @@ mobile-app/Job_Description.txt
 mobile-app/.env
 
 # Resume/Personal files at root
-Pruitt_Colon_Resume.html
-Pruitt_Colon_Resume.pdf
+Pruitt_Colon_*
+profile.jpg
+resume.html
+gcp_integration_plan.md
+
+# Temporary/Test Directories
+test_gemma/

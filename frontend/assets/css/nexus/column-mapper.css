@@ -1,0 +1,256 @@
+/* High-Tech Drag & Drop Column Mapper */
+
+:root {
+    --mapper-target-color: #10b981;
+    /* Green */
+    --mapper-feature-color: #3b82f6;
+    /* Blue */
+    --mapper-ignore-color: #64748b;
+    /* Grey */
+    --mapper-glass-bg: rgba(255, 255, 255, 0.7);
+    --mapper-glass-border: 1px solid rgba(255, 255, 255, 0.5);
+    --mapper-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.column-mapper-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.1) 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 1rem;
+    border: var(--mapper-glass-border);
+    box-shadow: var(--mapper-shadow);
+    margin-top: 2rem;
+    transition: all 0.3s ease;
+}
+
+/* Zones */
+.mapper-zone {
+    min-height: 300px;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 2px dashed rgba(0, 0, 0, 0.1);
+    position: relative;
+}
+
+.mapper-zone-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+    /* Let clicks pass through header */
+}
+
+.zone-count {
+    background: rgba(0, 0, 0, 0.1);
+    padding: 0.1rem 0.4rem;
+    border-radius: 99px;
+    font-size: 0.75rem;
+}
+
+/* Zone Specifics */
+.mapper-zone.zone-target {
+    border-color: rgba(16, 185, 129, 0.2);
+}
+
+.mapper-zone.zone-target .mapper-zone-header {
+    color: var(--mapper-target-color);
+}
+
+.mapper-zone.zone-target.drag-over {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: var(--mapper-target-color);
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+    transform: scale(1.02);
+}
+
+.mapper-zone.zone-features {
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.mapper-zone.zone-features .mapper-zone-header {
+    color: var(--mapper-feature-color);
+}
+
+.mapper-zone.zone-features.drag-over {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: var(--mapper-feature-color);
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+    transform: scale(1.02);
+}
+
+.mapper-zone.zone-ignore {
+    border-color: rgba(100, 116, 139, 0.2);
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.mapper-zone.zone-ignore .mapper-zone-header {
+    color: var(--mapper-ignore-color);
+}
+
+.mapper-zone.zone-ignore.drag-over {
+    background: rgba(100, 116, 139, 0.1);
+    border-color: var(--mapper-ignore-color);
+    transform: scale(1.02);
+}
+
+/* Draggable Items (Chips) */
+.mapper-item {
+    padding: 0.6rem 0.8rem;
+    background: #FFFFFF;
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    cursor: grab;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vox-grey-800);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid transparent;
+    user-select: none;
+}
+
+.mapper-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.mapper-item:active {
+    cursor: grabbing;
+    transform: scale(0.98);
+}
+
+.mapper-item.is-dragging {
+    opacity: 0.5;
+    background: #f1f5f9;
+}
+
+/* Item styling based on parent zone (applied dynamically or via css :has if supported, using class for safety) */
+.zone-target .mapper-item {
+    border-left: 3px solid var(--mapper-target-color);
+}
+
+.zone-features .mapper-item {
+    border-left: 3px solid var(--mapper-feature-color);
+}
+
+.zone-ignore .mapper-item {
+    border-left: 3px solid var(--mapper-ignore-color);
+    color: var(--mapper-ignore-color);
+    opacity: 0.8;
+}
+
+/* Type Badge */
+.item-type {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.3rem;
+    background: #f3f4f6;
+    border-radius: 4px;
+    color: #6b7280;
+    margin-left: 0.5rem;
+}
+
+/* Empty State Message */
+.zone-empty-msg {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    margin-top: 2rem;
+    font-style: italic;
+    pointer-events: none;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .column-mapper-container {
+        grid-template-columns: 1fr;
+    }
+
+    .mapper-zone {
+        min-height: 150px;
+    }
+}
+
+/* ============================================================================
+   Multi-Select Styles
+   ============================================================================ */
+
+/* Selection hint banner */
+.mapper-selection-hint {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    color: var(--vox-grey-500, #64748b);
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 0.5rem;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.mapper-selection-hint.active {
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--mapper-feature-color);
+    font-weight: 600;
+}
+
+/* Selected item state */
+.mapper-item.selected {
+    background: rgba(59, 130, 246, 0.12);
+    border: 2px solid var(--mapper-feature-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    position: relative;
+}
+
+.mapper-item.selected::after {
+    content: '';
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    background: var(--mapper-feature-color);
+    border-radius: 50%;
+}
+
+/* Multiple items dragging */
+.mapper-item.is-dragging {
+    opacity: 0.4;
+    background: #e2e8f0;
+    border-style: dashed;
+}
+
+/* Hover state when items are selected */
+.mapper-zone:hover .mapper-item.selected {
+    transform: translateY(-1px);
+}
+
+/* Zone highlight when multi-dragging */
+.mapper-zone.drag-over {
+    transform: scale(1.01);
+}
+
+/* Selection cursor */
+.mapper-item {
+    cursor: pointer;
+}
+
+.mapper-item:active {
+    cursor: grabbing;
+}

@@ -27,6 +27,7 @@ try:
     from ..schemas.analytics_models import (
         AnomalyRequest,
         ClusterRequest,
+        ColumnClassificationRequest,
         PredictRequest,
         RAGEvaluationRequest,
         StandardEngineRequest,
@@ -62,6 +63,7 @@ except ImportError:
     from schemas.analytics_models import (
         AnomalyRequest,
         ClusterRequest,
+        ColumnClassificationRequest,
         PredictRequest,
         RAGEvaluationRequest,
         StandardEngineRequest,
@@ -600,3 +602,73 @@ async def analytics_signals(
         })
         
     return response
+
+
+@router.post("/classify-columns")
+async def classify_columns(request: ColumnClassificationRequest):
+    """
+    Classify columns using the statistical classifier.
+    Returns suggested Target vs Feature columns.
+    """
+    try:
+        file_path = secure_file_path(request.filename)
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        df = load_dataset(file_path)
+
+        # Import locally to avoid circular dependencies if any
+        try:
+            from ..utils.column_classifier import classify_dataset, ColumnRole
+        except ImportError:
+            from utils.column_classifier import classify_dataset, ColumnRole
+
+        profiles, summary = classify_dataset(df)
+
+        # Transform to frontend-compatible format
+        # Frontend expects: {target: string|null, features: string[]}
+        target_column = None
+        feature_columns = []
+
+        for col_name, profile in profiles.items():
+            if profile.role == ColumnRole.TARGET:
+                target_column = col_name
+            elif profile.role == ColumnRole.FEATURE and profile.is_usable:
+                feature_columns.append(col_name)
+
+        # If no target found, use the summary's suggestion or pick highest target_score
+        if target_column is None and summary.get("target_column"):
+            target_column = summary["target_column"]
+
+        # If still no target, find column with highest target_score
+        if target_column is None:
+            best_score = 0
+            for col_name, profile in profiles.items():
+                if profile.target_score > best_score and profile.is_usable:
+                    best_score = profile.target_score
+                    target_column = col_name
+
+        # Remove target from features if it ended up there
+        if target_column and target_column in feature_columns:
+            feature_columns.remove(target_column)
+
+        classification = {
+            "target": target_column,
+            "features": feature_columns,
+        }
+
+        logger.info(f"Column classification: target={target_column}, features={len(feature_columns)}")
+
+        return convert_to_native({
+            "status": "success",
+            "filename": request.filename,
+            "classification": classification,
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Column classification failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+

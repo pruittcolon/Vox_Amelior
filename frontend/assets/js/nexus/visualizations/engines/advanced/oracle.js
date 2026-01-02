@@ -26,7 +26,22 @@ function renderOracleChart(data, containerId) {
     const container = document.getElementById(containerId);
     if (!container || !ensurePlotly(container, 'Plotly not loaded')) return;
 
-    const causes = data?.causal_factors || data?.causes || data?.drivers || [];
+    // Support multiple backend formats:
+    // 1. data.causal_factors / data.causes / data.drivers (old format)
+    // 2. data.causal_relationships (Oracle engine format: [{cause, effect, p_value, f_statistic, strength}])
+    let causes = data?.causal_factors || data?.causes || data?.drivers || [];
+
+    // Transform causal_relationships to compatible format
+    if (!causes.length && data?.causal_relationships?.length) {
+        causes = data.causal_relationships.map(rel => ({
+            name: `${rel.cause} -> ${rel.effect}`,
+            variable: rel.cause,
+            effect: rel.effect,
+            impact: rel.f_statistic || 0,
+            coefficient: 1 - (rel.p_value || 0), // Higher is better (lower p-value)
+            strength: rel.strength || 'Unknown'
+        }));
+    }
 
     if (!causes.length) {
         container.innerHTML = '<p style="color: #64748b; text-align: center; padding: 2rem;">No causal factors identified</p>';
@@ -35,7 +50,7 @@ function renderOracleChart(data, containerId) {
 
     const sorted = [...causes].sort((a, b) => Math.abs(b.effect || b.impact || 0) - Math.abs(a.effect || a.impact || 0));
     const labels = sorted.map(c => c.name || c.variable || c.cause);
-    const effects = sorted.map(c => c.effect || c.impact || c.coefficient || 0);
+    const effects = sorted.map(c => c.effect_value || c.impact || c.coefficient || 0);
     const colors = effects.map(e => e >= 0 ? VIZ_COLORS.success : VIZ_COLORS.error);
 
     Plotly.newPlot(container, [{
@@ -60,3 +75,4 @@ function renderOracleChart(data, containerId) {
         yaxis: { gridcolor: VIZ_COLORS.border }
     }, { responsive: true, displayModeBar: false });
 }
+
