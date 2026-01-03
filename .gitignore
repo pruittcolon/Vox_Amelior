@@ -12,6 +12,13 @@ nemo
 .pre-commit-config.yaml
 Makefile
 
+# Node modules - NEVER commit
+node_modules/
+
+# Temp/build artifacts
+docker/.shared_hash
+k8s/overlays/install_tmp/
+
 # Environment & Secrets (CRITICAL - DO NOT COMMIT)
 # ============================================================================
 docker/.env
@@ -42,6 +49,12 @@ archive/
 jwt_secret
 session_key
 huggingface_token
+
+# Gmail OAuth credentials - TRIPLE PROTECTED (also covered by docker/secrets/*)
+gmail_client_id
+gmail_client_secret
+docker/secrets/gmail_client_id
+docker/secrets/gmail_client_secret
 
 # Python
 # ============================================================================
@@ -82,6 +95,10 @@ ENV/
 env/
 virtualenv/
 vllm_test_env/
+**/test_venv/
+
+# Generated test reports
+scripts/browser_test_report.json
 
 # Docker
 # ============================================================================
@@ -285,6 +302,14 @@ mobile-app/Job_Description.txt
 # Mobile app secrets - CRITICAL
 mobile-app/.env
 
-# Resume/Personal files at root
+# Resume/Personal files at root (PII - DO NOT COMMIT)
 Pruitt_Colon_Resume.html
 Pruitt_Colon_Resume.pdf
+Pruitt_Colon_*.html
+Pruitt_Colon_*.pdf
+profile.jpg
+resume.html
+
+# Planning/temp docs (not part of codebase)
+gcp_integration_plan.md
+test_gemma/gemma3_benchmark_results.md

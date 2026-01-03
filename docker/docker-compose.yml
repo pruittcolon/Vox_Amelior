@@ -613,6 +613,48 @@ services:
     networks:
       - nemo_network
 
+  # ============================================================================
+  # Gmail Automation Service (Google API Integration)
+  # ============================================================================
+
+  gmail-service:
+    build:
+      context: ..
+      dockerfile: docker/gmail_instance/Dockerfile
+    container_name: refactored_gmail
+    restart: unless-stopped
+    environment:
+      GEMMA_SERVICE_URL: http://gemma-service:8001
+      RAG_SERVICE_URL: http://rag-service:8004
+      GPU_COORDINATOR_URL: http://gpu-coordinator:8002
+      GMAIL_SERVICE_ENABLED: "true"
+      # OAuth credentials loaded from secrets
+      JWT_ONLY: "true"
+    volumes:
+      - ../services/gmail-service/src:/app/gmail-service/src:ro
+      - ../shared:/app/shared:ro
+      - gmail_tokens:/app/tokens
+    secrets:
+      - jwt_secret_primary
+      - jwt_secret_previous
+      - jwt_secret
+      - gmail_client_id
+      - gmail_client_secret
+    # Internal only - accessed via Gateway proxy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8016/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      gemma-service:
+        condition: service_healthy
+      rag-service:
+        condition: service_healthy
+    networks:
+      - nemo_network
+
 # Phase 5: Define Docker secrets (read from files in docker/secrets/)
 secrets:
   jwt_secret_primary:
@@ -645,6 +687,10 @@ secrets:
     file: ./secrets/fiserv_api_key
   fiserv_api_secret:
     file: ./secrets/fiserv_api_secret
+  gmail_client_id:
+    file: ./secrets/gmail_client_id
+  gmail_client_secret:
+    file: ./secrets/gmail_client_secret
 
 networks:
   nemo_network:
@@ -655,3 +701,4 @@ volumes:
   postgres_data:
   postgres_data_debian: # New volume for Debian-based Postgres
   ml_uploads:
+  gmail_tokens: # Encrypted OAuth tokens for Gmail

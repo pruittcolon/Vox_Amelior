@@ -322,21 +322,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "max-age=31536000; includeSubDomains; preload"
             )
         
-        # Content Security Policy - strict with frame-ancestors
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' "
-            "https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly https://cdnjs.cloudflare.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
-            "font-src 'self' https://fonts.gstatic.com data:; "
-            "img-src 'self' data: blob: https:; "
-            "connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:* https://unpkg.com https://cdn.jsdelivr.net; "
-            "frame-ancestors 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'; "
-            "object-src 'none'; "
-            "upgrade-insecure-requests"
-        )
+        # Content Security Policy - HANDLED BY NGINX (removed to avoid duplicate headers)
+        # If running gateway without nginx, uncomment:
+        # response.headers["Content-Security-Policy"] = (
+        #     "default-src 'self'; "
+        #     "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' "
+        #     "https://unpkg.com https://cdn.jsdelivr.net https://cdn.plot.ly https://cdnjs.cloudflare.com; "
+        #     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+        #     "font-src 'self' https://fonts.gstatic.com data:; "
+        #     "img-src 'self' data: blob: https:; "
+        #     "connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:* "
+        #     "https://unpkg.com https://*.unpkg.com https://cdn.jsdelivr.net https://*.jsdelivr.net; "
+        #     "frame-ancestors 'none'; "
+        #     "base-uri 'self'; "
+        #     "form-action 'self'; "
+        #     "object-src 'none'; "
+        #     "upgrade-insecure-requests"
+        # )
         
         # Cache-Control: no-store for API responses (not static assets)
         if not any(path.startswith(exempt) for exempt in self.cache_exempt_paths):
@@ -397,12 +399,16 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             "/ask",
             "/databases",
             "/api/databases",
-            # SCIM endpoints - IdP provisioning
             "/scim/Users",
             "/scim/Groups",
             "/scim/ServiceProviderConfig",
             "/scim/Schemas",
             "/scim/ResourceTypes",
+            # Gmail OAuth endpoints - require session but exempt from CSRF
+            "/api/gmail/oauth/url",
+            "/api/gmail/oauth/callback",
+            "/api/gmail/oauth/status",
+            "/api/gmail/oauth/disconnect",
         ]
         self.exempt_prefixes = [
             "/analytics/",           # ML analytics endpoints
@@ -410,6 +416,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             "/vectorize/",           # Vectorization endpoints
             "/database-scoring/",    # Database quality scoring
             "/quality-insights/",    # Quality Intelligence 3D Dashboard
+            "/api/gmail/",           # Gmail automation endpoints
         ]
         self.bearer_auth_paths = [
             "/api/mobile/",
@@ -686,6 +693,15 @@ except ImportError:
     analytics_router = None
     _phase5_available = False
 
+# Gmail Automation router
+try:
+    from src.routers.gmail import router as gmail_router
+
+    _gmail_available = True
+except ImportError:
+    gmail_router = None
+    _gmail_available = False
+
 # =============================================================================
 # Register All Routers
 # =============================================================================
@@ -755,10 +771,14 @@ if _phase4_available:
     app.include_router(prompts_router)
     logger.info("✅ Phase 4 Routers (automation, models, prompts) mounted")
 
-# Phase 5 - Reliability and FinOps
 if _phase5_available:
     app.include_router(analytics_router)
-    logger.info("✅ Phase 5 Analytics Router mounted")
+    logger.info("Phase 5 Analytics Router mounted")
+
+# Gmail Automation
+if _gmail_available:
+    app.include_router(gmail_router)
+    logger.info("Gmail Automation Router mounted")
 
 # =============================================================================
 # API Versioning
