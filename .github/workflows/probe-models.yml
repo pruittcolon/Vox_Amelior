@@ -23,7 +23,12 @@ jobs:
               info = get(f'https://huggingface.co/api/models/{repo}')
               print(f'--- {repo} gated={info.get("gated") if isinstance(info, dict) else "?"}')
               if isinstance(t, list):
+                  ext = [f for f in t if str(f.get('path','')).startswith('onnx__') or '.weight' in str(f.get('path','')) and not str(f.get('path','')).endswith('.weights')]
+                  if ext:
+                      print('    (%d external tensor files, %d bytes)' % (len(ext), sum(f.get('size') or 0 for f in ext)))
                   for f in t:
+                      if f in ext:
+                          continue
                       oid = (f.get('lfs') or {}).get('oid') or ''
                       print('   ', f.get('path'), f.get('size'), ' '.join(oid[i:i+16] for i in range(0, len(oid), 16)))
               else:
@@ -41,6 +46,4 @@ jobs:
               low = s.lower()
               if 'onnx' in low or 'sherpa' in low or 'csukuangfj' in low or 'k2-fsa' in low:
                   tree(s)
-          for repo in ['litert-community/gemma-4-E4B-it-litert-lm', 'google/gemma-4-E4B-it-litert-lm', 'litert-community/gemma-4-E2B-it-litert-lm', 'google/gemma-4-E4B-it']:
-              tree(repo)
           PY
