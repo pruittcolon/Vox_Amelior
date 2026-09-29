@@ -20,11 +20,10 @@ class MicrophonePcmSource implements PcmSource {
 
   final AudioRecorder _recorder;
 
+  // No hasPermission() here: in the background service there is no Activity,
+  // so it reports false even when granted. The UI checks before starting.
   @override
   Future<Stream<Uint8List>> start() async {
-    if (!await _recorder.hasPermission(request: false)) {
-      throw StateError('Microphone permission is not granted');
-    }
     return _recorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
