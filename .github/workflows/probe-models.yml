@@ -8,37 +8,15 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Find Parakeet RNNT 1.1B exports
+      - name: sherpa-onnx NeMo export scripts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "== sherpa-onnx release assets matching 1.1b / rnnt"
-          for tag in asr-models speaker-recongition-models; do
-            gh api --paginate "repos/k2-fsa/sherpa-onnx/releases/tags/$tag" --jq '.assets[] | "\(.name) \(.size)"' 2>/dev/null | grep -iE "1\.1b|1_1b|1-1b|rnnt" || true
+          gh api repos/k2-fsa/sherpa-onnx/contents/scripts/nemo --jq '.[].name'
+          for d in parakeet-tdt-0.6b-v2 parakeet-tdt-0.6b-v3; do
+            echo "== $d"; gh api "repos/k2-fsa/sherpa-onnx/contents/scripts/nemo/$d" --jq '.[].name' || true
           done
-          echo "== sherpa docs mentions"
-          for u in offline-transducer/nemo-transducer-models.html offline-ctc/nemo/english.html offline-transducer/index.html; do
-            curl -sS "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/$u" | grep -oiE "[a-z0-9_.-]*(1\.1b|1_1b)[a-z0-9_.-]*" | sort -u || true
-          done
-          echo "== Hugging Face repos"
-          python3 - <<'PY'
-          import json, urllib.request
-          def get(url):
-              try:
-                  with urllib.request.urlopen(url, timeout=30) as r:
-                      return json.load(r)
-              except Exception as e:
-                  return []
-          ids = set()
-          for q in ['rnnt-1.1b', 'rnnt_1.1b', 'parakeet-rnnt', 'parakeet_rnnt', 'rnnt-1.1b-onnx', 'parakeet-1.1b', 'parakeet 1.1b']:
-              for m in get(f'https://huggingface.co/api/models?search={q.replace(" ", "%20")}&limit=200'):
-                  ids.add(m['id'])
-          for s in sorted(ids):
-              print(' ', s)
-          for s in sorted(ids):
-              if '1.1b' not in s.lower() and '1_1b' not in s.lower():
-                  continue
-              t = get(f'https://huggingface.co/api/models/{s}/tree/main')
-              names = [f"{f.get('path')} {f.get('size')}" for f in t if not str(f.get('path','')).startswith(('onnx__', 'layers.', 'pre_encode'))]
-              print('---', s, '|', '; '.join(names)[:600])
-          PY
+          echo "===== export script"
+          curl -sSL https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/scripts/nemo/parakeet-tdt-0.6b-v2/export_onnx.py || true
+          echo "===== run script"
+          curl -sSL https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/scripts/nemo/parakeet-tdt-0.6b-v2/run.sh || true
