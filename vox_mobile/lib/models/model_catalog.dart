@@ -140,7 +140,7 @@ class ModelCatalog {
     kind: ModelKind.languageModel,
     title: 'Gemma 3n E4B (assistant)',
     description: 'Google Gemma 3n, 4-bit. Answers questions about your conversations. Needs about 6 GB of free RAM.',
-    approxDownloadBytes: 4405000000,
+    approxDownloadBytes: 4919541760,
     requiresToken: true,
     licenseUrl: '$_hf/gemma-3n-E4B-it-litert-lm',
     essential: false,
@@ -148,6 +148,8 @@ class ModelCatalog {
       RemoteFile(
         url: '$_hf/gemma-3n-E4B-it-litert-lm/resolve/main/gemma-3n-E4B-it-int4.litertlm',
         fileName: 'gemma-3n-E4B-it-int4.litertlm',
+        // Integrity is also checked against Hugging Face's x-linked-etag (SHA-256).
+        sizeBytes: 4919541760,
       ),
     ],
   );
@@ -157,7 +159,7 @@ class ModelCatalog {
     kind: ModelKind.languageModel,
     title: 'Gemma 3n E2B (lighter assistant)',
     description: 'Smaller and faster Gemma 3n for phones with less memory.',
-    approxDownloadBytes: 3390000000,
+    approxDownloadBytes: 3655827456,
     requiresToken: true,
     licenseUrl: '$_hf/gemma-3n-E2B-it-litert-lm',
     essential: false,
@@ -165,6 +167,7 @@ class ModelCatalog {
       RemoteFile(
         url: '$_hf/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4.litertlm',
         fileName: 'gemma-3n-E2B-it-int4.litertlm',
+        sizeBytes: 3655827456,
       ),
     ],
   );
