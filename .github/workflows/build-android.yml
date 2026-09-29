@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - uses: subosito/flutter-action@v2
-        with: { channel: stable, cache: true }
+        with: { flutter-version: "3.24.5", channel: stable, cache: true }
       - run: cp .env.example .env
       - run: sed -i "/org.gradle.java.home/d" android/gradle.properties
       - run: flutter pub get
