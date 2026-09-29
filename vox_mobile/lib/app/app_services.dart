@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:vox_amelior_mobile/app/assistant_client.dart';
 import 'package:vox_amelior_mobile/app/model_downloads.dart';
 import 'package:vox_amelior_mobile/app/token_store.dart';
+import 'package:vox_amelior_mobile/assistant/agent_tools.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_service.dart';
 import 'package:vox_amelior_mobile/automation/action_executor.dart';
@@ -14,7 +15,6 @@ import 'package:vox_amelior_mobile/automation/automation_repositories.dart';
 import 'package:vox_amelior_mobile/automation/http_sender.dart';
 import 'package:vox_amelior_mobile/automation/webhook_dispatcher.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
-import 'package:vox_amelior_mobile/core/log.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
@@ -42,6 +42,7 @@ class AppServices {
         outbox = OutboxRepository(db),
         notes = NoteRepository(db),
         requests = AssistantRequestRepository(db),
+        reminders = ReminderRepository(db),
         listening = ServiceController();
 
   final Directory supportDir;
@@ -56,20 +57,47 @@ class AppServices {
   final OutboxRepository outbox;
   final NoteRepository notes;
   final AssistantRequestRepository requests;
+  final ReminderRepository reminders;
   final ServiceController listening;
-  final GemmaLlmEngine llm = GemmaLlmEngine();
-  late final AssistantService assistant = AssistantService(llm: llm, transcripts: transcripts, speakers: speakers);
+
   late final ActionExecutor executor = ActionExecutor(
     outbox: outbox,
     dispatcher: WebhookDispatcher(outbox, DioHttpSender()),
     notes: notes,
     notifier: LocalNotifier.instance,
   );
+
+  /// Used only while the always-on service is off.
+  late final GemmaLlmEngine localLlm = GemmaLlmEngine(spec: () {
+    final c = LlmConfig.fromStore(models, settings.value.llmAsset);
+    return c == null ? null : LlmModelSpec(path: c.path, modelType: c.modelType, supportsTools: c.supportsTools);
+  });
+
+  late final AssistantClient assistant = AssistantClient(
+    service: listening,
+    requests: requests,
+    transcripts: transcripts,
+    local: AssistantService(
+      llm: localLlm,
+      transcripts: transcripts,
+      speakers: speakers,
+      instructions: () => settings.value.instructions,
+      agentEnabled: () => settings.value.agentMode,
+      toolbox: AgentToolbox(transcripts: transcripts, speakers: speakers, notes: notes, reminders: reminders, rules: rules),
+    ),
+  );
+
   late final ModelDownloads downloads = ModelDownloads(
     store: models,
     installer: ModelInstaller(store: models),
     tokenProvider: tokens.huggingFace,
-    onInstalled: _onModelInstalled,
+    resolve: _assetById,
+    onInstalled: (_) async {
+      writeServiceConfig();
+      listening.reload();
+    },
+    onBusyChanged: listening.keepAliveForDownloads,
+    onProgressText: (t) => unawaited(listening.updateDownloadNotification(t)),
   );
 
   /// Bumped whenever people, transcripts or rules change, so screens refresh.
@@ -86,68 +114,69 @@ class AppServices {
       tokens: TokenStore(),
       models: ModelStore(Directory(p.join(support.path, 'models'))),
     );
-    services.listening.initialize();
-    services.writeServiceConfig();
-    unawaited(services.activateGemma());
-    unawaited(LocalNotifier.instance.initialize());
+    services._init();
     return services;
+  }
+
+  void _init() {
+    // Free space used by models from older versions of the app.
+    models.removeExcept({for (final m in ModelCatalog.all) m.id, ModelCatalog.customLlmId});
+    listening.initialize();
+    writeServiceConfig();
+    unawaited(LocalNotifier.instance.initialize());
+    unawaited(downloads.resumeInterrupted());
+    // The service loads its own copy of the model; don't hold two.
+    listening.addListener(() {
+      if (listening.isListening) unawaited(localLlm.unload());
+    });
   }
 
   File get serviceConfigFile => File(p.join(supportDir.path, 'service_config.json'));
 
   bool get speechReady => SpeechModelPaths.fromStore(models) != null;
 
-  bool get gemmaReady => models.isInstalled(settings.value.gemmaAsset);
+  bool get assistantReady => models.isInstalled(settings.value.llmAsset);
 
   VoiceprintWorker? get voiceprints {
     final paths = SpeechModelPaths.fromStore(models);
     return paths == null ? null : VoiceprintWorker(paths.speaker);
   }
 
+  ModelAsset? _assetById(String id) {
+    if (id == ModelCatalog.customLlmId) {
+      final a = settings.value.llmAsset;
+      return a.id == id ? a : null;
+    }
+    return ModelCatalog.all.where((m) => m.id == id).firstOrNull;
+  }
+
   /// Hands the current settings and model paths to the listening service.
   bool writeServiceConfig() {
     final paths = SpeechModelPaths.fromStore(models);
     if (paths == null) return false;
-    ServiceConfig(dbPath: db.path, paths: paths, settings: settings.value).writeTo(serviceConfigFile);
+    ServiceConfig(
+      dbPath: db.path,
+      paths: paths,
+      settings: settings.value,
+      queueDir: p.join(supportDir.path, 'speech_queue'),
+      llm: LlmConfig.fromStore(models, settings.value.llmAsset),
+    ).writeTo(serviceConfigFile);
     return true;
   }
 
   Future<void> updateSettings(AppSettings next) async {
-    final modelChanged = next.gemmaAsset.id != settings.value.gemmaAsset.id;
+    final modelChanged = next.llmAsset.id != settings.value.llmAsset.id ||
+        next.llmAsset.files.first.url != settings.value.llmAsset.files.first.url;
     settings.value = next;
     await settingsRepo.save(next);
     writeServiceConfig();
     listening.reload();
-    if (modelChanged) {
-      await llm.unload();
-      await activateGemma();
-    }
+    if (modelChanged) await localLlm.unload();
   }
 
   /// Call after people, rules or transcripts change.
   void dataChanged() {
     dataVersion.value++;
     listening.reload();
-  }
-
-  /// Registers the downloaded Gemma file with the inference plugin.
-  Future<void> activateGemma() async {
-    final asset = settings.value.gemmaAsset;
-    if (!models.isInstalled(asset)) return;
-    try {
-      await FlutterGemma.installModel(modelType: ModelType.gemmaIt, fileType: ModelFileType.litertlm)
-          .fromFile(models.file(asset, asset.files.first.fileName).path)
-          .install();
-    } on Object catch (e, st) {
-      Log.e('gemma', 'could not register model', e, st);
-    }
-  }
-
-  Future<void> _onModelInstalled(ModelAsset asset) async {
-    if (asset.kind == ModelKind.languageModel) {
-      await activateGemma();
-    } else {
-      writeServiceConfig();
-    }
   }
 }

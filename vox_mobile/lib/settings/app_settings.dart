@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vox_amelior_mobile/location/location_policy.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/speakers/speaker_identifier.dart';
 
@@ -14,8 +15,16 @@ class AppSettings {
     this.vadThreshold = 0.5,
     this.retentionDays = 90,
     this.speakReplies = true,
-    this.gemmaModelId = 'gemma-3n-e4b-it-int4',
-    this.gemmaUrlOverride,
+    this.llmId = 'gemma-4-e4b-it',
+    this.customLlmUrl = '',
+    this.customLlmName = '',
+    this.customLlmType = 'gemma4',
+    this.customLlmTools = true,
+    this.customLlmNeedsToken = false,
+    this.agentMode = true,
+    this.instructions = '',
+    this.locationMode = LocationMode.off,
+    this.places = const [],
   });
 
   /// Phrases that address the assistant ("Hey Vox, ...").
@@ -38,10 +47,25 @@ class AppSettings {
 
   /// Read assistant answers aloud.
   final bool speakReplies;
-  final String gemmaModelId;
 
-  /// Use another address for the Gemma download (e.g. a mirror).
-  final String? gemmaUrlOverride;
+  /// Which assistant model to use: a catalog id or [ModelCatalog.customLlmId].
+  final String llmId;
+  final String customLlmUrl;
+  final String customLlmName;
+
+  /// flutter_gemma model family of the custom model ('gemma4', 'gemmaIt', 'qwen3'...).
+  final String customLlmType;
+  final bool customLlmTools;
+  final bool customLlmNeedsToken;
+
+  /// Let the assistant call tools (search, notes, reminders, automations).
+  final bool agentMode;
+
+  /// Custom instructions for the assistant; empty uses the default.
+  final String instructions;
+
+  final LocationMode locationMode;
+  final List<Place> places;
 
   IdentifierConfig get identifierConfig => IdentifierConfig(
         threshold: matchThreshold,
@@ -49,16 +73,18 @@ class AppSettings {
         clusterThreshold: guestThreshold,
       );
 
-  ModelAsset get gemmaAsset {
-    final base = ModelCatalog.all.firstWhere(
-      (m) => m.id == gemmaModelId && m.kind == ModelKind.languageModel,
-      orElse: () => ModelCatalog.gemma3nE4b,
-    );
-    final override = gemmaUrlOverride?.trim();
-    if (override == null || override.isEmpty) return base;
-    return base.withFiles([
-      RemoteFile(url: override, fileName: base.files.first.fileName),
-    ]);
+  /// The assistant model currently selected.
+  ModelAsset get llmAsset {
+    if (llmId == ModelCatalog.customLlmId && customLlmUrl.trim().isNotEmpty) {
+      return ModelCatalog.custom(
+        url: customLlmUrl.trim(),
+        name: customLlmName,
+        llmType: customLlmType,
+        supportsTools: customLlmTools,
+        requiresToken: customLlmNeedsToken,
+      );
+    }
+    return ModelCatalog.assistants.firstWhere((m) => m.id == llmId, orElse: () => ModelCatalog.gemma4E4b);
   }
 
   AppSettings copyWith({
@@ -69,9 +95,16 @@ class AppSettings {
     double? vadThreshold,
     int? retentionDays,
     bool? speakReplies,
-    String? gemmaModelId,
-    String? gemmaUrlOverride,
-    bool clearGemmaUrl = false,
+    String? llmId,
+    String? customLlmUrl,
+    String? customLlmName,
+    String? customLlmType,
+    bool? customLlmTools,
+    bool? customLlmNeedsToken,
+    bool? agentMode,
+    String? instructions,
+    LocationMode? locationMode,
+    List<Place>? places,
   }) =>
       AppSettings(
         wakePhrases: wakePhrases ?? this.wakePhrases,
@@ -81,8 +114,16 @@ class AppSettings {
         vadThreshold: vadThreshold ?? this.vadThreshold,
         retentionDays: retentionDays ?? this.retentionDays,
         speakReplies: speakReplies ?? this.speakReplies,
-        gemmaModelId: gemmaModelId ?? this.gemmaModelId,
-        gemmaUrlOverride: clearGemmaUrl ? null : (gemmaUrlOverride ?? this.gemmaUrlOverride),
+        llmId: llmId ?? this.llmId,
+        customLlmUrl: customLlmUrl ?? this.customLlmUrl,
+        customLlmName: customLlmName ?? this.customLlmName,
+        customLlmType: customLlmType ?? this.customLlmType,
+        customLlmTools: customLlmTools ?? this.customLlmTools,
+        customLlmNeedsToken: customLlmNeedsToken ?? this.customLlmNeedsToken,
+        agentMode: agentMode ?? this.agentMode,
+        instructions: instructions ?? this.instructions,
+        locationMode: locationMode ?? this.locationMode,
+        places: places ?? this.places,
       );
 
   Map<String, Object?> toJson() => {
@@ -93,8 +134,16 @@ class AppSettings {
         'vadThreshold': vadThreshold,
         'retentionDays': retentionDays,
         'speakReplies': speakReplies,
-        'gemmaModelId': gemmaModelId,
-        'gemmaUrlOverride': gemmaUrlOverride,
+        'llmId': llmId,
+        'customLlmUrl': customLlmUrl,
+        'customLlmName': customLlmName,
+        'customLlmType': customLlmType,
+        'customLlmTools': customLlmTools,
+        'customLlmNeedsToken': customLlmNeedsToken,
+        'agentMode': agentMode,
+        'instructions': instructions,
+        'locationMode': locationMode.name,
+        'places': [for (final p in places) p.toJson()],
       };
 
   /// Tolerant of missing or invalid fields so an old or damaged settings
@@ -106,10 +155,18 @@ class AppSettings {
       return v is num ? v.toDouble().clamp(min, max) : fallback;
     }
 
+    T typed<T>(String k, T fallback) {
+      final v = j[k];
+      return v is T ? v : fallback;
+    }
+
     final phrases = (j['wakePhrases'] is List<Object?>)
         ? (j['wakePhrases']! as List<Object?>).whereType<String>().map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
         : null;
     final days = j['retentionDays'];
+    final places = (j['places'] is List<Object?>)
+        ? (j['places']! as List<Object?>).map(Place.fromJson).whereType<Place>().toList()
+        : const <Place>[];
     return AppSettings(
       wakePhrases: (phrases == null || phrases.isEmpty) ? d.wakePhrases : phrases,
       matchThreshold: num01('matchThreshold', d.matchThreshold, min: 0.2, max: 0.95),
@@ -117,9 +174,17 @@ class AppSettings {
       guestThreshold: num01('guestThreshold', d.guestThreshold, min: 0.2, max: 0.95),
       vadThreshold: num01('vadThreshold', d.vadThreshold, min: 0.2, max: 0.9),
       retentionDays: days is int && days >= 0 ? days : d.retentionDays,
-      speakReplies: j['speakReplies'] is bool ? j['speakReplies']! as bool : d.speakReplies,
-      gemmaModelId: j['gemmaModelId'] is String ? j['gemmaModelId']! as String : d.gemmaModelId,
-      gemmaUrlOverride: j['gemmaUrlOverride'] is String ? j['gemmaUrlOverride']! as String : null,
+      speakReplies: typed('speakReplies', d.speakReplies),
+      llmId: typed('llmId', d.llmId),
+      customLlmUrl: typed('customLlmUrl', d.customLlmUrl),
+      customLlmName: typed('customLlmName', d.customLlmName),
+      customLlmType: typed('customLlmType', d.customLlmType),
+      customLlmTools: typed('customLlmTools', d.customLlmTools),
+      customLlmNeedsToken: typed('customLlmNeedsToken', d.customLlmNeedsToken),
+      agentMode: typed('agentMode', d.agentMode),
+      instructions: typed('instructions', d.instructions),
+      locationMode: LocationMode.values.asNameMap()[j['locationMode']] ?? d.locationMode,
+      places: places,
     );
   }
 }

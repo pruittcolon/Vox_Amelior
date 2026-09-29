@@ -430,8 +430,20 @@ void main() {
         ModelKind.voiceActivity,
         ModelKind.speakerVoiceprint,
       });
-      expect(ModelCatalog.gemma3nE4b.requiresToken, isTrue);
-      expect(ModelCatalog.parakeet.installedFileNames, {'encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'});
+      expect(ModelCatalog.gemma4E4b.requiresToken, isFalse);
+      expect(ModelCatalog.gemma4E4b.llmType, 'gemma4');
+      expect(ModelCatalog.gemma4E4b.supportsTools, isTrue);
+      expect(ModelCatalog.parakeet.installedFileNames,
+          {'encoder.int8.onnx', 'encoder.int8.weights', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'});
+      // Every fixed download is pinned to an exact size and checksum.
+      for (final m in ModelCatalog.all) {
+        for (final f in m.files) {
+          expect(f.sha256, hasLength(64), reason: f.url);
+          expect(f.sizeBytes, isNotNull, reason: f.url);
+        }
+      }
+      expect(ModelCatalog.custom(url: 'https://x.io/a/b/my.litertlm').files.single.fileName, 'my.litertlm');
+      expect(ModelCatalog.custom(url: 'https://x.io/').files.single.fileName, 'custom.litertlm');
       expect(ModelCatalog.all.map((m) => m.id).toSet().length, ModelCatalog.all.length);
       expect(ModelCatalog.all.every((m) => m.files.every((f) => Uri.parse(f.url).scheme == 'https')), isTrue);
     });

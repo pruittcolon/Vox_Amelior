@@ -80,6 +80,7 @@ class ConversationSummary {
     required this.endedAt,
     required this.segmentCount,
     required this.preview,
+    this.participants = const [],
   });
 
   final int id;
@@ -87,6 +88,20 @@ class ConversationSummary {
   final DateTime endedAt;
   final int segmentCount;
   final String preview;
+
+  /// Speaker labels in order of how much they spoke.
+  final List<String> participants;
+
+  Duration get duration => endedAt.difference(startedAt);
+}
+
+/// How much was said on one day.
+class DaySummary {
+  const DaySummary({required this.day, required this.conversations, required this.segments});
+
+  final DateTime day;
+  final int conversations;
+  final int segments;
 }
 
 /// Filters for searching the transcript archive.

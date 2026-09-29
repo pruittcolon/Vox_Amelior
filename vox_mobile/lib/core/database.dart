@@ -14,7 +14,7 @@ class AppDatabase {
   /// File location, or ':memory:' for test databases.
   final String path;
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   /// Opens (creating and migrating if needed) the database at [path].
   static AppDatabase open(String path) {
@@ -55,6 +55,7 @@ class AppDatabase {
     if (current >= schemaVersion) return;
     transaction(() {
       if (current < 1) _v1();
+      if (current < 2) _v2();
       raw.userVersion = schemaVersion;
     });
   }
@@ -170,5 +171,21 @@ CREATE TABLE notes (
   created_at INTEGER NOT NULL,
   source TEXT NOT NULL
 )''');
+  }
+
+  /// Assistant request origin and sources; reminders set by the assistant.
+  void _v2() {
+    raw
+      ..execute("ALTER TABLE assistant_requests ADD COLUMN source TEXT NOT NULL DEFAULT 'voice'")
+      ..execute('ALTER TABLE assistant_requests ADD COLUMN sources_json TEXT')
+      ..execute('''
+CREATE TABLE reminders (
+  id INTEGER PRIMARY KEY,
+  text TEXT NOT NULL,
+  due_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  fired_at INTEGER
+)''')
+      ..execute('CREATE INDEX reminders_due ON reminders(fired_at, due_at)');
   }
 }

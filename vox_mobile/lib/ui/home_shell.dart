@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/app/model_downloads.dart';
 import 'package:vox_amelior_mobile/ui/ask_screen.dart';
-import 'package:vox_amelior_mobile/ui/automations_screen.dart';
-import 'package:vox_amelior_mobile/ui/live_screen.dart';
+import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/models_screen.dart';
+import 'package:vox_amelior_mobile/ui/more_screen.dart';
+import 'package:vox_amelior_mobile/ui/now_screen.dart';
 import 'package:vox_amelior_mobile/ui/people_screen.dart';
-import 'package:vox_amelior_mobile/ui/settings_screen.dart';
-import 'package:vox_amelior_mobile/ui/setup_screen.dart';
+import 'package:vox_amelior_mobile/ui/timeline_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.services});
@@ -19,39 +21,101 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  void _openSetup() => Navigator.push(
-        context,
-        MaterialPageRoute<void>(builder: (_) => SetupScreen(services: widget.services)),
-      );
+  void _openModels() => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ModelsScreen(services: widget.services)));
 
   @override
   Widget build(BuildContext context) {
     final s = widget.services;
     final pages = [
-      LiveScreen(services: s),
-      AskScreen(
-        assistant: s.assistant,
-        requests: s.requests,
-        assistantReady: () => s.gemmaReady,
-        onOpenSetup: _openSetup,
+      NowScreen(services: s),
+      TimelineScreen(services: s),
+      ListenableBuilder(
+        listenable: Listenable.merge([s.downloads, s.settings, s.listening]),
+        builder: (context, _) => AskScreen(
+          ask: s.assistant.ask,
+          requests: s.requests,
+          assistantReady: () => s.assistantReady,
+          onOpenModels: _openModels,
+        ),
       ),
       PeopleScreen(services: s),
-      AutomationsScreen(services: s),
-      SettingsScreen(services: s),
+      MoreScreen(services: s),
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.hearing), label: 'Live'),
-          NavigationDestination(icon: Icon(Icons.question_answer), label: 'Ask'),
-          NavigationDestination(icon: Icon(Icons.people), label: 'People'),
-          NavigationDestination(icon: Icon(Icons.bolt), label: 'Automations'),
-          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _DownloadBar(downloads: s.downloads, onTap: _openModels),
+          NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.graphic_eq_rounded), label: 'Now'),
+              NavigationDestination(icon: Icon(Icons.calendar_view_day_rounded), label: 'Timeline'),
+              NavigationDestination(icon: Icon(Icons.auto_awesome_rounded), label: 'Ask'),
+              NavigationDestination(icon: Icon(Icons.people_alt_rounded), label: 'People'),
+              NavigationDestination(icon: Icon(Icons.more_horiz_rounded), label: 'More'),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// App-wide progress for model downloads, visible from every tab.
+class _DownloadBar extends StatelessWidget {
+  const _DownloadBar({required this.downloads, required this.onTap});
+
+  final ModelDownloads downloads;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: downloads,
+      builder: (context, _) {
+        final cur = downloads.current;
+        if (cur == null) return const SizedBox.shrink();
+        final st = cur.state;
+        final t = Theme.of(context);
+        return Material(
+          color: t.colorScheme.secondaryContainer,
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.downloading_rounded, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          st.status == DownloadStatus.unpacking
+                              ? 'Finishing ${cur.asset.title}…'
+                              : 'Downloading ${cur.asset.title} · ${formatBytes(st.received)} of ${formatBytes(st.total)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(value: st.status == DownloadStatus.unpacking ? null : st.progress, minHeight: 5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

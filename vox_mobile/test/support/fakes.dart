@@ -1,9 +1,14 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:vox_amelior_mobile/assistant/agent_tools.dart';
+import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
 import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
+import 'package:vox_amelior_mobile/automation/automation_repositories.dart';
+import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
+import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/pipeline/engines.dart';
 import 'package:vox_amelior_mobile/speakers/embedding_engine.dart';
 import 'package:vox_amelior_mobile/speakers/enrollment_service.dart';
@@ -112,15 +117,27 @@ SpeakerProfile enrollFake(SpeakerRepository repo, String name, int speaker, {int
   return EnrollmentService(repo).enroll(name, report);
 }
 
+/// Scripted language model. Each call to `send`/`sendToolResult` plays the
+/// next entry of [script]; a String is streamed as words, an [LlmToolCall]
+/// is emitted as a tool call. With an empty script it answers [reply].
 class FakeLlm implements LlmEngine {
   String reply = 'Sam said the plumber comes at four.';
+  final List<Object> script = [];
+  final List<String> prompts = [];
+  final List<Map<String, Object?>> toolResults = [];
   String? lastSystem;
-  String? lastPrompt;
+  List<ToolSpec> lastTools = const [];
   bool loaded = false;
   bool unavailable = false;
+  bool tools = true;
+
+  String? get lastPrompt => prompts.isEmpty ? null : prompts.last;
 
   @override
   bool get isLoaded => loaded;
+
+  @override
+  bool get supportsTools => tools;
 
   @override
   Future<void> ensureLoaded() async {
@@ -129,15 +146,59 @@ class FakeLlm implements LlmEngine {
   }
 
   @override
-  Stream<String> generate({required String system, required String prompt}) async* {
+  Future<LlmSession> openSession({required String system, List<ToolSpec> tools = const []}) async {
     lastSystem = system;
-    lastPrompt = prompt;
-    for (final word in reply.split(' ')) {
-      yield '$word ';
-    }
+    lastTools = tools;
+    return _FakeSession(this);
   }
 
   @override
   Future<void> unload() async => loaded = false;
+
+  Stream<LlmEvent> _next() async* {
+    final step = script.isEmpty ? reply : script.removeAt(0);
+    if (step is LlmToolCall) {
+      yield step;
+    } else {
+      for (final word in '$step'.split(' ')) {
+        yield LlmText('$word ');
+      }
+    }
+  }
 }
 
+class _FakeSession implements LlmSession {
+  _FakeSession(this.llm);
+  final FakeLlm llm;
+
+  @override
+  Stream<LlmEvent> send(String text) {
+    llm.prompts.add(text);
+    return llm._next();
+  }
+
+  @override
+  Stream<LlmEvent> sendToolResult(String name, Map<String, Object?> result) {
+    llm.toolResults.add({'name': name, ...result});
+    return llm._next();
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+AgentToolbox toolboxFor(AppDatabase db, TranscriptRepository transcripts, SpeakerRepository speakers, {AgentHooks hooks = const AgentHooks(), DateTime Function()? clock}) =>
+    AgentToolbox(
+      transcripts: transcripts,
+      speakers: speakers,
+      notes: NoteRepository(db),
+      reminders: ReminderRepository(db),
+      rules: RuleRepository(db),
+      hooks: hooks,
+      clock: clock ?? DateTime.now,
+    );
+
+/// Builds VAD output starting [seconds] into the stream.
+abstract final class SpeechChunkFake {
+  static SpeechChunk at(double seconds, {int speaker = 1}) => SpeechChunk(fakeAudio(speaker), seconds);
+}

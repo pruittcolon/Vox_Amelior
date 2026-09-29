@@ -2,17 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_service.dart';
+import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
 import 'package:vox_amelior_mobile/automation/rule.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/ui/ask_screen.dart';
 import 'package:vox_amelior_mobile/ui/rule_editor_screen.dart';
-import 'package:vox_amelior_mobile/ui/transcript_list.dart';
+import 'package:vox_amelior_mobile/ui/theme.dart';
 
 import 'support/fakes.dart';
 
-Widget host(Widget child) => MaterialApp(home: child);
+Widget host(Widget child) => MaterialApp(theme: VoxTheme.light(), home: child);
 
 /// The page's main list (text fields have their own inner scrollables).
 Finder get listScroll => find.descendant(of: find.byType(ListView), matching: find.byType(Scrollable)).first;
@@ -28,25 +29,6 @@ void main() {
     transcripts = TranscriptRepository(db);
   });
   tearDown(() => db.close());
-
-  testWidgets('TranscriptList shows speakers, text and an empty state', (tester) async {
-    await tester.pumpWidget(host(const Scaffold(body: TranscriptList(segments: []))));
-    expect(find.text('Nothing heard yet.'), findsOneWidget);
-
-    final alex = speakers.create(name: 'Alex', embeddingModel: 'f', samples: [voiceprint(1)]);
-    transcripts.addSegment(text: 'dinner at seven', startedAt: DateTime.now(), duration: const Duration(seconds: 2), speakerId: alex.id);
-    transcripts.addSegment(text: 'sounds good', startedAt: DateTime.now(), duration: const Duration(seconds: 2));
-    SegmentTapped? tapped;
-    await tester.pumpWidget(host(Scaffold(
-      body: TranscriptList(segments: transcripts.recent(), onTap: (s) => tapped = SegmentTapped(s.text)),
-    )));
-    expect(find.text('Alex'), findsOneWidget);
-    expect(find.text('Unknown'), findsOneWidget);
-    expect(find.text('dinner at seven'), findsOneWidget);
-    expect(find.text('Today'), findsOneWidget);
-    await tester.tap(find.text('sounds good'));
-    expect(tapped?.text, 'sounds good');
-  });
 
   testWidgets('RuleEditor blocks invalid rules and saves valid ones', (tester) async {
     AutomationRule? saved;
@@ -91,13 +73,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.descendant(of: allowHttp, matching: find.byType(Switch)));
     await tester.pumpAndSettle();
-    expect(tester.widget<SwitchListTile>(allowHttp).value, isTrue);
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect((saved!.actions.last as WebhookAction).allowInsecureHttp, isTrue);
   });
 
-  testWidgets('AskScreen streams an answer with its sources', (tester) async {
+  testWidgets('AskScreen streams an answer with its sources and tool activity', (tester) async {
     final sam = speakers.create(name: 'Sam', embeddingModel: 'f', samples: [voiceprint(2)]);
     transcripts.addSegment(
       text: 'the plumber is coming at four',
@@ -105,38 +86,37 @@ void main() {
       duration: const Duration(seconds: 3),
       speakerId: sam.id,
     );
-    final llm = FakeLlm();
-    await tester.pumpWidget(host(AskScreen(
-      assistant: AssistantService(llm: llm, transcripts: transcripts, speakers: speakers),
-      requests: AssistantRequestRepository(db),
-      assistantReady: () => true,
-    )));
+    final llm = FakeLlm()
+      ..script.addAll([
+        const LlmToolCall('search_conversations', {'query': 'plumber'}),
+        'Sam said the plumber comes at four.',
+      ]);
+    final service = AssistantService(
+      llm: llm,
+      transcripts: transcripts,
+      speakers: speakers,
+      toolbox: toolboxFor(db, transcripts, speakers),
+    );
+    await tester.pumpWidget(host(AskScreen(ask: service.ask, requests: AssistantRequestRepository(db), assistantReady: () => true)));
     expect(find.text('Summarise today'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'When is the plumber coming?');
-    await tester.tap(find.byIcon(Icons.send));
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
     await tester.pumpAndSettle();
     expect(find.text('When is the plumber coming?'), findsOneWidget);
     expect(find.text('Sam said the plumber comes at four.'), findsOneWidget);
-    expect(find.text('Based on 1 things said'), findsOneWidget);
+    expect(find.text('Searched conversations'), findsOneWidget);
+    expect(find.text('Based on 1 thing said'), findsOneWidget);
   });
 
   testWidgets('AskScreen shows a clear message when the model is missing', (tester) async {
     final llm = FakeLlm()..unavailable = true;
-    await tester.pumpWidget(host(AskScreen(
-      assistant: AssistantService(llm: llm, transcripts: transcripts, speakers: speakers),
-      requests: AssistantRequestRepository(db),
-      assistantReady: () => false,
-    )));
-    expect(find.textContaining('Download Gemma'), findsOneWidget);
+    final service = AssistantService(llm: llm, transcripts: transcripts, speakers: speakers);
+    await tester.pumpWidget(host(AskScreen(ask: service.ask, requests: AssistantRequestRepository(db), assistantReady: () => false)));
+    expect(find.textContaining('Download Gemma 4'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'anything?');
-    await tester.tap(find.byIcon(Icons.send));
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
     await tester.pumpAndSettle();
     expect(find.text('Gemma is not downloaded'), findsOneWidget);
   });
-}
-
-class SegmentTapped {
-  SegmentTapped(this.text);
-  final String text;
 }

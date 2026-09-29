@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Optional: turn listening on/off at saved places. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- Conversations are private: keep them out of cloud backups and device transfers. -->
     <application
@@ -39,11 +43,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Always-on listening (microphone) and large model downloads (dataSync).
+        <!-- Always-on listening (microphone), place-based on/off (location) and
+             large model downloads (dataSync).
              The service name is fixed by the flutter_foreground_task plugin. -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-            android:foregroundServiceType="microphone|dataSync"
+            android:foregroundServiceType="microphone|location|dataSync"
             android:exported="false" />
 
         <meta-data

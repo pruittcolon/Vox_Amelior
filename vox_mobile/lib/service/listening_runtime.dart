@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:vox_amelior_mobile/assistant/agent_tools.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
+import 'package:vox_amelior_mobile/assistant/assistant_service.dart';
+import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
 import 'package:vox_amelior_mobile/assistant/wake_command.dart';
 import 'package:vox_amelior_mobile/automation/action_executor.dart';
 import 'package:vox_amelior_mobile/automation/automation_repositories.dart';
@@ -15,69 +19,75 @@ import 'package:vox_amelior_mobile/core/log.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
+import 'package:vox_amelior_mobile/location/location_monitor.dart';
+import 'package:vox_amelior_mobile/location/location_policy.dart';
+import 'package:vox_amelior_mobile/native/gemma_llm_engine.dart';
 import 'package:vox_amelior_mobile/native/pcm_source.dart';
 import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
-import 'package:vox_amelior_mobile/pipeline/listening_pipeline.dart';
+import 'package:vox_amelior_mobile/pipeline/chunk_queue.dart';
+import 'package:vox_amelior_mobile/pipeline/compute_scheduler.dart';
+import 'package:vox_amelior_mobile/pipeline/segment_processor.dart';
+import 'package:vox_amelior_mobile/pipeline/speech_capture.dart';
+import 'package:vox_amelior_mobile/service/protocol.dart';
 import 'package:vox_amelior_mobile/settings/service_config.dart';
 import 'package:vox_amelior_mobile/speakers/speaker_identifier.dart';
 
-/// Messages from the listening service to the app.
-abstract final class ServiceEvents {
-  static const segment = 'segment';
-  static const request = 'request';
-  static const status = 'status';
-  static const error = 'error';
-}
-
-/// Commands from the app to the listening service.
-abstract final class ServiceCommands {
-  static const pause = 'pause';
-  static const resume = 'resume';
-  static const reload = 'reload';
-  static const ackRequest = 'ack';
-}
-
-/// Everything that runs while Vox is listening: microphone, speech pipeline,
-/// automations and housekeeping. Lives in the foreground-service isolate.
+/// Everything that runs while Vox is on: microphone → speech queue →
+/// transcription, the assistant (Gemma), automations, reminders and
+/// place-based on/off. Lives in the foreground-service isolate.
 class ListeningRuntime {
-  ListeningRuntime._({
-    required this.configFile,
-    required this.db,
-    required this.speakers,
-    required this.transcripts,
-    required this.rules,
-    required this.outbox,
-    required this.dispatcher,
-    required this.handler,
-    required this.pipeline,
-    required this.source,
-    required this.emit,
-    required this.notifier,
-  });
+  ListeningRuntime._(this.configFile, this.emit, this.notifier, this._config);
 
   final File configFile;
-  final AppDatabase db;
-  final SpeakerRepository speakers;
-  final TranscriptRepository transcripts;
-  final RuleRepository rules;
-  final OutboxRepository outbox;
-  final WebhookDispatcher dispatcher;
-  final SegmentHandler handler;
-  final ListeningPipeline pipeline;
-  final PcmSource source;
-  final Notifier notifier;
 
-  /// Sends an event to the app (if it is running).
+  /// Sends an event to the app (ignored if the app is closed).
   final void Function(Map<String, Object?> event) emit;
+  final Notifier notifier;
+  ServiceConfig _config;
+
+  late final AppDatabase db;
+  late final SpeakerRepository speakers;
+  late final TranscriptRepository transcripts;
+  late final RuleRepository rules;
+  late final OutboxRepository outbox;
+  late final NoteRepository notes;
+  late final AssistantRequestRepository requests;
+  late final ReminderRepository reminders;
+  late final WebhookDispatcher dispatcher;
+  late final ActionExecutor executor;
+  late final SegmentHandler handler;
+  late final SpeechCapture capture;
+  late final SegmentProcessor processor;
+  late final ChunkQueue queue;
+  late final ComputeScheduler scheduler;
+  late final GemmaLlmEngine llm;
+  late final AssistantService assistant;
+  final PcmSource _source = MicrophonePcmSource();
+  final FlutterTts _tts = FlutterTts();
+  final LocationMonitor _location = const LocationMonitor();
+  final LocationPolicy _policy = const LocationPolicy();
 
   StreamSubscription<Uint8List>? _mic;
-  bool _paused = false;
-  int _segmentsToday = 0;
+  bool _manualPause = false;
+  bool _autoPause = false;
+  DateTime? _pausedUntil;
+  String _reason = 'Starting…';
+  String? _placeId;
+  int _micFailures = 0;
+  Timer? _micRetry;
+  int _today = 0;
   DateTime _day = DateTime.now();
   DateTime _lastHousekeeping = DateTime.fromMillisecondsSinceEpoch(0);
-  final Set<int> _acked = {};
+  DateTime _lastLocationCheck = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _stopped = false;
 
-  bool get isPaused => _paused;
+  bool get isManuallyPaused => _manualPause;
+
+  ListenState get state {
+    if (_manualPause || _pausedUntil != null) return ListenState.paused;
+    if (_autoPause) return ListenState.autoPaused;
+    return _mic == null ? ListenState.starting : ListenState.listening;
+  }
 
   static Future<ListeningRuntime> start({
     required File configFile,
@@ -86,132 +96,162 @@ class ListeningRuntime {
   }) async {
     final config = ServiceConfig.readFrom(configFile);
     if (config == null) {
-      throw StateError('Speech models are not set up yet. Open Vox and finish Setup.');
+      throw StateError('Speech models are not set up yet. Open Vox and finish setup.');
     }
-    final db = AppDatabase.open(config.dbPath);
-    final speakers = SpeakerRepository(db);
-    final transcripts = TranscriptRepository(db);
-    final rules = RuleRepository(db);
-    final outbox = OutboxRepository(db);
-    final dispatcher = WebhookDispatcher(outbox, DioHttpSender());
-    final handler = SegmentHandler(
+    final rt = ListeningRuntime._(configFile, emit, notifier, config);
+    await rt._build();
+    return rt;
+  }
+
+  Future<void> _build() async {
+    final c = _config;
+    db = AppDatabase.open(c.dbPath);
+    speakers = SpeakerRepository(db);
+    transcripts = TranscriptRepository(db);
+    rules = RuleRepository(db);
+    outbox = OutboxRepository(db);
+    notes = NoteRepository(db);
+    requests = AssistantRequestRepository(db);
+    reminders = ReminderRepository(db);
+    dispatcher = WebhookDispatcher(outbox, DioHttpSender());
+    executor = ActionExecutor(outbox: outbox, dispatcher: dispatcher, notes: notes, notifier: notifier);
+    handler = SegmentHandler(
       rules: rules,
       engine: RuleEngine(),
-      executor: ActionExecutor(outbox: outbox, dispatcher: dispatcher, notes: NoteRepository(db), notifier: notifier),
-      requests: AssistantRequestRepository(db),
-      wakeParser: WakeCommandParser(config.settings.wakePhrases),
+      executor: executor,
+      requests: requests,
+      wakeParser: WakeCommandParser(c.settings.wakePhrases),
     );
 
-    late ListeningRuntime runtime;
-    final pipeline = ListeningPipeline(
-      vad: SherpaVad(modelPath: config.paths.vad, threshold: config.settings.vadThreshold),
-      asr: SherpaParakeetAsr(config.paths),
-      embedder: SherpaSpeakerEmbedder(config.paths.speaker),
+    capture = SpeechCapture(SherpaVad(modelPath: c.paths.vad, threshold: c.settings.vadThreshold));
+    processor = SegmentProcessor(
+      asr: SherpaParakeetAsr(c.paths),
+      embedder: SherpaSpeakerEmbedder(c.paths.speaker),
       identifier: SpeakerIdentifier(
         profiles: speakers.profiles(),
         clusters: speakers.clusters(),
-        config: config.settings.identifierConfig,
+        config: c.settings.identifierConfig,
         newClusterId: SpeakerRepository.newId,
         nextGuestLabel: speakers.nextGuestLabel,
       ),
       transcripts: transcripts,
       speakers: speakers,
-      onSegment: (s) => runtime._onSegment(s),
     );
-    runtime = ListeningRuntime._(
-      configFile: configFile,
-      db: db,
-      speakers: speakers,
+    queue = ChunkQueue(Directory(c.queueDir));
+    scheduler = ComputeScheduler(
+      queue: queue,
+      processor: processor,
+      onSegment: _onSegment,
+      onActivity: (_, _) => emitStatus(),
+    );
+
+    llm = GemmaLlmEngine(spec: () {
+      final l = _config.llm;
+      return l == null ? null : LlmModelSpec(path: l.path, modelType: l.modelType, supportsTools: l.supportsTools);
+    });
+    assistant = AssistantService(
+      llm: llm,
       transcripts: transcripts,
-      rules: rules,
-      outbox: outbox,
-      dispatcher: dispatcher,
-      handler: handler,
-      pipeline: pipeline,
-      source: MicrophonePcmSource(),
-      emit: emit,
-      notifier: notifier,
+      speakers: speakers,
+      instructions: () => _config.settings.instructions,
+      agentEnabled: () => _config.settings.agentMode,
+      toolbox: AgentToolbox(
+        transcripts: transcripts,
+        speakers: speakers,
+        notes: notes,
+        reminders: reminders,
+        rules: rules,
+        hooks: AgentHooks(runAutomation: _runAutomation, pauseListening: pauseFor),
+      ),
     );
-    await runtime._startMic();
-    runtime._housekeeping(force: true);
-    return runtime;
+
+    unawaited(_tts.awaitSpeakCompletion(true));
+    _housekeeping(force: true);
+    await _checkLocation(force: true);
+    await _applyListening();
+    scheduler.kick(); // anything left over from last time
+    // Questions asked while the service was down.
+    for (final r in requests.takePending()) {
+      unawaited(answer(r.id));
+    }
+  }
+
+  // ---- microphone ------------------------------------------------------
+
+  bool get _shouldListen => !_manualPause && !_autoPause && _pausedUntil == null && !_stopped;
+
+  Future<void> _applyListening() async {
+    if (_shouldListen && _mic == null) {
+      await _startMic();
+    } else if (!_shouldListen && _mic != null) {
+      await _stopMic();
+    }
+    emitStatus();
   }
 
   Future<void> _startMic() async {
-    final stream = await source.start();
-    _mic = stream.listen(
-      (bytes) {
-        if (!_paused) pipeline.addPcm16(bytes);
-      },
-      onError: (Object e) {
-        Log.w('listen', 'microphone error', e);
-        emit({'type': ServiceEvents.error, 'message': 'Microphone error: $e'});
-      },
-    );
+    _micRetry?.cancel();
+    try {
+      final stream = await _source.start();
+      _mic = stream.listen(
+        _onPcm,
+        onError: (Object e) => _onMicFailure('Microphone error: $e'),
+        onDone: () {
+          if (_shouldListen) _onMicFailure('Microphone stopped unexpectedly');
+        },
+        cancelOnError: true,
+      );
+      _micFailures = 0;
+      _reason = 'Listening';
+    } on Object catch (e) {
+      _onMicFailure('Could not open the microphone: $e');
+    }
   }
 
-  Future<void> pause() async {
-    if (_paused) return;
-    _paused = true;
+  Future<void> _stopMic() async {
+    _micRetry?.cancel();
     await _mic?.cancel();
     _mic = null;
-    await source.stop();
-    pipeline.flush();
-    emit(_status());
+    await _source.stop();
+    _enqueue(capture.flush());
   }
 
-  Future<void> resume() async {
-    if (!_paused) return;
-    _paused = false;
-    await _startMic();
-    emit(_status());
+  void _onMicFailure(String message) {
+    Log.w('listen', message);
+    _mic = null;
+    _micFailures++;
+    emit({'type': ServiceEvents.error, 'message': message, 'fatal': false});
+    if (!_shouldListen) return;
+    // Back off: 2s, 4s, 8s ... up to a minute, and keep trying.
+    final delay = Duration(seconds: (1 << _micFailures.clamp(1, 6)).clamp(2, 60));
+    _reason = 'Microphone busy — retrying';
+    emitStatus();
+    _micRetry?.cancel();
+    _micRetry = Timer(delay, () => unawaited(_applyListening()));
   }
 
-  /// Picks up changes made in the app (people, rules, settings).
-  void reload() {
-    final config = ServiceConfig.readFrom(configFile);
-    rules.invalidate();
-    pipeline.identifier.updateProfiles(speakers.profiles(), speakers.clusters());
-    if (config != null) {
-      pipeline.identifier.config = config.settings.identifierConfig;
-      handler.wakeParser = WakeCommandParser(config.settings.wakePhrases);
+  void _onPcm(Uint8List bytes) {
+    if (!_shouldListen) return;
+    _enqueue(capture.addPcm16(bytes));
+  }
+
+  void _enqueue(List<CapturedSpeech> speech) {
+    if (speech.isEmpty) return;
+    for (final s in speech) {
+      queue.push(s.samples, s.startedAt);
     }
+    scheduler.kick();
   }
 
-  void acknowledge(int requestId) => _acked.add(requestId);
-
-  /// Periodic work: deliver webhooks, apply retention, refresh status.
-  Future<void> tick() async {
-    await dispatcher.flush();
-    _housekeeping();
-    emit(_status());
-  }
-
-  String statusText() {
-    if (_paused) return 'Paused';
-    return _segmentsToday == 0 ? 'Listening' : 'Listening · $_segmentsToday things heard today';
-  }
-
-  Future<void> stop() async {
-    await _mic?.cancel();
-    await source.stop();
-    await source.dispose();
-    try {
-      pipeline.flush();
-    } on Object catch (e) {
-      Log.w('listen', 'flush on stop failed', e);
-    }
-    pipeline.dispose();
-    db.close();
-  }
+  // ---- utterances and the assistant ------------------------------------
 
   void _onSegment(SegmentView segment) {
     final now = DateTime.now();
     if (now.day != _day.day) {
       _day = now;
-      _segmentsToday = 0;
+      _today = 0;
     }
-    _segmentsToday++;
+    _today++;
     emit({'type': ServiceEvents.segment, 'id': segment.id});
     unawaited(_afterSegment(segment));
   }
@@ -219,34 +259,226 @@ class ListeningRuntime {
   Future<void> _afterSegment(SegmentView segment) async {
     try {
       final outcome = await handler.handle(segment);
-      final requestId = outcome.assistantRequestId;
-      if (requestId == null) return;
-      emit({'type': ServiceEvents.request, 'id': requestId});
-      // If the app does not pick the question up, tell the user.
-      await Future<void>.delayed(const Duration(seconds: 3));
-      if (!_acked.remove(requestId)) {
-        await notifier.show('Vox heard a question', '"${outcome.wakeCommand}" — tap to open Vox and get the answer.');
-      }
+      final id = outcome.assistantRequestId;
+      if (id != null) unawaited(answer(id));
     } on Object catch (e, st) {
       Log.e('listen', 'segment follow-up failed', e, st);
     }
+  }
+
+  /// Answers request [id] through the scheduler (one heavy job at a time),
+  /// streaming progress to the app and storing the result.
+  Future<void> answer(int id) => scheduler.runExclusive(() async {
+        final request = requests.get(id);
+        if (request == null || request.status != RequestStatus.pending) return;
+        final buffer = StringBuffer();
+        var sources = const <SegmentView>[];
+        try {
+          await for (final e in assistant.ask(request.text)) {
+            if (e.sources != null) {
+              sources = e.sources!;
+              emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'sources', 'ids': [for (final s in sources) s.id]});
+            } else if (e.token != null) {
+              buffer.write(e.token);
+              emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'token', 't': e.token});
+            } else if (e.toolName != null) {
+              emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'tool', 'name': e.toolName});
+            }
+          }
+          final text = buffer.toString().trim().isEmpty ? 'Sorry, I have no answer for that.' : buffer.toString().trim();
+          requests.answer(id, text, sources: [for (final s in sources) s.id]);
+          emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'done'});
+          if (request.source == RequestSource.voice) {
+            await notifier.show(request.text, text);
+            if (_config.settings.speakReplies) await _speak(text);
+          }
+        } on LlmUnavailable catch (e) {
+          requests.fail(id, e.message);
+          emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'error', 'message': e.message});
+          if (request.source == RequestSource.voice) await notifier.show('Vox cannot answer yet', e.message);
+        } on Object catch (e, st) {
+          Log.e('assistant', 'answer failed', e, st);
+          requests.fail(id, 'Something went wrong while answering.');
+          emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'error', 'message': 'Something went wrong: $e'});
+        }
+      });
+
+  Future<void> _speak(String text) async {
+    try {
+      // Don't transcribe our own voice.
+      final wasListening = _mic != null;
+      if (wasListening) await _stopMic();
+      await _tts.speak(text);
+      if (wasListening) await _applyListening();
+    } on Object catch (e) {
+      Log.w('tts', 'speech output failed', e);
+    }
+  }
+
+  Future<String> _runAutomation(String name) async {
+    final rule = rules.all().where((r) => r.name.toLowerCase() == name.trim().toLowerCase()).firstOrNull;
+    if (rule == null) return 'No automation called "$name".';
+    if (!rule.enabled) return '"${rule.name}" is turned off.';
+    final now = DateTime.now();
+    await executor.execute(RuleFire(rule, {
+      'text': 'Run by the assistant',
+      'speaker': 'Vox',
+      'match': rule.name,
+      'command': rule.name,
+      'time_iso': now.toIso8601String(),
+      'date': now.toIso8601String().substring(0, 10),
+      'time': now.toIso8601String().substring(11, 16),
+      'segment_id': '0',
+      'conversation_id': '0',
+      'rule': rule.name,
+    }));
+    rules.markFired(rule.id, now);
+    return 'Ran "${rule.name}".';
+  }
+
+  // ---- controls --------------------------------------------------------
+
+  Future<void> pause() async {
+    _manualPause = true;
+    _pausedUntil = null;
+    _reason = 'Paused';
+    await _applyListening();
+  }
+
+  Future<void> resume() async {
+    _manualPause = false;
+    _pausedUntil = null;
+    await _applyListening();
+  }
+
+  /// Pauses for [minutes] (0 = until resumed). Used by the assistant.
+  Future<void> pauseFor(int minutes) async {
+    if (minutes <= 0) return pause();
+    _pausedUntil = DateTime.now().add(Duration(minutes: minutes));
+    _reason = 'Paused for $minutes min';
+    await _applyListening();
+  }
+
+  set holdTranscription(bool on) => scheduler.transcriptionPaused = on;
+
+  /// Picks up changes made in the app (people, rules, settings, models).
+  Future<void> reload() async {
+    final fresh = ServiceConfig.readFrom(configFile);
+    if (fresh != null) {
+      final llmChanged = fresh.llm?.path != _config.llm?.path;
+      _config = fresh;
+      processor.identifier.config = fresh.settings.identifierConfig;
+      handler.wakeParser = WakeCommandParser(fresh.settings.wakePhrases);
+      if (llmChanged) await llm.unload();
+    }
+    rules.invalidate();
+    processor.identifier.updateProfiles(speakers.profiles(), speakers.clusters());
+    await _checkLocation(force: true);
+    await _applyListening();
+  }
+
+  /// Periodic work (every ~30 s).
+  Future<void> tick() async {
+    if (_pausedUntil != null && DateTime.now().isAfter(_pausedUntil!)) {
+      _pausedUntil = null;
+      await _applyListening();
+    }
+    await dispatcher.flush();
+    for (final r in reminders.takeDue()) {
+      await notifier.show('Reminder', r.text);
+      if (_config.settings.speakReplies) await _speak('Reminder: ${r.text}');
+    }
+    await _checkLocation();
+    _housekeeping();
+    scheduler.kick();
+    emitStatus();
+  }
+
+  Future<void> _checkLocation({bool force = false}) async {
+    final s = _config.settings;
+    if (s.locationMode == LocationMode.off || s.places.isEmpty) {
+      if (_autoPause) {
+        _autoPause = false;
+        await _applyListening();
+      }
+      return;
+    }
+    final now = DateTime.now();
+    if (!force && now.difference(_lastLocationCheck) < const Duration(minutes: 2)) return;
+    _lastLocationCheck = now;
+    if (await LocationMonitor.access() != LocationAccess.granted) {
+      _reason = 'Location permission needed for place rules';
+      return;
+    }
+    final fix = await _location.current();
+    if (fix == null) return; // keep the previous decision
+    final d = _policy.decide(
+      mode: s.locationMode,
+      places: s.places,
+      lat: fix.lat,
+      lon: fix.lon,
+      accuracyM: fix.accuracyM,
+      currentPlaceId: _placeId,
+    );
+    _placeId = d.place?.id;
+    final changed = _autoPause == d.listen;
+    _autoPause = !d.listen;
+    _reason = d.reason;
+    if (changed) await _applyListening();
   }
 
   void _housekeeping({bool force = false}) {
     final now = DateTime.now();
     if (!force && now.difference(_lastHousekeeping) < const Duration(hours: 1)) return;
     _lastHousekeeping = now;
-    final config = ServiceConfig.readFrom(configFile);
-    final days = config?.settings.retentionDays ?? 0;
+    final days = _config.settings.retentionDays;
     if (days > 0) transcripts.deleteOlderThan(now.subtract(Duration(days: days)));
     outbox.purgeFinishedBefore(now.subtract(const Duration(days: 14)));
   }
 
-  Map<String, Object?> _status() => {
-        'type': ServiceEvents.status,
-        'paused': _paused,
-        'today': _segmentsToday,
-        'errors': pipeline.stats.errors,
-        'lastMs': pipeline.stats.lastProcessing.inMilliseconds,
+  String statusTitle() => switch (state) {
+        ListenState.listening => 'Vox is listening',
+        ListenState.paused => 'Vox is paused',
+        ListenState.autoPaused => 'Vox is paused here',
+        ListenState.starting => 'Vox is starting',
+        ListenState.error => 'Vox needs attention',
       };
+
+  String statusText() {
+    final parts = <String>[_reason];
+    if (scheduler.activity == SchedulerActivity.assistant) parts.add('thinking');
+    final backlog = scheduler.backlog;
+    if (backlog > 0) parts.add('$backlog waiting to transcribe');
+    if (_today > 0) parts.add('$_today heard today');
+    return parts.join(' · ');
+  }
+
+  void emitStatus() => emit({
+        'type': ServiceEvents.status,
+        'state': state.name,
+        'reason': _reason,
+        'backlog': scheduler.backlog,
+        'activity': scheduler.activity.name,
+        'today': _today,
+        'errors': processor.stats.errors,
+        'assistantReady': _config.llm != null,
+      });
+
+  Future<void> stop() async {
+    _stopped = true;
+    _micRetry?.cancel();
+    await _mic?.cancel();
+    _mic = null;
+    try {
+      await _source.stop();
+      await _source.dispose();
+      _enqueue(capture.flush());
+    } on Object catch (e) {
+      Log.w('listen', 'stopping microphone failed', e);
+    }
+    await llm.unload();
+    capture.dispose();
+    processor.dispose();
+    db.close();
+  }
 }

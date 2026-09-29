@@ -25,14 +25,6 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - name: Check Gemma files on Hugging Face (informational)
-        continue-on-error: true
-        run: |
-          for repo in gemma-3n-E4B-it-litert-lm gemma-3n-E2B-it-litert-lm; do
-            echo "== $repo"
-            curl -sS "https://huggingface.co/api/models/google/$repo/tree/main" \
-              | python3 -c "import sys,json; [print(f.get('path'), f.get('size'), (f.get('lfs') or {}).get('oid')) for f in json.load(sys.stdin)]" || true
-          done
       - run: flutter build apk --release --target-platform android-arm64
       - name: Rename APK
         run: cp build/app/outputs/flutter-apk/app-release.apk ../vox-amelior.apk
@@ -49,4 +41,4 @@ jobs:
           gh release create vox-android-latest vox-amelior.apk \
             --target "$GITHUB_SHA" --latest \
             --title "Vox Amelior for Android (latest build)" \
-            --notes "Built from ${GITHUB_SHA::7}. On your phone: download vox-amelior.apk, open it, allow installing from this source. Requires a 64-bit Android 8+ phone; Gemma needs ~6 GB RAM."
+            --notes "Built from ${GITHUB_SHA::7}. On your phone: download vox-amelior.apk, open it, allow installing from this source. Requires a 64-bit Android 8+ phone. Gemma 4 E4B needs about 8 GB of RAM (E2B less)."

@@ -114,6 +114,35 @@ void main() {
     });
   });
 
+  group('timeline', () {
+    test('days, conversations per day with participants, and deletion', () {
+      final alex = speakers.create(name: 'Alex', embeddingModel: 'f', samples: [voiceprint(1)]);
+      final d1 = DateTime(2026, 5, 4, 9);
+      final d2 = DateTime(2026, 5, 5, 20);
+      repo.addSegment(text: 'morning', startedAt: d1, duration: const Duration(seconds: 3), speakerId: alex.id);
+      repo.addSegment(text: 'reply', startedAt: d1.add(const Duration(minutes: 1)), duration: const Duration(seconds: 3));
+      repo.addSegment(text: 'later that day', startedAt: d1.add(const Duration(hours: 5)), duration: const Duration(seconds: 3), speakerId: alex.id);
+      final other = repo.addSegment(text: 'next day', startedAt: d2, duration: const Duration(seconds: 3));
+
+      final days = repo.days();
+      expect(days.map((d) => d.day), [DateTime(2026, 5, 5), DateTime(2026, 5, 4)]);
+      expect(days.last.conversations, 2);
+      expect(days.last.segments, 3);
+
+      final convs = repo.conversationsBetween(DateTime(2026, 5, 4), DateTime(2026, 5, 5));
+      expect(convs.length, 2);
+      expect(convs.last.participants, ['Alex', 'Unknown']);
+      expect(convs.last.segmentCount, 2);
+
+      expect(repo.segmentsByIds([other.id]).single.text, 'next day');
+      expect(repo.segmentsByIds(const []), isEmpty);
+
+      repo.deleteConversation(other.conversationId);
+      expect(repo.days().length, 1);
+      expect(repo.search(const SegmentQuery(keywords: ['next'])), isEmpty);
+    });
+  });
+
   group('speakers', () {
     test('create validates input and rejects duplicate names case-insensitively', () {
       expect(() => speakers.create(name: ' ', embeddingModel: 'f', samples: [voiceprint(1)]), throwsArgumentError);

@@ -34,10 +34,11 @@ class ModelAsset {
     required this.description,
     required this.files,
     required this.approxDownloadBytes,
-    this.approxDiskBytes,
     this.requiresToken = false,
     this.licenseUrl,
     this.essential = true,
+    this.llmType = 'gemma4',
+    this.supportsTools = false,
   });
 
   final String id;
@@ -47,9 +48,6 @@ class ModelAsset {
   final List<RemoteFile> files;
   final int approxDownloadBytes;
 
-  /// Space needed once unpacked, when larger than the download.
-  final int? approxDiskBytes;
-
   /// Gated on Hugging Face: the user must accept a licence and give a token.
   final bool requiresToken;
   final String? licenseUrl;
@@ -57,46 +55,64 @@ class ModelAsset {
   /// Needed before listening can start.
   final bool essential;
 
+  /// For language models: flutter_gemma model family ('gemma4', 'gemmaIt', ...).
+  final String llmType;
+
+  /// For language models: understands tool calls (agent features).
+  final bool supportsTools;
+
   /// Names of the files that must exist after installation.
   Set<String> get installedFileNames => {
         for (final f in files) ...(f.isArchive ? f.extractFromArchive : {f.fileName}),
       };
-
-  ModelAsset withFiles(List<RemoteFile> newFiles) => ModelAsset(
-        id: id,
-        kind: kind,
-        title: title,
-        description: description,
-        files: newFiles,
-        approxDownloadBytes: approxDownloadBytes,
-        approxDiskBytes: approxDiskBytes,
-        requiresToken: requiresToken,
-        licenseUrl: licenseUrl,
-        essential: essential,
-      );
 }
 
-/// The models the app can download. Speech and voice models come from the
-/// public sherpa-onnx releases; Gemma comes from Google's Hugging Face repo.
+/// The models the app downloads.
+///
+/// Speech: NVIDIA Parakeet TDT 1.1B (int8, sherpa-onnx export), Silero VAD and
+/// TitaNet voiceprints. Assistant: Google Gemma 4 E4B for LiteRT-LM.
 class ModelCatalog {
   const ModelCatalog._();
 
   static const String _sherpa = 'https://github.com/k2-fsa/sherpa-onnx/releases/download';
+  static const String _parakeet = 'https://huggingface.co/mortenfc/sherpa-onnx-parakeet-tdt-1.1b-int8/resolve/main';
 
   static const ModelAsset parakeet = ModelAsset(
-    id: 'parakeet-tdt-0.6b-v2-int8',
+    id: 'parakeet-tdt-1.1b-int8',
     kind: ModelKind.speechToText,
-    title: 'Parakeet speech recognition',
-    description: 'NVIDIA Parakeet TDT 0.6B (int8). Turns speech into text on your phone.',
-    approxDownloadBytes: 482468385,
-    approxDiskBytes: 661190513,
+    title: 'Parakeet 1.1B speech recognition',
+    description: 'NVIDIA Parakeet TDT 1.1B (int8). Turns speech into text on your phone.',
+    approxDownloadBytes: 1117000000,
     files: [
       RemoteFile(
-        url: '$_sherpa/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2',
-        fileName: 'parakeet.tar.bz2',
-        sha256: '157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad',
-        sizeBytes: 482468385,
-        extractFromArchive: {'encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'},
+        url: '$_parakeet/encoder.int8.onnx',
+        fileName: 'encoder.int8.onnx',
+        sha256: 'a8874229954fc2c21b01a4d085fdd22bb6e07fc1feb01bd608df4b3d2ca439f6',
+        sizeBytes: 42680013,
+      ),
+      RemoteFile(
+        url: '$_parakeet/encoder.int8.weights',
+        fileName: 'encoder.int8.weights',
+        sha256: '04f27664e6d9e2e7fa7c2d8ceb8bd99336bc694a3f2d53d3dbb69c8f65dd163e',
+        sizeBytes: 1065283320,
+      ),
+      RemoteFile(
+        url: '$_parakeet/decoder.int8.onnx',
+        fileName: 'decoder.int8.onnx',
+        sha256: 'c687095464c7efde24a4f1e9d1b20ac5c9b9356ee1324b2e1e43da717d7954ce',
+        sizeBytes: 7258064,
+      ),
+      RemoteFile(
+        url: '$_parakeet/joiner.int8.onnx',
+        fileName: 'joiner.int8.onnx',
+        sha256: '80ac06ea5b342624647bf5024c0fdf1171bf5bc51edd332cc8096ce077c75eaa',
+        sizeBytes: 1739391,
+      ),
+      RemoteFile(
+        url: '$_parakeet/tokens.txt',
+        fileName: 'tokens.txt',
+        sha256: 'ed16e1a4e3a3aa379138c0b1888e5d49f993c9d512b2be4d46e90a87afd54921',
+        sizeBytes: 10374,
       ),
     ],
   );
@@ -133,46 +149,75 @@ class ModelCatalog {
     ],
   );
 
-  static const String _hf = 'https://huggingface.co/google';
+  static const String _lc = 'https://huggingface.co/litert-community';
 
-  static const ModelAsset gemma3nE4b = ModelAsset(
-    id: 'gemma-3n-e4b-it-int4',
+  static const ModelAsset gemma4E4b = ModelAsset(
+    id: 'gemma-4-e4b-it',
     kind: ModelKind.languageModel,
-    title: 'Gemma 3n E4B (assistant)',
-    description: 'Google Gemma 3n, 4-bit. Answers questions about your conversations. Needs about 6 GB of free RAM.',
-    approxDownloadBytes: 4919541760,
-    requiresToken: true,
-    licenseUrl: '$_hf/gemma-3n-E4B-it-litert-lm',
+    title: 'Gemma 4 E4B',
+    description: 'Google Gemma 4 (E4B) for LiteRT-LM. Answers questions and can take actions. Best quality; needs ~6 GB RAM.',
+    approxDownloadBytes: 3659530240,
+    licenseUrl: '$_lc/gemma-4-E4B-it-litert-lm',
     essential: false,
+    llmType: 'gemma4',
+    supportsTools: true,
     files: [
       RemoteFile(
-        url: '$_hf/gemma-3n-E4B-it-litert-lm/resolve/main/gemma-3n-E4B-it-int4.litertlm',
-        fileName: 'gemma-3n-E4B-it-int4.litertlm',
-        // Integrity is also checked against Hugging Face's x-linked-etag (SHA-256).
-        sizeBytes: 4919541760,
+        url: '$_lc/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm',
+        fileName: 'gemma-4-E4B-it.litertlm',
+        sha256: '0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0',
+        sizeBytes: 3659530240,
       ),
     ],
   );
 
-  static const ModelAsset gemma3nE2b = ModelAsset(
-    id: 'gemma-3n-e2b-it-int4',
+  static const ModelAsset gemma4E2b = ModelAsset(
+    id: 'gemma-4-e2b-it',
     kind: ModelKind.languageModel,
-    title: 'Gemma 3n E2B (lighter assistant)',
-    description: 'Smaller and faster Gemma 3n for phones with less memory.',
-    approxDownloadBytes: 3655827456,
-    requiresToken: true,
-    licenseUrl: '$_hf/gemma-3n-E2B-it-litert-lm',
+    title: 'Gemma 4 E2B (faster)',
+    description: 'Smaller Gemma 4 for quicker answers and phones with less memory.',
+    approxDownloadBytes: 2588147712,
+    licenseUrl: '$_lc/gemma-4-E2B-it-litert-lm',
     essential: false,
+    llmType: 'gemma4',
+    supportsTools: true,
     files: [
       RemoteFile(
-        url: '$_hf/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4.litertlm',
-        fileName: 'gemma-3n-E2B-it-int4.litertlm',
-        sizeBytes: 3655827456,
+        url: '$_lc/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm',
+        fileName: 'gemma-4-E2B-it.litertlm',
+        sha256: '181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c',
+        sizeBytes: 2588147712,
       ),
     ],
   );
 
-  static const List<ModelAsset> all = [parakeet, voiceActivity, speakerVoiceprint, gemma3nE4b, gemma3nE2b];
+  static const List<ModelAsset> speech = [parakeet, voiceActivity, speakerVoiceprint];
+  static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
+  static const List<ModelAsset> all = [...speech, ...assistants];
 
-  static ModelAsset byId(String id) => all.firstWhere((m) => m.id == id);
+  static const String customLlmId = 'custom-llm';
+
+  /// A user-supplied LiteRT-LM model (any `.litertlm` URL).
+  static ModelAsset custom({
+    required String url,
+    String name = 'Custom model',
+    String llmType = 'gemma4',
+    bool supportsTools = true,
+    bool requiresToken = false,
+  }) {
+    final path = Uri.tryParse(url)?.pathSegments.where((s) => s.isNotEmpty).lastOrNull;
+    final fileName = (path == null || !path.contains('.')) ? 'custom.litertlm' : path;
+    return ModelAsset(
+      id: customLlmId,
+      kind: ModelKind.languageModel,
+      title: name.trim().isEmpty ? 'Custom model' : name.trim(),
+      description: url,
+      approxDownloadBytes: 0,
+      essential: false,
+      llmType: llmType,
+      supportsTools: supportsTools,
+      requiresToken: requiresToken,
+      files: [RemoteFile(url: url, fileName: fileName)],
+    );
+  }
 }

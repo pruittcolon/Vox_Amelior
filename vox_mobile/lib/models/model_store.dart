@@ -64,4 +64,12 @@ class ModelStore {
         .where((f) => f.path.endsWith('.part'))
         .fold<int>(0, (a, f) => a + f.lengthSync());
   }
+
+  /// Deletes model folders that are no longer used (e.g. after an upgrade).
+  void removeExcept(Set<String> keepIds) {
+    if (!root.existsSync()) return;
+    for (final d in root.listSync().whereType<Directory>()) {
+      if (!keepIds.contains(p.basename(d.path))) d.deleteSync(recursive: true);
+    }
+  }
 }

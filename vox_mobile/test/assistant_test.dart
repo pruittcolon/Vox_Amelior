@@ -53,7 +53,7 @@ void main() {
       expect(y.keywords, ['decide', 'car']);
       expect(parser().parse('anything today?', now: now).from, DateTime(2026, 6, 10));
       expect(parser().parse('in the last 2 hours', now: now).from, DateTime(2026, 6, 10, 13, 30));
-      expect(parser().parse('last week', now: now).from, DateTime(2026, 6, 3));
+      expect(parser().parse('last week', now: now).from, DateTime(2026, 6, 1)); // previous Mon–Sun
       expect(parser().parse('this morning', now: now).to, DateTime(2026, 6, 10, 12));
       final mon = parser().parse('what happened on monday', now: now);
       expect(mon.from, DateTime(2026, 6, 8));
@@ -132,7 +132,7 @@ void main() {
       expect(prompt, contains('[09:05] Sam: the plumber is coming at four'));
       expect(prompt, contains('Question: When is the plumber coming?'));
       final system = b.system(now: now, people: ['Alex', 'Sam']);
-      expect(system, contains('Never invent'));
+      expect(system, contains('never invent'));
       expect(system, contains('Alex, Sam'));
       expect(system, contains('Wednesday 2026-06-10 15:30'));
     });
@@ -176,19 +176,15 @@ void main() {
       expect(service.answer('anything'), throwsA(isA<LlmUnavailable>()));
     });
 
-    test('summarize handles empty periods without calling the model', () async {
-      final out = await service.summarize(DateTime(2026, 6, 1), DateTime(2026, 6, 2), label: 'yesterday').join();
-      expect(out, contains('did not hear any conversation'));
-      expect(llm.loaded, isFalse);
-    });
-
-    test('summarize sends the conversation to the model', () async {
-      say('we decided to repaint the kitchen', DateTime(2026, 6, 10, 8), speaker: alex.id);
-      final out = await service
-          .summarize(DateTime(2026, 6, 10), DateTime(2026, 6, 11), label: 'today')
-          .join();
-      expect(out, isNotEmpty);
-      expect(llm.lastPrompt, contains('Alex: we decided to repaint the kitchen'));
+    test('overview questions read across the whole period', () async {
+      for (var d = 1; d <= 5; d++) {
+        say('day $d we talked about topic$d', DateTime(2026, 6, d, 10), speaker: alex.id);
+      }
+      await service.answer('What did we talk about last week?');
+      for (var d = 1; d <= 5; d++) {
+        expect(llm.lastPrompt, contains('topic$d'));
+      }
+      expect(llm.lastPrompt, contains('last week (Mon 1 Jun – Sun 7 Jun)'));
     });
   });
 }

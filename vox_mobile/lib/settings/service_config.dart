@@ -25,8 +25,7 @@ class SpeechModelPaths {
 
   /// Null unless every speech model is fully installed.
   static SpeechModelPaths? fromStore(ModelStore store) {
-    const needed = [ModelCatalog.parakeet, ModelCatalog.voiceActivity, ModelCatalog.speakerVoiceprint];
-    if (!needed.every(store.isInstalled)) return null;
+    if (!ModelCatalog.speech.every(store.isInstalled)) return null;
     String path(ModelAsset a, String name) => store.file(a, name).path;
     return SpeechModelPaths(
       encoder: path(ModelCatalog.parakeet, 'encoder.int8.onnx'),
@@ -57,25 +56,67 @@ class SpeechModelPaths {
       );
 }
 
-/// Everything the background listener needs, handed over as a JSON file
+/// The assistant model file and how to run it.
+class LlmConfig {
+  const LlmConfig({required this.path, required this.modelType, required this.supportsTools, required this.title});
+
+  final String path;
+  final String modelType;
+  final bool supportsTools;
+  final String title;
+
+  static LlmConfig? fromStore(ModelStore store, ModelAsset asset) {
+    if (!store.isInstalled(asset)) return null;
+    return LlmConfig(
+      path: store.file(asset, asset.files.first.fileName).path,
+      modelType: asset.llmType,
+      supportsTools: asset.supportsTools,
+      title: asset.title,
+    );
+  }
+
+  Map<String, Object?> toJson() => {'path': path, 'modelType': modelType, 'supportsTools': supportsTools, 'title': title};
+
+  static LlmConfig? fromJson(Object? j) {
+    if (j is! Map || j['path'] is! String) return null;
+    return LlmConfig(
+      path: j['path']! as String,
+      modelType: j['modelType'] as String? ?? 'gemma4',
+      supportsTools: j['supportsTools'] as bool? ?? false,
+      title: j['title'] as String? ?? 'Assistant',
+    );
+  }
+}
+
+/// Everything the background service needs, handed over as a JSON file
 /// (the UI and the service run in different isolates and share only disk).
 class ServiceConfig {
   const ServiceConfig({
     required this.dbPath,
     required this.paths,
     required this.settings,
+    required this.queueDir,
+    this.llm,
     this.embeddingModelId = 'nemo-titanet-small',
   });
 
   final String dbPath;
   final SpeechModelPaths paths;
   final AppSettings settings;
+
+  /// Where captured speech waits to be transcribed.
+  final String queueDir;
+
+  /// Null when no assistant model is installed.
+  final LlmConfig? llm;
   final String embeddingModelId;
 
   Map<String, Object?> toJson() => {
         'dbPath': dbPath,
         'paths': paths.toJson(),
         'settings': settings.toJson(),
+        'queueDir': queueDir,
+        'llm': llm?.toJson(),
         'embeddingModelId': embeddingModelId,
       };
 
@@ -83,6 +124,8 @@ class ServiceConfig {
         dbPath: j['dbPath']! as String,
         paths: SpeechModelPaths.fromJson(j['paths']! as Map<String, Object?>),
         settings: AppSettings.fromJson(j['settings']! as Map<String, Object?>),
+        queueDir: j['queueDir'] as String? ?? '${File(j['dbPath']! as String).parent.path}/speech_queue',
+        llm: LlmConfig.fromJson(j['llm']),
         embeddingModelId: j['embeddingModelId'] as String? ?? 'nemo-titanet-small',
       );
 

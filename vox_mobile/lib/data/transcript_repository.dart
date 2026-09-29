@@ -94,6 +94,74 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
     return rows.map(_view).toList();
   }
 
+  List<SegmentView> segmentsByIds(List<int> ids) {
+    if (ids.isEmpty) return const [];
+    final marks = List.filled(ids.length, '?').join(',');
+    final rows = _db.raw.select('$_selectSegments WHERE s.id IN ($marks) ORDER BY s.id', ids);
+    return rows.map(_view).toList();
+  }
+
+  /// Days that have recordings, newest first.
+  List<DaySummary> days({int limit = 120}) {
+    final rows = _db.raw.select(
+      '''
+SELECT date(s.started_at / 1000, 'unixepoch', 'localtime') AS d,
+       COUNT(DISTINCT s.conversation_id) AS c, COUNT(*) AS n
+FROM segments s GROUP BY d ORDER BY d DESC LIMIT ?''',
+      [limit],
+    );
+    return rows.map((r) {
+      final parts = (r['d']! as String).split('-').map(int.parse).toList();
+      return DaySummary(day: DateTime(parts[0], parts[1], parts[2]), conversations: r['c']! as int, segments: r['n']! as int);
+    }).toList();
+  }
+
+  /// Conversations that started within [from, to), newest first, with who spoke.
+  List<ConversationSummary> conversationsBetween(DateTime from, DateTime to) {
+    final rows = _db.raw.select(
+      '''
+SELECT c.id, c.started_at, c.ended_at,
+       (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
+       (SELECT text FROM segments s WHERE s.conversation_id = c.id ORDER BY s.id LIMIT 1) AS preview
+FROM conversations c
+WHERE c.started_at >= ? AND c.started_at < ?
+ORDER BY c.started_at DESC''',
+      [from.millisecondsSinceEpoch, to.millisecondsSinceEpoch],
+    );
+    return rows.map(_summary).where((c) => c.segmentCount > 0).toList();
+  }
+
+  List<String> participants(int conversationId) {
+    final rows = _db.raw.select(
+      '''
+SELECT COALESCE(sp.name, uc.label, 'Unknown') AS who, COUNT(*) AS n
+FROM segments s
+LEFT JOIN speakers sp ON sp.id = s.speaker_id
+LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+WHERE s.conversation_id = ?
+GROUP BY who ORDER BY n DESC, MIN(s.id)''',
+      [conversationId],
+    );
+    return [for (final r in rows) r['who']! as String];
+  }
+
+  void deleteConversation(int conversationId) {
+    _db.transaction(() {
+      _db.raw
+        ..execute('DELETE FROM segments WHERE conversation_id = ?', [conversationId])
+        ..execute('DELETE FROM conversations WHERE id = ?', [conversationId]);
+    });
+  }
+
+  ConversationSummary _summary(Map<String, Object?> r) => ConversationSummary(
+        id: r['id']! as int,
+        startedAt: DateTime.fromMillisecondsSinceEpoch(r['started_at']! as int),
+        endedAt: DateTime.fromMillisecondsSinceEpoch(r['ended_at']! as int),
+        segmentCount: r['n']! as int,
+        preview: (r['preview'] as String?) ?? '',
+        participants: participants(r['id']! as int),
+      );
+
   List<ConversationSummary> conversations({int limit = 50, int? beforeId}) {
     final rows = _db.raw.select(
       '''
@@ -105,17 +173,7 @@ ${beforeId == null ? '' : 'WHERE c.id < ?'}
 ORDER BY c.id DESC LIMIT ?''',
       [?beforeId, limit],
     );
-    return rows
-        .map(
-          (r) => ConversationSummary(
-            id: r['id'] as int,
-            startedAt: DateTime.fromMillisecondsSinceEpoch(r['started_at'] as int),
-            endedAt: DateTime.fromMillisecondsSinceEpoch(r['ended_at'] as int),
-            segmentCount: r['n'] as int,
-            preview: (r['preview'] as String?) ?? '',
-          ),
-        )
-        .toList();
+    return rows.map(_summary).toList();
   }
 
   /// Full-text search (stemmed, BM25-ranked) with optional speaker/time

@@ -135,8 +135,10 @@ class SherpaSpeakerEmbedder implements EmbeddingEngine {
 
   late final sherpa.SpeakerEmbeddingExtractor _extractor;
 
+  static const String modelIdConst = 'nemo-titanet-small';
+
   @override
-  String get modelId => 'nemo-titanet-small';
+  String get modelId => modelIdConst;
 
   @override
   int get dimension => _extractor.dim;
