@@ -4,6 +4,8 @@ on:
   push:
     branches: [claude/laughing-cerf-zer2dj]
     paths: ['mobile-app/**', '.github/workflows/build-android.yml']
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,3 +27,14 @@ jobs:
         with:
           name: vox-amelior-debug-apk
           path: mobile-app/build/app/outputs/flutter-apk/app-debug.apk
+      - name: Publish APK as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          cp mobile-app/build/app/outputs/flutter-apk/app-debug.apk vox-amelior-debug.apk
+          gh release delete android-debug-latest --cleanup-tag --yes || true
+          gh release create android-debug-latest vox-amelior-debug.apk \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Android debug build" \
+            --notes "Debug APK from commit $GITHUB_SHA. Debug build for testing, not signed for release."
