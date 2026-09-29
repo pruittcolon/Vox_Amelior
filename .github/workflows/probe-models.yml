@@ -1,0 +1,56 @@
+name: Probe model repositories
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-cerf-zer2dj]
+    paths: ['.github/workflows/probe-models.yml']
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Search Hugging Face
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request
+          def get(url):
+              try:
+                  with urllib.request.urlopen(url, timeout=30) as r:
+                      return json.load(r)
+              except Exception as e:
+                  return {'error': str(e)}
+          def tree(repo):
+              t = get(f'https://huggingface.co/api/models/{repo}/tree/main')
+              info = get(f'https://huggingface.co/api/models/{repo}')
+              print(f'--- {repo} gated={info.get("gated") if isinstance(info, dict) else "?"}')
+              if isinstance(t, list):
+                  for f in t:
+                      oid = (f.get('lfs') or {}).get('oid') or ''
+                      print('   ', f.get('path'), f.get('size'), ' '.join(oid[i:i+16] for i in range(0, len(oid), 16)))
+              else:
+                  print('   ', t)
+          seen = set()
+          for q in ['parakeet-rnnt-1.1b', 'parakeet-tdt-1.1b', 'parakeet 1.1b', 'parakeet_rnnt_1.1b', 'parakeet-ctc-1.1b']:
+              res = get(f'https://huggingface.co/api/models?search={q.replace(" ", "%20")}&limit=100')
+              if isinstance(res, list):
+                  for m in res:
+                      seen.add(m['id'])
+          print('PARAKEET 1.1B REPOS:')
+          for s in sorted(seen):
+              print('  ', s)
+          for s in sorted(seen):
+              low = s.lower()
+              if 'onnx' in low or 'sherpa' in low:
+                  tree(s)
+          print('GEMMA 4 REPOS:')
+          g = set()
+          for q in ['gemma-4-E4B-it-litert', 'gemma-4-E2B-it-litert', 'gemma-4 litert']:
+              res = get(f'https://huggingface.co/api/models?search={q.replace(" ", "%20")}&limit=50')
+              if isinstance(res, list):
+                  for m in res:
+                      g.add(m['id'])
+          for s in sorted(g):
+              print('  ', s)
+          for s in sorted(g):
+              if 'e4b' in s.lower() or 'e2b' in s.lower():
+                  tree(s)
+          PY
