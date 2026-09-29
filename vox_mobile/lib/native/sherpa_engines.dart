@@ -85,7 +85,7 @@ class SherpaVad implements VadEngine {
   void dispose() => _vad.free();
 }
 
-/// NVIDIA Parakeet TDT (NeMo transducer) speech recognition.
+/// NVIDIA Parakeet RNNT (NeMo transducer) speech recognition.
 class SherpaParakeetAsr implements AsrEngine {
   SherpaParakeetAsr(SpeechModelPaths paths, {int threads = 2}) {
     ensureSherpaInitialized();

@@ -6,7 +6,7 @@ them.
 
 | Feature | How |
 |---|---|
-| Speech to text | NVIDIA **Parakeet TDT 1.1B** (int8) via sherpa-onnx |
+| Speech to text | NVIDIA **Parakeet RNNT 1.1B** (int8) via sherpa-onnx |
 | Speech detection | Silero VAD |
 | Who is speaking | NVIDIA TitaNet voiceprints; unknown voices become "Guest N" until named |
 | Memory | SQLite on the phone with full-text search, grouped into days and conversations |
@@ -88,7 +88,7 @@ Layout: `lib/core` (database), `lib/data` (repositories), `lib/pipeline`
 
 ## Known limitations
 
-- English only (Parakeet TDT 1.1B).
+- English only (Parakeet RNNT 1.1B).
 - Text appears after each sentence, not word by word.
 - Two people talking over each other in one sentence are attributed to one voice.
 - Android does not allow starting the microphone after a reboot; open Vox once.
