@@ -176,6 +176,7 @@ class _NowScreenState extends State<NowScreen> {
                 Pill('${l.heardToday} heard today', icon: Icons.record_voice_over_rounded),
                 if (l.backlog > 0) Pill('${l.backlog} to transcribe', icon: Icons.queue_rounded, color: const Color(0xFFB08800)),
                 if (l.isThinking) const Pill('Thinking', icon: Icons.auto_awesome_rounded, color: Color(0xFF9C36B5)),
+                if (l.isReviewing) const Pill('Reviewing', icon: Icons.manage_search_rounded, color: Color(0xFF0B7285)),
               ],
             ),
           ],

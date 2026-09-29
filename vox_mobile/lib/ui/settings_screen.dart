@@ -1,43 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
-import 'package:vox_amelior_mobile/assistant/prompt_builder.dart';
+import 'package:vox_amelior_mobile/data/clip_store.dart';
 import 'package:vox_amelior_mobile/settings/app_settings.dart';
+import 'package:vox_amelior_mobile/ui/capacity_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/prompt_editor.dart';
+import 'package:vox_amelior_mobile/ui/voice_clips_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, required this.services});
 
   final AppServices services;
-
-  Future<void> _editInstructions(BuildContext context, AppSettings st) async {
-    final controller = TextEditingController(text: st.instructions.isEmpty ? PromptBuilder.defaultInstructions : st.instructions);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Assistant instructions'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: TextField(
-            controller: controller,
-            maxLines: 10,
-            minLines: 5,
-            decoration: const InputDecoration(hintText: 'How should Vox answer?'),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, ''), child: const Text('Reset')),
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(c, controller.text.trim()), child: const Text('Save')),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (result == null) return;
-    final value = result == PromptBuilder.defaultInstructions ? '' : result;
-    await services.updateSettings(st.copyWith(instructions: value));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,10 +33,17 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (v) => update(st.copyWith(agentMode: v)),
               ),
               ListTile(
-                title: const Text('Instructions'),
-                subtitle: Text(st.instructions.isEmpty ? 'Default' : st.instructions, maxLines: 2, overflow: TextOverflow.ellipsis),
+                title: const Text('Instructions (prompt)'),
+                subtitle: Text(st.instructions.isEmpty ? 'Default: short, plain answers' : st.instructions,
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
                 trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => _editInstructions(context, st),
+                onTap: () => showPromptEditor(context, services),
+              ),
+              ListTile(
+                title: const Text('Gemma capacity'),
+                subtitle: Text('${capacitySummary(st)} · test this phone'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CapacityScreen(services: services))),
               ),
               ListTile(
                 title: const Text('Wake phrases'),
@@ -81,6 +63,13 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (v) => update(st.copyWith(speakReplies: v)),
               ),
               const SectionHeader('Voice recognition'),
+              SwitchListTile(
+                title: const Text('Multiple voice patterns'),
+                subtitle: const Text('Recognise each person close up, across the room or with a cold. '
+                    'Off = one average voice per person (the original way).'),
+                value: st.multiPatterns,
+                onChanged: (v) => update(st.copyWith(multiPatterns: v)),
+              ),
               _slider(context, 'How sure before naming someone', st.matchThreshold, 0.3, 0.9,
                   (v) => update(st.copyWith(matchThreshold: v)),
                   help: 'Higher = fewer wrong names, more "Guest" labels.'),
@@ -91,6 +80,17 @@ class SettingsScreen extends StatelessWidget {
                   (v) => update(st.copyWith(vadThreshold: v)),
                   help: 'Lower hears quieter speech but more noise. Applies next time Vox starts.'),
               const SectionHeader('Privacy & data'),
+              ListTile(
+                leading: const Icon(Icons.graphic_eq_rounded),
+                title: const Text('Voice clips'),
+                subtitle: Text(switch (st.clipMode) {
+                  ClipMode.off => 'Off',
+                  ClipMode.everyone => 'Saving everyone\'s speech',
+                  ClipMode.chosen => 'Saving chosen people',
+                }),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => VoiceClipsScreen(services: services))),
+              ),
               ListTile(
                 title: const Text('Keep transcripts for'),
                 trailing: DropdownButton<int>(
@@ -118,7 +118,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: Icon(Icons.delete_forever_rounded, color: Theme.of(context).colorScheme.error),
                 title: const Text('Delete all transcripts'),
-                subtitle: const Text('People and their voices are kept.'),
+                subtitle: const Text('People, their voices and saved voice clips are kept.'),
                 onTap: () async {
                   if (await confirm(context, 'Delete all transcripts?', 'This cannot be undone.')) {
                     services.transcripts.deleteAllTranscripts();

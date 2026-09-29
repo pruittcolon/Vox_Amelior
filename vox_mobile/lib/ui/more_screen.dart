@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/data/clip_store.dart';
 import 'package:vox_amelior_mobile/location/location_policy.dart';
+import 'package:vox_amelior_mobile/ui/appearance_screen.dart';
 import 'package:vox_amelior_mobile/ui/automations_screen.dart';
 import 'package:vox_amelior_mobile/ui/models_screen.dart';
 import 'package:vox_amelior_mobile/ui/places_screen.dart';
 import 'package:vox_amelior_mobile/ui/settings_screen.dart';
+import 'package:vox_amelior_mobile/ui/voice_clips_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 class MoreScreen extends StatelessWidget {
@@ -44,7 +47,18 @@ class MoreScreen extends StatelessWidget {
               PlacesScreen(services: services),
             ),
             (Icons.bolt_rounded, 'Automations', 'Webhooks, notifications and notes triggered by speech', AutomationsScreen(services: services)),
-            (Icons.tune_rounded, 'Settings', 'Assistant, voices, privacy', SettingsScreen(services: services)),
+            (Icons.palette_rounded, 'Appearance', 'Colour, dark mode, text size', AppearanceScreen(services: services)),
+            (
+              Icons.graphic_eq_rounded,
+              'Voice clips',
+              switch (st.clipMode) {
+                ClipMode.off => 'Off — turn on to save audio for training',
+                ClipMode.everyone => 'Saving everyone',
+                ClipMode.chosen => 'Saving chosen people',
+              },
+              VoiceClipsScreen(services: services),
+            ),
+            (Icons.tune_rounded, 'Settings', 'Assistant, Gemma capacity, voices, privacy', SettingsScreen(services: services)),
           ];
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),

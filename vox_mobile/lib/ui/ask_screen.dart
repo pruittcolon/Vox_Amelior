@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_service.dart';
+import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
@@ -15,6 +16,7 @@ class _Turn {
   final List<String> tools = [];
   List<SegmentView> sources = const [];
   String? error;
+  bool stopped = false;
   bool done = false;
 }
 
@@ -28,14 +30,51 @@ const Map<String, String> _toolLabels = {
   'pause_listening': 'Paused listening',
 };
 
-/// Chat with the assistant about past conversations.
+/// Periods for one-tap questions.
+const List<(String, String)> _periods = [
+  ('Today', 'today'),
+  ('Yesterday', 'yesterday'),
+  ('This week', 'this week'),
+  ('Last week', 'last week'),
+  ('This month', 'this month'),
+];
+
+/// Questions that work well for any period.
+List<(String, IconData)> suggestionsFor(String period) => [
+      ('What did we talk about $period?', Icons.forum_rounded),
+      ('What did we decide $period?', Icons.gavel_rounded),
+      ('What did we promise to do $period?', Icons.handshake_rounded),
+      ('Is there anything I should follow up on from $period?', Icons.flag_rounded),
+      ('Summarise $period', Icons.summarize_rounded),
+    ];
+
+/// Chat with the assistant about past conversations, and (with
+/// [reviewsBuilder]) long reviews that go through a whole period.
 class AskScreen extends StatefulWidget {
-  const AskScreen({super.key, required this.ask, required this.requests, required this.assistantReady, this.onOpenModels});
+  const AskScreen({
+    super.key,
+    required this.ask,
+    required this.requests,
+    required this.assistantReady,
+    this.onOpenModels,
+    this.onEditPrompt,
+    this.reviewsBuilder,
+    this.onReviewPeriod,
+  });
 
   final Stream<AnswerEvent> Function(String question) ask;
   final AssistantRequestRepository requests;
   final bool Function() assistantReady;
   final VoidCallback? onOpenModels;
+
+  /// Opens the prompt (instructions) editor.
+  final VoidCallback? onEditPrompt;
+
+  /// The "Go through everything" tab.
+  final WidgetBuilder? reviewsBuilder;
+
+  /// Starts a new review for a period phrase ("last week").
+  final void Function(String period)? onReviewPeriod;
 
   @override
   State<AskScreen> createState() => _AskScreenState();
@@ -46,6 +85,8 @@ class _AskScreenState extends State<AskScreen> {
   final _scroll = ScrollController();
   final List<_Turn> _turns = [];
   StreamSubscription<AnswerEvent>? _sub;
+  String? _period;
+  int _tab = 0;
 
   bool get _busy => _turns.isNotEmpty && !_turns.last.done;
 
@@ -74,11 +115,27 @@ class _AskScreenState extends State<AskScreen> {
       }),
       onError: (Object e) => setState(() {
         turn
-          ..error = '$e'
+          ..error = friendlyLlmError(e)
           ..done = true;
       }),
       onDone: () => setState(() => turn.done = true),
     );
+  }
+
+  void _stop() {
+    unawaited(_sub?.cancel());
+    _sub = null;
+    if (_turns.isEmpty) return;
+    setState(() {
+      _turns.last
+        ..stopped = true
+        ..done = true;
+    });
+  }
+
+  void _retry(_Turn turn) {
+    setState(() => _turns.remove(turn));
+    _ask(turn.question);
   }
 
   void _scrollDown() {
@@ -93,7 +150,6 @@ class _AskScreenState extends State<AskScreen> {
     final items = widget.requests.recent(source: RequestSource.voice);
     showModalBottomSheet<void>(
       context: context,
-      showDragHandle: true,
       isScrollControlled: true,
       builder: (c) => DraggableScrollableSheet(
         expand: false,
@@ -123,78 +179,109 @@ class _AskScreenState extends State<AskScreen> {
   @override
   Widget build(BuildContext context) {
     final ready = widget.assistantReady();
+    final reviews = widget.reviewsBuilder;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ask Vox'),
         actions: [
+          if (widget.onEditPrompt != null)
+            IconButton(tooltip: 'How Gemma answers', icon: const Icon(Icons.tune_rounded), onPressed: widget.onEditPrompt),
           IconButton(tooltip: 'Spoken questions', icon: const Icon(Icons.history_rounded), onPressed: _showVoiceHistory),
-          if (_turns.isNotEmpty)
+          if (_turns.isNotEmpty && _tab == 0)
             IconButton(tooltip: 'New chat', icon: const Icon(Icons.add_comment_rounded), onPressed: _busy ? null : () => setState(_turns.clear)),
         ],
       ),
       body: Column(
         children: [
+          if (reviews != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<int>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(value: 0, label: Text('Quick answer', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    ButtonSegment(value: 1, label: Text('Go through all', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  ],
+                  selected: {_tab},
+                  onSelectionChanged: (v) => setState(() => _tab = v.first),
+                ),
+              ),
+            ),
           if (!ready)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: VoxCard(
                 color: Theme.of(context).colorScheme.secondaryContainer,
-                padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                onTap: widget.onOpenModels,
+                child: const Row(
                   children: [
-                    const Icon(Icons.auto_awesome_rounded),
-                    const SizedBox(width: 12),
-                    const Expanded(child: Text('Download Gemma 4 to get answers. Search works on the Timeline tab.')),
-                    TextButton(onPressed: widget.onOpenModels, child: const Text('Models')),
+                    Icon(Icons.auto_awesome_rounded, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Download Gemma 4 to get answers', maxLines: 2, overflow: TextOverflow.ellipsis)),
+                    Icon(Icons.chevron_right_rounded),
                   ],
                 ),
               ),
             ),
           Expanded(
-            child: _turns.isEmpty
-                ? _suggestions(context)
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    itemCount: _turns.length,
-                    itemBuilder: (context, i) => _turnView(context, _turns[i]),
-                  ),
+            child: _tab == 1 && reviews != null
+                ? reviews(context)
+                : _turns.isEmpty
+                    ? _suggestions(context)
+                    : ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        itemCount: _turns.length,
+                        itemBuilder: (context, i) => _turnView(context, _turns[i]),
+                      ),
           ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 8, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      decoration: const InputDecoration(hintText: 'What did we say about…'),
-                      onSubmitted: _ask,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton.filled(
-                    tooltip: 'Ask',
-                    iconSize: 22,
-                    onPressed: _busy ? null : () => _ask(_input.text),
-                    icon: const Icon(Icons.arrow_upward_rounded),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          if (_tab == 0 || reviews == null) _inputBar(context),
         ],
       ),
     );
   }
 
+  Widget _inputBar(BuildContext context) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 8, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _input,
+                  minLines: 1,
+                  maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  decoration: const InputDecoration(hintText: 'What did we say about…'),
+                  onSubmitted: _ask,
+                ),
+              ),
+              const SizedBox(width: 6),
+              _busy
+                  ? IconButton.filledTonal(
+                      tooltip: 'Stop',
+                      iconSize: 22,
+                      onPressed: _stop,
+                      icon: const Icon(Icons.stop_rounded),
+                    )
+                  : IconButton.filled(
+                      tooltip: 'Ask',
+                      iconSize: 22,
+                      onPressed: () => _ask(_input.text),
+                      icon: const Icon(Icons.arrow_upward_rounded),
+                    ),
+            ],
+          ),
+        ),
+      );
+
   Widget _suggestions(BuildContext context) {
     final t = Theme.of(context);
-    const prompts = [
+    const general = [
       ('Summarise today', Icons.today_rounded),
       ('What did we talk about this week?', Icons.date_range_rounded),
       ('Recap last week', Icons.history_edu_rounded),
@@ -202,15 +289,34 @@ class _AskScreenState extends State<AskScreen> {
       ('What did we plan for the weekend?', Icons.event_rounded),
       ('Remind me in 30 minutes to check the oven', Icons.alarm_rounded),
     ];
+    final period = _period;
+    final items = period == null ? general : suggestionsFor(period);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
       children: [
         Text('Ask about anything said at home', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
-        Text('Vox reads your transcripts on this phone. It understands times like "yesterday", "last week" or "on Monday".',
-            style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant)),
-        const SizedBox(height: 20),
-        for (final (text, icon) in prompts)
+        Text('Vox reads your transcripts on this phone. Pick a time, or just type — it understands "yesterday", '
+            '"last week" or "on Monday".', style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 16),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final (label, phrase) in _periods)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(label),
+                    selected: period == phrase,
+                    onSelected: (sel) => setState(() => _period = sel ? phrase : null),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        for (final (text, icon) in items)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: VoxCard(
@@ -219,12 +325,37 @@ class _AskScreenState extends State<AskScreen> {
               child: Row(children: [Icon(icon, color: t.colorScheme.primary), const SizedBox(width: 12), Expanded(child: Text(text))]),
             ),
           ),
+        if (period != null && widget.onReviewPeriod != null)
+          VoxCard(
+            color: t.colorScheme.tertiaryContainer,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            onTap: () => widget.onReviewPeriod!(period),
+            child: Row(
+              children: [
+                Icon(Icons.manage_search_rounded, color: t.colorScheme.onTertiaryContainer),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Go through everything from $period',
+                          style: TextStyle(fontWeight: FontWeight.w700, color: t.colorScheme.onTertiaryContainer)),
+                      Text('Every line, part by part — e.g. find all logical fallacies or promises',
+                          style: TextStyle(color: t.colorScheme.onTertiaryContainer)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: t.colorScheme.onTertiaryContainer),
+              ],
+            ),
+          ),
       ],
     );
   }
 
   Widget _turnView(BuildContext context, _Turn turn) {
     final t = Theme.of(context);
+    final isLast = identical(turn, _turns.last);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -259,16 +390,38 @@ class _AskScreenState extends State<AskScreen> {
                     children: [for (final tool in turn.tools) Pill(tool, icon: Icons.bolt_rounded, color: const Color(0xFF9C36B5))],
                   ),
                 ),
-              if (turn.error != null)
-                Text(turn.error!, style: TextStyle(color: t.colorScheme.error))
-              else if (turn.answer.isEmpty && !turn.done)
+              if (turn.error != null) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.error_outline_rounded, color: t.colorScheme.error),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(turn.error!, style: TextStyle(color: t.colorScheme.error))),
+                  ],
+                ),
+                if (isLast)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => _retry(turn),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Try again'),
+                    ),
+                  ),
+              ] else if (turn.answer.isEmpty && !turn.done)
                 const Row(children: [
                   SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                   SizedBox(width: 10),
                   Text('Thinking…'),
                 ])
-              else
-                SelectableText(turn.answer.toString().trim(), style: t.textTheme.bodyLarge),
+              else ...[
+                if (turn.answer.isNotEmpty) SelectableText(turn.answer.toString().trim(), style: t.textTheme.bodyLarge),
+                if (turn.stopped)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('Stopped', style: t.textTheme.labelMedium?.copyWith(color: t.colorScheme.outline)),
+                  ),
+              ],
               if (turn.sources.isNotEmpty)
                 Theme(
                   data: t.copyWith(dividerColor: Colors.transparent),

@@ -3,12 +3,18 @@ import 'dart:io';
 
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:vox_amelior_mobile/assistant/context_budget.dart';
 import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
 import 'package:vox_amelior_mobile/core/log.dart';
 
 /// Which model file to run and how.
 class LlmModelSpec {
-  const LlmModelSpec({required this.path, required this.modelType, required this.supportsTools});
+  const LlmModelSpec({
+    required this.path,
+    required this.modelType,
+    required this.supportsTools,
+    this.contextTokens = ContextBudget.defaultContext,
+  });
 
   final String path;
 
@@ -16,20 +22,10 @@ class LlmModelSpec {
   final String modelType;
   final bool supportsTools;
 
+  /// Context window (input + output) the model is loaded with.
+  final int contextTokens;
+
   ModelType get type => ModelType.values.asNameMap()[modelType] ?? ModelType.general;
-
-  Map<String, Object?> toJson() => {'path': path, 'modelType': modelType, 'supportsTools': supportsTools};
-
-  static LlmModelSpec? fromJson(Object? j) {
-    if (j is! Map) return null;
-    final path = j['path'];
-    if (path is! String) return null;
-    return LlmModelSpec(
-      path: path,
-      modelType: j['modelType'] as String? ?? 'gemma4',
-      supportsTools: j['supportsTools'] as bool? ?? true,
-    );
-  }
 }
 
 /// Gemma 4 (or another LiteRT-LM model) running on the phone.
@@ -39,21 +35,30 @@ class LlmModelSpec {
 class GemmaLlmEngine implements LlmEngine {
   GemmaLlmEngine({
     required this.spec,
-    this.contextTokens = 4096,
-    this.maxReplyTokens = 700,
+    this.defaultReplyTokens = 700,
     this.idleUnloadAfter = const Duration(minutes: 3),
   });
 
   /// Read each time the model is loaded, so settings changes apply.
   final LlmModelSpec? Function() spec;
-  final int contextTokens;
-  final int maxReplyTokens;
+  final int defaultReplyTokens;
   final Duration idleUnloadAfter;
 
   InferenceModel? _model;
   LlmModelSpec? _loaded;
+  int _loadedContext = 0;
   Timer? _idle;
   Future<void> _lock = Future<void>.value();
+
+  /// Set after a failure on the GPU: run on the CPU until the model changes.
+  bool _cpuOnly = false;
+
+  /// Context size requested explicitly (phone test), until [unload].
+  int? _pinnedContext;
+
+  /// Chats currently open. The model is never reloaded or freed under one.
+  int _active = 0;
+  bool _unloadWhenIdle = false;
 
   static bool _initialized = false;
 
@@ -70,51 +75,89 @@ class GemmaLlmEngine implements LlmEngine {
   @override
   bool get supportsTools => (_loaded ?? spec())?.supportsTools ?? false;
 
+  /// Where the model runs now ('GPU' or 'CPU'), for the settings screen.
+  String get backendLabel => _cpuOnly ? 'CPU' : 'GPU';
+
   @override
-  Future<void> ensureLoaded() async {
+  Future<void> ensureLoaded({int? contextTokens}) async {
     _idle?.cancel();
     final want = spec();
     if (want == null || !File(want.path).existsSync()) {
       throw const LlmUnavailable('The assistant model is not downloaded yet. Get it under More → Models.');
     }
-    if (_model != null && _loaded?.path == want.path) return;
-    await unload();
+    // An explicit size (the phone test) sticks until the model is unloaded,
+    // so opening a chat does not quietly reload it at the default size.
+    if (contextTokens != null) _pinnedContext = contextTokens;
+    final context = _pinnedContext ?? want.contextTokens;
+    if (_model != null && _loaded?.path == want.path && _loadedContext == context) return;
+    // A chat is running: keep the current model; the change applies to the
+    // next chat (openSession reloads once the running one has closed).
+    if (_model != null && _active > 0) return;
+    if (_loaded != null && _loaded!.path != want.path) _cpuOnly = false;
+    final pin = _pinnedContext;
+    await _free();
+    _pinnedContext = pin;
     await initializePlugin();
     try {
       await FlutterGemma.installModel(modelType: want.type, fileType: ModelFileType.litertlm).fromFile(want.path).install();
     } on Object catch (e) {
       throw LlmUnavailable('Could not register the model file ($e).');
     }
-    try {
-      _model = await FlutterGemma.getActiveModel(maxTokens: contextTokens, preferredBackend: PreferredBackend.gpu);
-    } on Object catch (e) {
-      // Some phones lack a usable GPU delegate; the CPU path always works.
-      Log.w('gemma', 'GPU load failed, retrying on CPU', e.runtimeType);
+    if (!_cpuOnly) {
       try {
-        _model = await FlutterGemma.getActiveModel(maxTokens: contextTokens, preferredBackend: PreferredBackend.cpu);
+        _model = await FlutterGemma.getActiveModel(maxTokens: context, preferredBackend: PreferredBackend.gpu);
+      } on Object catch (e) {
+        // Some phones lack a usable GPU delegate; the CPU path always works.
+        Log.w('gemma', 'GPU load failed, retrying on CPU', e.runtimeType);
+        _cpuOnly = true;
+      }
+    }
+    if (_model == null) {
+      try {
+        _model = await FlutterGemma.getActiveModel(maxTokens: context, preferredBackend: PreferredBackend.cpu);
       } on Object catch (e2) {
         throw LlmUnavailable('Could not start the assistant on this phone (${e2.runtimeType}). It may need more free memory.');
       }
     }
     _loaded = want;
+    _loadedContext = context;
   }
 
   @override
-  Future<LlmSession> openSession({required String system, List<ToolSpec> tools = const []}) async {
+  Future<bool> recover() async {
+    if (_cpuOnly) return false;
+    Log.w('gemma', 'generation failed on GPU; switching to CPU');
+    _cpuOnly = true;
+    await unload();
+    return true;
+  }
+
+  @override
+  Future<LlmSession> openSession({
+    required String system,
+    List<ToolSpec> tools = const [],
+    int? maxReplyTokens,
+    int? contextTokens,
+  }) async {
     // One session at a time: wait for the previous one to close.
     final previous = _lock;
     final release = Completer<void>();
     _lock = release.future;
-    await previous;
     try {
-      await ensureLoaded();
+      await previous.timeout(const Duration(minutes: 5));
+    } on TimeoutException {
+      release.complete();
+      throw const LlmUnavailable('Gemma is still busy with an earlier request. Try again in a moment.');
+    }
+    try {
+      await ensureLoaded(contextTokens: contextTokens);
       final useTools = tools.isNotEmpty && supportsTools;
       final chat = await _model!.createChat(
         systemInstruction: system,
         temperature: 0.4,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: maxReplyTokens,
+        maxOutputTokens: maxReplyTokens ?? defaultReplyTokens,
         modelType: _loaded!.type,
         supportsFunctionCalls: useTools,
         tools: [
@@ -122,8 +165,14 @@ class GemmaLlmEngine implements LlmEngine {
             for (final t in tools) Tool(name: t.name, description: t.description, parameters: t.parameters),
         ],
       );
+      _active++;
       return _GemmaSession(chat, () {
-        _scheduleUnload();
+        _active--;
+        if (_active == 0 && _unloadWhenIdle) {
+          unawaited(unload());
+        } else {
+          _scheduleUnload();
+        }
         if (!release.isCompleted) release.complete();
       });
     } on Object {
@@ -135,9 +184,20 @@ class GemmaLlmEngine implements LlmEngine {
   @override
   Future<void> unload() async {
     _idle?.cancel();
+    if (_active > 0) {
+      _unloadWhenIdle = true;
+      return;
+    }
+    _unloadWhenIdle = false;
+    _pinnedContext = null;
+    await _free();
+  }
+
+  Future<void> _free() async {
     final model = _model;
     _model = null;
     _loaded = null;
+    _loadedContext = 0;
     await model?.close();
   }
 
@@ -166,6 +226,15 @@ class _GemmaSession implements LlmSession {
     yield* _generate();
   }
 
+  @override
+  Future<int?> countTokens(String text) async {
+    try {
+      return await _chat.session.sizeInTokens(text);
+    } on Object {
+      return null;
+    }
+  }
+
   Stream<LlmEvent> _generate() async* {
     await for (final r in _chat.generateChatResponseAsync()) {
       if (r is TextResponse) {
@@ -186,6 +255,8 @@ class _GemmaSession implements LlmSession {
     _closed = true;
     try {
       await _chat.close();
+    } on Object catch (e) {
+      Log.w('gemma', 'closing a chat failed', e);
     } finally {
       _onClose();
     }

@@ -7,6 +7,8 @@ import 'package:vox_amelior_mobile/ui/models_screen.dart';
 import 'package:vox_amelior_mobile/ui/more_screen.dart';
 import 'package:vox_amelior_mobile/ui/now_screen.dart';
 import 'package:vox_amelior_mobile/ui/people_screen.dart';
+import 'package:vox_amelior_mobile/ui/prompt_editor.dart';
+import 'package:vox_amelior_mobile/ui/reviews_screen.dart';
 import 'package:vox_amelior_mobile/ui/timeline_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -36,6 +38,9 @@ class _HomeShellState extends State<HomeShell> {
           requests: s.requests,
           assistantReady: () => s.assistantReady,
           onOpenModels: _openModels,
+          onEditPrompt: () => showPromptEditor(context, s),
+          reviewsBuilder: (_) => ReviewsView(services: s),
+          onReviewPeriod: (period) => openReviewCreator(context, s, period: period),
         ),
       ),
       PeopleScreen(services: s),

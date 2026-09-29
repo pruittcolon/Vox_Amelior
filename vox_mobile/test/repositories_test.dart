@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
@@ -199,10 +201,40 @@ void main() {
       expect(() => speakers.promoteCluster('missing', 'X', embeddingModel: 'f'), throwsStateError);
     });
 
-    test('sample history is capped', () {
-      final a = speakers.create(name: 'Alex', embeddingModel: 'f', samples: [voiceprint(1)]);
-      speakers.addSamples(a.id, [for (var i = 0; i < SpeakerRepository.maxSamplesPerSpeaker + 20; i++) voiceprint(1, variant: i)]);
+    test('sample history is capped, but enrollment samples are never dropped', () {
+      final a = speakers.create(name: 'Alex', embeddingModel: 'f', samples: [voiceprint(1), voiceprint(1, variant: 1)]);
+      speakers.addSamples(
+        a.id,
+        [for (var i = 0; i < SpeakerRepository.maxSamplesPerSpeaker + 20; i++) voiceprint(1, variant: i + 2)],
+        source: 'label',
+      );
       expect(speakers.sampleCount(a.id), SpeakerRepository.maxSamplesPerSpeaker);
+      final enrolled = db.raw.select("SELECT COUNT(*) AS c FROM speaker_samples WHERE speaker_id = ? AND source = 'enroll'", [a.id]);
+      expect(enrolled.first['c'], 2);
     });
+  });
+
+  test('an old database is upgraded once, and a second opener does not migrate again', () {
+    final dir = Directory.systemTemp.createTempSync('vox_db_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/vox.db';
+    AppDatabase.open(path).close();
+    // Pretend it is an old v2 database, then open it twice.
+    final old = sqlite3.open(path)..userVersion = 2;
+    old
+      ..execute('DROP INDEX speaker_samples_segment')
+      ..execute('ALTER TABLE speaker_samples DROP COLUMN segment_id')
+      ..execute('ALTER TABLE speakers DROP COLUMN patterns');
+    for (final t in ['review_items', 'review_chunks', 'review_runs', 'voice_clips', 'speaker_negatives']) {
+      old.execute('DROP TABLE $t');
+    }
+    old.close();
+    final a = AppDatabase.open(path);
+    final b = AppDatabase.open(path);
+    expect(a.raw.userVersion, AppDatabase.schemaVersion);
+    expect(b.raw.userVersion, AppDatabase.schemaVersion);
+    expect(SpeakerRepository(b).profiles(), isEmpty); // new columns readable
+    a.close();
+    b.close();
   });
 }

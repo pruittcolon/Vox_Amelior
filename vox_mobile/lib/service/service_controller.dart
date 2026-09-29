@@ -31,6 +31,7 @@ class ServiceController extends ChangeNotifier {
   ListenState get state => isListening ? (_fatal ? ListenState.error : _state) : ListenState.paused;
   String get reason => _reason;
   bool get isThinking => _activity == 'assistant';
+  bool get isReviewing => _activity == 'reviewing' || _reason.contains('reviewing');
   int get backlog => _backlog;
   int get heardToday => _heardToday;
   bool get assistantReadyInService => _assistantReady;
@@ -123,31 +124,45 @@ class ServiceController extends ChangeNotifier {
     await refresh();
   }
 
+  final Set<String> _keepAlive = {};
+
   /// Keeps the app process alive while large models download in the background.
-  Future<void> keepAliveForDownloads(bool downloading) async {
+  Future<void> keepAliveForDownloads(bool downloading) => keepAliveFor('download', downloading);
+
+  /// Keeps the app alive in the background while it works on its own
+  /// (downloads, or reviews while Vox is not listening).
+  Future<void> keepAliveFor(String reason, bool on) async {
+    if (on) {
+      _keepAlive.add(reason);
+    } else {
+      _keepAlive.remove(reason);
+    }
     try {
       final running = await FlutterForegroundTask.isRunningService;
-      if (downloading && !running) {
+      final mode = running ? await FlutterForegroundTask.getData<String>(key: kServiceModeKey) : null;
+      if (_keepAlive.isNotEmpty && !running) {
         await FlutterForegroundTask.saveData(key: kServiceModeKey, value: kModeDownload);
         await FlutterForegroundTask.startService(
           serviceId: _serviceId,
           serviceTypes: [ForegroundServiceTypes.dataSync],
-          notificationTitle: 'Downloading models',
-          notificationText: 'Vox keeps downloading while you use other apps',
+          notificationTitle: _keepAlive.contains('download') ? 'Downloading models' : 'Vox is reviewing',
+          notificationText: 'Vox keeps working while you use other apps',
           callback: startListeningService,
         );
-      } else if (!downloading && running && _mode == kModeDownload) {
+      } else if (_keepAlive.isEmpty && running && mode == kModeDownload) {
         await FlutterForegroundTask.stopService();
       }
     } on Object catch (e) {
-      Log.w('service', 'download keep-alive failed', e);
+      Log.w('service', 'keep-alive failed', e);
     }
     await refresh();
   }
 
-  Future<void> updateDownloadNotification(String text) async {
+  Future<void> updateDownloadNotification(String text) => updateWorkNotification('Downloading models', text);
+
+  Future<void> updateWorkNotification(String title, String text) async {
     if (_running && _mode == kModeDownload) {
-      await FlutterForegroundTask.updateService(notificationTitle: 'Downloading models', notificationText: text);
+      await FlutterForegroundTask.updateService(notificationTitle: title, notificationText: text);
     }
   }
 
@@ -170,6 +185,15 @@ class ServiceController extends ChangeNotifier {
 
   /// Asks the service to answer stored assistant request [id].
   void ask(int id) => _send({'cmd': ServiceCommands.ask, 'id': id});
+
+  /// Stops answering request [id].
+  void cancelAsk(int id) => _send({'cmd': ServiceCommands.cancelAsk, 'id': id});
+
+  /// Runs the phone context test in the service.
+  void probe() => _send({'cmd': ServiceCommands.probe});
+
+  /// New or resumed reviews are waiting.
+  void reviewKick() => _send({'cmd': ServiceCommands.reviewKick});
 
   /// Frees the microphone for recording voice samples. Returns true if the
   /// service was listening (so the caller can [resume] afterwards).

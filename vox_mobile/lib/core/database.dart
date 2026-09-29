@@ -14,7 +14,7 @@ class AppDatabase {
   /// File location, or ':memory:' for test databases.
   final String path;
 
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
 
   /// Opens (creating and migrating if needed) the database at [path].
   static AppDatabase open(String path) {
@@ -51,11 +51,15 @@ class AppDatabase {
   }
 
   void _migrate() {
-    final current = raw.userVersion;
-    if (current >= schemaVersion) return;
+    if (raw.userVersion >= schemaVersion) return;
     transaction(() {
+      // Re-read under the write lock: the app and the listening service can
+      // open the database at the same moment, and only one may migrate.
+      final current = raw.userVersion;
+      if (current >= schemaVersion) return;
       if (current < 1) _v1();
       if (current < 2) _v2();
+      if (current < 3) _v3();
       raw.userVersion = schemaVersion;
     });
   }
@@ -187,5 +191,89 @@ CREATE TABLE reminders (
   fired_at INTEGER
 )''')
       ..execute('CREATE INDEX reminders_due ON reminders(fired_at, due_at)');
+  }
+
+  /// Voice patterns and "not this person" examples, saved voice clips and
+  /// long-running reviews.
+  void _v3() {
+    raw
+      ..execute('ALTER TABLE speakers ADD COLUMN patterns BLOB')
+      ..execute('ALTER TABLE speaker_samples ADD COLUMN segment_id INTEGER')
+      ..execute('CREATE INDEX speaker_samples_segment ON speaker_samples(segment_id)')
+      ..execute('''
+CREATE TABLE speaker_negatives (
+  id INTEGER PRIMARY KEY,
+  speaker_id TEXT NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  segment_id INTEGER,
+  created_at INTEGER NOT NULL
+)''')
+      ..execute('CREATE INDEX speaker_negatives_speaker ON speaker_negatives(speaker_id)')
+      ..execute('''
+CREATE TABLE voice_clips (
+  id INTEGER PRIMARY KEY,
+  segment_id INTEGER UNIQUE,
+  speaker_id TEXT REFERENCES speakers(id) ON DELETE SET NULL,
+  text TEXT NOT NULL,
+  path TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  started_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+)''')
+      ..execute('CREATE INDEX voice_clips_speaker ON voice_clips(speaker_id)')
+      ..execute('''
+CREATE TABLE review_runs (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  format TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  period_label TEXT NOT NULL,
+  from_ms INTEGER NOT NULL,
+  to_ms INTEGER NOT NULL,
+  focus_json TEXT NOT NULL,
+  chunk_tokens INTEGER NOT NULL,
+  context_tokens INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  total_chunks INTEGER NOT NULL,
+  done_chunks INTEGER NOT NULL DEFAULT 0,
+  merge_json TEXT,
+  final_answer TEXT,
+  error TEXT,
+  lease_owner TEXT,
+  lease_until INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER
+)''')
+      ..execute('''
+CREATE TABLE review_chunks (
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES review_runs(id) ON DELETE CASCADE,
+  idx INTEGER NOT NULL,
+  segment_ids TEXT NOT NULL,
+  line_count INTEGER NOT NULL,
+  first_at INTEGER NOT NULL,
+  last_at INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  answer TEXT,
+  error TEXT,
+  finished_at INTEGER
+)''')
+      ..execute('CREATE UNIQUE INDEX review_chunks_run ON review_chunks(run_id, idx)')
+      ..execute('''
+CREATE TABLE review_items (
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES review_runs(id) ON DELETE CASCADE,
+  chunk_idx INTEGER NOT NULL,
+  segment_id INTEGER,
+  category TEXT NOT NULL,
+  quote TEXT NOT NULL,
+  note TEXT NOT NULL,
+  speaker TEXT,
+  said_at INTEGER
+)''')
+      ..execute('CREATE INDEX review_items_run ON review_items(run_id, chunk_idx)');
   }
 }

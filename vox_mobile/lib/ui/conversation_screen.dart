@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
+import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
@@ -37,48 +38,86 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Future<void> _relabel(SegmentView seg) async {
     final people = s.speakers.profiles();
+    final current = seg.speakerId == null ? null : seg.speakerName;
     final choice = await showModalBottomSheet<String>(
       context: context,
-      showDragHandle: true,
-      builder: (c) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: Text('Who said this?', style: Theme.of(c).textTheme.titleMedium),
+      isScrollControlled: true,
+      builder: (c) {
+        final t = Theme.of(c);
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(c).height * 0.8),
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.only(bottom: 8),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                  child: Text('Who said this?', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: Text('"${seg.text}"',
+                      maxLines: 3, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyMedium?.copyWith(fontStyle: FontStyle.italic)),
+                ),
+                for (final p in people)
+                  ListTile(
+                    leading: SpeakerAvatar(label: p.name),
+                    title: Text(p.name),
+                    trailing: p.id == seg.speakerId ? Icon(Icons.check_rounded, color: t.colorScheme.primary) : null,
+                    onTap: () => Navigator.pop(c, p.id),
+                  ),
+                if (people.isEmpty) const ListTile(title: Text('Add people on the People tab to label voices.')),
+                const Divider(indent: 16, endIndent: 16),
+                if (current != null)
+                  ListTile(
+                    leading: Icon(Icons.person_off_rounded, color: t.colorScheme.error),
+                    title: Text('Not $current'),
+                    subtitle: Text('Becomes a guest; similar voices won\'t get this name. $current\'s voiceprint stays the same.'),
+                    onTap: () => Navigator.pop(c, '#not'),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.person_add_rounded),
+                  title: const Text('New person…'),
+                  subtitle: const Text('Name someone new from this line'),
+                  onTap: () => Navigator.pop(c, '#new'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.copy_rounded),
+                  title: const Text('Copy this line'),
+                  onTap: () => Navigator.pop(c, '#copy'),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: Text('"${seg.text}"', maxLines: 3, overflow: TextOverflow.ellipsis),
-            ),
-            for (final p in people)
-              ListTile(
-                leading: SpeakerAvatar(label: p.name),
-                title: Text(p.name),
-                trailing: p.id == seg.speakerId ? const Icon(Icons.check_rounded) : null,
-                onTap: () => Navigator.pop(c, p.id),
-              ),
-            if (people.isEmpty) const ListTile(title: Text('Add people on the People tab to label voices.')),
-            ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: const Text('Copy this line'),
-              onTap: () => Navigator.pop(c, '#copy'),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
     if (choice == null || !mounted) return;
-    if (choice == '#copy') {
-      await Clipboard.setData(ClipboardData(text: seg.text));
-      if (mounted) showMessage(context, 'Copied');
+    try {
+      switch (choice) {
+        case '#copy':
+          await Clipboard.setData(ClipboardData(text: seg.text));
+          if (mounted) showMessage(context, 'Copied');
+          return;
+        case '#not':
+          final guest = s.speakers.markNotSpeaker(seg.id, clusterThreshold: s.settings.value.guestThreshold);
+          if (mounted) showMessage(context, guest == null ? 'Removed $current from this line.' : 'Not $current — now $guest.');
+        case '#new':
+          final name = await askText(context, 'Who is this?', hint: 'Name');
+          if (name == null || name.isEmpty) return;
+          s.speakers.createFromSegment(seg.id, name, embeddingModel: SherpaSpeakerEmbedder.modelIdConst);
+          if (mounted) showMessage(context, 'Added $name. Vox will recognise this voice from now on.');
+        default:
+          s.speakers.assignSegmentToSpeaker(seg.id, choice);
+          if (mounted) showMessage(context, 'Thanks — Vox will recognise this voice better.');
+      }
+    } on StateError catch (e) {
+      if (mounted) showMessage(context, e.message);
       return;
     }
-    s.speakers.assignSegmentToSpeaker(seg.id, choice);
     s.dataChanged();
     _load();
-    if (mounted) showMessage(context, 'Thanks — Vox will recognise this voice better.');
   }
 
   Future<void> _menu(String action) async {
@@ -89,8 +128,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         if (mounted) showMessage(context, 'Conversation copied');
       case 'delete':
         if (await confirm(context, 'Delete this conversation?', 'It is removed from this phone for good.')) {
-          s.transcripts.deleteConversation(widget.conversationId);
-          s.dataChanged();
+          s.deleteConversation(widget.conversationId);
           if (mounted) Navigator.pop(context);
         }
     }

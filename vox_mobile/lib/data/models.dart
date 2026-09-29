@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
-/// An enrolled person, represented by the mean of their voice embeddings.
+/// An enrolled person, represented by the mean of their voice embeddings
+/// plus a few "patterns" (averages of similar-sounding groups of samples).
 class SpeakerProfile {
   const SpeakerProfile({
     required this.id,
@@ -9,6 +10,8 @@ class SpeakerProfile {
     required this.centroid,
     required this.sampleCount,
     required this.createdAt,
+    this.patterns = const [],
+    this.negatives = const [],
   });
 
   final String id;
@@ -20,6 +23,13 @@ class SpeakerProfile {
   final Float32List centroid;
   final int sampleCount;
   final DateTime createdAt;
+
+  /// Averages of groups of similar samples (up to 5); empty until the
+  /// person has enough samples.
+  final List<Float32List> patterns;
+
+  /// Voices the user marked as "not this person".
+  final List<Float32List> negatives;
 }
 
 /// A not-yet-named voice ("Guest 1") discovered while listening.

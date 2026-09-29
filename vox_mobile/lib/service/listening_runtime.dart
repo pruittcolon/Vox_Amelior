@@ -6,7 +6,11 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:vox_amelior_mobile/assistant/agent_tools.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_service.dart';
+import 'package:vox_amelior_mobile/assistant/context_probe.dart';
 import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
+import 'package:vox_amelior_mobile/assistant/review_engine.dart';
+import 'package:vox_amelior_mobile/assistant/review_repository.dart';
+import 'package:vox_amelior_mobile/assistant/review_worker.dart';
 import 'package:vox_amelior_mobile/assistant/wake_command.dart';
 import 'package:vox_amelior_mobile/automation/action_executor.dart';
 import 'package:vox_amelior_mobile/automation/automation_repositories.dart';
@@ -16,6 +20,7 @@ import 'package:vox_amelior_mobile/automation/segment_handler.dart';
 import 'package:vox_amelior_mobile/automation/webhook_dispatcher.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/core/log.dart';
+import 'package:vox_amelior_mobile/data/clip_store.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
@@ -29,6 +34,7 @@ import 'package:vox_amelior_mobile/pipeline/compute_scheduler.dart';
 import 'package:vox_amelior_mobile/pipeline/segment_processor.dart';
 import 'package:vox_amelior_mobile/pipeline/speech_capture.dart';
 import 'package:vox_amelior_mobile/service/protocol.dart';
+import 'package:vox_amelior_mobile/service/shared_files.dart';
 import 'package:vox_amelior_mobile/settings/service_config.dart';
 import 'package:vox_amelior_mobile/speakers/speaker_identifier.dart';
 
@@ -62,6 +68,12 @@ class ListeningRuntime {
   late final ComputeScheduler scheduler;
   late final GemmaLlmEngine llm;
   late final AssistantService assistant;
+  late final ClipStore clips;
+  late final ReviewRepository reviews;
+  late final ReviewWorker reviewWorker;
+  final Set<int> _cancelled = {};
+  final Map<int, void Function()> _stoppers = {};
+  bool _probing = false;
   final PcmSource _source = MicrophonePcmSource();
   final FlutterTts _tts = FlutterTts();
   final LocationMonitor _location = const LocationMonitor();
@@ -123,6 +135,7 @@ class ListeningRuntime {
       wakeParser: WakeCommandParser(c.settings.wakePhrases),
     );
 
+    clips = ClipStore(db, Directory(voiceClipsDir(configFile.parent.path)));
     capture = SpeechCapture(SherpaVad(modelPath: c.paths.vad, threshold: c.settings.vadThreshold));
     processor = SegmentProcessor(
       asr: SherpaParakeetAsr(c.paths),
@@ -136,6 +149,7 @@ class ListeningRuntime {
       ),
       transcripts: transcripts,
       speakers: speakers,
+      onSaved: (segment, samples) => clips.maybeSave(_config.settings.clipPolicy, segment, samples),
     );
     queue = ChunkQueue(Directory(c.queueDir));
     scheduler = ComputeScheduler(
@@ -147,7 +161,14 @@ class ListeningRuntime {
 
     llm = GemmaLlmEngine(spec: () {
       final l = _config.llm;
-      return l == null ? null : LlmModelSpec(path: l.path, modelType: l.modelType, supportsTools: l.supportsTools);
+      return l == null
+          ? null
+          : LlmModelSpec(
+              path: l.path,
+              modelType: l.modelType,
+              supportsTools: l.supportsTools,
+              contextTokens: _config.settings.contextTokens,
+            );
     });
     assistant = AssistantService(
       llm: llm,
@@ -155,6 +176,7 @@ class ListeningRuntime {
       speakers: speakers,
       instructions: () => _config.settings.instructions,
       agentEnabled: () => _config.settings.agentMode,
+      budget: () => _config.settings.budget,
       toolbox: AgentToolbox(
         transcripts: transcripts,
         speakers: speakers,
@@ -162,7 +184,20 @@ class ListeningRuntime {
         reminders: reminders,
         rules: rules,
         hooks: AgentHooks(runAutomation: _runAutomation, pauseListening: pauseFor),
+        budget: () => _config.settings.budget,
       ),
+    );
+    reviews = ReviewRepository(db);
+    reviewWorker = ReviewWorker(
+      engine: ReviewEngine(reviews: reviews, transcripts: transcripts, llm: llm),
+      reviews: reviews,
+      owner: 'service',
+      schedule: scheduler.runBackground,
+      canWork: () => !_stopped,
+      onProgress: (id) {
+        emit({'type': ServiceEvents.review, 'id': id});
+        emitStatus();
+      },
     );
 
     unawaited(_tts.awaitSpeakCompletion(true));
@@ -174,6 +209,7 @@ class ListeningRuntime {
     for (final r in requests.takePending()) {
       unawaited(answer(r.id));
     }
+    reviewWorker.kick();
   }
 
   // ---- microphone ------------------------------------------------------
@@ -271,10 +307,15 @@ class ListeningRuntime {
   Future<void> answer(int id) => scheduler.runExclusive(() async {
         final request = requests.get(id);
         if (request == null || request.status != RequestStatus.pending) return;
+        if (_cancelled.remove(id)) {
+          requests.fail(id, 'Stopped.');
+          return;
+        }
         final buffer = StringBuffer();
         var sources = const <SegmentView>[];
-        try {
-          await for (final e in assistant.ask(request.text)) {
+        final finished = Completer<void>();
+        final sub = assistant.ask(request.text).listen(
+          (e) {
             if (e.sources != null) {
               sources = e.sources!;
               emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'sources', 'ids': [for (final s in sources) s.id]});
@@ -284,7 +325,22 @@ class ListeningRuntime {
             } else if (e.toolName != null) {
               emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'tool', 'name': e.toolName});
             }
-          }
+          },
+          onError: (Object e, StackTrace st) {
+            if (!finished.isCompleted) finished.completeError(e, st);
+          },
+          onDone: () {
+            if (!finished.isCompleted) finished.complete();
+          },
+          cancelOnError: true,
+        );
+        // The Stop button ends the answer at once (Gemma is told to stop).
+        _stoppers[id] = () {
+          unawaited(sub.cancel());
+          if (!finished.isCompleted) finished.completeError(const _Stopped());
+        };
+        try {
+          await finished.future;
           final text = buffer.toString().trim().isEmpty ? 'Sorry, I have no answer for that.' : buffer.toString().trim();
           requests.answer(id, text, sources: [for (final s in sources) s.id]);
           emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'done'});
@@ -292,16 +348,57 @@ class ListeningRuntime {
             await notifier.show(request.text, text);
             if (_config.settings.speakReplies) await _speak(text);
           }
+        } on _Stopped {
+          requests.fail(id, 'Stopped.');
+          emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'error', 'message': 'Stopped.'});
         } on LlmUnavailable catch (e) {
           requests.fail(id, e.message);
           emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'error', 'message': e.message});
           if (request.source == RequestSource.voice) await notifier.show('Vox cannot answer yet', e.message);
         } on Object catch (e, st) {
           Log.e('assistant', 'answer failed', e, st);
-          requests.fail(id, 'Something went wrong while answering.');
-          emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'error', 'message': 'Something went wrong: $e'});
+          final message = friendlyLlmError(e);
+          requests.fail(id, message);
+          emit({'type': ServiceEvents.answer, 'id': id, 'kind': 'error', 'message': message});
+          if (request.source == RequestSource.voice) await notifier.show('Vox could not answer', message);
+        } finally {
+          _stoppers.remove(id);
         }
       });
+
+  /// Stops answering [id] (the app's Stop button), or skips it if it has
+  /// not started yet.
+  void cancelAnswer(int id) {
+    final stop = _stoppers[id];
+    if (stop != null) {
+      stop();
+    } else {
+      _cancelled.add(id);
+    }
+  }
+
+  /// Runs the phone context test with this service's model, streaming
+  /// progress to the app. The result is also written to a file so it is not
+  /// lost if the app is closed meanwhile.
+  Future<void> runProbe() async {
+    if (_probing) return;
+    _probing = true;
+    try {
+      await scheduler.runExclusive(() async {
+        final probe = ContextProbe(llm: llm, markerFile: File(probeMarkerPath(configFile.parent.path)));
+        final result = await probe.run(
+          onStep: (s) => emit({'type': ServiceEvents.probe, 'kind': 'step', ...s.toJson()}),
+        );
+        writeProbeResult(configFile.parent.path, result);
+        emit({'type': ServiceEvents.probe, 'kind': 'done', ...result.toJson()});
+      });
+    } on Object catch (e, st) {
+      Log.e('probe', 'context test failed', e, st);
+      emit({'type': ServiceEvents.probe, 'kind': 'error', 'message': friendlyLlmError(e)});
+    } finally {
+      _probing = false;
+    }
+  }
 
   Future<void> _speak(String text) async {
     try {
@@ -375,6 +472,7 @@ class ListeningRuntime {
     processor.identifier.updateProfiles(speakers.profiles(), speakers.clusters());
     await _checkLocation(force: true);
     await _applyListening();
+    reviewWorker.kick();
   }
 
   /// Periodic work (every ~30 s).
@@ -391,6 +489,7 @@ class ListeningRuntime {
     await _checkLocation();
     _housekeeping();
     scheduler.kick();
+    reviewWorker.kick();
     emitStatus();
   }
 
@@ -447,6 +546,7 @@ class ListeningRuntime {
   String statusText() {
     final parts = <String>[_reason];
     if (scheduler.activity == SchedulerActivity.assistant) parts.add('thinking');
+    if (scheduler.activity == SchedulerActivity.reviewing || reviewWorker.isRunning) parts.add('reviewing');
     final backlog = scheduler.backlog;
     if (backlog > 0) parts.add('$backlog waiting to transcribe');
     if (_today > 0) parts.add('$_today heard today');
@@ -466,6 +566,7 @@ class ListeningRuntime {
 
   Future<void> stop() async {
     _stopped = true;
+    reviewWorker.stop();
     _micRetry?.cancel();
     await _mic?.cancel();
     _mic = null;
@@ -481,4 +582,8 @@ class ListeningRuntime {
     processor.dispose();
     db.close();
   }
+}
+
+class _Stopped implements Exception {
+  const _Stopped();
 }

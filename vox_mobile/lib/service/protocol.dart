@@ -11,6 +11,12 @@ abstract final class ServiceEvents {
 
   /// {type, message, fatal}
   static const error = 'error';
+
+  /// Phone context test: {type, kind: step|done|error, size, status, detail | best, failedAt, note | message}
+  static const probe = 'probe';
+
+  /// A review made progress: {type, id}
+  static const review = 'review';
 }
 
 abstract final class ServiceCommands {
@@ -26,6 +32,15 @@ abstract final class ServiceCommands {
   static const holdTranscription = 'hold';
 
   static const retryStart = 'retry';
+
+  /// {cmd, id} — stop answering request [id].
+  static const cancelAsk = 'cancelAsk';
+
+  /// Run the phone context test with the service's model.
+  static const probe = 'probe';
+
+  /// Reviews were added or resumed: start working on them.
+  static const reviewKick = 'reviewKick';
 }
 
 /// What the service is doing, for the UI.

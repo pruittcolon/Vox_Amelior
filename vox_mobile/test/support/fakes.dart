@@ -119,7 +119,8 @@ SpeakerProfile enrollFake(SpeakerRepository repo, String name, int speaker, {int
 
 /// Scripted language model. Each call to `send`/`sendToolResult` plays the
 /// next entry of [script]; a String is streamed as words, an [LlmToolCall]
-/// is emitted as a tool call. With an empty script it answers [reply].
+/// is emitted as a tool call. With an empty script it answers [reply], or
+/// [responder]'s answer to the prompt.
 class FakeLlm implements LlmEngine {
   String reply = 'Sam said the plumber comes at four.';
   final List<Object> script = [];
@@ -127,9 +128,25 @@ class FakeLlm implements LlmEngine {
   final List<Map<String, Object?>> toolResults = [];
   String? lastSystem;
   List<ToolSpec> lastTools = const [];
+  int? lastMaxReply;
   bool loaded = false;
   bool unavailable = false;
   bool tools = true;
+
+  /// Answers computed from the prompt (used when [script] is empty).
+  String Function(String prompt)? responder;
+
+  /// The next [failSends] sends fail before producing anything.
+  int failSends = 0;
+
+  /// Sends fail while tools are offered (like LiteRT-LM's code 13 bug).
+  bool failWithTools = false;
+
+  /// Contexts above this fail (simulates the phone's real limit).
+  int? contextLimit;
+  int loadedContext = 0;
+  int recovers = 0;
+  bool canRecover = true;
 
   String? get lastPrompt => prompts.isEmpty ? null : prompts.last;
 
@@ -140,23 +157,46 @@ class FakeLlm implements LlmEngine {
   bool get supportsTools => tools;
 
   @override
-  Future<void> ensureLoaded() async {
+  Future<void> ensureLoaded({int? contextTokens}) async {
     if (unavailable) throw const LlmUnavailable('Gemma is not downloaded');
     loaded = true;
+    loadedContext = contextTokens ?? 4096;
   }
 
   @override
-  Future<LlmSession> openSession({required String system, List<ToolSpec> tools = const []}) async {
+  Future<LlmSession> openSession({
+    required String system,
+    List<ToolSpec> tools = const [],
+    int? maxReplyTokens,
+    int? contextTokens,
+  }) async {
+    if (unavailable) throw const LlmUnavailable('Gemma is not downloaded');
+    if (contextTokens != null) loadedContext = contextTokens;
     lastSystem = system;
     lastTools = tools;
-    return _FakeSession(this);
+    lastMaxReply = maxReplyTokens;
+    return _FakeSession(this, tools.isNotEmpty);
+  }
+
+  @override
+  Future<bool> recover() async {
+    recovers++;
+    return canRecover && recovers == 1;
   }
 
   @override
   Future<void> unload() async => loaded = false;
 
-  Stream<LlmEvent> _next() async* {
-    final step = script.isEmpty ? reply : script.removeAt(0);
+  Stream<LlmEvent> _next(String prompt, {required bool withTools}) async* {
+    if (failSends > 0) {
+      failSends--;
+      throw Exception('Failed to start streaming (code: 13)');
+    }
+    if (failWithTools && withTools) throw Exception('Failed to start streaming (code: 13)');
+    if (contextLimit != null && loadedContext > contextLimit!) {
+      throw Exception('DYNAMIC_UPDATE_SLICE failed to allocate');
+    }
+    final step = script.isNotEmpty ? script.removeAt(0) : (responder?.call(prompt) ?? reply);
     if (step is LlmToolCall) {
       yield step;
     } else {
@@ -168,20 +208,24 @@ class FakeLlm implements LlmEngine {
 }
 
 class _FakeSession implements LlmSession {
-  _FakeSession(this.llm);
+  _FakeSession(this.llm, this.withTools);
   final FakeLlm llm;
+  final bool withTools;
 
   @override
   Stream<LlmEvent> send(String text) {
     llm.prompts.add(text);
-    return llm._next();
+    return llm._next(text, withTools: withTools);
   }
 
   @override
   Stream<LlmEvent> sendToolResult(String name, Map<String, Object?> result) {
     llm.toolResults.add({'name': name, ...result});
-    return llm._next();
+    return llm._next('', withTools: withTools);
   }
+
+  @override
+  Future<int?> countTokens(String text) async => (text.length / 4).ceil();
 
   @override
   Future<void> close() async {}

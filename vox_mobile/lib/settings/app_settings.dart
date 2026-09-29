@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vox_amelior_mobile/assistant/context_budget.dart';
+import 'package:vox_amelior_mobile/assistant/review_templates.dart';
+import 'package:vox_amelior_mobile/data/clip_store.dart';
 import 'package:vox_amelior_mobile/location/location_policy.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/speakers/speaker_identifier.dart';
@@ -25,6 +28,19 @@ class AppSettings {
     this.instructions = '',
     this.locationMode = LocationMode.off,
     this.places = const [],
+    this.multiPatterns = true,
+    this.clipMode = ClipMode.off,
+    this.clipPeople = const [],
+    this.clipLimitMb = 2048,
+    this.contextTokens = ContextBudget.defaultContext,
+    this.contextTested = 0,
+    this.contextTestNote = '',
+    this.reviewChunkTokens = 0,
+    this.customTemplates = const [],
+    this.themeMode = 'system',
+    this.accent = 0xFF4F46E5,
+    this.textScale = 1.0,
+    this.corners = 'rounded',
   });
 
   /// Phrases that address the assistant ("Hey Vox, ...").
@@ -67,11 +83,51 @@ class AppSettings {
   final LocationMode locationMode;
   final List<Place> places;
 
+  /// Match against several voice patterns per person, not just one average.
+  final bool multiPatterns;
+
+  /// Saving audio clips of what was said (for training later).
+  final ClipMode clipMode;
+  final List<String> clipPeople;
+  final int clipLimitMb;
+
+  /// The assistant's context window in tokens (see [ContextBudget]).
+  final int contextTokens;
+
+  /// Largest context the phone test passed (0 = not tested yet).
+  final int contextTested;
+
+  /// What the last phone test found, in words.
+  final String contextTestNote;
+
+  /// Transcript per review part; 0 uses the recommendation (half the context).
+  final int reviewChunkTokens;
+
+  /// Review templates the user saved.
+  final List<ReviewTemplate> customTemplates;
+
+  /// Appearance: 'system' | 'light' | 'dark'.
+  final String themeMode;
+
+  /// Accent colour (ARGB).
+  final int accent;
+
+  /// Text size multiplier (0.85–1.4).
+  final double textScale;
+
+  /// Corner style: 'square' | 'soft' | 'rounded'.
+  final String corners;
+
   IdentifierConfig get identifierConfig => IdentifierConfig(
         threshold: matchThreshold,
         margin: matchMargin,
         clusterThreshold: guestThreshold,
+        usePatterns: multiPatterns,
       );
+
+  ContextBudget get budget => ContextBudget(contextTokens, chunkTokens: reviewChunkTokens);
+
+  ClipPolicy get clipPolicy => ClipPolicy(mode: clipMode, people: clipPeople, limitBytes: clipLimitMb * 1024 * 1024);
 
   /// The assistant model currently selected.
   ModelAsset get llmAsset {
@@ -105,6 +161,19 @@ class AppSettings {
     String? instructions,
     LocationMode? locationMode,
     List<Place>? places,
+    bool? multiPatterns,
+    ClipMode? clipMode,
+    List<String>? clipPeople,
+    int? clipLimitMb,
+    int? contextTokens,
+    int? contextTested,
+    String? contextTestNote,
+    int? reviewChunkTokens,
+    List<ReviewTemplate>? customTemplates,
+    String? themeMode,
+    int? accent,
+    double? textScale,
+    String? corners,
   }) =>
       AppSettings(
         wakePhrases: wakePhrases ?? this.wakePhrases,
@@ -124,6 +193,19 @@ class AppSettings {
         instructions: instructions ?? this.instructions,
         locationMode: locationMode ?? this.locationMode,
         places: places ?? this.places,
+        multiPatterns: multiPatterns ?? this.multiPatterns,
+        clipMode: clipMode ?? this.clipMode,
+        clipPeople: clipPeople ?? this.clipPeople,
+        clipLimitMb: clipLimitMb ?? this.clipLimitMb,
+        contextTokens: contextTokens ?? this.contextTokens,
+        contextTested: contextTested ?? this.contextTested,
+        contextTestNote: contextTestNote ?? this.contextTestNote,
+        reviewChunkTokens: reviewChunkTokens ?? this.reviewChunkTokens,
+        customTemplates: customTemplates ?? this.customTemplates,
+        themeMode: themeMode ?? this.themeMode,
+        accent: accent ?? this.accent,
+        textScale: textScale ?? this.textScale,
+        corners: corners ?? this.corners,
       );
 
   Map<String, Object?> toJson() => {
@@ -144,6 +226,19 @@ class AppSettings {
         'instructions': instructions,
         'locationMode': locationMode.name,
         'places': [for (final p in places) p.toJson()],
+        'multiPatterns': multiPatterns,
+        'clipMode': clipMode.name,
+        'clipPeople': clipPeople,
+        'clipLimitMb': clipLimitMb,
+        'contextTokens': contextTokens,
+        'contextTested': contextTested,
+        'contextTestNote': contextTestNote,
+        'reviewChunkTokens': reviewChunkTokens,
+        'customTemplates': [for (final t in customTemplates) t.toJson()],
+        'themeMode': themeMode,
+        'accent': accent,
+        'textScale': textScale,
+        'corners': corners,
       };
 
   /// Tolerant of missing or invalid fields so an old or damaged settings
@@ -167,6 +262,16 @@ class AppSettings {
     final places = (j['places'] is List<Object?>)
         ? (j['places']! as List<Object?>).map(Place.fromJson).whereType<Place>().toList()
         : const <Place>[];
+    final clipPeople = (j['clipPeople'] is List<Object?>)
+        ? (j['clipPeople']! as List<Object?>).whereType<String>().toList()
+        : const <String>[];
+    final templates = (j['customTemplates'] is List<Object?>)
+        ? (j['customTemplates']! as List<Object?>).map(ReviewTemplate.fromJson).whereType<ReviewTemplate>().toList()
+        : const <ReviewTemplate>[];
+    int intIn(String k, int fallback, int min, int max) {
+      final v = j[k];
+      return v is int && v >= min && v <= max ? v : fallback;
+    }
     return AppSettings(
       wakePhrases: (phrases == null || phrases.isEmpty) ? d.wakePhrases : phrases,
       matchThreshold: num01('matchThreshold', d.matchThreshold, min: 0.2, max: 0.95),
@@ -185,6 +290,19 @@ class AppSettings {
       instructions: typed('instructions', d.instructions),
       locationMode: LocationMode.values.asNameMap()[j['locationMode']] ?? d.locationMode,
       places: places,
+      multiPatterns: typed('multiPatterns', d.multiPatterns),
+      clipMode: ClipMode.values.asNameMap()[j['clipMode']] ?? d.clipMode,
+      clipPeople: clipPeople,
+      clipLimitMb: intIn('clipLimitMb', d.clipLimitMb, 100, 64 * 1024),
+      contextTokens: intIn('contextTokens', d.contextTokens, 1024, 131072),
+      contextTested: intIn('contextTested', d.contextTested, 0, 131072),
+      contextTestNote: typed('contextTestNote', d.contextTestNote),
+      reviewChunkTokens: intIn('reviewChunkTokens', d.reviewChunkTokens, 0, 131072),
+      customTemplates: templates,
+      themeMode: const ['system', 'light', 'dark'].contains(j['themeMode']) ? j['themeMode']! as String : d.themeMode,
+      accent: typed('accent', d.accent),
+      textScale: num01('textScale', d.textScale, min: 0.85, max: 1.4),
+      corners: const ['square', 'soft', 'rounded'].contains(j['corners']) ? j['corners']! as String : d.corners,
     );
   }
 }

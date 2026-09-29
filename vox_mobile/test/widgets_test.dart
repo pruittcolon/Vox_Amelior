@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
@@ -118,5 +120,60 @@ void main() {
     await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
     await tester.pumpAndSettle();
     expect(find.text('Gemma is not downloaded'), findsOneWidget);
+  });
+
+  testWidgets('AskScreen offers questions for a chosen period and a way to go through all of it', (tester) async {
+    String? reviewed;
+    await tester.pumpWidget(host(AskScreen(
+      ask: (_) => const Stream.empty(),
+      requests: AssistantRequestRepository(db),
+      assistantReady: () => true,
+      reviewsBuilder: (_) => const Center(child: Text('REVIEWS LIST')),
+      onReviewPeriod: (p) => reviewed = p,
+    )));
+    await tester.tap(find.text('Last week'));
+    await tester.pumpAndSettle();
+    expect(find.text('What did we decide last week?'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Go through everything from last week'), 200, scrollable: listScroll);
+    await tester.tap(find.text('Go through everything from last week'));
+    expect(reviewed, 'last week');
+
+    await tester.tap(find.text('Go through all'));
+    await tester.pumpAndSettle();
+    expect(find.text('REVIEWS LIST'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('AskScreen explains failures plainly, retries, and can stop an answer', (tester) async {
+    var calls = 0;
+    StreamController<AnswerEvent>? pending;
+    Stream<AnswerEvent> ask(String q) {
+      calls++;
+      if (calls == 1) return Stream.error(Exception('Failed to start streaming (code: 13)'));
+      if (calls == 2) return Stream.fromIterable([const AnswerEvent.token('All good now.')]);
+      pending = StreamController<AnswerEvent>();
+      return pending!.stream;
+    }
+
+    await tester.pumpWidget(host(AskScreen(ask: ask, requests: AssistantRequestRepository(db), assistantReady: () => true)));
+    await tester.enterText(find.byType(TextField), 'hi');
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Test this phone'), findsOneWidget);
+    expect(find.textContaining('code: 13'), findsNothing);
+
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(find.text('All good now.'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'long one');
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pump();
+    expect(pending!.hasListener, isTrue);
+    await tester.tap(find.byIcon(Icons.stop_rounded));
+    await tester.pumpAndSettle();
+    expect(pending!.hasListener, isFalse);
+    expect(find.text('Stopped'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_upward_rounded), findsOneWidget);
   });
 }

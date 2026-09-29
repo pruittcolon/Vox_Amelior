@@ -67,6 +67,19 @@ class PeopleScreen extends StatelessWidget {
                 children: [
                   Text(p.name, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                   Text('${p.sampleCount} voice samples · since ${formatDay(p.createdAt)}'),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      Pill(
+                        p.patterns.isEmpty ? 'Learning' : '${p.patterns.length} voice pattern${p.patterns.length == 1 ? '' : 's'}',
+                        icon: Icons.graphic_eq_rounded,
+                      ),
+                      if (p.negatives.isNotEmpty)
+                        Pill('${p.negatives.length} "not ${p.name}"', icon: Icons.person_off_rounded, color: Theme.of(context).colorScheme.error),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -84,6 +97,16 @@ class PeopleScreen extends StatelessWidget {
                     } on StateError catch (e) {
                       if (context.mounted) showMessage(context, e.message);
                     }
+                  case 'clearNot':
+                    if (await confirm(
+                      context,
+                      'Clear "not ${p.name}" examples?',
+                      'Voices you marked as "not ${p.name}" can be called ${p.name} again.',
+                      action: 'Clear',
+                    )) {
+                      services.speakers.clearNegatives(p.id);
+                      services.dataChanged();
+                    }
                   case 'delete':
                     if (await confirm(context, 'Delete ${p.name}?', 'Their voice profile is removed. Past transcripts stay, unlabelled.')) {
                       services.speakers.delete(p.id);
@@ -91,10 +114,11 @@ class PeopleScreen extends StatelessWidget {
                     }
                 }
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'more', child: Text('Add voice samples')),
-                PopupMenuItem(value: 'rename', child: Text('Rename')),
-                PopupMenuItem(value: 'delete', child: Text('Delete')),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'more', child: Text('Add voice samples')),
+                const PopupMenuItem(value: 'rename', child: Text('Rename')),
+                if (p.negatives.isNotEmpty) PopupMenuItem(value: 'clearNot', child: Text('Clear "not ${p.name}" examples')),
+                const PopupMenuItem(value: 'delete', child: Text('Delete')),
               ],
             ),
           ],

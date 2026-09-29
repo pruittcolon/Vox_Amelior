@@ -37,16 +37,30 @@ class AssistantClient {
     late StreamSubscription<Map<Object?, Object?>> sub;
     Timer? idle;
 
+    var finished = false;
     Future<void> finish([Object? error]) async {
+      if (finished) return;
+      finished = true;
       idle?.cancel();
       await sub.cancel();
       if (error != null) out.addError(error);
       await out.close();
     }
 
+    // Leaving the answer (Stop button, new chat) stops the service too.
+    out.onCancel = () {
+      if (!finished) service.cancelAsk(id);
+      finished = true;
+      idle?.cancel();
+      return sub.cancel();
+    };
+
     void resetIdle() {
       idle?.cancel();
-      idle = Timer(idleTimeout, () => unawaited(finish(const LlmUnavailable('Vox is busy. Try again in a moment.'))));
+      idle = Timer(idleTimeout, () {
+        service.cancelAsk(id);
+        unawaited(finish(const LlmUnavailable('Gemma took too long. Try again, or ask about a shorter period.')));
+      });
     }
 
     sub = service.events.listen((e) {

@@ -106,6 +106,13 @@ class VoxTaskHandler extends TaskHandler {
         if (id is int) unawaited(runtime.answer(id).then((_) => _updateNotification()));
       case ServiceCommands.holdTranscription:
         runtime.holdTranscription = data['on'] == true;
+      case ServiceCommands.cancelAsk:
+        final id = data['id'];
+        if (id is int) runtime.cancelAnswer(id);
+      case ServiceCommands.probe:
+        unawaited(runtime.runProbe());
+      case ServiceCommands.reviewKick:
+        runtime.reviewWorker.kick();
     }
   }
 

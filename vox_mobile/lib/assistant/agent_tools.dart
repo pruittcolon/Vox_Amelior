@@ -1,4 +1,5 @@
 import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
+import 'package:vox_amelior_mobile/assistant/context_budget.dart';
 import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
 import 'package:vox_amelior_mobile/assistant/query_parser.dart';
 import 'package:vox_amelior_mobile/assistant/retriever.dart';
@@ -37,7 +38,8 @@ class AgentToolbox {
     required this.rules,
     this.hooks = const AgentHooks(),
     this.clock = systemClock,
-  });
+    ContextBudget Function()? budget,
+  }) : budget = budget ?? (() => const ContextBudget(ContextBudget.defaultContext));
 
   final TranscriptRepository transcripts;
   final SpeakerRepository speakers;
@@ -46,6 +48,11 @@ class AgentToolbox {
   final RuleRepository rules;
   final AgentHooks hooks;
   final Clock clock;
+
+  /// Sizes tool results so they fit the model's context.
+  final ContextBudget Function() budget;
+
+  int get _resultChars => ContextBudget.charsFor(budget().toolResultTokens);
 
   late final List<AgentTool> tools = [
     AgentTool(
@@ -95,9 +102,21 @@ class AgentToolbox {
       },
     ),
     AgentTool(
-      const ToolSpec(name: 'list_notes', description: 'List the most recent saved notes.'),
-      (_) async => {
-        'notes': [for (final n in notes.all(limit: 20)) {'text': n.text, 'saved': n.createdAt.toIso8601String()}],
+      const ToolSpec(
+        name: 'list_notes',
+        description: 'List the most recent saved notes.',
+        parameters: {
+          'type': 'object',
+          'properties': {
+            'limit': {'type': 'integer', 'description': 'How many notes to list (default 20).'},
+          },
+        },
+      ),
+      (a) async {
+        final limit = (int.tryParse('${a['limit'] ?? 20}') ?? 20).clamp(1, 50);
+        return {
+          'notes': [for (final n in notes.all(limit: limit)) {'text': n.text, 'saved': n.createdAt.toIso8601String()}],
+        };
       },
     ),
     AgentTool(
@@ -174,7 +193,7 @@ class AgentToolbox {
     final period = '${a['period'] ?? ''}';
     final person = '${a['person'] ?? ''}';
     final parsed = QueryParser(people: people).parse('${a['query'] ?? ''} $person $period', now: clock());
-    final hits = Retriever(transcripts, maxHits: 10, contextLines: 1, maxChars: 3500).retrieve(
+    final hits = Retriever(transcripts, maxHits: 10, contextLines: 1, maxChars: _resultChars).retrieve(
       ParsedQuery(keywords: parsed.keywords, speaker: parsed.speaker, window: parsed.window),
     );
     return {
@@ -186,7 +205,7 @@ class AgentToolbox {
   Future<Map<String, Object?>> _timeline(Map<String, Object?> a) async {
     final window = QueryParser(people: const []).parse('${a['period'] ?? 'today'}', now: clock()).window;
     if (window == null) return {'error': 'could not understand the period'};
-    final lines = Retriever(transcripts, maxChars: 4500).timeline(window.from, window.to);
+    final lines = Retriever(transcripts, maxChars: _resultChars).timeline(window.from, window.to);
     return {'period': window.describe(), 'lines': _lines(lines), if (lines.isEmpty) 'note': 'nothing was recorded'};
   }
 

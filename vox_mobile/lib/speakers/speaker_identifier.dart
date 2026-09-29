@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:vox_amelior_mobile/core/clock.dart';
@@ -13,6 +14,8 @@ class IdentifierConfig {
     this.minEmbeddingSeconds = 1.0,
     this.maxClusters = 12,
     this.maxClusterWeight = 50,
+    this.usePatterns = true,
+    this.negativeFloor = 0.6,
   });
 
   /// Minimum similarity to an enrolled person to accept the match.
@@ -33,11 +36,19 @@ class IdentifierConfig {
   /// Guest centroids stop moving after this many samples (keeps them stable).
   final int maxClusterWeight;
 
+  /// Also match against each person's voice patterns, not just their average.
+  final bool usePatterns;
+
+  /// A "not this person" example only blocks a match when the new voice is
+  /// at least this similar to it (and closer to it than to the person).
+  final double negativeFloor;
+
   IdentifierConfig copyWith({
     double? threshold,
     double? margin,
     double? clusterThreshold,
     double? minEmbeddingSeconds,
+    bool? usePatterns,
   }) =>
       IdentifierConfig(
         threshold: threshold ?? this.threshold,
@@ -46,6 +57,8 @@ class IdentifierConfig {
         minEmbeddingSeconds: minEmbeddingSeconds ?? this.minEmbeddingSeconds,
         maxClusters: maxClusters,
         maxClusterWeight: maxClusterWeight,
+        usePatterns: usePatterns ?? this.usePatterns,
+        negativeFloor: negativeFloor,
       );
 }
 
@@ -105,10 +118,22 @@ class SpeakerIdentifier {
 
   List<UnknownCluster> get clusters => List.unmodifiable(_clusters);
 
+  /// How much [embedding] sounds like [p]: the best of their overall
+  /// average and (when enabled) each of their voice patterns.
+  double scoreFor(SpeakerProfile p, Float32List embedding) {
+    var s = cosine(embedding, p.centroid);
+    if (config.usePatterns) {
+      for (final pattern in p.patterns) {
+        s = math.max(s, cosine(embedding, pattern));
+      }
+    }
+    return s;
+  }
+
   /// Scores [embedding] against every enrolled person, best first.
   /// Useful for the "test my voice" screen.
   List<MapEntry<SpeakerProfile, double>> rank(Float32List embedding) {
-    final scored = [for (final p in _profiles) MapEntry(p, cosine(embedding, p.centroid))]
+    final scored = [for (final p in _profiles) MapEntry(p, scoreFor(p, embedding))]
       ..sort((a, b) => b.value.compareTo(a.value));
     return scored;
   }
@@ -120,11 +145,22 @@ class SpeakerIdentifier {
     if (ranked.isNotEmpty) {
       final best = ranked.first;
       final second = ranked.length > 1 ? ranked[1].value : -1.0;
-      if (best.value >= config.threshold && best.value - second >= config.margin) {
+      if (best.value >= config.threshold && best.value - second >= config.margin && !_vetoed(best.key, embedding, best.value)) {
         return SpeakerMatch.person(best.key.id, best.value);
       }
     }
     return _matchGuest(embedding);
+  }
+
+  /// True when the voice is closer to one of the person's "not this person"
+  /// examples than to the person themselves. Only ever turns a name into a
+  /// guest; it never moves a line to someone else.
+  bool _vetoed(SpeakerProfile p, Float32List embedding, double personScore) {
+    for (final n in p.negatives) {
+      final s = cosine(embedding, n);
+      if (s >= config.negativeFloor && s > personScore) return true;
+    }
+    return false;
   }
 
   SpeakerMatch _matchGuest(Float32List embedding) {

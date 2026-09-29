@@ -148,6 +148,7 @@ GROUP BY who ORDER BY n DESC, MIN(s.id)''',
   void deleteConversation(int conversationId) {
     _db.transaction(() {
       _db.raw
+        ..execute('UPDATE voice_clips SET segment_id = NULL WHERE segment_id IN (SELECT id FROM segments WHERE conversation_id = ?)', [conversationId])
         ..execute('DELETE FROM segments WHERE conversation_id = ?', [conversationId])
         ..execute('DELETE FROM conversations WHERE id = ?', [conversationId]);
     });
@@ -237,6 +238,15 @@ ORDER BY c.id DESC LIMIT ?''',
 
   int count() => _db.raw.select('SELECT COUNT(*) AS c FROM segments').first['c'] as int;
 
+  /// How many lines, and how many characters of text, were said in a period.
+  ({int lines, int chars}) sizeBetween(DateTime from, DateTime to) {
+    final r = _db.raw.select(
+      'SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(text)), 0) AS c FROM segments WHERE started_at >= ? AND started_at < ?',
+      [from.millisecondsSinceEpoch, to.millisecondsSinceEpoch],
+    ).first;
+    return (lines: r['n']! as int, chars: r['c']! as int);
+  }
+
   /// Deletes everything older than [cutoff]; returns the number of segments removed.
   int deleteOlderThan(DateTime cutoff) {
     late int removed;
@@ -244,6 +254,8 @@ ORDER BY c.id DESC LIMIT ?''',
       _db.raw.execute('DELETE FROM segments WHERE started_at < ?', [cutoff.millisecondsSinceEpoch]);
       removed = _db.raw.updatedRows;
       _pruneEmpty();
+      // Saved clips outlive their transcript line (they keep their own text).
+      _db.raw.execute('UPDATE voice_clips SET segment_id = NULL WHERE segment_id NOT IN (SELECT id FROM segments)');
     });
     return removed;
   }
@@ -254,7 +266,8 @@ ORDER BY c.id DESC LIMIT ?''',
       _db.raw
         ..execute('DELETE FROM segments')
         ..execute('DELETE FROM conversations')
-        ..execute('DELETE FROM unknown_clusters');
+        ..execute('DELETE FROM unknown_clusters')
+        ..execute('UPDATE voice_clips SET segment_id = NULL');
     });
     // Rebuild removes the FTS shadow content too.
     _db.raw.execute("INSERT INTO segments_fts(segments_fts) VALUES ('rebuild')");

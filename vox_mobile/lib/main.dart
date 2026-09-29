@@ -5,6 +5,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/core/log.dart';
 import 'package:vox_amelior_mobile/native/gemma_llm_engine.dart';
+import 'package:vox_amelior_mobile/settings/app_settings.dart';
 import 'package:vox_amelior_mobile/ui/home_shell.dart';
 import 'package:vox_amelior_mobile/ui/models_screen.dart';
 import 'package:vox_amelior_mobile/ui/theme.dart';
@@ -59,31 +60,43 @@ class _VoxAppState extends State<VoxApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Vox',
-      debugShowCheckedModeBanner: false,
-      theme: VoxTheme.light(),
-      darkTheme: VoxTheme.dark(),
-      home: WithForegroundTask(
-        child: FutureBuilder<AppServices>(
-          future: _services,
-          builder: (context, snap) {
-            if (snap.hasError) {
-              return Scaffold(
-                body: Center(
-                  child: Padding(padding: const EdgeInsets.all(24), child: Text('Vox could not start: ${snap.error}')),
-                ),
-              );
-            }
-            final services = snap.data;
-            if (services == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-            if (!_setupDone) {
-              return ModelsScreen(services: services, onDone: () => setState(() => _setupDone = true));
-            }
-            return HomeShell(services: services);
-          },
-        ),
-      ),
+    return FutureBuilder<AppServices>(
+      future: _services,
+      builder: (context, snap) {
+        final services = snap.data;
+        if (services == null) return _app(const Appearance(), _loading(snap.error));
+        return ValueListenableBuilder<AppSettings>(
+          valueListenable: services.settings,
+          builder: (context, settings, _) => _app(
+            appearanceOf(settings),
+            _setupDone ? HomeShell(services: services) : ModelsScreen(services: services, onDone: () => setState(() => _setupDone = true)),
+          ),
+        );
+      },
     );
   }
+
+  Widget _app(Appearance look, Widget home) => MaterialApp(
+        title: 'Vox',
+        debugShowCheckedModeBanner: false,
+        theme: VoxTheme.light(look),
+        darkTheme: VoxTheme.dark(look),
+        themeMode: look.themeMode,
+        builder: (context, child) {
+          final mq = MediaQuery.of(context);
+          return MediaQuery(
+            data: mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1) * look.textScale)),
+            child: child!,
+          );
+        },
+        home: WithForegroundTask(child: home),
+      );
+
+  Widget _loading(Object? error) => Scaffold(
+        body: Center(
+          child: error == null
+              ? const CircularProgressIndicator()
+              : Padding(padding: const EdgeInsets.all(24), child: Text('Vox could not start: $error')),
+        ),
+      );
 }
