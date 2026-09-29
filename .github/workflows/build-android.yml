@@ -1,40 +1,52 @@
-name: Build Android APK
+name: Build Vox Android app
 on:
   workflow_dispatch:
   push:
     branches: [claude/laughing-cerf-zer2dj]
-    paths: ['mobile-app/**', '.github/workflows/build-android.yml']
+    paths: ['vox_mobile/**', '.github/workflows/build-android.yml']
 permissions:
   contents: write
+concurrency:
+  group: vox-android-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
-        working-directory: mobile-app
+        working-directory: vox_mobile
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - uses: subosito/flutter-action@v2
-        with: { flutter-version: "3.24.5", channel: stable, cache: true }
-      - run: cp .env.example .env
-      - run: sed -i "/org.gradle.java.home/d" android/gradle.properties
+        with: { flutter-version: '3.47.5', channel: stable, cache: true }
       - run: flutter pub get
-      - run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
-      - run: flutter build apk --debug
+      - run: flutter analyze
+      - run: flutter test
+      - name: Check Gemma files on Hugging Face (informational)
+        continue-on-error: true
+        run: |
+          for repo in gemma-3n-E4B-it-litert-lm gemma-3n-E2B-it-litert-lm; do
+            echo "== $repo"
+            curl -sS "https://huggingface.co/api/models/google/$repo/tree/main" \
+              | python3 -c "import sys,json; [print(f.get('path'), f.get('size'), (f.get('lfs') or {}).get('oid')) for f in json.load(sys.stdin)]" || true
+          done
+      - run: flutter build apk --release --target-platform android-arm64
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../vox-amelior.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: vox-amelior-debug-apk
-          path: mobile-app/build/app/outputs/flutter-apk/app-debug.apk
-      - name: Publish APK as a release
+          name: vox-amelior-apk
+          path: vox-amelior.apk
+      - name: Publish release (download from your phone)
+        working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-        working-directory: .
         run: |
-          cp mobile-app/build/app/outputs/flutter-apk/app-debug.apk vox-amelior-debug.apk
-          gh release delete android-debug-latest --cleanup-tag --yes || true
-          gh release create android-debug-latest vox-amelior-debug.apk \
-            --target "$GITHUB_SHA" --prerelease \
-            --title "Android debug build" \
-            --notes "Debug APK from commit $GITHUB_SHA. Debug build for testing, not signed for release."
+          gh release delete vox-android-latest --cleanup-tag --yes || true
+          gh release create vox-android-latest vox-amelior.apk \
+            --target "$GITHUB_SHA" --latest \
+            --title "Vox Amelior for Android (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. On your phone: download vox-amelior.apk, open it, allow installing from this source. Requires a 64-bit Android 8+ phone; Gemma needs ~6 GB RAM."
