@@ -10,6 +10,32 @@ Written for the next person (or the next Claude session) picking this up cold.
 > imported, and changing it does **not** trigger an APK build (the build only
 > watches `vox_mobile/**`).
 
+## Get the code and build it
+
+Everything is in this repository on `main`:
+
+| Path | What |
+|---|---|
+| [`vox_mobile/`](../vox_mobile) | The whole Android app: [`lib/`](../vox_mobile/lib) (code), [`test/`](../vox_mobile/test) (tests), [`android/`](../vox_mobile/android), [`pubspec.yaml`](../vox_mobile/pubspec.yaml) |
+| [`.github/workflows/build-android.yml`](../.github/workflows/build-android.yml) | How CI builds and publishes the APK |
+| [`.github/workflows/export-parakeet-rnnt.yml`](../.github/workflows/export-parakeet-rnnt.yml) | Converts NVIDIA Parakeet RNNT 1.1B for the phone |
+| [`.github/workflows/export-diarizer.yml`](../.github/workflows/export-diarizer.yml) | Converts NVIDIA Nemotron 3 Diarization for the phone |
+| `claude/README.md` | This document |
+
+```bash
+git clone https://github.com/pruittcolon/Vox_Amelior.git
+cd Vox_Amelior/vox_mobile
+# Flutter 3.47.5 (Dart 3.13), Java 17, Android SDK
+flutter pub get
+flutter analyze && flutter test
+flutter build apk --release --target-platform android-arm64
+# → build/app/outputs/flutter-apk/app-release.apk
+```
+
+No keys or tokens are needed: the app downloads its models itself on first
+run (public files, checked by SHA-256). Ready-made APK:
+[`vox-android-latest`](https://github.com/pruittcolon/Vox_Amelior/releases/tag/vox-android-latest).
+
 ---
 
 ## 1. What it is
