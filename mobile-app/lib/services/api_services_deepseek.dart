@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import dotenv
 
 // Debug logging helper
 void _log(String message) {
@@ -7,7 +8,6 @@ void _log(String message) {
     debugPrint(message);
   }
 }
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import dotenv
 
 class ApiDeepSeekService {
   late Dio _dio;

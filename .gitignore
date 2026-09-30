@@ -128,7 +128,7 @@ cookies.txt
 
 # ML Models & Weights (large files)
 # ============================================================================
-models/
+/models/
 *.gguf
 *.bin
 *.safetensors

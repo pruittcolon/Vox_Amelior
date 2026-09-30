@@ -1,0 +1,44 @@
+name: Build Vox Android app
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-cerf-zer2dj]
+    paths: ['vox_mobile/**', '.github/workflows/build-android.yml']
+permissions:
+  contents: write
+concurrency:
+  group: vox-android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: vox_mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.47.5', channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --release --target-platform android-arm64
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../vox-amelior.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vox-amelior-apk
+          path: vox-amelior.apk
+      - name: Publish release (download from your phone)
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete vox-android-latest --cleanup-tag --yes || true
+          gh release create vox-android-latest vox-amelior.apk \
+            --target "$GITHUB_SHA" --latest \
+            --title "Vox Amelior for Android (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. On your phone: download vox-amelior.apk, open it, allow installing from this source. Requires a 64-bit Android 8+ phone. Gemma 4 E4B needs about 8 GB of RAM (E2B less)."

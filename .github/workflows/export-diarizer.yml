@@ -1,0 +1,308 @@
+name: Export NVIDIA Nemotron 3 Diarization for the phone
+# Converts nvidia/Nemotron-3-Diarization (Sortformer family, NVIDIA's
+# diarizer for Parakeet) to one ONNX file that takes raw 16 kHz audio (NeMo's
+# log-mel features are built in) and returns per-80 ms speaker activity. It is
+# checked against NeMo's own output, quantised, tried on real multi-speaker
+# audio and published as a release the app downloads.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-cerf-zer2dj]
+    paths: ['.github/workflows/export-diarizer.yml']
+permissions:
+  contents: write
+env:
+  TAG: nemotron-3-diarization-onnx
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo fallocate -l 16G /mnt/extra.swap && sudo chmod 600 /mnt/extra.swap && sudo mkswap /mnt/extra.swap && sudo swapon /mnt/extra.swap
+          sudo mkdir -p /mnt/work && sudo chown "$USER" /mnt/work
+          df -h / /mnt; free -g
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install NeMo
+        run: |
+          sudo apt-get install -y libsndfile1 ffmpeg >/dev/null
+          pip install --upgrade pip
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install Cython packaging
+          # Nemotron 3 Diarization needs RoPE attention, which is only in NeMo's source so far.
+          pip install "nemo_toolkit[asr] @ git+https://github.com/NVIDIA-NeMo/Speech.git@main" \
+            || pip install "nemo_toolkit[asr] @ git+https://github.com/NVIDIA-NeMo/NeMo.git@main"
+          pip install onnx onnxruntime soundfile
+          pip list 2>/dev/null | grep -i -E "^(torch|nemo.toolkit|onnx|onnxruntime|numpy) "
+      - name: Test audio
+        working-directory: /mnt/work
+        run: curl -sSL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/0-four-speakers-zh.wav
+      - name: Export, verify and quantise
+        working-directory: /mnt/work
+        env:
+          HF_HOME: /mnt/work/hf
+          SPEECH_WAV: ${{ github.workspace }}/vox_mobile/test/fixtures/speech.wav
+        run: |
+          python3 - <<'PY'
+          import json, math, os, inspect
+          import numpy as np
+          import soundfile as sf
+          import torch
+          import onnxruntime as ort
+          from onnxruntime.quantization import QuantType, quantize_dynamic
+          from nemo.collections.asr.models import SortformerEncLabelModel
+          from nemo.collections.asr.parts.preprocessing.features import normalize_batch
+
+          torch.set_grad_enabled(False)
+          m = SortformerEncLabelModel.from_pretrained('nvidia/Nemotron-3-Diarization', map_location='cpu')
+          m.eval()
+          try:
+              from nemo.core.classes.common import typecheck
+              typecheck.set_typecheck_enabled(False)
+          except Exception as e:  # older/newer NeMo
+              print('typecheck toggle unavailable:', e)
+          if hasattr(m, 'streaming_mode'):
+              m.streaming_mode = False  # whole-segment (offline) inference
+          f = m.preprocessor.featurizer
+          print('preprocessor cfg:', dict(m.cfg.preprocessor))
+          print('featurizer:', {k: getattr(f, k, None) for k in ['n_fft', 'hop_length', 'win_length', 'preemph', 'mag_power', 'normalize', 'pad_to', 'pad_value', 'stft_pad_amount', 'log', 'log_zero_guard_type', 'frame_splicing', 'use_grads']})
+          print('max speakers:', getattr(m.sortformer_modules, 'n_spk', None))
+          print('forward:', inspect.signature(m.forward))
+          print(inspect.getsource(type(m).forward))
+
+          class MelFeatures(torch.nn.Module):
+              """NeMo's FilterbankFeatures.forward with the STFT done as a convolution
+              (complex STFT cannot be exported to ONNX). Same maths, same parameters."""
+
+              def __init__(self, f):
+                  super().__init__()
+                  self.f = f
+                  n_fft, win = f.n_fft, f.win_length
+                  w = torch.zeros(n_fft)
+                  left = (n_fft - win) // 2
+                  w[left:left + win] = f.window.float()
+                  n = torch.arange(n_fft, dtype=torch.float64)
+                  k = torch.arange(n_fft // 2 + 1, dtype=torch.float64)
+                  ang = 2 * math.pi * k[:, None] * n[None, :] / n_fft
+                  cos = (torch.cos(ang) * w[None, :].double()).float()
+                  sin = (-torch.sin(ang) * w[None, :].double()).float()
+                  self.register_buffer('basis', torch.cat([cos, sin], 0).unsqueeze(1))
+                  self.bins = n_fft // 2 + 1
+
+              def forward(self, audio, length, linear_spec=False):
+                  f = self.f
+                  seq_len_time = length
+                  seq_len = f.get_seq_len(length)
+                  x = audio
+                  if f.stft_pad_amount is not None:
+                      x = torch.nn.functional.pad(x.unsqueeze(1), (f.stft_pad_amount, f.stft_pad_amount), 'constant').squeeze(1)
+                  if f.preemph is not None:
+                      timemask = torch.arange(x.shape[1]).unsqueeze(0) < seq_len_time.unsqueeze(1)
+                      x = torch.cat((x[:, 0].unsqueeze(1), x[:, 1:] - f.preemph * x[:, :-1]), dim=1)
+                      x = x.masked_fill(~timemask, 0.0)
+                  if f.stft_pad_amount is None:
+                      x = torch.nn.functional.pad(x.unsqueeze(1), (f.n_fft // 2, f.n_fft // 2), 'constant').squeeze(1)
+                  spec = torch.nn.functional.conv1d(x.unsqueeze(1), self.basis, stride=f.hop_length)
+                  re, im = spec[:, :self.bins], spec[:, self.bins:]
+                  x = torch.sqrt(re * re + im * im)
+                  if f.mag_power != 1.0:
+                      x = x.pow(f.mag_power)
+                  x = torch.matmul(f.fb.to(x.dtype), x)
+                  if f.log:
+                      if f.log_zero_guard_type == 'add':
+                          x = torch.log(x + f.log_zero_guard_value_fn(x))
+                      else:
+                          x = torch.log(torch.clamp(x, min=f.log_zero_guard_value_fn(x)))
+                  if f.normalize:
+                      x, _, _ = normalize_batch(x, seq_len, normalize_type=f.normalize)
+                  mask = torch.arange(x.size(-1)).unsqueeze(0) >= seq_len.unsqueeze(1)
+                  x = x.masked_fill(mask.unsqueeze(1), f.pad_value)
+                  return x, seq_len
+
+          mel = MelFeatures(f).eval()
+
+          def nemo_forward(audio, length):
+              out = m.forward(audio_signal=audio, audio_signal_length=length)
+              return out[0] if isinstance(out, (tuple, list)) else out
+
+          k = m.encoder.pre_encode.subsampling_factor
+          print('stacking factor:', k, '| output factor:', m.output_subsampling_factor,
+                '| high resolution:', m.high_resolution, '| RoPE table:', tuple(m.encoder.pos_enc.cos.shape))
+          assert m.high_resolution and m.output_subsampling_factor == 1, 'expected 10 ms output'
+
+          class Diarizer(torch.nn.Module):
+              """Raw 16 kHz audio -> speaker activity (1, frames at 10 ms, speakers).
+
+              NeMo's offline path (process_signal -> frontend_encoder -> forward_infer -> trim),
+              with every length-dependent step written as tensor ops so the ONNX graph works for
+              any length. NeMo trims features to their valid length and FeatureStacking then
+              zero-pads to a multiple of k behind a Python `if`, which tracing would freeze to the
+              example's length. Here frames past the valid length are already zero, so we pad
+              and keep ceil(len / k) * k of them; FeatureStacking never has to pad."""
+
+              def __init__(self, m, mel):
+                  super().__init__()
+                  self.m = m
+                  self.mel = mel
+
+              def forward(self, audio, length):
+                  audio = audio * (1.0 / (audio.max() + self.m.eps))
+                  feats, flen = self.mel(audio, length)
+                  feats = torch.nn.functional.pad(feats, (0, k))
+                  feats = feats[:, :, : (flen[0] + k - 1) // k * k]
+                  emb, elen = self.m.frontend_encoder(processed_signal=feats, processed_signal_length=flen)
+                  preds = self.m.forward_infer(emb, elen)
+                  return preds[:, : flen[0]]
+
+          d = Diarizer(m, mel).eval()
+
+          def load(path, seconds=None):
+              a, sr = sf.read(path, dtype='float32')
+              if a.ndim > 1:
+                  a = a.mean(1)
+              assert sr == 16000, sr
+              return a[: int(seconds * sr)] if seconds else a
+
+          four = load('0-four-speakers-zh.wav', 30)
+          speech = load(os.environ['SPEECH_WAV'])
+          mix = four[: len(four) // 2].copy()
+          start = 16000 * 3
+          mix[start:start + len(speech)] += speech[: len(mix) - start] * 0.9  # two people at once
+          samples = {'four speakers (30 s)': four, 'one speaker': speech, 'overlap mix': mix}
+
+          def tl(a):
+              return torch.from_numpy(a).unsqueeze(0), torch.tensor([len(a)])
+
+          # 1. NeMo's own results, with its original feature code.
+          refs = {name: nemo_forward(*tl(a)) for name, a in samples.items()}
+
+          # 2. Features: ours vs NeMo's (valid frames only).
+          for name, a in samples.items():
+              ref, rl = f.forward(*tl(a))
+              ours, ol = mel(*tl(a))
+              n = int(rl[0])
+              diff = (ref[..., :n] - ours[..., :n]).abs().max().item()
+              print(f'features [{name}]: frames {n} vs {int(ol[0])}, max diff {diff:.2e}')
+              assert int(ol[0]) == n and diff < 2e-3, 'feature mismatch'
+
+          # 3. Swap in the exportable features; results must not change.
+          f.forward = mel.forward
+          for name, a in samples.items():
+              ours = nemo_forward(*tl(a))
+              ref = refs[name]
+              n = min(ref.shape[1], ours.shape[1])
+              diff = (ref[:, :n] - ours[:, :n]).abs().max().item()
+              print(f'preds [{name}]: shape {tuple(ours.shape)} (NeMo {tuple(ref.shape)}), max diff {diff:.2e}')
+              assert diff < 2e-2, 'speaker activity changed'
+
+          # 3b. FlexAttention (vmap-built block masks) cannot be traced to ONNX. Use the
+          # same padding mask as a plain boolean tensor and standard scaled-dot-product
+          # attention: identical maths (softmax(QK^T/sqrt(d)) V over allowed keys).
+          import nemo.collections.asr.modules.transformer_encoder as te
+          import nemo.collections.asr.modules.transformer_encoder_utils as teu
+
+          def dense_block_mask(mask_mod, B=None, H=None, Q_LEN=None, KV_LEN=None, device=None, **kw):
+              b = torch.arange(B, device=device).view(B, 1, 1, 1)
+              h = torch.zeros(1, dtype=torch.long, device=device).view(1, 1, 1, 1)
+              q = torch.arange(Q_LEN, device=device).view(1, 1, Q_LEN, 1)
+              kv = torch.arange(KV_LEN, device=device).view(1, 1, 1, KV_LEN)
+              return mask_mod(b, h, q, kv).expand(B, 1, Q_LEN, KV_LEN)
+
+          def plain_attention(q, k, v, block_mask=None, score_mod=None, **kw):
+              assert score_mod is None, 'only RoPE / no score_mod models are handled'
+              return torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=block_mask)
+
+          te.create_block_mask = dense_block_mask
+          teu._get_flex_attention = lambda q: plain_attention
+          for name, a in samples.items():
+              ours = d(*tl(a))
+              ref = refs[name]
+              n = min(ref.shape[1], ours.shape[1])
+              diff = (ref[:, :n] - ours[:, :n]).abs().max().item()
+              print(f'plain attention + export forward [{name}]: shape {tuple(ours.shape)}, max diff {diff:.2e}')
+              assert ours.shape == ref.shape and diff < 2e-2, 'export forward changed the result'
+
+          # 3. Export.
+          os.makedirs('out', exist_ok=True)
+          ex = torch.from_numpy(four[: 16000 * 8 + 1234]).unsqueeze(0)
+          torch.onnx.export(
+              d, (ex, torch.tensor([ex.shape[1]])), 'diarizer.onnx',
+              input_names=['audio', 'length'], output_names=['preds'],
+              dynamic_axes={'audio': {1: 'samples'}, 'preds': {1: 'frames'}},
+              opset_version=17, do_constant_folding=True, dynamo=False,
+          )
+          quantize_dynamic('diarizer.onnx', 'out/diarizer.int8.onnx', weight_type=QuantType.QInt8, op_types_to_quantize=['MatMul'])
+
+          # 4. ONNX (fp32 and int8) vs torch, on lengths not seen at export.
+          def run(path, a):
+              s = ort.InferenceSession(path, providers=['CPUExecutionProvider'])
+              return s.run(None, {'audio': a[None, :].astype(np.float32), 'length': np.array([len(a)], dtype=np.int64)})[0]
+
+          def turns(p, seconds):
+              frame = seconds / p.shape[1]
+              act = p[0] > 0.5
+              out, prev, t0 = [], None, 0
+              for i, row in enumerate(act):
+                  who = tuple(np.nonzero(row)[0])
+                  if who != prev:
+                      if prev:
+                          out.append(f'{t0 * frame:5.2f}-{i * frame:5.2f} {"+".join(map(str, prev))}')
+                      prev, t0 = who, i
+              if prev:
+                  out.append(f'{t0 * frame:5.2f}-{len(act) * frame:5.2f} {"+".join(map(str, prev))}')
+              return out
+
+          # Many lengths (short, odd frame counts, longer than the export example), fp32 and int8.
+          whole = load('0-four-speakers-zh.wav')
+          sweep = {f'{sec:.2f} s': whole[: int(sec * 16000)] for sec in [2.0, 2.37, 3.013, 4.99, 11.13, 17.6, 29.99, 45.3]}
+          for name, a in sweep.items():
+              ref = d(*tl(a)).numpy()
+              fp = run('diarizer.onnx', a)
+              q = run('out/diarizer.int8.onnx', a)
+              agree = float(((q > 0.5) == (ref > 0.5)).mean())
+              print(f'length {name}: frames {q.shape[1]}, fp32 max diff {np.abs(fp - ref).max():.2e}, int8 same decisions {agree:.3%}')
+              assert fp.shape == ref.shape == q.shape, 'shape differs'
+              assert np.abs(fp - ref).max() < 1e-3, 'ONNX fp32 differs from torch'
+              assert agree > 0.95, 'int8 changes too many decisions'
+
+          summary = {}
+          for name, a in samples.items():
+              ref = d(torch.from_numpy(a).unsqueeze(0), torch.tensor([len(a)])).numpy()
+              fp = run('diarizer.onnx', a)
+              q = run('out/diarizer.int8.onnx', a)
+              agree = float(((q > 0.5) == (ref > 0.5)).mean())
+              print(f'onnx [{name}]: fp32 max diff {np.abs(fp - ref).max():.2e}; int8 max diff {np.abs(q - ref).max():.3f}, '
+                    f'same decisions {agree:.3%}; frames {q.shape[1]} for {len(a) / 16000:.1f}s')
+              print('  turns:', turns(q, len(a) / 16000)[:40])
+              summary[name] = {'agree': agree, 'speakers': int((q[0] > 0.5).any(0).sum())}
+          assert summary['four speakers (30 s)']['speakers'] >= 2, 'did not separate the four-speaker recording'
+          assert summary['one speaker']['speakers'] == 1, 'split a single speaker'
+          assert min(v['agree'] for v in summary.values()) > 0.97, 'int8 changes too many decisions'
+
+          seconds_per_frame = len(four) / 16000 / run('out/diarizer.int8.onnx', four).shape[1]
+          json.dump({
+              'model': 'nvidia/Nemotron-3-Diarization',
+              'sample_rate': 16000,
+              'frame_seconds': round(seconds_per_frame, 4),
+              'max_speakers': int(run('out/diarizer.int8.onnx', speech).shape[2]),
+              'inputs': ['audio', 'length'],
+              'outputs': ['preds'],
+          }, open('out/diarizer.json', 'w'), indent=1)
+          print(open('out/diarizer.json').read())
+          PY
+          ls -l out diarizer.onnx
+      - name: Publish release
+        working-directory: /mnt/work/out
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in *; do echo "$f $(stat -c %s "$f") $(sha256sum "$f" | cut -d' ' -f1)"; done | tee SHA256SUMS.txt
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "NVIDIA Nemotron 3 Diarization (ONNX, int8)" \
+            --notes "nvidia/Nemotron-3-Diarization (OpenMDW-1.1) converted by CI: 16 kHz audio in, per-80 ms speaker activity out. Downloaded by the Vox app." \
+            diarizer.int8.onnx diarizer.json SHA256SUMS.txt
