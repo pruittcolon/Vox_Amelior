@@ -47,6 +47,7 @@ abstract final class ServiceCommands {
   static const reviewKick = 'reviewKick';
 
   /// {cmd, on: bool} — send [ServiceEvents.level] about 5 times a second.
+  /// A request lasts a few seconds; screens repeat it while they show a meter.
   static const levelMeter = 'meter';
 }
 

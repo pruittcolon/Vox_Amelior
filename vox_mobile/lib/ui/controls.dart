@@ -127,6 +127,22 @@ class SettingSwitch extends StatelessWidget {
       );
 }
 
+/// [v] on the nearest step within [min]–[max], without floating-point
+/// leftovers (0.6, not 0.6000000000000001), so stored settings stay clean.
+double snapToStep(double v, {required double min, required double max, required double step}) {
+  if (v.isNaN) return min;
+  final steps = ((v.clamp(min, max) - min) / step).round();
+  final snapped = min + steps * step;
+  return double.parse(snapped.toStringAsFixed(6)).clamp(min, max);
+}
+
+/// The number in a formatted value, for editing: "+15%" → "15", "−10%" → "-10",
+/// "0.6 s" → "0.6", "None" → "0".
+String numberIn(String formatted) {
+  final m = RegExp(r'-?\d+(\.\d+)?').firstMatch(formatted.replaceAll('\u2212', '-'));
+  return m?.group(0) ?? '0';
+}
+
 /// A slider that is quick to use and exact when you want it to be:
 /// drag, nudge with − / +, or tap the value to type one. Changes are applied
 /// when you let go, and a reset arrow appears when it differs from the default.
@@ -177,10 +193,7 @@ class SettingSlider extends StatefulWidget {
 class _SettingSliderState extends State<SettingSlider> {
   double? _drag;
 
-  double _snap(double v) {
-    final steps = ((v - widget.min) / widget.step).round();
-    return (widget.min + steps * widget.step).clamp(widget.min, widget.max);
-  }
+  double _snap(double v) => snapToStep(v, min: widget.min, max: widget.max, step: widget.step);
 
   double get _shown => _snap(_drag ?? widget.value);
   bool get _atDefault => (_shown - widget.defaultValue).abs() < widget.step / 2;
@@ -204,7 +217,7 @@ class _SettingSliderState extends State<SettingSlider> {
       context: context,
       builder: (_) => _ExactValueDialog(
         title: widget.title,
-        initial: widget.format(_shown).replaceAll(RegExp(r'[^0-9.\-]'), ''),
+        initial: numberIn(widget.format(_shown)),
         hint: widget.unitHint,
       ),
     );

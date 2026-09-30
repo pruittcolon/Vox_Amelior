@@ -47,7 +47,11 @@ class _HomeShellState extends State<HomeShell> {
       MoreScreen(services: s),
     ];
     return Scaffold(
-      body: IndexedStack(index: _index, children: pages),
+      body: IndexedStack(
+        index: _index,
+        // Hidden tabs pause their animations and live readings.
+        children: [for (var i = 0; i < pages.length; i++) TickerMode(enabled: i == _index, child: pages[i])],
+      ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

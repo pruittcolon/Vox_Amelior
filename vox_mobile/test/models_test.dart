@@ -9,6 +9,8 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vox_amelior_mobile/app/model_downloads.dart';
 import 'package:vox_amelior_mobile/models/archive_extractor.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/models/model_installer.dart';
@@ -420,6 +422,98 @@ void main() {
       expect(store.isInstalled(asset), isFalse);
       await installer.install(asset, token: 'hf_x');
       expect(store.isInstalled(asset), isTrue);
+    });
+  });
+
+  group('ModelDownloads', () {
+    ModelAsset plain(String id, Uint8List data) => ModelAsset(
+          id: id,
+          kind: ModelKind.speechToText,
+          title: id,
+          description: 'd',
+          approxDownloadBytes: data.length,
+          essential: false,
+          files: [RemoteFile(url: server.url('/$id.bin').toString(), fileName: '$id.bin', sha256: sha(data), sizeBytes: data.length)],
+        );
+
+    test('deleting a model mid-download stops it, then deletes its files and reports it', () async {
+      SharedPreferences.setMockInitialValues({});
+      final data = bytes(3000000, seed: 21);
+      server
+        ..files['/big.bin'] = data
+        ..paced = true;
+      final asset = plain('big', data);
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      final removed = <String>[];
+      final downloads = ModelDownloads(
+        store: store,
+        installer: ModelInstaller(store: store, retryDelay: Duration.zero),
+        tokenProvider: () async => null,
+        resolve: (id) => id == asset.id ? asset : null,
+        onRemoved: (a) => removed.add(a.id),
+      );
+      await downloads.download(asset);
+      while (store.partialBytes(asset) == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      downloads.remove(asset);
+      expect(removed, isEmpty, reason: 'files are deleted only once the download has stopped');
+      while (downloads.isBusy) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(removed, ['big']);
+      expect(store.dir(asset).existsSync(), isFalse);
+      expect(store.isInstalled(asset), isFalse);
+      expect(downloads.stateOf(asset).status, DownloadStatus.notInstalled);
+    });
+
+    test('asking for a model again while its delete is stopping it keeps it and resumes', () async {
+      SharedPreferences.setMockInitialValues({});
+      final data = bytes(3000000, seed: 23);
+      server
+        ..files['/again.bin'] = data
+        ..paced = true;
+      final asset = plain('again', data);
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      final removed = <String>[];
+      final downloads = ModelDownloads(
+        store: store,
+        installer: ModelInstaller(store: store, retryDelay: Duration.zero),
+        tokenProvider: () async => null,
+        resolve: (id) => asset,
+        onRemoved: (a) => removed.add(a.id),
+      );
+      await downloads.download(asset);
+      while (store.partialBytes(asset) == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      downloads.remove(asset);
+      await downloads.download(asset);
+      while (downloads.isBusy) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(removed, isEmpty);
+      expect(store.isInstalled(asset), isTrue);
+    });
+
+    test('deleting an installed model reports it too', () async {
+      SharedPreferences.setMockInitialValues({});
+      final data = bytes(1000, seed: 22);
+      server.files['/small.bin'] = data;
+      final asset = plain('small', data);
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      final removed = <String>[];
+      final downloads = ModelDownloads(
+        store: store,
+        installer: ModelInstaller(store: store, retryDelay: Duration.zero),
+        tokenProvider: () async => null,
+        resolve: (id) => asset,
+        onRemoved: (a) => removed.add(a.id),
+      );
+      await ModelInstaller(store: store, retryDelay: Duration.zero).install(asset);
+      downloads.remove(asset);
+      expect(removed, ['small']);
+      expect(store.dir(asset).existsSync(), isFalse);
     });
   });
 

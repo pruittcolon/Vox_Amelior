@@ -33,6 +33,11 @@ class VoxTaskHandler extends TaskHandler {
   bool _starting = false;
   Timer? _retry;
 
+  /// Reloads asked for in quick succession (e.g. tapping + on a slider) are
+  /// done once, so the speech detector and location check are not redone per tap.
+  Timer? _reload;
+  static const Duration _reloadCoalesce = Duration(milliseconds: 350);
+
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     _mode = await FlutterForegroundTask.getData<String>(key: kServiceModeKey) ?? kModeListen;
@@ -100,7 +105,11 @@ class VoxTaskHandler extends TaskHandler {
       case ServiceCommands.resume:
         unawaited(runtime.resume().then((_) => _updateNotification()));
       case ServiceCommands.reload:
-        unawaited(runtime.reload().then((_) => _updateNotification()));
+        _reload?.cancel();
+        _reload = Timer(_reloadCoalesce, () {
+          final r = _runtime;
+          if (r != null) unawaited(r.reload().then((_) => _updateNotification()));
+        });
       case ServiceCommands.ask:
         final id = data['id'];
         if (id is int) unawaited(runtime.answer(id).then((_) => _updateNotification()));
@@ -114,7 +123,7 @@ class VoxTaskHandler extends TaskHandler {
       case ServiceCommands.reviewKick:
         runtime.reviewWorker.kick();
       case ServiceCommands.levelMeter:
-        runtime.levelMeter = data['on'] == true;
+        runtime.requestLevel(data['on'] == true);
     }
   }
 
@@ -132,6 +141,7 @@ class VoxTaskHandler extends TaskHandler {
   @override
   Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
     _retry?.cancel();
+    _reload?.cancel();
     await _runtime?.stop();
     _runtime = null;
   }

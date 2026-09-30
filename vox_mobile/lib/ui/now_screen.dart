@@ -71,7 +71,7 @@ class _NowScreenState extends State<NowScreen> {
     return Scaffold(
       body: SafeArea(
         child: ListenableBuilder(
-          listenable: Listenable.merge([s.listening, s.downloads]),
+          listenable: Listenable.merge([s.listening, s.downloads, s.settings]),
           builder: (context, _) => CustomScrollView(
             slivers: [
               SliverToBoxAdapter(child: _header(context)),

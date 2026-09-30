@@ -77,6 +77,31 @@ void main() {
       expect(parseBoost('loud'), isNull);
     });
 
+    test('slider values land exactly on their steps', () {
+      expect(snapToStep(0.6000000000000001, min: 0.3, max: 1.5, step: 0.05), 0.6);
+      expect(snapToStep(0.3 + 8 * 0.05, min: 0.3, max: 1.5, step: 0.05), 0.7);
+      expect(snapToStep(9, min: 0.5, max: 4, step: 0.05), 4.0);
+      expect(snapToStep(-1, min: 0.5, max: 4, step: 0.05), 0.5);
+      expect(snapToStep(double.nan, min: 0.5, max: 4, step: 0.05), 0.5);
+      expect(snapToStep(1.149999, min: 0.5, max: 4, step: 0.05), 1.15);
+    });
+
+    test('the exact-value box starts with the shown number, sign included', () {
+      expect(numberIn('+15%'), '15');
+      expect(numberIn('\u221210%'), '-10');
+      expect(numberIn('0.65 s'), '0.65');
+      expect(numberIn('3 words'), '3');
+      expect(numberIn('None'), '0');
+      expect(parseBoost(numberIn(formatBoost(0.9))), closeTo(0.9, 1e-9), reason: 'opening and saving keeps -10%');
+    });
+
+    test('seconds are shown the same way everywhere', () {
+      expect(formatSeconds(0.6000000000000001), '0.6 s');
+      expect(formatSeconds(0.65), '0.65 s');
+      expect(formatSeconds(1.5), '1.5 s');
+      expect(formatSeconds(0.3), '0.3 s');
+    });
+
     test('presets match only their exact values; the default is Balanced', () {
       expect(MicPreset.of(const AppSettings())!.name, 'Balanced');
       expect(MicPreset.of(const AppSettings(micGain: 1.5, vadThreshold: 0.4))!.name, 'Sensitive');
@@ -142,6 +167,7 @@ void main() {
       await show(tester, ListeningSettingsScreen(services: s));
       await tester.tap(find.text('+15%'));
       await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextField, '15'), findsOneWidget, reason: 'starts with the current value');
       await tester.enterText(find.byType(TextField), '900');
       await tester.tap(find.text('Set'));
       await tester.pumpAndSettle();

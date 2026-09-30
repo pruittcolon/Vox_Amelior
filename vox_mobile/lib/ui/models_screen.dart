@@ -94,6 +94,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 child: Column(
                   children: [
                     for (final m in speechAll) _ModelTile(asset: m, downloads: s.downloads),
+                    // Optional; chosen in Settings → Microphone & hearing. Listed here so it can be deleted.
+                    _ModelTile(asset: ModelCatalog.parakeetFp16, downloads: s.downloads),
                     if (!s.downloads.speechReady)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),

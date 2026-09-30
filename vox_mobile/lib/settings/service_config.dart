@@ -46,6 +46,13 @@ class SpeechModelPaths {
     );
   }
 
+  /// Required model files that are not on disk (checked before native code
+  /// loads them: a missing file can end the whole process there).
+  List<String> missingFiles() => [
+        for (final f in [encoder, decoder, joiner, tokens, vad, speaker])
+          if (!File(f).existsSync()) f,
+      ];
+
   Map<String, Object?> toJson() => {
         'encoder': encoder,
         'decoder': decoder,

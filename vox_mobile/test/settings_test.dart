@@ -152,6 +152,17 @@ void main() {
       expect(SpeechModelPaths.fromStore(store), isNotNull);
     });
 
+    test('missing model files are found before any native code loads them', () {
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      for (final a in ModelCatalog.speech) {
+        fakeInstall(store, a);
+      }
+      final paths = SpeechModelPaths.fromStore(store)!;
+      expect(paths.missingFiles(), isEmpty);
+      File(paths.encoder).deleteSync();
+      expect(paths.missingFiles(), [paths.encoder]);
+    });
+
     test('config survives a disk round trip and tolerates a missing or corrupt file', () {
       const cfg = ServiceConfig(
         dbPath: '/data/vox.db',
