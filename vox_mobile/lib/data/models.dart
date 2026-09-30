@@ -62,6 +62,7 @@ class SegmentView {
     this.clusterId,
     this.clusterLabel,
     this.score,
+    this.overlap = false,
   });
 
   final int id;
@@ -74,6 +75,9 @@ class SegmentView {
   final String? clusterId;
   final String? clusterLabel;
   final double? score;
+
+  /// Someone else was talking at the same time during this line.
+  final bool overlap;
 
   DateTime get endedAt => startedAt.add(duration);
 

@@ -1,5 +1,5 @@
 /// Which on-device model a feature needs.
-enum ModelKind { speechToText, voiceActivity, speakerVoiceprint, languageModel }
+enum ModelKind { speechToText, voiceActivity, speakerVoiceprint, speakerTurns, languageModel }
 
 /// One file to fetch for a model.
 class RemoteFile {
@@ -151,6 +151,30 @@ class ModelCatalog {
     ],
   );
 
+  /// NVIDIA's diarizer for Parakeet, converted to ONNX by this repo's CI.
+  static const String _diarizer =
+      'https://github.com/pruittcolon/Vox_Amelior/releases/download/nemotron-3-diarization-onnx';
+
+  static const ModelAsset diarizer = ModelAsset(
+    id: 'nemotron-3-diarization',
+    kind: ModelKind.speakerTurns,
+    title: 'Speaker changes',
+    description: 'NVIDIA Nemotron 3 Diarization (Sortformer family). Splits quick back-and-forth into separate lines '
+        'and marks people talking at the same time.',
+    approxDownloadBytes: _diarizerBytes,
+    essential: false,
+    files: [
+      RemoteFile(
+        url: '$_diarizer/diarizer.int8.onnx',
+        fileName: 'diarizer.int8.onnx',
+        sha256: _diarizerSha,
+        sizeBytes: _diarizerBytes,
+      ),
+    ],
+  );
+  static const int _diarizerBytes = 0; // set from the export
+  static const String? _diarizerSha = null; // set from the export
+
   static const String _lc = 'https://huggingface.co/litert-community';
 
   static const ModelAsset gemma4E4b = ModelAsset(
@@ -193,9 +217,13 @@ class ModelCatalog {
     ],
   );
 
+  /// Needed before listening can start.
   static const List<ModelAsset> speech = [parakeet, voiceActivity, speakerVoiceprint];
+
+  /// Downloaded with the speech models, but listening works without them.
+  static const List<ModelAsset> speechExtras = [diarizer];
   static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
-  static const List<ModelAsset> all = [...speech, ...assistants];
+  static const List<ModelAsset> all = [...speech, ...speechExtras, ...assistants];
 
   static const String customLlmId = 'custom-llm';
 

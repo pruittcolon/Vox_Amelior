@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
+import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/settings/app_settings.dart';
 import 'package:vox_amelior_mobile/ui/capacity_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
@@ -69,6 +70,14 @@ class SettingsScreen extends StatelessWidget {
                     'Off = one average voice per person (the original way).'),
                 value: st.multiPatterns,
                 onChanged: (v) => update(st.copyWith(multiPatterns: v)),
+              ),
+              SwitchListTile(
+                title: const Text('Split lines when the speaker changes'),
+                subtitle: Text(services.models.isInstalled(ModelCatalog.diarizer)
+                    ? 'NVIDIA Nemotron diarizer: separate lines for quick back-and-forth, and "talking at once" marks.'
+                    : 'Needs the speaker-change model (More → Models).'),
+                value: st.splitSpeakers,
+                onChanged: (v) => update(st.copyWith(splitSpeakers: v)),
               ),
               _slider(context, 'How sure before naming someone', st.matchThreshold, 0.3, 0.9,
                   (v) => update(st.copyWith(matchThreshold: v)),

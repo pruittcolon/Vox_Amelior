@@ -29,6 +29,7 @@ class AppSettings {
     this.locationMode = LocationMode.off,
     this.places = const [],
     this.multiPatterns = true,
+    this.splitSpeakers = true,
     this.clipMode = ClipMode.off,
     this.clipPeople = const [],
     this.clipLimitMb = 2048,
@@ -85,6 +86,10 @@ class AppSettings {
 
   /// Match against several voice patterns per person, not just one average.
   final bool multiPatterns;
+
+  /// Split a line where the speaker changes and mark people talking at once
+  /// (needs the speaker-change model).
+  final bool splitSpeakers;
 
   /// Saving audio clips of what was said (for training later).
   final ClipMode clipMode;
@@ -162,6 +167,7 @@ class AppSettings {
     LocationMode? locationMode,
     List<Place>? places,
     bool? multiPatterns,
+    bool? splitSpeakers,
     ClipMode? clipMode,
     List<String>? clipPeople,
     int? clipLimitMb,
@@ -194,6 +200,7 @@ class AppSettings {
         locationMode: locationMode ?? this.locationMode,
         places: places ?? this.places,
         multiPatterns: multiPatterns ?? this.multiPatterns,
+        splitSpeakers: splitSpeakers ?? this.splitSpeakers,
         clipMode: clipMode ?? this.clipMode,
         clipPeople: clipPeople ?? this.clipPeople,
         clipLimitMb: clipLimitMb ?? this.clipLimitMb,
@@ -227,6 +234,7 @@ class AppSettings {
         'locationMode': locationMode.name,
         'places': [for (final p in places) p.toJson()],
         'multiPatterns': multiPatterns,
+        'splitSpeakers': splitSpeakers,
         'clipMode': clipMode.name,
         'clipPeople': clipPeople,
         'clipLimitMb': clipLimitMb,
@@ -291,6 +299,7 @@ class AppSettings {
       locationMode: LocationMode.values.asNameMap()[j['locationMode']] ?? d.locationMode,
       places: places,
       multiPatterns: typed('multiPatterns', d.multiPatterns),
+      splitSpeakers: typed('splitSpeakers', d.splitSpeakers),
       clipMode: ClipMode.values.asNameMap()[j['clipMode']] ?? d.clipMode,
       clipPeople: clipPeople,
       clipLimitMb: intIn('clipLimitMb', d.clipLimitMb, 100, 64 * 1024),

@@ -14,6 +14,7 @@ class SpeechModelPaths {
     required this.tokens,
     required this.vad,
     required this.speaker,
+    this.diarizer,
   });
 
   final String encoder;
@@ -22,6 +23,9 @@ class SpeechModelPaths {
   final String tokens;
   final String vad;
   final String speaker;
+
+  /// Speaker-change model (optional: lines are simply not split without it).
+  final String? diarizer;
 
   /// Null unless every speech model is fully installed.
   static SpeechModelPaths? fromStore(ModelStore store) {
@@ -34,6 +38,7 @@ class SpeechModelPaths {
       tokens: path(ModelCatalog.parakeet, 'tokens.txt'),
       vad: path(ModelCatalog.voiceActivity, 'silero_vad.onnx'),
       speaker: path(ModelCatalog.speakerVoiceprint, 'nemo_en_titanet_small.onnx'),
+      diarizer: store.isInstalled(ModelCatalog.diarizer) ? path(ModelCatalog.diarizer, 'diarizer.int8.onnx') : null,
     );
   }
 
@@ -44,6 +49,7 @@ class SpeechModelPaths {
         'tokens': tokens,
         'vad': vad,
         'speaker': speaker,
+        'diarizer': diarizer,
       };
 
   factory SpeechModelPaths.fromJson(Map<String, Object?> j) => SpeechModelPaths(
@@ -53,6 +59,7 @@ class SpeechModelPaths {
         tokens: j['tokens']! as String,
         vad: j['vad']! as String,
         speaker: j['speaker']! as String,
+        diarizer: j['diarizer'] as String?,
       );
 }
 

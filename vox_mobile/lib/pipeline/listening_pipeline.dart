@@ -24,6 +24,7 @@ class ListeningPipeline {
     required SpeakerRepository speakers,
     Clock clock = systemClock,
     ProcessorConfig config = const ProcessorConfig(),
+    DiarizationEngine? diarizer,
     this.onSegment,
   })  : capture = SpeechCapture(vad, clock: clock, sampleRate: config.sampleRate),
         processor = SegmentProcessor(
@@ -33,6 +34,7 @@ class ListeningPipeline {
           transcripts: transcripts,
           speakers: speakers,
           config: config,
+          diarizer: diarizer,
         );
 
   final SpeechCapture capture;
@@ -57,8 +59,7 @@ class ListeningPipeline {
     final saved = <SegmentView>[];
     for (final c in chunks) {
       try {
-        final s = processor.process(c.samples, c.startedAt);
-        if (s != null) {
+        for (final s in processor.process(c.samples, c.startedAt)) {
           saved.add(s);
           onSegment?.call(s);
         }

@@ -218,7 +218,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       children: [
                         Text(seg.text, style: t.textTheme.bodyLarge),
                         const SizedBox(height: 4),
-                        Text(formatTime(seg.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(formatTime(seg.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                            if (seg.overlap) ...[
+                              const SizedBox(width: 8),
+                              Tooltip(
+                                message: 'Someone else was talking at the same time',
+                                child: Icon(Icons.forum_rounded, size: 14, color: t.colorScheme.tertiary),
+                              ),
+                              const SizedBox(width: 3),
+                              Flexible(
+                                child: Text('talking at once',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.tertiary)),
+                              ),
+                            ],
+                          ],
+                        ),
                       ],
                     ),
                   ),

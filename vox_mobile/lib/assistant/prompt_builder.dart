@@ -49,7 +49,7 @@ class PromptBuilder {
           b.writeln('--- conversation on ${stamp(s.startedAt)} ---');
           lastConversation = s.conversationId;
         }
-        b.writeln('[${hm(s.startedAt)}] ${s.speakerLabel}: ${s.text}');
+        b.writeln('[${hm(s.startedAt)}] ${s.speakerLabel}${s.overlap ? ' (over someone else)' : ''}: ${s.text}');
       }
     }
     b

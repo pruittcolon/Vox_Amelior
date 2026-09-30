@@ -92,7 +92,7 @@ class ModelDownloads extends ChangeNotifier {
   }
 
   Future<void> downloadSpeechModels() async {
-    for (final a in ModelCatalog.speech) {
+    for (final a in [...ModelCatalog.speech, ...ModelCatalog.speechExtras]) {
       await download(a);
     }
   }

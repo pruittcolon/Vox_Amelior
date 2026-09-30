@@ -16,7 +16,7 @@ class TranscriptRepository {
   static const String _selectSegments = '''
 SELECT s.id, s.conversation_id, s.started_at, s.duration_ms, s.text,
        s.speaker_id, sp.name AS speaker_name,
-       s.cluster_id, c.label AS cluster_label, s.score
+       s.cluster_id, c.label AS cluster_label, s.score, s.overlap
 FROM segments s
 LEFT JOIN speakers sp ON sp.id = s.speaker_id
 LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
@@ -31,6 +31,7 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
     String? clusterId,
     double? score,
     Float32List? embedding,
+    bool overlap = false,
   }) {
     final startMs = startedAt.millisecondsSinceEpoch;
     final endMs = startMs + duration.inMilliseconds;
@@ -55,7 +56,7 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
       }
       _db.raw.execute(
         'INSERT INTO segments(conversation_id, started_at, duration_ms, text, speaker_id, '
-        'cluster_id, score, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'cluster_id, score, embedding, overlap) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           conversationId,
           startMs,
@@ -65,6 +66,7 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
           clusterId,
           score,
           embedding == null ? null : floatsToBlob(embedding),
+          overlap ? 1 : 0,
         ],
       );
       id = _db.raw.lastInsertRowId;
@@ -308,5 +310,6 @@ ORDER BY c.id DESC LIMIT ?''',
         clusterId: r['cluster_id'] as String?,
         clusterLabel: r['cluster_label'] as String?,
         score: (r['score'] as num?)?.toDouble(),
+        overlap: (r['overlap'] as int? ?? 0) != 0,
       );
 }

@@ -197,6 +197,8 @@ class AppServices {
     writeServiceConfig();
     unawaited(LocalNotifier.instance.initialize());
     unawaited(downloads.resumeInterrupted());
+    // Phones set up before speaker changes existed get that model too.
+    if (speechReady && !models.isInstalled(ModelCatalog.diarizer)) unawaited(downloads.download(ModelCatalog.diarizer));
     // The service loads its own copy of the model; don't hold two. Reviews
     // move to whichever side runs the model.
     var wasListening = listening.isListening;

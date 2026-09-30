@@ -77,8 +77,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
         listenable: Listenable.merge([s.downloads, s.settings]),
         builder: (context, _) {
           final st = s.settings.value;
-          final speechBytes = ModelCatalog.speech.fold<int>(0, (a, m) => a + m.approxDownloadBytes);
-          final speechBusy = ModelCatalog.speech.any((m) => s.downloads.stateOf(m).isBusy);
+          final speechAll = [...ModelCatalog.speech, ...ModelCatalog.speechExtras];
+          final speechBytes = speechAll.fold<int>(0, (a, m) => a + m.approxDownloadBytes);
+          final speechBusy = speechAll.any((m) => s.downloads.stateOf(m).isBusy);
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
             children: [
@@ -87,12 +88,12 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 'and resume automatically if interrupted. Wi-Fi recommended.',
                 style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
               ),
-              const SectionHeader('Speech (required)', padding: EdgeInsets.fromLTRB(4, 20, 4, 8)),
+              const SectionHeader('Speech', padding: EdgeInsets.fromLTRB(4, 20, 4, 8)),
               VoxCard(
                 padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
                 child: Column(
                   children: [
-                    for (final m in ModelCatalog.speech) _ModelTile(asset: m, downloads: s.downloads),
+                    for (final m in speechAll) _ModelTile(asset: m, downloads: s.downloads),
                     if (!s.downloads.speechReady)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -280,6 +281,7 @@ class _ModelTile extends StatelessWidget {
               ModelKind.speechToText => Icons.hearing_rounded,
               ModelKind.voiceActivity => Icons.graphic_eq_rounded,
               ModelKind.speakerVoiceprint => Icons.fingerprint_rounded,
+              ModelKind.speakerTurns => Icons.forum_rounded,
               ModelKind.languageModel => Icons.auto_awesome_rounded,
             })
           : Icon(selected! ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,

@@ -14,7 +14,7 @@ class AppDatabase {
   /// File location, or ':memory:' for test databases.
   final String path;
 
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 4;
 
   /// Opens (creating and migrating if needed) the database at [path].
   static AppDatabase open(String path) {
@@ -60,6 +60,7 @@ class AppDatabase {
       if (current < 1) _v1();
       if (current < 2) _v2();
       if (current < 3) _v3();
+      if (current < 4) _v4();
       raw.userVersion = schemaVersion;
     });
   }
@@ -275,5 +276,10 @@ CREATE TABLE review_items (
   said_at INTEGER
 )''')
       ..execute('CREATE INDEX review_items_run ON review_items(run_id, chunk_idx)');
+  }
+
+  /// Lines where two people talked at the same time.
+  void _v4() {
+    raw.execute('ALTER TABLE segments ADD COLUMN overlap INTEGER NOT NULL DEFAULT 0');
   }
 }

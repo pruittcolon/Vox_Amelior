@@ -224,7 +224,8 @@ void main() {
     old
       ..execute('DROP INDEX speaker_samples_segment')
       ..execute('ALTER TABLE speaker_samples DROP COLUMN segment_id')
-      ..execute('ALTER TABLE speakers DROP COLUMN patterns');
+      ..execute('ALTER TABLE speakers DROP COLUMN patterns')
+      ..execute('ALTER TABLE segments DROP COLUMN overlap');
     for (final t in ['review_items', 'review_chunks', 'review_runs', 'voice_clips', 'speaker_negatives']) {
       old.execute('DROP TABLE $t');
     }

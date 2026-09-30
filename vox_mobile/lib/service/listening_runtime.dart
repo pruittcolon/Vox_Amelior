@@ -29,8 +29,10 @@ import 'package:vox_amelior_mobile/location/location_policy.dart';
 import 'package:vox_amelior_mobile/native/gemma_llm_engine.dart';
 import 'package:vox_amelior_mobile/native/pcm_source.dart';
 import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
+import 'package:vox_amelior_mobile/native/sortformer_diarizer.dart';
 import 'package:vox_amelior_mobile/pipeline/chunk_queue.dart';
 import 'package:vox_amelior_mobile/pipeline/compute_scheduler.dart';
+import 'package:vox_amelior_mobile/pipeline/engines.dart';
 import 'package:vox_amelior_mobile/pipeline/segment_processor.dart';
 import 'package:vox_amelior_mobile/pipeline/speech_capture.dart';
 import 'package:vox_amelior_mobile/service/protocol.dart';
@@ -150,7 +152,8 @@ class ListeningRuntime {
       transcripts: transcripts,
       speakers: speakers,
       onSaved: (segment, samples) => clips.maybeSave(_config.settings.clipPolicy, segment, samples),
-    );
+      diarizer: _loadDiarizer(c.paths.diarizer),
+    )..splitSpeakers = c.settings.splitSpeakers;
     queue = ChunkQueue(Directory(c.queueDir));
     scheduler = ComputeScheduler(
       queue: queue,
@@ -210,6 +213,17 @@ class ListeningRuntime {
       unawaited(answer(r.id));
     }
     reviewWorker.kick();
+  }
+
+  /// The speaker-change model, or null (then lines are simply not split).
+  static DiarizationEngine? _loadDiarizer(String? path) {
+    if (path == null || !File(path).existsSync()) return null;
+    try {
+      return SortformerDiarizer(path);
+    } on Object catch (e, st) {
+      Log.e('listen', 'speaker-change model could not start', e, st);
+      return null;
+    }
   }
 
   // ---- microphone ------------------------------------------------------
@@ -465,6 +479,11 @@ class ListeningRuntime {
       final llmChanged = fresh.llm?.path != _config.llm?.path;
       _config = fresh;
       processor.identifier.config = fresh.settings.identifierConfig;
+      processor.splitSpeakers = fresh.settings.splitSpeakers;
+      // The speaker-change model may have finished downloading meanwhile.
+      if (processor.diarizer == null && fresh.paths.diarizer != null) {
+        processor.diarizer = _loadDiarizer(fresh.paths.diarizer);
+      }
       handler.wakeParser = WakeCommandParser(fresh.settings.wakePhrases);
       if (llmChanged) await llm.unload();
     }

@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:vox_amelior_mobile/pipeline/speaker_turns.dart';
+
 /// A stretch of continuous speech found by voice-activity detection.
 class SpeechChunk {
   const SpeechChunk(this.samples, this.startSeconds);
@@ -31,6 +33,15 @@ abstract interface class VadEngine {
 /// Speech-to-text (implemented with NVIDIA Parakeet via sherpa-onnx).
 abstract interface class AsrEngine {
   String transcribe(Float32List samples, int sampleRate);
+
+  void dispose();
+}
+
+/// Who speaks when inside one stretch of audio (implemented with NVIDIA's
+/// Sortformer-family diarizer). Used to split a line where the speaker
+/// changes and to notice people talking at the same time.
+abstract interface class DiarizationEngine {
+  SpeakerActivity analyze(Float32List samples, int sampleRate);
 
   void dispose();
 }

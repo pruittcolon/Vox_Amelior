@@ -421,7 +421,8 @@ class ReviewEngine {
     }
   }
 
-  static String _line(int n, SegmentView s) => '[$n] ${PromptBuilder.hm(s.startedAt)} ${s.speakerLabel}: ${s.text}';
+  static String _line(int n, SegmentView s) =>
+      '[$n] ${PromptBuilder.hm(s.startedAt)} ${s.speakerLabel}${s.overlap ? ' (over someone else)' : ''}: ${s.text}';
 
   static String _dayHeader(DateTime d) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

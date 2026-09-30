@@ -91,8 +91,9 @@ class ComputeScheduler {
         }
         _set(SchedulerActivity.transcribing);
         try {
-          final segment = processor.process(chunk.read(), chunk.startedAt);
-          if (segment != null) onSegment?.call(segment);
+          for (final segment in processor.process(chunk.read(), chunk.startedAt)) {
+            onSegment?.call(segment);
+          }
         } on Object catch (e, st) {
           processor.stats.errors++;
           Log.e('scheduler', 'transcription failed', e, st);
