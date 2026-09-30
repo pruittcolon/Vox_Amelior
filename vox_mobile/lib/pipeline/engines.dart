@@ -31,8 +31,27 @@ abstract interface class VadEngine {
 }
 
 /// Speech-to-text (implemented with NVIDIA Parakeet via sherpa-onnx).
+/// A word and when it starts, in seconds from the start of the audio.
+class TimedWord {
+  const TimedWord(this.text, this.start);
+
+  final String text;
+  final double start;
+}
+
+/// Text plus word start times (empty when the engine gives none).
+class Transcript {
+  const Transcript(this.text, [this.words = const []]);
+
+  final String text;
+  final List<TimedWord> words;
+}
+
 abstract interface class AsrEngine {
   String transcribe(Float32List samples, int sampleRate);
+
+  /// Same text as [transcribe], with word start times when available.
+  Transcript transcribeTimed(Float32List samples, int sampleRate);
 
   void dispose();
 }

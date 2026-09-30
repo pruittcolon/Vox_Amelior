@@ -41,6 +41,20 @@ void main() {
     asr.dispose();
   }, skip: skip);
 
+  test('Parakeet word times: same words as the text, in order', () {
+    final audio = readWavAs16k(f('test.wav'));
+    final asr = SherpaParakeetAsr(paths());
+    final t = asr.transcribeTimed(audio, 16000);
+    // ignore: avoid_print
+    print('words: ${[for (final w in t.words) '${w.text}@${w.start.toStringAsFixed(2)}']}');
+    expect(t.words.map((w) => w.text).join(' '), t.text.trim().split(RegExp(r'\s+')).join(' '));
+    for (var i = 1; i < t.words.length; i++) {
+      expect(t.words[i].start, greaterThanOrEqualTo(t.words[i - 1].start));
+    }
+    expect(t.words.last.start, lessThan(audio.length / 16000));
+    asr.dispose();
+  }, skip: skip);
+
   test('Silero VAD finds speech and ignores silence', () {
     final audio = readWavAs16k(f('test.wav'));
     final vad = SherpaVad(modelPath: f('silero_vad.onnx'));

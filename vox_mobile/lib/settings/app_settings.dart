@@ -11,7 +11,7 @@ import 'package:vox_amelior_mobile/speakers/speaker_identifier.dart';
 /// User preferences. Immutable; changed via [copyWith] and saved as one JSON blob.
 class AppSettings {
   const AppSettings({
-    this.wakePhrases = const ['hey vox', 'ok vox', 'vox'],
+    this.wakePhrases = const [],
     this.matchThreshold = 0.55,
     this.matchMargin = 0.04,
     this.guestThreshold = 0.6,
@@ -281,7 +281,8 @@ class AppSettings {
       return v is int && v >= min && v <= max ? v : fallback;
     }
     return AppSettings(
-      wakePhrases: (phrases == null || phrases.isEmpty) ? d.wakePhrases : phrases,
+      // The old built-in phrases ("hey vox", …) were a default, not a choice: now off unless set.
+      wakePhrases: (phrases == null || _oldDefaultWake(phrases)) ? d.wakePhrases : phrases,
       matchThreshold: num01('matchThreshold', d.matchThreshold, min: 0.2, max: 0.95),
       matchMargin: num01('matchMargin', d.matchMargin, max: 0.3),
       guestThreshold: num01('guestThreshold', d.guestThreshold, min: 0.2, max: 0.95),
@@ -335,3 +336,5 @@ class SettingsRepository {
     await prefs.setString(_key, jsonEncode(settings.toJson()));
   }
 }
+
+bool _oldDefaultWake(List<String> p) => p.length == 3 && p[0] == 'hey vox' && p[1] == 'ok vox' && p[2] == 'vox';

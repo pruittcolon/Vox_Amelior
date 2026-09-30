@@ -13,7 +13,9 @@ void main() {
   group('AppSettings', () {
     test('defaults: Gemma 4 E4B with agent mode, location off', () {
       const s = AppSettings();
-      expect(s.wakePhrases, contains('hey vox'));
+      expect(s.wakePhrases, isEmpty, reason: 'no wake word unless one is added');
+      expect(AppSettings.fromJson({'wakePhrases': ['hey vox', 'ok vox', 'vox']}).wakePhrases, isEmpty);
+      expect(AppSettings.fromJson({'wakePhrases': ['computer']}).wakePhrases, ['computer']);
       expect(s.llmAsset.id, ModelCatalog.gemma4E4b.id);
       expect(s.agentMode, isTrue);
       expect(s.locationMode, LocationMode.off);

@@ -50,6 +50,11 @@ class UnknownCluster {
 }
 
 /// A transcribed utterance with its resolved speaker, ready for display.
+/// Which pass produced a line event: [fast] right after the sentence (text
+/// and a first voice match), [finished] after the chunk pass (cut at speaker
+/// changes, final names), [both] when one pass did everything.
+enum LineStage { fast, finished, both }
+
 class SegmentView {
   const SegmentView({
     required this.id,

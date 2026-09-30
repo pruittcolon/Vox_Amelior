@@ -16,6 +16,8 @@ class ProcessorConfig {
     this.minTextChars = 2,
     this.maxEmbedSeconds = 20,
     this.minDiarizeSeconds = 2.0,
+    this.chunkSeconds = 30,
+    this.chunkPause = const Duration(seconds: 3),
   });
 
   final int sampleRate;
@@ -28,6 +30,11 @@ class ProcessorConfig {
 
   /// Shorter stretches are too short to hold a change of speaker.
   final double minDiarizeSeconds;
+
+  /// Speaker changes are found per chunk of recent lines: a chunk ends after
+  /// this much speech, or at a pause in the talk of [chunkPause].
+  final int chunkSeconds;
+  final Duration chunkPause;
 }
 
 class ProcessorStats {
@@ -41,13 +48,14 @@ class ProcessorStats {
   Duration last = Duration.zero;
 }
 
-/// The expensive step: one speech chunk → who spoke when → text → speaker →
-/// saved utterances.
+/// The expensive step, in two stages.
 ///
-/// With a [diarizer], a stretch where the speaker changes (quick
-/// back-and-forth, interruptions) is split into one line per turn: each voice
-/// is named from the audio where it talks alone, each turn is transcribed on
-/// its own, and turns where two people talked at once are marked as overlap.
+/// 1. [transcribe]: as soon as a sentence ends, the whole stretch is
+///    transcribed once, matched to a voice, saved and shown.
+/// 2. [refine]: per chunk of recent lines (up to [ProcessorConfig.chunkSeconds]
+///    of speech, or until a pause), the [diarizer] finds who spoke when; a line
+///    where the speaker changes is cut into one line per person, and people
+///    talking at the same time are marked.
 class SegmentProcessor {
   SegmentProcessor({
     required this._asr,
@@ -59,6 +67,7 @@ class SegmentProcessor {
     this.diarizer,
     this.turns = const SpeakerTurns(),
     this.onSaved,
+    this.onReplaced,
   });
 
   final AsrEngine _asr;
@@ -80,93 +89,251 @@ class SegmentProcessor {
   /// Failures here never lose the transcript.
   final void Function(SegmentView segment, Float32List samples)? onSaved;
 
+  /// Called before line [id] is cut into parts (e.g. to drop its old clip).
+  final void Function(int id)? onReplaced;
+
   int get _sr => config.sampleRate;
 
-  /// Returns the saved utterances: usually one, several when the speaker
-  /// changes, none when the audio held no usable words.
-  List<SegmentView> process(Float32List samples, DateTime startedAt) {
+  final List<_Line> _open = [];
+  final List<List<_Line>> _ready = [];
+  DateTime _openEnd = DateTime.fromMillisecondsSinceEpoch(0);
+
+  bool get _splitting => splitSpeakers && diarizer != null;
+
+  /// A chunk that is complete and should be refined now.
+  bool get hasReadyChunk => _ready.isNotEmpty;
+
+  /// Lines saved by [transcribe] that [refine] has not finished yet.
+  bool get hasPending => _open.isNotEmpty || _ready.isNotEmpty;
+
+  /// Stage 1, as soon as a sentence ends: the whole stretch is transcribed
+  /// once and given a first voice match, then saved and returned. The line
+  /// is also kept for [refine].
+  List<SegmentView> transcribe(Float32List samples, DateTime startedAt) {
     final watch = Stopwatch()..start();
     stats.processed++;
     try {
+      final t = _asr.transcribeTimed(samples, _sr);
+      final text = t.text.trim();
+      if (!_isUsable(text)) {
+        stats.dropped++;
+        return const [];
+      }
       final seconds = samples.length / _sr;
-      final d = splitSpeakers ? diarizer : null;
-      if (d == null || seconds < config.minDiarizeSeconds) return _whole(samples, startedAt);
-      final SpeakerActivity activity;
-      try {
-        activity = d.analyze(samples, _sr);
-      } on Object catch (e) {
-        Log.w('processor', 'diarizer failed; keeping the line whole', e);
-        return _whole(samples, startedAt);
+      Float32List? embedding;
+      var match = const SpeakerMatch.none();
+      if (seconds >= identifier.config.minEmbeddingSeconds) {
+        final cap = math.min(samples.length, (config.maxEmbedSeconds * _sr).round());
+        embedding = _embedder.embed(Float32List.sublistView(samples, 0, cap), _sr);
+        match = identifier.identify(embedding, seconds: seconds);
+        if (match.cluster != null) _speakers.saveCluster(match.cluster!);
       }
-      var parts = turns.turns(activity, totalSeconds: seconds);
-      if (parts.length == 1) return _whole(samples, startedAt, overlap: parts.single.overlap);
-
-      // Name each voice once, from the audio where it talks alone.
-      final named = <int, (SpeakerMatch, Float32List)>{};
-      for (final slot in {for (final t in parts) t.slot}) {
-        final solo = _soloAudio(samples, activity, slot);
-        final soloSeconds = solo.length / _sr;
-        if (soloSeconds < identifier.config.minEmbeddingSeconds) continue;
-        final e = _embedder.embed(solo, _sr);
-        final m = identifier.identify(e, seconds: soloSeconds);
-        if (m.cluster != null) _speakers.saveCluster(m.cluster!);
-        named[slot] = (m, e);
-      }
-      // Two diarizer slots that turn out to be the same person: one turn.
-      String who(SpeakerTurn t) {
-        final m = named[t.slot]?.$1;
-        return m?.speakerId ?? m?.cluster?.id ?? 'slot ${t.slot}';
-      }
-
-      parts = SpeakerTurns.joinSame(parts, who);
-      if (parts.length == 1) return _whole(samples, startedAt, overlap: parts.single.overlap);
-
-      final saved = <SegmentView>[];
-      for (final t in parts) {
-        final from = (t.start * _sr).round().clamp(0, samples.length);
-        final to = (t.end * _sr).round().clamp(from, samples.length);
-        final slice = Float32List.sublistView(samples, from, to);
-        final text = _asr.transcribe(slice, _sr).trim();
-        if (!_isUsable(text)) {
-          stats.dropped++;
-          continue;
-        }
-        final match = named[t.slot];
-        saved.add(_save(
-          text: text,
-          startedAt: startedAt.add(Duration(microseconds: (t.start * 1e6).round())),
-          samples: slice,
-          match: match?.$1 ?? const SpeakerMatch.none(),
-          embedding: match?.$2,
-          overlap: t.overlap,
-        ));
-      }
-      if (saved.length > 1) stats.split++;
-      return saved;
+      final saved = _save(text: text, startedAt: startedAt, samples: samples, match: match, embedding: embedding, overlap: false);
+      if (_open.isNotEmpty && startedAt.difference(_openEnd) >= config.chunkPause) closeChunk();
+      _open.add(_Line(saved, samples, t.words));
+      _openEnd = startedAt.add(saved.duration);
+      // Without speaker splitting there is nothing to wait for.
+      if (!_splitting || _open.fold<int>(0, (a, l) => a + l.samples.length) >= config.chunkSeconds * _sr) closeChunk();
+      return [saved];
     } finally {
       stats.last = watch.elapsed;
     }
   }
 
-  /// The whole stretch as one line (no change of speaker).
-  List<SegmentView> _whole(Float32List samples, DateTime startedAt, {bool overlap = false}) {
-    final text = _asr.transcribe(samples, _sr).trim();
-    if (!_isUsable(text)) {
-      stats.dropped++;
-      return const [];
+  /// Ends the chunk being gathered (e.g. listening stopped), so [refine] takes it now.
+  void closeChunk() {
+    if (_open.isEmpty) return;
+    _ready.add(List.of(_open));
+    _open.clear();
+  }
+
+  /// Whether [refine] has work: a finished chunk, or a pause in the talk.
+  bool refineDue(DateTime now) => _ready.isNotEmpty || _openDue(now);
+
+  bool _openDue(DateTime now) => _open.isNotEmpty && now.difference(_openEnd) >= config.chunkPause;
+
+  /// Stage 2, per chunk of recent lines: finds who spoke when across the
+  /// whole chunk, and cuts a line where the speaker changes (text cut at word
+  /// start times, each part named from that voice's solo audio in the
+  /// chunk). Returns the finished lines, changed or not.
+  List<SegmentView> refine(DateTime now, {bool readyOnly = false}) {
+    if (!readyOnly && _openDue(now)) closeChunk();
+    final out = <SegmentView>[];
+    while (_ready.isNotEmpty) {
+      final chunk = _ready.removeAt(0);
+      try {
+        out.addAll(_refineChunk(chunk));
+      } on Object catch (e, st) {
+        Log.e('processor', 'refining a chunk failed; lines kept as they are', e, st);
+        out.addAll(_current(chunk));
+      }
     }
-    final seconds = samples.length / _sr;
-    Float32List? embedding;
-    var match = const SpeakerMatch.none();
-    if (seconds >= identifier.config.minEmbeddingSeconds) {
-      final cap = math.min(samples.length, (config.maxEmbedSeconds * _sr).round());
-      embedding = _embedder.embed(Float32List.sublistView(samples, 0, cap), _sr);
-      match = identifier.identify(embedding, seconds: seconds);
-      if (match.cluster != null) _speakers.saveCluster(match.cluster!);
+    return out;
+  }
+
+  /// Both stages at once for one stretch (tests, one-off processing).
+  List<SegmentView> process(Float32List samples, DateTime startedAt) {
+    if (transcribe(samples, startedAt).isEmpty) return const [];
+    closeChunk();
+    return refine(DateTime.now());
+  }
+
+  /// Lines of [chunk] as they are now; lines deleted or re-labelled by hand meanwhile are left out.
+  List<SegmentView> _current(List<_Line> chunk) => [
+        for (final l in chunk)
+          if (_transcripts.segment(l.fast.id) case final v?)
+            if (v.speakerId == l.fast.speakerId && v.clusterId == l.fast.clusterId) v,
+      ];
+
+  List<SegmentView> _refineChunk(List<_Line> chunk) {
+    final lines = [for (final l in chunk) if (_current([l]).isNotEmpty) l];
+    final total = lines.fold<int>(0, (a, l) => a + l.samples.length);
+    final d = splitSpeakers ? diarizer : null;
+    if (d == null || total < config.minDiarizeSeconds * _sr) return _current(lines);
+    final audio = Float32List(total);
+    final offsets = <int>[];
+    var at = 0;
+    for (final l in lines) {
+      offsets.add(at);
+      audio.setRange(at, at + l.samples.length, l.samples);
+      at += l.samples.length;
     }
-    return [
-      _save(text: text, startedAt: startedAt, samples: samples, match: match, embedding: embedding, overlap: overlap),
+    final SpeakerActivity activity;
+    try {
+      activity = d.analyze(audio, _sr);
+    } on Object catch (e) {
+      Log.w('processor', 'diarizer failed; keeping lines as they are', e);
+      return _current(lines);
+    }
+    final all = turns.turns(activity, totalSeconds: total / _sr);
+
+    // Each voice is named once per chunk, from the audio where it talks alone.
+    final named = <int, (SpeakerMatch, Float32List)?>{};
+    (SpeakerMatch, Float32List)? name(int slot) => named.putIfAbsent(slot, () {
+          final solo = _soloAudio(audio, activity, slot);
+          final soloSeconds = solo.length / _sr;
+          if (soloSeconds < identifier.config.minEmbeddingSeconds) return null;
+          final e = _embedder.embed(solo, _sr);
+          final m = identifier.identify(e, seconds: soloSeconds);
+          if (m.cluster != null) _speakers.saveCluster(m.cluster!);
+          return (m, e);
+        });
+    String who(SpeakerTurn t) {
+      final m = name(t.slot)?.$1;
+      return m?.speakerId ?? m?.cluster?.id ?? 'slot ${t.slot}';
+    }
+
+    final out = <SegmentView>[];
+    for (var i = 0; i < lines.length; i++) {
+      final l = lines[i];
+      final from = offsets[i] / _sr;
+      var parts = _within(all, from, from + l.samples.length / _sr);
+      if (parts.length > 1) parts = SpeakerTurns.joinSame(parts, who);
+      if (parts.length > 1) {
+        final cut = _cut(l, parts, name);
+        if (cut != null) {
+          out.addAll(cut);
+          continue;
+        }
+      } else if (parts.length == 1 && parts.single.overlap && !l.fast.overlap) {
+        _transcripts.setOverlap(l.fast.id);
+      }
+      out.addAll(_current([l]));
+    }
+    return out;
+  }
+
+  /// Chunk turns inside [a, b] seconds, relative to [a]. A sliver at either
+  /// edge (a turn that belongs to the neighbouring line) joins its neighbour.
+  List<SpeakerTurn> _within(List<SpeakerTurn> all, double a, double b) {
+    final out = <SpeakerTurn>[
+      for (final t in all)
+        if (math.min(t.end, b) > math.max(t.start, a))
+          t.copyWith(start: math.max(t.start, a) - a, end: math.min(t.end, b) - a),
     ];
+    while (out.length > 1 && out.first.end - out.first.start < turns.minTurnSeconds) {
+      out[1] = out[1].copyWith(start: 0);
+      out.removeAt(0);
+    }
+    while (out.length > 1 && out.last.end - out.last.start < turns.minTurnSeconds) {
+      out[out.length - 2] = out[out.length - 2].copyWith(end: out.last.end);
+      out.removeLast();
+    }
+    return out;
+  }
+
+  /// Replaces line [l] by one line per part. Null (line kept) when fewer
+  /// than two parts have usable words.
+  List<SegmentView>? _cut(_Line l, List<SpeakerTurn> parts, (SpeakerMatch, Float32List)? Function(int) name) {
+    final texts = _texts(l, parts);
+    final usable = [for (var i = 0; i < parts.length; i++) if (_isUsable(texts[i])) i];
+    if (usable.length < 2) return null;
+    try {
+      onReplaced?.call(l.fast.id);
+    } on Object catch (e) {
+      Log.w('processor', 'replace hook failed', e);
+    }
+    final saved = <SegmentView>[];
+    for (final i in usable) {
+      final t = parts[i];
+      final from = (t.start * _sr).round().clamp(0, l.samples.length);
+      final to = (t.end * _sr).round().clamp(from, l.samples.length);
+      final slice = Float32List.sublistView(l.samples, from, to);
+      final m = name(t.slot);
+      final match = m?.$1 ?? const SpeakerMatch.none();
+      if (saved.isEmpty) {
+        final v = _transcripts.updateSegment(
+          l.fast.id,
+          text: texts[i],
+          duration: Duration(microseconds: (slice.length / _sr * 1e6).round()),
+          speakerId: match.speakerId,
+          clusterId: match.cluster?.id,
+          score: match.score,
+          embedding: m?.$2,
+          overlap: t.overlap,
+        );
+        saved.add(v);
+        _afterSave(v, slice);
+      } else {
+        saved.add(_save(
+          text: texts[i],
+          startedAt: l.fast.startedAt.add(Duration(microseconds: (t.start * 1e6).round())),
+          samples: slice,
+          match: match,
+          embedding: m?.$2,
+          overlap: t.overlap,
+        ));
+      }
+    }
+    stats.split++;
+    return saved;
+  }
+
+  /// Text of each part: words by their start time, or (when the engine gave
+  /// no times) each part transcribed on its own.
+  List<String> _texts(_Line l, List<SpeakerTurn> parts) {
+    if (l.words.isEmpty) {
+      return [
+        for (final t in parts)
+          _asr
+              .transcribe(
+                Float32List.sublistView(
+                  l.samples,
+                  (t.start * _sr).round().clamp(0, l.samples.length),
+                  (t.end * _sr).round().clamp(0, l.samples.length),
+                ),
+                _sr,
+              )
+              .trim(),
+      ];
+    }
+    final buckets = [for (final _ in parts) <String>[]];
+    for (final w in l.words) {
+      var i = parts.indexWhere((t) => w.start < t.end);
+      if (i < 0) i = parts.length - 1;
+      buckets[i].add(w.text);
+    }
+    return [for (final b in buckets) b.join(' ')];
   }
 
   SegmentView _save({
@@ -188,12 +355,16 @@ class SegmentProcessor {
       embedding: embedding,
       overlap: overlap,
     );
+    _afterSave(saved, samples);
+    return saved;
+  }
+
+  void _afterSave(SegmentView saved, Float32List samples) {
     try {
       onSaved?.call(saved, samples);
     } on Object catch (e) {
       Log.w('processor', 'after-save hook failed', e);
     }
-    return saved;
   }
 
   /// Audio where only [slot] talks, joined, up to [ProcessorConfig.maxEmbedSeconds].
@@ -228,4 +399,13 @@ class SegmentProcessor {
     if (text.length < config.minTextChars) return false;
     return RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(text);
   }
+}
+
+class _Line {
+  _Line(this.fast, this.samples, this.words);
+
+  /// The line as saved by stage 1.
+  final SegmentView fast;
+  final Float32List samples;
+  final List<TimedWord> words;
 }

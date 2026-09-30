@@ -152,6 +152,7 @@ class ListeningRuntime {
       transcripts: transcripts,
       speakers: speakers,
       onSaved: (segment, samples) => clips.maybeSave(_config.settings.clipPolicy, segment, samples),
+      onReplaced: clips.deleteForSegment,
       diarizer: _loadDiarizer(c.paths.diarizer),
     )..splitSpeakers = c.settings.splitSpeakers;
     queue = ChunkQueue(Directory(c.queueDir));
@@ -295,20 +296,20 @@ class ListeningRuntime {
 
   // ---- utterances and the assistant ------------------------------------
 
-  void _onSegment(SegmentView segment) {
+  void _onSegment(SegmentView segment, LineStage stage) {
     final now = DateTime.now();
     if (now.day != _day.day) {
       _day = now;
       _today = 0;
     }
-    _today++;
-    emit({'type': ServiceEvents.segment, 'id': segment.id});
-    unawaited(_afterSegment(segment));
+    if (stage != LineStage.finished) _today++;
+    emit({'type': ServiceEvents.segment, 'id': segment.id, 'stage': stage.name});
+    unawaited(_afterSegment(segment, stage));
   }
 
-  Future<void> _afterSegment(SegmentView segment) async {
+  Future<void> _afterSegment(SegmentView segment, LineStage stage) async {
     try {
-      final outcome = await handler.handle(segment);
+      final outcome = await handler.handle(segment, stage: stage);
       final id = outcome.assistantRequestId;
       if (id != null) unawaited(answer(id));
     } on Object catch (e, st) {

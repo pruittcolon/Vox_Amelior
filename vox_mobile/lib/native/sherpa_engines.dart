@@ -121,6 +121,19 @@ class SherpaParakeetAsr implements AsrEngine {
   }
 
   @override
+  Transcript transcribeTimed(Float32List samples, int sampleRate) {
+    final stream = _recognizer.createStream();
+    try {
+      stream.acceptWaveform(samples: samples, sampleRate: sampleRate);
+      _recognizer.decode(stream);
+      final r = _recognizer.getResult(stream);
+      return Transcript(r.text, wordsFromTokens(r.tokens, r.timestamps));
+    } finally {
+      stream.free();
+    }
+  }
+
+  @override
   void dispose() => _recognizer.free();
 }
 
@@ -186,4 +199,28 @@ Float32List resampleLinear(Float32List input, int fromRate, int toRate) {
     out[i] = input[i0] * (1 - frac) + input[i1] * frac;
   }
   return out;
+}
+
+/// Joins sub-word tokens (a new word starts with a space or "▁") into words
+/// with the start time of their first token.
+List<TimedWord> wordsFromTokens(List<String> tokens, List<double> times) {
+  if (tokens.length != times.length) return const [];
+  final words = <TimedWord>[];
+  var text = StringBuffer();
+  double? start;
+  void close() {
+    final w = text.toString().trim();
+    if (w.isNotEmpty && start != null) words.add(TimedWord(w, start!));
+    text = StringBuffer();
+    start = null;
+  }
+
+  for (var i = 0; i < tokens.length; i++) {
+    final t = tokens[i];
+    if (t.startsWith(' ') || t.startsWith('\u2581')) close();
+    start ??= times[i];
+    text.write(t.replaceAll('\u2581', ' '));
+  }
+  close();
+  return words;
 }

@@ -572,3 +572,27 @@ Browse in **Timeline** (tap a line to fix who said it), ask in **Ask** or say
 6. Speech sensitivity tuned by the user via the existing setting.
 7. Nemotron 3 Diarization converted in CI, run through the ONNX Runtime C API, and
    wired into the pipeline: split lines at speaker changes, mark overlap.
+
+---
+
+## 18. Two-stage lines (fast text, then speakers per chunk)
+
+Each line is handled in two passes (`SegmentProcessor.transcribe` / `refine`):
+
+1. **Fast**, about 2 s after a sentence ends, the same as before speaker
+   splitting: Parakeet 1.1B transcribes the whole sentence once (with word start
+   times) and TitaNet gives a first voice match. The line is saved and shown right
+   away, and rules **without** a person fire on it.
+2. **Chunk**: recent lines are gathered until a 3 s pause or 30 s of speech. The
+   diarizer runs over the whole chunk (more context, better separation). A line
+   where the speaker changes is cut at word start times (no re-transcription),
+   and each part is named from that voice's solo audio across the chunk. The
+   first part updates the fast line in place and the other parts are added. Rules
+   **about a person** fire on these finished lines. Each rule sees a line once.
+
+Lines corrected by hand before the chunk pass are left alone. Without the
+diarizer (or with splitting switched off) a line finishes immediately. If the
+service stops mid-chunk, lines keep their fast labels.
+
+The **wake word is off by default** (the old "hey vox" default is migrated to
+off). Add one in Settings → Wake word to ask Gemma out loud.
