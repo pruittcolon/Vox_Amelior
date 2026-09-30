@@ -59,6 +59,12 @@ void main() {
       expect(handOver.any((x) => x.overlap), isFalse);
     });
 
+    test('a turn under 1.5 s is merged into its neighbour', () {
+      final t = turns.turns(activity(6, [(0, 0, 4.7), (1, 4.7, 6)]), totalSeconds: 6);
+      expect(t, hasLength(1));
+      expect(t.single.slot, 0);
+    });
+
     test('a very short turn is merged into its neighbour', () {
       final t = turns.turns(activity(6, [(0, 0, 3), (1, 3, 3.5), (0, 3.5, 6)]), totalSeconds: 6);
       expect(t, hasLength(1));
@@ -157,6 +163,51 @@ void main() {
       final saved = p.process(same, t0);
       expect(saved, hasLength(1));
       expect(saved.single.speakerId, alex);
+    });
+
+    test('a voice too brief to name does not cut the line', () {
+      // Slot 1 talks for 3 s but is alone for only 0.6 s (under the 1 s needed for a voiceprint).
+      final p = processor(
+        ['are you coming yes in minute'],
+        diarizer: _FakeDiarizer(activity(6, [(0, 0, 3), (0, 3.6, 6), (1, 3, 6)])),
+      );
+      final saved = p.process(twoPeople(), t0);
+      expect(saved.map((s) => s.text), ['are you coming yes in minute']);
+      expect(p.stats.split, 0);
+    });
+
+    test('a part with a single word does not cut the line', () {
+      final p = processor(
+        ['a b c d'],
+        diarizer: _FakeDiarizer(activity(6, [(0, 0, 4.4), (1, 4.4, 6)])),
+      );
+      final audio = Float32List.fromList([...fakeAudio(1, seconds: 4.4), ...fakeAudio(2, seconds: 1.6)]);
+      final saved = p.process(audio, t0);
+      expect(saved.map((s) => s.text), ['a b c d']);
+      expect(p.stats.split, 0);
+    });
+
+    test('a part shorter than 1.5 s does not cut the line', () {
+      final p = processor(
+        ['one two three four five six'],
+        diarizer: _FakeDiarizer(activity(6, [(0, 0, 4.8), (1, 4.8, 6)])),
+      );
+      final audio = Float32List.fromList([...fakeAudio(1, seconds: 4.8), ...fakeAudio(2, seconds: 1.2)]);
+      final saved = p.process(audio, t0);
+      expect(saved.map((s) => s.text), ['one two three four five six']);
+      expect(p.stats.split, 0);
+    });
+
+    test('a real exchange between two people still splits into their turns', () {
+      final p = processor(
+        ['how was it fine thanks and you'],
+        diarizer: _FakeDiarizer(activity(9, [(0, 0, 3), (1, 3, 6), (0, 6, 9)])),
+      );
+      final audio = Float32List.fromList([...fakeAudio(1), ...fakeAudio(2), ...fakeAudio(1)]);
+      final saved = p.process(audio, t0);
+      expect(saved.map((s) => s.speakerId), [alex, sam, alex]);
+      expect(saved, hasLength(3));
+      expect(p.stats.split, 1);
     });
 
     test('without the model, switched off, or if it fails, the line stays whole', () {

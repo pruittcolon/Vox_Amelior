@@ -18,7 +18,7 @@ Everything is in this repository on `main`:
 |---|---|
 | [`vox_mobile/`](../vox_mobile) | The whole Android app: [`lib/`](../vox_mobile/lib) (code), [`test/`](../vox_mobile/test) (tests), [`android/`](../vox_mobile/android), [`pubspec.yaml`](../vox_mobile/pubspec.yaml) |
 | [`.github/workflows/build-android.yml`](../.github/workflows/build-android.yml) | How CI builds and publishes the APK |
-| [`.github/workflows/export-parakeet-rnnt.yml`](../.github/workflows/export-parakeet-rnnt.yml) | Converts NVIDIA Parakeet RNNT 1.1B for the phone |
+| [`.github/workflows/export-parakeet-rnnt.yml`](../.github/workflows/export-parakeet-rnnt.yml) | Converts NVIDIA Parakeet RNNT 1.1B (no longer the app's default; kept as is) |
 | [`.github/workflows/export-diarizer.yml`](../.github/workflows/export-diarizer.yml) | Converts NVIDIA Nemotron 3 Diarization for the phone |
 | `claude/README.md` | This document |
 
@@ -47,7 +47,7 @@ user configures.
 
 | Area | What it does |
 |---|---|
-| Transcription | Always-on. Silero VAD finds speech, **NVIDIA Parakeet RNNT 1.1B** (int8, via sherpa-onnx) writes it down |
+| Transcription | Always-on. Silero VAD finds speech, **NVIDIA Parakeet TDT 0.6B v2** (int8, via sherpa-onnx; writes punctuation and capitals) writes it down |
 | Who is speaking | **NVIDIA TitaNet** voiceprints; up to 5 automatic patterns per person; unknown voices are "Guest N" until named |
 | Speaker changes | **NVIDIA Nemotron 3 Diarization** (Sortformer family) splits a line where the speaker changes and marks people talking at once |
 | Memory | SQLite with full-text search, grouped into days and conversations |
@@ -79,7 +79,7 @@ about 8 GB RAM (E2B for less).
 | Release tag | Made by | Contents |
 |---|---|---|
 | `vox-android-latest` | `build-android.yml` (every push touching `vox_mobile/**`) | `vox-amelior.apk` (~218 MB, arm64). Deleted and recreated each build, so the link is stable |
-| `parakeet-rnnt-1.1b-int8` | `export-parakeet-rnnt.yml` | Parakeet RNNT 1.1B converted for sherpa-onnx |
+| `parakeet-rnnt-1.1b-int8` | `export-parakeet-rnnt.yml` | Parakeet RNNT 1.1B converted for sherpa-onnx (no longer used by the app) |
 | `nemotron-3-diarization-onnx` | `export-diarizer.yml` | Nemotron 3 Diarization converted to ONNX |
 
 Install: on the phone open the repo's **Releases**, download `vox-amelior.apk`
@@ -94,7 +94,7 @@ Hugging Face token** (everything is public or hosted on this repo's releases).
 
 | Model | Size | Source |
 |---|---|---|
-| Parakeet RNNT 1.1B int8 (5 files: encoder `.onnx` 43,658,261 B + `.weights` 1,065,281,280 B, decoder 7,257,753 B, joiner 1,735,860 B, tokens 10,374 B) | ~1.12 GB | this repo, `parakeet-rnnt-1.1b-int8` |
+| Parakeet TDT 0.6B v2 int8 (one `.tar.bz2`; the app keeps `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, `tokens.txt`) | 482,468,385 B download, ~661 MB unpacked | sherpa-onnx releases (`asr-models`, sha256 `157c157b…e1ad`) |
 | Silero VAD | 643,854 B | sherpa-onnx releases |
 | TitaNet small (voiceprints) | 40,257,283 B | sherpa-onnx releases |
 | **Speaker changes** — Nemotron 3 Diarization int8 | 107,759,677 B, sha256 `f468ec63…1886` | this repo, `nemotron-3-diarization-onnx` |
@@ -189,7 +189,7 @@ Sensitivity: **Settings → Speech detection sensitivity** (`vadThreshold`, slid
 0.2–0.8, default 0.5). Lower (about 0.3) picks up quieter or farther speech; higher ignores more
 noise. The user chose to tune this by hand rather than change the default.
 
-Parakeet **RNNT 1.1B** is not distributed for sherpa-onnx, so CI converts it (§7.2).
+Parakeet **TDT 0.6B v2** is the ready-made int8 export from the sherpa-onnx releases. It replaced the RNNT 1.1B model (§7.2), which wrote no punctuation or capitals and was less accurate. On upgrade the app deletes the old ~1.1 GB model folder; the setup screen then offers the 482 MB speech download again (tap **Download speech models**).
 
 ### 4.2 Who is speaking (voiceprints)
 
@@ -247,12 +247,12 @@ active, at 10 ms resolution, for up to 8 voices in one stretch.
 1. If a diarizer is loaded, `splitSpeakers` is on and the audio is ≥ 2 s, run it.
 2. `SpeakerTurns` turns the 0–1 activity per slot into turns.
 3. Each slot is named from its **solo** audio (overlap excluded) via TitaNet.
-4. Neighbouring slots that are the *same person* are joined (`joinSame`).
+4. A slot that cannot be named (solo audio shorter than `minEmbeddingSeconds`) is not a different person: it is merged into its longer neighbour. Neighbouring slots that are the *same person* are then joined (`joinSame`).
 5. Each turn is transcribed on its own slice and saved with its own time,
    speaker, and `overlap` flag; voice clips get that turn's own audio.
 
 Turn rules (`SpeakerTurns`): threshold 0.5, ignore bursts < 0.24 s, bridge gaps
-< 0.24 s, merge turns < 0.8 s into a neighbour, mark overlap only when two
+< 0.24 s, merge turns < 1.5 s into a neighbour, mark overlap only when two
 speakers overlap ≥ 0.24 s (a quick hand-over is not overlap).
 
 **It can never lose a line.** Without the model, switched off
@@ -347,6 +347,8 @@ release. Each job **verifies the converted model against the original before
 publishing**, so a bad conversion fails the job instead of shipping.
 
 ### 7.2 Parakeet RNNT 1.1B → sherpa-onnx (`export-parakeet-rnnt.yml`)
+
+No longer the app's default: the app uses Parakeet TDT 0.6B v2 (§4.1). The workflow and its release stay as they are.
 
 NeMo `nvidia/parakeet-rnnt-1.1b` → ONNX (encoder / decoder / joiner) → dynamic
 int8 quantization → transcribe a real speech sample with sherpa-onnx and check the
@@ -463,7 +465,7 @@ files). `flutter analyze` is clean.
 ### 12.2 Real-model tests (Linux x64)
 
 ```bash
-export VOX_MODELS_DIR=/dir/with/encoder.int8.onnx,encoder.int8.weights,decoder.int8.onnx,joiner.int8.onnx,tokens.txt,silero_vad.onnx,titanet.onnx,test.wav
+export VOX_MODELS_DIR=/dir/with/encoder.int8.onnx,decoder.int8.onnx,joiner.int8.onnx,tokens.txt,silero_vad.onnx,titanet.onnx,test.wav
 export SHERPA_LIB_DIR=$PUB_CACHE/hosted/pub.dev/sherpa_onnx_linux-1.13.8/linux/x64
 export VOX_DIARIZER=/path/to/diarizer.int8.onnx
 export VOX_MULTI_WAV=/path/to/16k-multi-speaker.wav      # optional
@@ -536,11 +538,13 @@ Browse in **Timeline** (tap a line to fix who said it), ask in **Ask** or say
 
 ## 15. Known limits
 
-- English only (Parakeet RNNT 1.1B).
+- English only (Parakeet TDT 0.6B v2).
 - Text arrives per sentence, not word by word.
 - Diarization only splits **within** one segment (≤ ~20 s). Segments under 2 s are
-  not split; a turn under 0.8 s is merged into its neighbour, so a quick "yeah"
-  may share a line. Up to 8 voices per stretch.
+  not split; a turn under 1.5 s is merged into its neighbour, so a quick "yeah"
+  may share a line. A line is only cut when every part is at least 1.5 s and has at
+  least 2 words, and the parts are different *named* people; otherwise it stays as
+  the fast pass saved it. Up to 8 voices per stretch.
 - Overlapping speech is **marked**, but each word still goes to one line: when two
   people talk over each other, the transcript is only as good as Parakeet is at
   mixed audio.
@@ -591,7 +595,7 @@ Browse in **Timeline** (tap a line to fix who said it), ask in **Ask** or say
    (pure Dart, fully tested).
 2. Native adapters (sherpa-onnx, Gemma, microphone), foreground service, screens.
 3. CI: build and publish the APK; phone testing on an S25.
-4. Parakeet RNNT 1.1B converted in CI; mic-permission fix.
+4. Parakeet RNNT 1.1B converted in CI (later replaced by TDT 0.6B v2); mic-permission fix.
 5. Voice clips, voice learning (patterns, pinned enrollment, "Not [name]", "New
    person…", replay safety), Gemma resilience, prompt editor, time-aware questions,
    rolling reviews with a phone context test, appearance, error review pass.
@@ -606,7 +610,7 @@ Browse in **Timeline** (tap a line to fix who said it), ask in **Ask** or say
 Each line is handled in two passes (`SegmentProcessor.transcribe` / `refine`):
 
 1. **Fast**, about 2 s after a sentence ends, the same as before speaker
-   splitting: Parakeet 1.1B transcribes the whole sentence once (with word start
+   splitting: Parakeet transcribes the whole sentence once (with word start
    times) and TitaNet gives a first voice match. The line is saved and shown right
    away, and rules **without** a person fire on it.
 2. **Chunk**: recent lines are gathered until a 3 s pause or 30 s of speech. The

@@ -49,7 +49,7 @@ class SpeakerTurns {
     this.threshold = 0.5,
     this.minBurstSeconds = 0.24,
     this.minGapSeconds = 0.24,
-    this.minTurnSeconds = 0.8,
+    this.minTurnSeconds = 1.5,
     this.minOverlapSeconds = 0.24,
   });
 
@@ -62,7 +62,7 @@ class SpeakerTurns {
   /// Shorter pauses inside one person's talk are filled in.
   final double minGapSeconds;
 
-  /// Shorter turns are merged into a neighbour (too short to transcribe well).
+  /// Shorter turns are merged into a neighbour (too short to be a real turn).
   final double minTurnSeconds;
 
   /// Two voices must overlap at least this long to be marked.

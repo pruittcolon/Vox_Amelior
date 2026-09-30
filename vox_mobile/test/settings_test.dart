@@ -119,12 +119,37 @@ void main() {
       }
       final paths = SpeechModelPaths.fromStore(store)!;
       expect(p.basename(paths.encoder), 'encoder.int8.onnx');
-      expect(File(p.join(p.dirname(paths.encoder), 'encoder.int8.weights')).existsSync(), isTrue);
+      for (final n in ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']) {
+        expect(File(p.join(p.dirname(paths.encoder), n)).existsSync(), isTrue, reason: n);
+      }
       expect(LlmConfig.fromStore(store, ModelCatalog.gemma4E4b), isNull);
       fakeInstall(store, ModelCatalog.gemma4E4b);
       final llm = LlmConfig.fromStore(store, ModelCatalog.gemma4E4b)!;
       expect(llm.modelType, 'gemma4');
       expect(llm.supportsTools, isTrue);
+    });
+
+    test('upgrading from the 1.1B model removes its folder and asks for the speech model again', () {
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      for (final a in ModelCatalog.speech) {
+        if (a.kind != ModelKind.speechToText) fakeInstall(store, a);
+      }
+      // What an earlier version left behind: the 1.1B model, fully installed.
+      final old = Directory(p.join(store.root.path, 'parakeet-rnnt-1.1b-int8'))..createSync(recursive: true);
+      File(p.join(old.path, 'encoder.int8.weights')).writeAsBytesSync(List.filled(1000, 7));
+      File(p.join(old.path, 'encoder.int8.onnx')).writeAsBytesSync([1]);
+      expect(SpeechModelPaths.fromStore(store), isNull);
+
+      // Same call as AppServices._init.
+      store.removeExcept({for (final m in ModelCatalog.all) m.id, ModelCatalog.customLlmId});
+
+      expect(old.existsSync(), isFalse, reason: 'about 1.1 GB freed');
+      expect(store.isInstalled(ModelCatalog.voiceActivity), isTrue, reason: 'other models are kept');
+      expect(store.isInstalled(ModelCatalog.speakerVoiceprint), isTrue);
+      expect(store.isInstalled(ModelCatalog.parakeet), isFalse);
+      expect(SpeechModelPaths.fromStore(store), isNull, reason: 'setup screen offers the 0.6B download');
+      fakeInstall(store, ModelCatalog.parakeet);
+      expect(SpeechModelPaths.fromStore(store), isNotNull);
     });
 
     test('config survives a disk round trip and tolerates a missing or corrupt file', () {
