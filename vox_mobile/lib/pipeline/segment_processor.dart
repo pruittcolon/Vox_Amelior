@@ -18,6 +18,7 @@ class ProcessorConfig {
     this.minDiarizeSeconds = 2.0,
     this.chunkSeconds = 30,
     this.chunkPause = const Duration(seconds: 3),
+    this.minPartWords = 2,
   });
 
   final int sampleRate;
@@ -35,6 +36,10 @@ class ProcessorConfig {
   /// this much speech, or at a pause in the talk of [chunkPause].
   final int chunkSeconds;
   final Duration chunkPause;
+
+  /// A line is only cut when every part has at least this many words (and
+  /// lasts at least [SpeakerTurns.minTurnSeconds]); otherwise it stays whole.
+  final int minPartWords;
 }
 
 class ProcessorStats {
@@ -218,9 +223,12 @@ class SegmentProcessor {
           if (m.cluster != null) _speakers.saveCluster(m.cluster!);
           return (m, e);
         });
+    // A voice too quiet or brief to name is not a different person: only
+    // named people (or guests) can cut a line.
+    bool isNamed(SpeakerTurn t) => name(t.slot) != null;
     String who(SpeakerTurn t) {
-      final m = name(t.slot)?.$1;
-      return m?.speakerId ?? m?.cluster?.id ?? 'slot ${t.slot}';
+      final m = name(t.slot)!.$1;
+      return m.speakerId ?? m.cluster?.id ?? 'slot ${t.slot}';
     }
 
     final out = <SegmentView>[];
@@ -228,6 +236,7 @@ class SegmentProcessor {
       final l = lines[i];
       final from = offsets[i] / _sr;
       var parts = _within(all, from, from + l.samples.length / _sr);
+      if (parts.length > 1) parts = _absorbUnnamed(parts, isNamed);
       if (parts.length > 1) parts = SpeakerTurns.joinSame(parts, who);
       if (parts.length > 1) {
         final cut = _cut(l, parts, name);
@@ -262,19 +271,42 @@ class SegmentProcessor {
     return out;
   }
 
-  /// Replaces line [l] by one line per part. Null (line kept) when fewer
-  /// than two parts have usable words.
+  /// Merges every part whose voice could not be named into its longer
+  /// neighbour, so it can never start a new line on its own.
+  List<SpeakerTurn> _absorbUnnamed(List<SpeakerTurn> parts, bool Function(SpeakerTurn) named) {
+    final list = List<SpeakerTurn>.of(parts);
+    while (list.length > 1) {
+      final i = list.indexWhere((t) => !named(t));
+      if (i < 0) break;
+      final left = i > 0 ? list[i - 1] : null;
+      final right = i + 1 < list.length ? list[i + 1] : null;
+      final intoLeft = right == null || (left != null && left.duration >= right.duration);
+      if (intoLeft) {
+        list[i - 1] = left!.copyWith(end: list[i].end, overlap: left.overlap || list[i].overlap);
+      } else {
+        list[i + 1] = right.copyWith(start: list[i].start, overlap: right.overlap || list[i].overlap);
+      }
+      list.removeAt(i);
+    }
+    return list;
+  }
+
+  /// Replaces line [l] by one line per part. Null (line kept exactly as it
+  /// was saved) unless every part lasts at least [SpeakerTurns.minTurnSeconds]
+  /// and has at least [ProcessorConfig.minPartWords] words.
   List<SegmentView>? _cut(_Line l, List<SpeakerTurn> parts, (SpeakerMatch, Float32List)? Function(int) name) {
+    if (parts.any((t) => t.duration < turns.minTurnSeconds)) return null;
     final texts = _texts(l, parts);
-    final usable = [for (var i = 0; i < parts.length; i++) if (_isUsable(texts[i])) i];
-    if (usable.length < 2) return null;
+    for (final t in texts) {
+      if (!_isUsable(t) || t.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length < config.minPartWords) return null;
+    }
     try {
       onReplaced?.call(l.fast.id);
     } on Object catch (e) {
       Log.w('processor', 'replace hook failed', e);
     }
     final saved = <SegmentView>[];
-    for (final i in usable) {
+    for (var i = 0; i < parts.length; i++) {
       final t = parts[i];
       final from = (t.start * _sr).round().clamp(0, l.samples.length);
       final to = (t.end * _sr).round().clamp(from, l.samples.length);

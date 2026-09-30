@@ -98,7 +98,7 @@ class MoreScreen extends StatelessWidget {
                 icon: Icon(Icons.info_outline_rounded),
                 applicationName: 'Vox Amelior',
                 aboutBoxChildren: [
-                  Text('Private, on-device assistant. Speech: NVIDIA Parakeet RNNT 1.1B, Silero VAD and TitaNet via '
+                  Text('Private, on-device assistant. Speech: NVIDIA Parakeet TDT 0.6B, Silero VAD and TitaNet via '
                       'sherpa-onnx. Assistant: Google Gemma 4 via LiteRT-LM. Nothing leaves your phone.'),
                 ],
               ),

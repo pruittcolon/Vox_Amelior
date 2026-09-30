@@ -433,8 +433,10 @@ void main() {
       expect(ModelCatalog.gemma4E4b.requiresToken, isFalse);
       expect(ModelCatalog.gemma4E4b.llmType, 'gemma4');
       expect(ModelCatalog.gemma4E4b.supportsTools, isTrue);
+      expect(ModelCatalog.parakeet.id, 'parakeet-tdt-0.6b-v2-int8');
       expect(ModelCatalog.parakeet.installedFileNames,
-          {'encoder.int8.onnx', 'encoder.int8.weights', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'});
+          {'encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'});
+      expect(ModelCatalog.parakeet.files.single.sizeBytes, 482468385);
       // Every fixed download is pinned to an exact size and checksum.
       for (final m in ModelCatalog.all) {
         for (final f in m.files) {

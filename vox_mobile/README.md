@@ -6,7 +6,7 @@ them.
 
 | Feature | How |
 |---|---|
-| Speech to text | NVIDIA **Parakeet RNNT 1.1B** (int8) via sherpa-onnx |
+| Speech to text | NVIDIA **Parakeet TDT 0.6B v2** (int8) via sherpa-onnx; writes punctuation and capitals. (The 1.1B RNNT model is no longer the default: it wrote no punctuation and was less accurate.) |
 | Speech detection | Silero VAD |
 | Who is speaking | NVIDIA TitaNet voiceprints with up to 5 automatic voice patterns per person (close up, across the room, …); unknown voices become "Guest N" until named |
 | Speaker changes | NVIDIA **Nemotron 3 Diarization** (Sortformer family, converted to ONNX by CI): quick back-and-forth is split into one line per person, and people talking at the same time are marked (108 MB, downloads after the speech models) |
@@ -96,7 +96,7 @@ flutter build apk --release --target-platform android-arm64
 Real-model tests (Linux x64) run the actual sherpa-onnx models:
 
 ```bash
-export VOX_MODELS_DIR=/dir/with/encoder.int8.onnx,encoder.int8.weights,decoder.int8.onnx,joiner.int8.onnx,tokens.txt,silero_vad.onnx,titanet.onnx,test.wav
+export VOX_MODELS_DIR=/dir/with/encoder.int8.onnx,decoder.int8.onnx,joiner.int8.onnx,tokens.txt,silero_vad.onnx,titanet.onnx,test.wav
 export SHERPA_LIB_DIR=$PUB_CACHE/hosted/pub.dev/sherpa_onnx_linux-<ver>/linux/x64
 LD_LIBRARY_PATH=$SHERPA_LIB_DIR flutter test test/integration
 ```
@@ -109,7 +109,7 @@ Layout: `lib/core` (database), `lib/data` (repositories), `lib/pipeline`
 
 ## Known limitations
 
-- English only (Parakeet RNNT 1.1B).
+- English only (Parakeet TDT 0.6B v2; the older 1.1B RNNT is no longer the default).
 - Text appears after each sentence, not word by word.
 - Two people talking over each other in one sentence are attributed to one voice.
 - Android does not allow starting the microphone after a reboot; open Vox once.

@@ -69,52 +69,27 @@ class ModelAsset {
 
 /// The models the app downloads.
 ///
-/// Speech: NVIDIA Parakeet RNNT 1.1B (the Vox server's model, int8 sherpa-onnx
-/// export built by this repo's CI), Silero VAD and
+/// Speech: NVIDIA Parakeet TDT 0.6B v2 (the ready-made int8 sherpa-onnx
+/// export; it writes punctuation and capitals), Silero VAD and
 /// TitaNet voiceprints. Assistant: Google Gemma 4 E4B for LiteRT-LM.
 class ModelCatalog {
   const ModelCatalog._();
 
   static const String _sherpa = 'https://github.com/k2-fsa/sherpa-onnx/releases/download';
-  static const String _parakeet =
-      'https://github.com/pruittcolon/Vox_Amelior/releases/download/parakeet-rnnt-1.1b-int8';
 
   static const ModelAsset parakeet = ModelAsset(
-    id: 'parakeet-rnnt-1.1b-int8',
+    id: 'parakeet-tdt-0.6b-v2-int8',
     kind: ModelKind.speechToText,
-    title: 'Parakeet 1.1B speech recognition',
-    description: 'NVIDIA Parakeet RNNT 1.1B (int8). Turns speech into text on your phone.',
-    approxDownloadBytes: 1118000000,
+    title: 'Parakeet speech recognition',
+    description: 'NVIDIA Parakeet TDT 0.6B (int8). Turns speech into text on your phone.',
+    approxDownloadBytes: 482468385,
     files: [
       RemoteFile(
-        url: '$_parakeet/encoder.int8.onnx',
-        fileName: 'encoder.int8.onnx',
-        sha256: 'f6a9b8ecbf0e62423d4c1e3cb111d5edaddf9aaceff0e89bf932732cd09c73e8',
-        sizeBytes: 43658261,
-      ),
-      RemoteFile(
-        url: '$_parakeet/encoder.int8.weights',
-        fileName: 'encoder.int8.weights',
-        sha256: '2a0e6f3868cbd75d785a9e0b04f8b036dfd8882d6bbe7fbabf4e0e89200df00e',
-        sizeBytes: 1065281280,
-      ),
-      RemoteFile(
-        url: '$_parakeet/decoder.int8.onnx',
-        fileName: 'decoder.int8.onnx',
-        sha256: 'c254a0f48b94e13c7982bd5454ffffafa9aea4d5a1ceec9ad45ec0b84848e6bb',
-        sizeBytes: 7257753,
-      ),
-      RemoteFile(
-        url: '$_parakeet/joiner.int8.onnx',
-        fileName: 'joiner.int8.onnx',
-        sha256: 'da6b8f93c0922c987d12bb9b0bf4c2716c93750dd97725ec7824198d1b0196da',
-        sizeBytes: 1735860,
-      ),
-      RemoteFile(
-        url: '$_parakeet/tokens.txt',
-        fileName: 'tokens.txt',
-        sha256: 'ed16e1a4e3a3aa379138c0b1888e5d49f993c9d512b2be4d46e90a87afd54921',
-        sizeBytes: 10374,
+        url: '$_sherpa/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2',
+        fileName: 'parakeet.tar.bz2',
+        sha256: '157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad',
+        sizeBytes: 482468385,
+        extractFromArchive: {'encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'},
       ),
     ],
   );
