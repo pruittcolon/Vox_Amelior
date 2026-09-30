@@ -129,17 +129,36 @@ jobs:
               out = m.forward(audio_signal=audio, audio_signal_length=length)
               return out[0] if isinstance(out, (tuple, list)) else out
 
-          class Diarizer(torch.nn.Module):
-              """Raw 16 kHz audio -> NeMo's own Sortformer forward (offline)."""
+          k = m.encoder.pre_encode.subsampling_factor
+          print('stacking factor:', k, '| output factor:', m.output_subsampling_factor,
+                '| high resolution:', m.high_resolution, '| RoPE table:', tuple(m.encoder.pos_enc.cos.shape))
+          assert m.high_resolution and m.output_subsampling_factor == 1, 'expected 10 ms output'
 
-              def __init__(self, m):
+          class Diarizer(torch.nn.Module):
+              """Raw 16 kHz audio -> speaker activity (1, frames at 10 ms, speakers).
+
+              NeMo's offline path (process_signal -> frontend_encoder -> forward_infer -> trim),
+              with every length-dependent step written as tensor ops so the ONNX graph works for
+              any length. NeMo trims features to their valid length and FeatureStacking then
+              zero-pads to a multiple of k behind a Python `if`, which tracing would freeze to the
+              example's length. Here frames past the valid length are already zero, so we pad
+              and keep ceil(len / k) * k of them; FeatureStacking never has to pad."""
+
+              def __init__(self, m, mel):
                   super().__init__()
                   self.m = m
+                  self.mel = mel
 
               def forward(self, audio, length):
-                  return nemo_forward(audio, length)
+                  audio = audio * (1.0 / (audio.max() + self.m.eps))
+                  feats, flen = self.mel(audio, length)
+                  feats = torch.nn.functional.pad(feats, (0, k))
+                  feats = feats[:, :, : (flen[0] + k - 1) // k * k]
+                  emb, elen = self.m.frontend_encoder(processed_signal=feats, processed_signal_length=flen)
+                  preds = self.m.forward_infer(emb, elen)
+                  return preds[:, : flen[0]]
 
-          d = Diarizer(m).eval()
+          d = Diarizer(m, mel).eval()
 
           def load(path, seconds=None):
               a, sr = sf.read(path, dtype='float32')
@@ -173,7 +192,7 @@ jobs:
           # 3. Swap in the exportable features; results must not change.
           f.forward = mel.forward
           for name, a in samples.items():
-              ours = d(*tl(a))
+              ours = nemo_forward(*tl(a))
               ref = refs[name]
               n = min(ref.shape[1], ours.shape[1])
               diff = (ref[:, :n] - ours[:, :n]).abs().max().item()
@@ -204,12 +223,12 @@ jobs:
               ref = refs[name]
               n = min(ref.shape[1], ours.shape[1])
               diff = (ref[:, :n] - ours[:, :n]).abs().max().item()
-              print(f'plain attention [{name}]: max diff {diff:.2e}')
-              assert diff < 2e-2, 'plain attention changed the result'
+              print(f'plain attention + export forward [{name}]: shape {tuple(ours.shape)}, max diff {diff:.2e}')
+              assert ours.shape == ref.shape and diff < 2e-2, 'export forward changed the result'
 
           # 3. Export.
           os.makedirs('out', exist_ok=True)
-          ex = torch.from_numpy(four[: 16000 * 8]).unsqueeze(0)
+          ex = torch.from_numpy(four[: 16000 * 8 + 1234]).unsqueeze(0)
           torch.onnx.export(
               d, (ex, torch.tensor([ex.shape[1]])), 'diarizer.onnx',
               input_names=['audio', 'length'], output_names=['preds'],
@@ -236,6 +255,19 @@ jobs:
               if prev:
                   out.append(f'{t0 * frame:5.2f}-{len(act) * frame:5.2f} {"+".join(map(str, prev))}')
               return out
+
+          # Many lengths (short, odd frame counts, longer than the export example), fp32 and int8.
+          whole = load('0-four-speakers-zh.wav')
+          sweep = {f'{sec:.2f} s': whole[: int(sec * 16000)] for sec in [2.0, 2.37, 3.013, 4.99, 11.13, 17.6, 29.99, 45.3]}
+          for name, a in sweep.items():
+              ref = d(*tl(a)).numpy()
+              fp = run('diarizer.onnx', a)
+              q = run('out/diarizer.int8.onnx', a)
+              agree = float(((q > 0.5) == (ref > 0.5)).mean())
+              print(f'length {name}: frames {q.shape[1]}, fp32 max diff {np.abs(fp - ref).max():.2e}, int8 same decisions {agree:.3%}')
+              assert fp.shape == ref.shape == q.shape, 'shape differs'
+              assert np.abs(fp - ref).max() < 1e-3, 'ONNX fp32 differs from torch'
+              assert agree > 0.95, 'int8 changes too many decisions'
 
           summary = {}
           for name, a in samples.items():
