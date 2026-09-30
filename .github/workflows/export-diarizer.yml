@@ -33,7 +33,10 @@ jobs:
           pip install --upgrade pip
           pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install Cython packaging
-          pip install "nemo_toolkit[asr]" onnx onnxruntime soundfile
+          # Nemotron 3 Diarization needs RoPE attention, which is only in NeMo's source so far.
+          pip install "nemo_toolkit[asr] @ git+https://github.com/NVIDIA-NeMo/Speech.git@main" \
+            || pip install "nemo_toolkit[asr] @ git+https://github.com/NVIDIA-NeMo/NeMo.git@main"
+          pip install onnx onnxruntime soundfile
           pip list 2>/dev/null | grep -i -E "^(torch|nemo.toolkit|onnx|onnxruntime|numpy) "
       - name: Test audio
         working-directory: /mnt/work
@@ -57,21 +60,27 @@ jobs:
           torch.set_grad_enabled(False)
           m = SortformerEncLabelModel.from_pretrained('nvidia/Nemotron-3-Diarization', map_location='cpu')
           m.eval()
+          try:
+              from nemo.core.classes.common import typecheck
+              typecheck.set_typecheck_enabled(False)
+          except Exception as e:  # older/newer NeMo
+              print('typecheck toggle unavailable:', e)
+          if hasattr(m, 'streaming_mode'):
+              m.streaming_mode = False  # whole-segment (offline) inference
           f = m.preprocessor.featurizer
           print('preprocessor cfg:', dict(m.cfg.preprocessor))
           print('featurizer:', {k: getattr(f, k, None) for k in ['n_fft', 'hop_length', 'win_length', 'preemph', 'mag_power', 'normalize', 'pad_to', 'pad_value', 'stft_pad_amount', 'log', 'log_zero_guard_type', 'frame_splicing', 'use_grads']})
           print('max speakers:', getattr(m.sortformer_modules, 'n_spk', None))
-          for name in ['forward', 'process_signal', 'frontend_encoder', 'forward_infer']:
-              fn = getattr(m, name, None)
-              print(name, None if fn is None else inspect.signature(fn))
+          print('forward:', inspect.signature(m.forward))
+          print(inspect.getsource(type(m).forward))
 
-          class Diarizer(torch.nn.Module):
-              """Raw audio -> NeMo log-mel (STFT as a convolution) -> Sortformer."""
+          class MelFeatures(torch.nn.Module):
+              """NeMo's FilterbankFeatures.forward with the STFT done as a convolution
+              (complex STFT cannot be exported to ONNX). Same maths, same parameters."""
 
-              def __init__(self, m):
+              def __init__(self, f):
                   super().__init__()
-                  self.m = m
-                  f = m.preprocessor.featurizer
+                  self.f = f
                   n_fft, win = f.n_fft, f.win_length
                   w = torch.zeros(n_fft)
                   left = (n_fft - win) // 2
@@ -84,8 +93,8 @@ jobs:
                   self.register_buffer('basis', torch.cat([cos, sin], 0).unsqueeze(1))
                   self.bins = n_fft // 2 + 1
 
-              def features(self, audio, length):
-                  f = self.m.preprocessor.featurizer
+              def forward(self, audio, length, linear_spec=False):
+                  f = self.f
                   seq_len_time = length
                   seq_len = f.get_seq_len(length)
                   x = audio
@@ -114,10 +123,21 @@ jobs:
                   x = x.masked_fill(mask.unsqueeze(1), f.pad_value)
                   return x, seq_len
 
+          mel = MelFeatures(f).eval()
+
+          def nemo_forward(audio, length):
+              out = m.forward(audio_signal=audio, audio_signal_length=length)
+              return out[0] if isinstance(out, (tuple, list)) else out
+
+          class Diarizer(torch.nn.Module):
+              """Raw 16 kHz audio -> NeMo's own Sortformer forward (offline)."""
+
+              def __init__(self, m):
+                  super().__init__()
+                  self.m = m
+
               def forward(self, audio, length):
-                  feats, flen = self.features(audio, length)
-                  emb, elen = self.m.frontend_encoder(processed_signal=feats, processed_signal_length=flen)
-                  return self.m.forward_infer(emb, elen)
+                  return nemo_forward(audio, length)
 
           d = Diarizer(m).eval()
 
@@ -135,30 +155,30 @@ jobs:
           mix[start:start + len(speech)] += speech[: len(mix) - start] * 0.9  # two people at once
           samples = {'four speakers (30 s)': four, 'one speaker': speech, 'overlap mix': mix}
 
-          # 1. Features: ours vs NeMo's preprocessor (valid frames only).
+          def tl(a):
+              return torch.from_numpy(a).unsqueeze(0), torch.tensor([len(a)])
+
+          # 1. NeMo's own results, with its original feature code.
+          refs = {name: nemo_forward(*tl(a)) for name, a in samples.items()}
+
+          # 2. Features: ours vs NeMo's (valid frames only).
           for name, a in samples.items():
-              t = torch.from_numpy(a).unsqueeze(0)
-              l = torch.tensor([len(a)])
-              ref, rl = m.preprocessor(input_signal=t, length=l)
-              ours, ol = d.features(t, l)
+              ref, rl = f.forward(*tl(a))
+              ours, ol = mel(*tl(a))
               n = int(rl[0])
               diff = (ref[..., :n] - ours[..., :n]).abs().max().item()
               print(f'features [{name}]: frames {n} vs {int(ol[0])}, max diff {diff:.2e}')
               assert int(ol[0]) == n and diff < 2e-3, 'feature mismatch'
 
-          # 2. Speaker activity: ours (torch) vs NeMo's own pipeline.
-          def nemo_preds(a):
-              t = torch.from_numpy(a).unsqueeze(0)
-              l = torch.tensor([len(a)])
-              ps, pl = m.process_signal(audio_signal=t, audio_signal_length=l)
-              emb, elen = m.frontend_encoder(processed_signal=ps, processed_signal_length=pl)
-              return m.forward_infer(emb, elen)
-
+          # 3. Swap in the exportable features; results must not change.
+          f.forward = mel.forward
           for name, a in samples.items():
-              ref = nemo_preds(a)
-              ours = d(torch.from_numpy(a).unsqueeze(0), torch.tensor([len(a)]))
+              ours = d(*tl(a))
+              ref = refs[name]
               n = min(ref.shape[1], ours.shape[1])
-              print(f'preds [{name}]: shape {tuple(ours.shape)}, max diff {(ref[:, :n] - ours[:, :n]).abs().max().item():.2e}')
+              diff = (ref[:, :n] - ours[:, :n]).abs().max().item()
+              print(f'preds [{name}]: shape {tuple(ours.shape)} (NeMo {tuple(ref.shape)}), max diff {diff:.2e}')
+              assert diff < 2e-2, 'speaker activity changed'
 
           # 3. Export.
           os.makedirs('out', exist_ok=True)
@@ -176,7 +196,8 @@ jobs:
               s = ort.InferenceSession(path, providers=['CPUExecutionProvider'])
               return s.run(None, {'audio': a[None, :].astype(np.float32), 'length': np.array([len(a)], dtype=np.int64)})[0]
 
-          def turns(p, frame=0.08):
+          def turns(p, seconds):
+              frame = seconds / p.shape[1]
               act = p[0] > 0.5
               out, prev, t0 = [], None, 0
               for i, row in enumerate(act):
@@ -197,7 +218,7 @@ jobs:
               agree = float(((q > 0.5) == (ref > 0.5)).mean())
               print(f'onnx [{name}]: fp32 max diff {np.abs(fp - ref).max():.2e}; int8 max diff {np.abs(q - ref).max():.3f}, '
                     f'same decisions {agree:.3%}; frames {q.shape[1]} for {len(a) / 16000:.1f}s')
-              print('  turns:', turns(q))
+              print('  turns:', turns(q, len(a) / 16000)[:40])
               summary[name] = {'agree': agree, 'speakers': int((q[0] > 0.5).any(0).sum())}
           assert summary['four speakers (30 s)']['speakers'] >= 2, 'did not separate the four-speaker recording'
           assert summary['one speaker']['speakers'] == 1, 'split a single speaker'
