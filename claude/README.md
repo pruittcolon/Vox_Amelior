@@ -95,6 +95,7 @@ Hugging Face token** (everything is public or hosted on this repo's releases).
 | Model | Size | Source |
 |---|---|---|
 | Parakeet TDT 0.6B v2 int8 (one `.tar.bz2`; the app keeps `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, `tokens.txt`) | 482,468,385 B download, ~661 MB unpacked | sherpa-onnx releases (`asr-models`, sha256 `157c157b…e1ad`) |
+| Parakeet TDT 0.6B v2 **fp16** (optional; one `.tar.bz2`, keeps `encoder.fp16.onnx`, `decoder.fp16.onnx`, `joiner.fp16.onnx`, `tokens.txt`) | 1,120,982,957 B download | sherpa-onnx releases (`asr-models`, sha256 `37f67a1a…4cf0`); chosen in Settings → Microphone & hearing |
 | Silero VAD | 643,854 B | sherpa-onnx releases |
 | TitaNet small (voiceprints) | 40,257,283 B | sherpa-onnx releases |
 | **Speaker changes** — Nemotron 3 Diarization int8 | 107,759,677 B, sha256 `f468ec63…1886` | this repo, `nemotron-3-diarization-onnx` |
@@ -626,3 +627,40 @@ service stops mid-chunk, lines keep their fast labels.
 
 The **wake word is off by default** (the old "hey vox" default is migrated to
 off). Add one in Settings → Wake word to ask Gemma out loud.
+
+---
+
+## 19. Settings you can tune
+
+**Settings** opens a home page with five categories, each showing a live summary. Every slider can be
+dragged, nudged with − / +, or typed exactly (tap the value), applies when you let go, and shows a reset
+arrow when it differs from the default. Listening settings apply **while Vox is running** (the service
+re-reads them on `reload`; changing sensitivity, pause or short-sound length restarts only the speech
+detector).
+
+| Setting | Default | Range | What it does |
+|---|---|---|---|
+| Mic boost (`micGain`) | +15% (1.15) | −50% … +300% | Multiplies every sample (clamped at full scale) before detection, transcription and voice matching |
+| Sensitivity (`vadThreshold`, shown inverted) | 50% | 20–80% | How easily a sound counts as speech |
+| Pause that ends a sentence (`pauseSeconds`) | 0.6 s | 0.3–1.5 s | Silence needed to close a line |
+| Ignore short sounds (`minSpeechSeconds`) | 0.3 s | 0.1–1.0 s | Drops coughs and clicks |
+| Speech model (`speechModel`) | Standard (int8) | int8 / fp16 | fp16 downloads on first selection; int8 stays as the fallback until it is ready |
+| How sure before naming (`matchThreshold`) | 55% | 30–90% | Higher = fewer wrong names |
+| Lead over runner-up (`matchMargin`) | 4% | 0–30% | Best match must beat the second by this much |
+| Grouping unknown voices (`guestThreshold`) | 60% | 30–90% | How alike strangers must sound to share a "Guest" |
+| Shortest part of a line (`splitMinSeconds`) | 1.5 s | 0.8–3.0 s | A line is only split when every part is this long |
+| Fewest words in a part (`splitMinWords`) | 2 | 1–5 | …and has this many words |
+
+Presets on the microphone card set boost and sensitivity together: **Sensitive** (+50%, 60%),
+**Balanced** (+15%, 50%), **Noise-proof** (none, 35%). **Restore recommended settings** (Settings home)
+resets all of the above except the speech model.
+
+**Live level meter.** While the microphone card (Settings, or the *Mic* button on Now) is open, the
+app sends `meter` to the service, which sends a `level` event about five times a second (loudness after
+the boost on a −60…0 dBFS scale, a peak, and whether the sound is clipping). The bar shows a "good"
+zone and says whether to raise or lower the boost. Nothing is sent when no screen is showing it.
+
+**Speech model switch.** `AppSettings.asrAsset` picks the recognizer; `SpeechModelPaths.fromStore`
+uses it when installed, otherwise the standard int8 model. When the service sees a new encoder path it
+swaps the recognizer without restarting (`SegmentProcessor.swapAsr`).
+

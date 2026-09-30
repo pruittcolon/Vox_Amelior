@@ -17,6 +17,10 @@ abstract final class ServiceEvents {
 
   /// A review made progress: {type, id}
   static const review = 'review';
+
+  /// Microphone loudness while a screen asks for it: {type, level, peak, clipping}
+  /// (level and peak are 0–1 on a dB scale).
+  static const level = 'level';
 }
 
 abstract final class ServiceCommands {
@@ -41,6 +45,9 @@ abstract final class ServiceCommands {
 
   /// Reviews were added or resumed: start working on them.
   static const reviewKick = 'reviewKick';
+
+  /// {cmd, on: bool} — send [ServiceEvents.level] about 5 times a second.
+  static const levelMeter = 'meter';
 }
 
 /// What the service is doing, for the UI.

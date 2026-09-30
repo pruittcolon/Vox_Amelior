@@ -192,6 +192,9 @@ class ServiceController extends ChangeNotifier {
   /// Runs the phone context test in the service.
   void probe() => _send({'cmd': ServiceCommands.probe});
 
+  /// Turns the live microphone level ([ServiceEvents.level]) on or off.
+  void levelMeter(bool on) => _send({'cmd': ServiceCommands.levelMeter, 'on': on});
+
   /// New or resumed reviews are waiting.
   void reviewKick() => _send({'cmd': ServiceCommands.reviewKick});
 

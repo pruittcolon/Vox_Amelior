@@ -34,6 +34,7 @@ import 'package:vox_amelior_mobile/pipeline/chunk_queue.dart';
 import 'package:vox_amelior_mobile/pipeline/compute_scheduler.dart';
 import 'package:vox_amelior_mobile/pipeline/engines.dart';
 import 'package:vox_amelior_mobile/pipeline/segment_processor.dart';
+import 'package:vox_amelior_mobile/pipeline/speaker_turns.dart';
 import 'package:vox_amelior_mobile/pipeline/speech_capture.dart';
 import 'package:vox_amelior_mobile/service/protocol.dart';
 import 'package:vox_amelior_mobile/service/shared_files.dart';
@@ -138,7 +139,7 @@ class ListeningRuntime {
     );
 
     clips = ClipStore(db, Directory(voiceClipsDir(configFile.parent.path)));
-    capture = SpeechCapture(SherpaVad(modelPath: c.paths.vad, threshold: c.settings.vadThreshold));
+    capture = SpeechCapture(_makeVad(c), gain: c.settings.micGain);
     processor = SegmentProcessor(
       asr: SherpaParakeetAsr(c.paths),
       embedder: SherpaSpeakerEmbedder(c.paths.speaker),
@@ -154,6 +155,8 @@ class ListeningRuntime {
       onSaved: (segment, samples) => clips.maybeSave(_config.settings.clipPolicy, segment, samples),
       onReplaced: clips.deleteForSegment,
       diarizer: _loadDiarizer(c.paths.diarizer),
+      config: ProcessorConfig(minPartWords: c.settings.splitMinWords),
+      turns: SpeakerTurns(minTurnSeconds: c.settings.splitMinSeconds),
     )..splitSpeakers = c.settings.splitSpeakers;
     queue = ChunkQueue(Directory(c.queueDir));
     scheduler = ComputeScheduler(
@@ -215,6 +218,13 @@ class ListeningRuntime {
     }
     reviewWorker.kick();
   }
+
+  static SherpaVad _makeVad(ServiceConfig c) => SherpaVad(
+        modelPath: c.paths.vad,
+        threshold: c.settings.vadThreshold,
+        minSilenceSeconds: c.settings.pauseSeconds,
+        minSpeechSeconds: c.settings.minSpeechSeconds,
+      );
 
   /// The speaker-change model, or null (then lines are simply not split).
   static DiarizationEngine? _loadDiarizer(String? path) {
@@ -281,9 +291,27 @@ class ListeningRuntime {
     _micRetry = Timer(delay, () => unawaited(_applyListening()));
   }
 
+  /// While true, the microphone loudness is sent to the app ~5 times a second.
+  bool levelMeter = false;
+  DateTime _lastLevel = DateTime.fromMillisecondsSinceEpoch(0);
+
   void _onPcm(Uint8List bytes) {
     if (!_shouldListen) return;
     _enqueue(capture.addPcm16(bytes));
+    if (levelMeter) _emitLevel();
+  }
+
+  void _emitLevel() {
+    final now = DateTime.now();
+    if (now.difference(_lastLevel) < const Duration(milliseconds: 200)) return;
+    _lastLevel = now;
+    final l = capture.level;
+    emit({
+      'type': ServiceEvents.level,
+      'level': AudioLevel.meter(l.rms),
+      'peak': AudioLevel.meter(l.peak),
+      'clipping': l.clipping,
+    });
   }
 
   void _enqueue(List<CapturedSpeech> speech) {
@@ -478,7 +506,9 @@ class ListeningRuntime {
     final fresh = ServiceConfig.readFrom(configFile);
     if (fresh != null) {
       final llmChanged = fresh.llm?.path != _config.llm?.path;
+      final old = _config;
       _config = fresh;
+      _applyListeningSettings(old, fresh);
       processor.identifier.config = fresh.settings.identifierConfig;
       processor.splitSpeakers = fresh.settings.splitSpeakers;
       // The speaker-change model may have finished downloading meanwhile.
@@ -493,6 +523,29 @@ class ListeningRuntime {
     await _checkLocation(force: true);
     await _applyListening();
     reviewWorker.kick();
+  }
+
+  /// Settings that change how sound is heard, applied while running.
+  void _applyListeningSettings(ServiceConfig old, ServiceConfig fresh) {
+    final a = old.settings;
+    final b = fresh.settings;
+    capture.gain = b.micGain;
+    if (a.vadThreshold != b.vadThreshold || a.pauseSeconds != b.pauseSeconds || a.minSpeechSeconds != b.minSpeechSeconds) {
+      try {
+        _enqueue(capture.swapVad(_makeVad(fresh)));
+      } on Object catch (e, st) {
+        Log.e('listen', 'speech detector could not restart; keeping the old settings', e, st);
+      }
+    }
+    processor.config = ProcessorConfig(minPartWords: b.splitMinWords);
+    processor.turns = SpeakerTurns(minTurnSeconds: b.splitMinSeconds);
+    if (old.paths.encoder != fresh.paths.encoder) {
+      try {
+        processor.swapAsr(SherpaParakeetAsr(fresh.paths));
+      } on Object catch (e, st) {
+        Log.e('listen', 'speech model could not be switched; keeping the old one', e, st);
+      }
+    }
   }
 
   /// Periodic work (every ~30 s).

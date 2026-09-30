@@ -75,12 +75,13 @@ class SegmentProcessor {
     this.onReplaced,
   });
 
-  final AsrEngine _asr;
+  AsrEngine _asr;
   final EmbeddingEngine _embedder;
   final SpeakerIdentifier identifier;
   final TranscriptRepository _transcripts;
   final SpeakerRepository _speakers;
-  final ProcessorConfig config;
+  /// Tunable while running (e.g. from settings).
+  ProcessorConfig config;
   final ProcessorStats stats = ProcessorStats();
 
   /// Splits lines at speaker changes when set (the model may arrive later).
@@ -88,7 +89,7 @@ class SegmentProcessor {
 
   /// Settings switch for splitting.
   bool splitSpeakers = true;
-  final SpeakerTurns turns;
+  SpeakerTurns turns;
 
   /// Called with each saved utterance and its audio (e.g. to keep a clip).
   /// Failures here never lose the transcript.
@@ -96,6 +97,14 @@ class SegmentProcessor {
 
   /// Called before line [id] is cut into parts (e.g. to drop its old clip).
   final void Function(int id)? onReplaced;
+
+  /// Switches to another speech model (e.g. int8 → fp16). Safe between
+  /// transcriptions; the old model is released.
+  void swapAsr(AsrEngine next) {
+    final old = _asr;
+    _asr = next;
+    old.dispose();
+  }
 
   int get _sr => config.sampleRate;
 

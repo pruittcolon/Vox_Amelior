@@ -94,6 +94,26 @@ class ModelCatalog {
     ],
   );
 
+  /// The same model in half precision: a bigger download, no quantization.
+  /// Optional; the int8 model above stays installed as the fallback.
+  static const ModelAsset parakeetFp16 = ModelAsset(
+    id: 'parakeet-tdt-0.6b-v2-fp16',
+    kind: ModelKind.speechToText,
+    title: 'Parakeet speech recognition (fp16)',
+    description: 'NVIDIA Parakeet TDT 0.6B in half precision (fp16). Larger and uses more memory; no quantization.',
+    approxDownloadBytes: 1120982957,
+    essential: false,
+    files: [
+      RemoteFile(
+        url: '$_sherpa/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16.tar.bz2',
+        fileName: 'parakeet-fp16.tar.bz2',
+        sha256: '37f67a1a6c942dae27d345ee395fbd19e25ee48996faf70fca25779026054cf0',
+        sizeBytes: 1120982957,
+        extractFromArchive: {'encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt'},
+      ),
+    ],
+  );
+
   static const ModelAsset voiceActivity = ModelAsset(
     id: 'silero-vad',
     kind: ModelKind.voiceActivity,
@@ -197,8 +217,11 @@ class ModelCatalog {
 
   /// Downloaded with the speech models, but listening works without them.
   static const List<ModelAsset> speechExtras = [diarizer];
+
+  /// Speech-recognition models to choose from (settings `speechModel`: 'int8' or 'fp16').
+  static const List<ModelAsset> recognizers = [parakeet, parakeetFp16];
   static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
-  static const List<ModelAsset> all = [...speech, ...speechExtras, ...assistants];
+  static const List<ModelAsset> all = [...speech, parakeetFp16, ...speechExtras, ...assistants];
 
   static const String customLlmId = 'custom-llm';
 

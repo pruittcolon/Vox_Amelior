@@ -6,8 +6,8 @@ them.
 
 | Feature | How |
 |---|---|
-| Speech to text | NVIDIA **Parakeet TDT 0.6B v2** (int8) via sherpa-onnx; writes punctuation and capitals. (The 1.1B RNNT model is no longer the default: it wrote no punctuation and was less accurate.) |
-| Speech detection | Silero VAD |
+| Speech to text | NVIDIA **Parakeet TDT 0.6B v2** (int8, or optional fp16 from Settings) via sherpa-onnx; writes punctuation and capitals. (The 1.1B RNNT model is no longer the default: it wrote no punctuation and was less accurate.) |
+| Speech detection | Silero VAD; mic boost (default +15%), sensitivity, sentence pause and short-sound filter are adjustable in Settings → Microphone & hearing, with a live level meter |
 | Who is speaking | NVIDIA TitaNet voiceprints with up to 5 automatic voice patterns per person (close up, across the room, …); unknown voices become "Guest N" until named |
 | Speaker changes | NVIDIA **Nemotron 3 Diarization** (Sortformer family, converted to ONNX by CI): quick back-and-forth is split into one line per person, and people talking at the same time are marked (108 MB, downloads after the speech models) |
 | Teaching voices | Tap any line: pick the right person (the sample moves with it), "Not [name]" (a guest; similar voices stop getting that name, the person's voiceprint is untouched), or "New person…" |

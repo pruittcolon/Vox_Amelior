@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/location/location_policy.dart';
+import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/service/protocol.dart';
 import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/mic_tune.dart';
 import 'package:vox_amelior_mobile/ui/models_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
@@ -180,6 +182,24 @@ class _NowScreenState extends State<NowScreen> {
               ],
             ),
           ],
+          if (on && state == ListenState.listening) ...[
+            const SizedBox(height: 14),
+            MicMeterBinding(
+              services: s,
+              builder: (context, r) => Row(
+                children: [
+                  Icon(Icons.mic_rounded, size: 18, color: t.colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 10),
+                  Expanded(child: LevelMeterBar(reading: r, height: 12)),
+                  const SizedBox(width: 6),
+                  TextButton(
+                    onPressed: () => showMicTuneSheet(context, s),
+                    child: Text('Mic ${formatBoost(s.settings.value.micGain)}'),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           Row(
             children: [
@@ -207,6 +227,8 @@ class _NowScreenState extends State<NowScreen> {
     );
   }
 
+  int _speechBytes() => [...ModelCatalog.speech, ...ModelCatalog.speechExtras].fold<int>(0, (a, m) => a + m.approxDownloadBytes);
+
   List<Widget> _notices(BuildContext context) {
     final t = Theme.of(context);
     final l = s.listening;
@@ -216,7 +238,7 @@ class _NowScreenState extends State<NowScreen> {
           context,
           icon: Icons.download_rounded,
           title: 'Download the speech models',
-          text: 'Needed once (about 1.2 GB) before Vox can listen.',
+          text: 'Needed once (about ${formatBytes(_speechBytes())}) before Vox can listen.',
           action: 'Open',
           onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ModelsScreen(services: s))),
         ),
