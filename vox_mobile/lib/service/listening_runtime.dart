@@ -110,7 +110,7 @@ class ListeningRuntime {
     required Notifier notifier,
   }) async {
     final config = ServiceConfig.readFrom(configFile);
-    if (config == null) {
+    if (config == null || config.paths.missingFiles().isNotEmpty) {
       throw StateError('Speech models are not set up yet. Open Vox and finish setup.');
     }
     final rt = ListeningRuntime._(configFile, emit, notifier, config);
@@ -140,6 +140,7 @@ class ListeningRuntime {
 
     clips = ClipStore(db, Directory(voiceClipsDir(configFile.parent.path)));
     capture = SpeechCapture(_makeVad(c), gain: c.settings.micGain);
+    _asrEncoder = c.paths.encoder;
     processor = SegmentProcessor(
       asr: SherpaParakeetAsr(c.paths),
       embedder: SherpaSpeakerEmbedder(c.paths.speaker),
@@ -219,6 +220,9 @@ class ListeningRuntime {
     reviewWorker.kick();
   }
 
+  /// Encoder of the speech model loaded now (to notice a switch of model).
+  late String _asrEncoder;
+
   static SherpaVad _makeVad(ServiceConfig c) => SherpaVad(
         modelPath: c.paths.vad,
         threshold: c.settings.vadThreshold,
@@ -291,21 +295,35 @@ class ListeningRuntime {
     _micRetry = Timer(delay, () => unawaited(_applyListening()));
   }
 
-  /// While true, the microphone loudness is sent to the app ~5 times a second.
-  bool levelMeter = false;
+  /// The app is showing a level meter until then. Screens renew this every
+  /// few seconds, so a meter left on by an app that closed switches itself off.
+  DateTime? _meterUntil;
   DateTime _lastLevel = DateTime.fromMillisecondsSinceEpoch(0);
+
+  static const Duration meterLease = Duration(seconds: 6);
+
+  /// Starts (or renews) or stops sending [ServiceEvents.level] about 5 times a second.
+  void requestLevel(bool on) {
+    _meterUntil = on ? DateTime.now().add(meterLease) : null;
+    capture.measureLevel = on;
+    if (!on) capture.takeLevel();
+  }
 
   void _onPcm(Uint8List bytes) {
     if (!_shouldListen) return;
     _enqueue(capture.addPcm16(bytes));
-    if (levelMeter) _emitLevel();
+    if (_meterUntil != null) _emitLevel();
   }
 
   void _emitLevel() {
     final now = DateTime.now();
+    if (now.isAfter(_meterUntil!)) {
+      requestLevel(false);
+      return;
+    }
     if (now.difference(_lastLevel) < const Duration(milliseconds: 200)) return;
     _lastLevel = now;
-    final l = capture.level;
+    final l = capture.takeLevel();
     emit({
       'type': ServiceEvents.level,
       'level': AudioLevel.meter(l.rms),
@@ -539,9 +557,15 @@ class ListeningRuntime {
     }
     processor.config = ProcessorConfig(minPartWords: b.splitMinWords);
     processor.turns = SpeakerTurns(minTurnSeconds: b.splitMinSeconds);
-    if (old.paths.encoder != fresh.paths.encoder) {
+    if (fresh.paths.encoder != _asrEncoder) {
+      final missing = fresh.paths.missingFiles();
+      if (missing.isNotEmpty) {
+        Log.w('listen', 'speech model files missing; keeping the current model: $missing');
+        return;
+      }
       try {
         processor.swapAsr(SherpaParakeetAsr(fresh.paths));
+        _asrEncoder = fresh.paths.encoder;
       } on Object catch (e, st) {
         Log.e('listen', 'speech model could not be switched; keeping the old one', e, st);
       }

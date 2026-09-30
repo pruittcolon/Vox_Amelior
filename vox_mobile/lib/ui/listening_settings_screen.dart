@@ -8,8 +8,11 @@ import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/mic_tune.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
-/// "Seconds" as typed or shown: 0.6 s.
-String formatSeconds(double v) => '${v.toStringAsFixed(v * 10 == (v * 10).roundToDouble() ? 1 : 2)} s';
+/// Seconds as shown: "0.6 s", "0.65 s", "1.5 s".
+String formatSeconds(double v) {
+  final two = v.toStringAsFixed(2);
+  return '${two.endsWith('0') ? two.substring(0, two.length - 1) : two} s';
+}
 
 /// Everything about how Vox hears: the microphone, when speech starts and
 /// ends, and which speech model reads it.
@@ -92,7 +95,7 @@ class ListeningSettingsScreen extends StatelessWidget {
                 children: [
                   ChoiceCards<String>(
                     selected: st.speechModel,
-                    onSelected: (v) => update(st.copyWith(speechModel: v)),
+                    onSelected: (v) => services.selectSpeechModel(v),
                     options: [
                       ChoiceOption(
                         value: 'int8',
@@ -121,7 +124,25 @@ class ListeningSettingsScreen extends StatelessWidget {
     final d = services.downloads.stateOf(asset);
     switch (d.status) {
       case DownloadStatus.installed:
-        return const Pill('Installed', icon: Icons.check_rounded, color: Color(0xFF0E9F6E));
+        const installed = Pill('Installed', icon: Icons.check_rounded, color: Color(0xFF0E9F6E));
+        if (asset.id != ModelCatalog.parakeetFp16.id) return installed;
+        return Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            installed,
+            TextButton.icon(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+              icon: const Icon(Icons.delete_outline_rounded, size: 18),
+              label: const Text('Delete'),
+              onPressed: () async {
+                if (await confirm(context, 'Delete the fp16 model?', 'Frees about 1.3 GB. Vox switches to the standard model.')) {
+                  await services.removeFp16();
+                }
+              },
+            ),
+          ],
+        );
       case DownloadStatus.downloading:
       case DownloadStatus.queued:
       case DownloadStatus.unpacking:

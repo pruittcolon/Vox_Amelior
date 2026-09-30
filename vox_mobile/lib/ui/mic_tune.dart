@@ -18,14 +18,14 @@ class MicReading {
   final bool live;
 }
 
-/// "+15%", "−10%" or "as recorded" for a mic boost factor.
+/// "+15%", "−10%" or "None" for a mic boost factor.
 String formatBoost(double gain) {
   final pct = ((gain - 1) * 100).round();
   if (pct == 0) return 'None';
   return pct > 0 ? '+$pct%' : '−${-pct}%';
 }
 
-/// Reads "+15%", "15", "-10" or "115x"-free numbers typed as a percentage change.
+/// Reads a typed percentage change ("+15%", "15", "-10", "−10%") as a boost factor.
 double? parseBoost(String text) {
   final v = double.tryParse(text.trim().replaceAll('%', '').replaceAll('+', '').replaceAll('−', '-'));
   return v == null ? null : 1 + v / 100;
@@ -58,6 +58,11 @@ class MicPreset {
 }
 
 /// Turns the service's live level on while a screen is showing it.
+///
+/// Readings are requested only while this widget is visible (not a hidden
+/// tab or a page underneath another), the app is in the foreground and Vox
+/// is listening. The request is renewed every couple of seconds, so the
+/// service stops by itself if the app goes away without saying so.
 class MicMeterBinding extends StatefulWidget {
   const MicMeterBinding({super.key, required this.services, required this.builder});
 
@@ -68,14 +73,17 @@ class MicMeterBinding extends StatefulWidget {
   State<MicMeterBinding> createState() => _MicMeterBindingState();
 }
 
-class _MicMeterBindingState extends State<MicMeterBinding> {
+class _MicMeterBindingState extends State<MicMeterBinding> with WidgetsBindingObserver {
   StreamSubscription<Map<Object?, Object?>>? _sub;
   Timer? _tick;
   DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
   MicReading _reading = const MicReading();
   bool _asked = false;
+  bool _visible = true;
+  bool _foreground = true;
+  int _ticks = 0;
 
-  /// Screens showing a meter right now; the service is told to stop only when the last one goes.
+  /// Meters requesting readings right now; the service is told to stop only when the last one goes.
   static int _users = 0;
 
   AppServices get s => widget.services;
@@ -83,14 +91,30 @@ class _MicMeterBindingState extends State<MicMeterBinding> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final state = WidgetsBinding.instance.lifecycleState;
+    _foreground = state == null || state == AppLifecycleState.resumed;
     _sub = s.listening.events.listen(_onEvent);
     s.listening.addListener(_sync);
-    _tick = Timer.periodic(const Duration(milliseconds: 500), (_) => _decay());
+    _tick = Timer.periodic(const Duration(milliseconds: 500), (_) => _onTick());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // False for a tab that is not selected and for a page covered by another.
+    _visible = TickerMode.valuesOf(context).enabled;
+    _sync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
     _sync();
   }
 
   void _sync() {
-    final want = s.listening.isListening;
+    final want = s.listening.isListening && _visible && _foreground;
     if (want != _asked) {
       _asked = want;
       _users += want ? 1 : -1;
@@ -100,7 +124,7 @@ class _MicMeterBindingState extends State<MicMeterBinding> {
   }
 
   void _onEvent(Map<Object?, Object?> e) {
-    if (e['type'] != ServiceEvents.level || !mounted) return;
+    if (e['type'] != ServiceEvents.level || !mounted || !_asked) return;
     _last = DateTime.now();
     setState(() => _reading = MicReading(
           level: (e['level'] as num?)?.toDouble() ?? 0,
@@ -110,13 +134,18 @@ class _MicMeterBindingState extends State<MicMeterBinding> {
         ));
   }
 
-  void _decay() {
-    if (!mounted || !_reading.live) return;
-    if (DateTime.now().difference(_last) > const Duration(milliseconds: 1500)) setState(() => _reading = const MicReading());
+  void _onTick() {
+    if (!mounted) return;
+    // Renew the request (it lapses in the service after a few seconds).
+    if (_asked && ++_ticks % 4 == 0) s.listening.levelMeter(true);
+    if (_reading.live && DateTime.now().difference(_last) > const Duration(milliseconds: 1500)) {
+      setState(() => _reading = const MicReading());
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_sub?.cancel());
     _tick?.cancel();
     s.listening.removeListener(_sync);
@@ -267,7 +296,7 @@ class _MicTuneCardState extends State<MicTuneCard> {
                               const IconBadge(Icons.mic_rounded),
                               const SizedBox(width: 12),
                               Expanded(child: Text('Microphone', style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
-                              _LivePill(live: r.live),
+                              _LivePill(live: s.listening.isListening),
                             ],
                           ),
                           const SizedBox(height: 14),
@@ -298,7 +327,9 @@ class _MicTuneCardState extends State<MicTuneCard> {
                           showCheckmark: false,
                           label: Text(p.name),
                           selected: preset == p,
-                          onSelected: (_) => s.updateSettings(st.copyWith(micGain: p.gain, vadThreshold: p.threshold)),
+                          onSelected: (_) {
+                            if (preset != p) s.updateSettings(st.copyWith(micGain: p.gain, vadThreshold: p.threshold));
+                          },
                         ),
                     ],
                   ),

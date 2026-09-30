@@ -58,12 +58,12 @@ void main() {
 
     test('boosts what the detector and transcriber hear, and never past full scale', () {
       final vad = _PeakVad();
-      final capture = SpeechCapture(vad, gain: 1.15);
+      final capture = SpeechCapture(vad, gain: 1.15)..measureLevel = true;
       capture.addSamples(constant(0.1, 1600));
       expect(vad.peak, closeTo(0.115, 1e-6));
       capture.addSamples(constant(0.9, 1600));
       expect(vad.peak, 1.0, reason: 'clamped, not wrapped');
-      expect(capture.level.clipping, isTrue);
+      expect(capture.takeLevel().clipping, isTrue);
     });
 
     test('no boost leaves the audio untouched; a changed gain applies to the next audio', () {
@@ -94,6 +94,31 @@ void main() {
       expect(l.peak, 0.5);
       expect(l.clipping, isFalse);
       expect(AudioLevel.of(Float32List(0)).rms, 0);
+    });
+
+    test('the meter reports the loudest audio since the last reading, and only when asked', () {
+      final capture = SpeechCapture(_PeakVad());
+      capture.addSamples(constant(0.5, 1600));
+      expect(capture.takeLevel().peak, 0, reason: 'not measured unless a meter is on');
+      capture.measureLevel = true;
+      capture.addSamples(constant(0.2, 1600));
+      capture.addSamples(constant(0.9, 160)); // a short loud clip between readings
+      capture.addSamples(constant(0.1, 1600));
+      final l = capture.takeLevel();
+      expect(l.peak, closeTo(0.9, 1e-6));
+      expect(l.rms, closeTo(0.9, 1e-6));
+      expect(capture.takeLevel().peak, 0, reason: 'reset after each reading');
+    });
+
+    test('changing detector settings mid-sample keeps the microphone bytes aligned', () {
+      final next = _PeakVad();
+      final capture = SpeechCapture(_PeakVad());
+      final sample = ByteData(2)..setInt16(0, 16384, Endian.little); // 0.5
+      // One byte of a sample arrives, the detector is swapped, then the rest arrives.
+      capture.addPcm16(Uint8List.fromList([sample.getUint8(0)]));
+      capture.swapVad(next);
+      capture.addPcm16(Uint8List.fromList([sample.getUint8(1), ...List.filled(20, 0)]));
+      expect(next.peak, closeTo(0.5, 1e-4), reason: 'the split sample is rebuilt, not shifted into noise');
     });
 
     test('swapping the speech detector hands back what the old one held and re-anchors time', () {

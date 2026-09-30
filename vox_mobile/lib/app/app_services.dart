@@ -156,6 +156,7 @@ class AppServices {
       writeServiceConfig();
       listening.reload();
     },
+    onRemoved: _onModelRemoved,
     onBusyChanged: listening.keepAliveForDownloads,
     onProgressText: (t) => unawaited(listening.updateDownloadNotification(t)),
   );
@@ -403,7 +404,15 @@ class AppServices {
   /// Hands the current settings and model paths to the listening service.
   bool writeServiceConfig() {
     final paths = SpeechModelPaths.fromStore(models, asr: settings.value.asrAsset);
-    if (paths == null) return false;
+    if (paths == null) {
+      // Never leave the service a config that points at deleted models (e.g. after an upgrade).
+      try {
+        if (serviceConfigFile.existsSync()) serviceConfigFile.deleteSync();
+      } on FileSystemException catch (e) {
+        Log.w('app', 'could not remove old service config', e);
+      }
+      return false;
+    }
     ServiceConfig(
       dbPath: db.path,
       paths: paths,
@@ -421,9 +430,36 @@ class AppServices {
     await settingsRepo.save(next);
     writeServiceConfig();
     listening.reload();
-    // Picking the fp16 model fetches it; the standard one keeps working until it is ready.
-    if (next.speechModel == 'fp16' && !models.isInstalled(next.asrAsset)) unawaited(downloads.download(next.asrAsset));
     if (modelChanged) await localLlm.unload();
+  }
+
+  /// Chooses the speech model ('int8' or 'fp16'). The fp16 model is fetched
+  /// when chosen; the standard one keeps working until it is ready. Going
+  /// back to the standard model stops (and discards) an unfinished fp16 download.
+  Future<void> selectSpeechModel(String model) async {
+    await updateSettings(settings.value.copyWith(speechModel: model));
+    final fp16 = ModelCatalog.parakeetFp16;
+    if (model == 'fp16') {
+      if (!models.isInstalled(fp16)) await downloads.download(fp16);
+    } else if (!models.isInstalled(fp16) && (downloads.stateOf(fp16).isBusy || models.partialBytes(fp16) > 0)) {
+      downloads.remove(fp16);
+    }
+  }
+
+  /// Deletes the fp16 speech model. If it is in use, the standard model takes over first.
+  Future<void> removeFp16() async {
+    if (settings.value.speechModel == 'fp16') await updateSettings(settings.value.copyWith(speechModel: 'int8'));
+    downloads.remove(ModelCatalog.parakeetFp16);
+  }
+
+  /// A model was deleted: stop pointing the listening service at it.
+  void _onModelRemoved(ModelAsset asset) {
+    if (asset.id == ModelCatalog.parakeetFp16.id && settings.value.speechModel == 'fp16') {
+      unawaited(updateSettings(settings.value.copyWith(speechModel: 'int8')));
+      return;
+    }
+    writeServiceConfig();
+    listening.reload();
   }
 
   /// Call after people, rules or transcripts change.

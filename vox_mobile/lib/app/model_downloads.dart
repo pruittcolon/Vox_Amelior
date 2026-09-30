@@ -40,6 +40,7 @@ class ModelDownloads extends ChangeNotifier {
     required this.tokenProvider,
     required this.resolve,
     this.onInstalled,
+    this.onRemoved,
     this.onBusyChanged,
     this.onProgressText,
   });
@@ -51,6 +52,9 @@ class ModelDownloads extends ChangeNotifier {
   /// Looks up an asset by id (includes the user's custom model).
   final ModelAsset? Function(String id) resolve;
   final Future<void> Function(ModelAsset asset)? onInstalled;
+
+  /// Called after [asset]'s files were deleted (e.g. to stop using it).
+  final void Function(ModelAsset asset)? onRemoved;
   final Future<void> Function(bool busy)? onBusyChanged;
   final void Function(String text)? onProgressText;
 
@@ -58,6 +62,9 @@ class ModelDownloads extends ChangeNotifier {
 
   final Map<String, DownloadState> _states = {};
   final List<String> _queue = [];
+
+  /// Downloads being cancelled whose files are deleted once they have stopped.
+  final Set<String> _discard = {};
   CancelToken? _cancel;
   String? _active;
   bool _busy = false;
@@ -83,7 +90,11 @@ class ModelDownloads extends ChangeNotifier {
 
   /// Queues [asset] for download (no-op if installed or already queued).
   Future<void> download(ModelAsset asset) async {
-    if (store.isInstalled(asset) || _queue.contains(asset.id) || _active == asset.id) return;
+    if (store.isInstalled(asset) || _queue.contains(asset.id)) return;
+    if (_active == asset.id) {
+      // Asked for again while a delete was stopping it: keep the files and start again after.
+      if (!_discard.remove(asset.id)) return;
+    }
     _queue.add(asset.id);
     _states[asset.id] = DownloadState(DownloadStatus.queued, total: asset.approxDownloadBytes);
     await _remember();
@@ -117,11 +128,23 @@ class ModelDownloads extends ChangeNotifier {
     }
   }
 
+  /// Deletes [asset] (installed or partly downloaded). A download in
+  /// progress is stopped first and its files deleted once it has let go of them.
   void remove(ModelAsset asset) {
+    if (_active == asset.id) {
+      _discard.add(asset.id);
+      _cancel?.cancel();
+      return;
+    }
     cancel(asset);
+    _delete(asset);
+  }
+
+  void _delete(ModelAsset asset) {
     store.remove(asset);
     _states.remove(asset.id);
     notifyListeners();
+    onRemoved?.call(asset);
   }
 
   Future<void> _pump() async {
@@ -177,6 +200,7 @@ class ModelDownloads extends ChangeNotifier {
     } finally {
       _active = null;
       _cancel = null;
+      if (_discard.remove(id)) _delete(asset);
       await _remember();
       notifyListeners();
       unawaited(_pump());

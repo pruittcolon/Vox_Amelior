@@ -655,12 +655,24 @@ Presets on the microphone card set boost and sensitivity together: **Sensitive**
 **Balanced** (+15%, 50%), **Noise-proof** (none, 35%). **Restore recommended settings** (Settings home)
 resets all of the above except the speech model.
 
-**Live level meter.** While the microphone card (Settings, or the *Mic* button on Now) is open, the
-app sends `meter` to the service, which sends a `level` event about five times a second (loudness after
-the boost on a −60…0 dBFS scale, a peak, and whether the sound is clipping). The bar shows a "good"
-zone and says whether to raise or lower the boost. Nothing is sent when no screen is showing it.
+**Live level meter.** While a meter is visible (the microphone card in Settings, the *Mic* sheet, or
+the Now tab while it is the selected tab) and the app is in the foreground, the app sends `meter` to the
+service and renews it every 2 s; the request lapses after 6 s, so a meter left on by an app that closed
+switches itself off. The service then sends a `level` event about five times a second: the loudest audio
+since the previous reading (after the boost, on a −60…0 dBFS scale), a peak, and whether it clipped.
+Loudness is only measured while a meter is on.
 
-**Speech model switch.** `AppSettings.asrAsset` picks the recognizer; `SpeechModelPaths.fromStore`
-uses it when installed, otherwise the standard int8 model. When the service sees a new encoder path it
-swaps the recognizer without restarting (`SegmentProcessor.swapAsr`).
+**Reloads are coalesced.** The app writes the config file at once, but the service applies reloads that
+arrive within 350 ms of each other only once, so tapping + five times restarts the speech detector (and
+checks location) once.
+
+**Speech model switch.** `AppServices.selectSpeechModel` stores the choice and, for fp16, starts the
+download (only when chosen, never as a side effect of another setting). `SpeechModelPaths.fromStore`
+uses the chosen model when installed, otherwise the standard int8 model. When the service sees a new
+encoder path it checks the files exist (sherpa-onnx can end the process on a missing file) and swaps the
+recognizer without restarting (`SegmentProcessor.swapAsr`; the new model loads before the old one is
+freed, so both are briefly in memory). Going back to Standard discards an unfinished fp16 download;
+deleting fp16 (Microphone & hearing, or More → Models) switches to Standard first. Deleting any model
+rewrites the service config, and when the speech models are incomplete the config file is removed, so
+the service never loads files that are gone.
 

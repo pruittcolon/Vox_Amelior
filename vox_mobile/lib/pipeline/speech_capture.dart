@@ -69,8 +69,9 @@ class SpeechCapture {
   /// voice matching (1.0 = as recorded). Changes apply to the next audio.
   double gain;
 
-  /// Loudness of the most recent audio, after the boost.
-  AudioLevel level = AudioLevel.silent;
+  /// Measure loudness (for a level meter). Off by default: costs a pass over every sample.
+  bool measureLevel = false;
+  AudioLevel? _loudest;
 
   DateTime? _origin;
   int _received = 0;
@@ -107,7 +108,11 @@ class SpeechCapture {
     final drift = now.difference(expectedNow);
     if (drift.abs() > maxDrift) _origin = _origin!.add(drift);
     final heard = gain == 1.0 ? samples : _boost(samples, gain);
-    level = AudioLevel.of(heard);
+    if (measureLevel) {
+      final l = AudioLevel.of(heard);
+      final m = _loudest;
+      _loudest = m == null ? l : AudioLevel(math.max(m.rms, l.rms), math.max(m.peak, l.peak));
+    }
     _vad.accept(heard);
     return _stamp(_vad.takeSegments());
   }
@@ -120,16 +125,25 @@ class SpeechCapture {
     return out;
   }
 
+  /// The loudest audio since the last call (so a short clip between two
+  /// readings is not missed), or silence when nothing was measured.
+  AudioLevel takeLevel() {
+    final l = _loudest ?? AudioLevel.silent;
+    _loudest = null;
+    return l;
+  }
+
   /// Puts a new speech detector in place (its settings changed). Speech
   /// heard so far is returned first, then detection starts fresh.
   List<CapturedSpeech> swapVad(VadEngine next) {
     final result = _stamp(_vad.flush());
     _vad.dispose();
     _vad = next;
-    // The new detector counts from zero, so timestamps re-anchor too.
+    // The new detector counts from zero, so timestamps re-anchor too. A
+    // half-received sample byte belongs to the microphone stream and is kept,
+    // or every later sample would be misaligned.
     _origin = null;
     _received = 0;
-    _pendingByte = -1;
     return result;
   }
 
