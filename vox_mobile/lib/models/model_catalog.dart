@@ -172,8 +172,8 @@ class ModelCatalog {
       ),
     ],
   );
-  static const int _diarizerBytes = 0; // set from the export
-  static const String? _diarizerSha = null; // set from the export
+  static const int _diarizerBytes = 107759677;
+  static const String _diarizerSha = 'f468ec639d5cd4c9df925b4f54398d68d23fdc8ebc171e6cda1f3d5e0b281886';
 
   static const String _lc = 'https://huggingface.co/litert-community';
 

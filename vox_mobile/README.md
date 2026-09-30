@@ -9,7 +9,7 @@ them.
 | Speech to text | NVIDIA **Parakeet RNNT 1.1B** (int8) via sherpa-onnx |
 | Speech detection | Silero VAD |
 | Who is speaking | NVIDIA TitaNet voiceprints with up to 5 automatic voice patterns per person (close up, across the room, …); unknown voices become "Guest N" until named |
-| Speaker changes | NVIDIA **Nemotron 3 Diarization** (Sortformer family, converted to ONNX by CI): quick back-and-forth is split into one line per person, and people talking at the same time are marked |
+| Speaker changes | NVIDIA **Nemotron 3 Diarization** (Sortformer family, converted to ONNX by CI): quick back-and-forth is split into one line per person, and people talking at the same time are marked (108 MB, downloads after the speech models) |
 | Teaching voices | Tap any line: pick the right person (the sample moves with it), "Not [name]" (a guest; similar voices stop getting that name, the person's voiceprint is untouched), or "New person…" |
 | Memory | SQLite on the phone with full-text search, grouped into days and conversations |
 | Assistant | Google **Gemma 4 E4B** via LiteRT-LM (E2B or any `.litertlm` URL selectable) |
