@@ -125,6 +125,8 @@ GROUP BY c.speaker_id ORDER BY n DESC''');
   int deleteForSpeaker(String? speakerId) =>
       speakerId == null ? _deleteWhere('speaker_id IS NULL', const []) : _deleteWhere('speaker_id = ?', [speakerId]);
 
+  int deleteForSegment(int segmentId) => _deleteWhere('segment_id = ?', [segmentId]);
+
   void deleteForConversation(int conversationId) => _deleteWhere(
         'segment_id IN (SELECT id FROM segments WHERE conversation_id = ?)',
         [conversationId],

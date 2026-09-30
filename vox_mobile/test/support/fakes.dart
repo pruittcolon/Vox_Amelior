@@ -107,6 +107,15 @@ class FakeAsr implements AsrEngine {
     return outputs.isEmpty ? '' : outputs.removeAt(0);
   }
 
+  /// Words spread evenly over the audio (word i starts at i * seconds / n).
+  @override
+  Transcript transcribeTimed(Float32List samples, int sampleRate) {
+    final text = transcribe(samples, sampleRate);
+    final words = text.split(' ').where((w) => w.isNotEmpty).toList();
+    final step = samples.length / sampleRate / (words.isEmpty ? 1 : words.length);
+    return Transcript(text, [for (var i = 0; i < words.length; i++) TimedWord(words[i], i * step)]);
+  }
+
   @override
   void dispose() {}
 }

@@ -2,6 +2,7 @@ import 'package:vox_amelior_mobile/assistant/assistant_requests.dart';
 import 'package:vox_amelior_mobile/assistant/wake_command.dart';
 import 'package:vox_amelior_mobile/automation/action_executor.dart';
 import 'package:vox_amelior_mobile/automation/automation_repositories.dart';
+import 'package:vox_amelior_mobile/automation/rule.dart';
 import 'package:vox_amelior_mobile/automation/rule_engine.dart';
 import 'package:vox_amelior_mobile/core/clock.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
@@ -37,9 +38,17 @@ class SegmentHandler {
   WakeCommandParser wakeParser;
   final Clock clock;
 
-  Future<SegmentOutcome> handle(SegmentView segment) async {
-    final command = wakeParser.extract(segment.text);
-    final fires = engine.evaluate(rules.all(), segment, wakeCommand: command);
+  /// Rules about a particular person wait for the [LineStage.finished] line
+  /// (final names); every other rule fires on the [LineStage.fast] line. So
+  /// each rule sees each line once.
+  Future<SegmentOutcome> handle(SegmentView segment, {LineStage stage = LineStage.both}) async {
+    bool late(AutomationRule r) => (r.trigger.speakerName?.trim().isNotEmpty ?? false) && r.trigger.scope != TriggerScope.wakeCommand;
+    final eligible = [
+      for (final r in rules.all())
+        if (stage == LineStage.both || (stage == LineStage.finished) == late(r)) r,
+    ];
+    final command = stage == LineStage.finished ? null : wakeParser.extract(segment.text);
+    final fires = engine.evaluate(eligible, segment, wakeCommand: command);
     for (final fire in fires) {
       rules.markFired(fire.rule.id, clock());
       await executor.execute(fire);

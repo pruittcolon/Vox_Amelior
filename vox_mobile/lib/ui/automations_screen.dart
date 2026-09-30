@@ -103,9 +103,10 @@ class _AutomationsScreenState extends State<AutomationsScreen> {
       return const Padding(
         padding: EdgeInsets.all(24),
         child: Text(
-          'Rules react to what is said. Examples:\n\n'
+          'Rules react to what is said, about 2 seconds after the sentence ends '
+          '(rules about one person wait until speakers are checked). Examples:\n\n'
           '• When anyone says "add to the shopping list", save a note.\n'
-          '• When someone says "Hey Vox, lights on", call your Home Assistant webhook.\n'
+          '• When anyone says "lights on in the kitchen", call your Home Assistant webhook.\n'
           '• When Sam says "I\'m leaving", send a notification.',
         ),
       );

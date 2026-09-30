@@ -9,6 +9,7 @@ import 'package:vox_amelior_mobile/assistant/context_budget.dart';
 import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
+import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/pipeline/chunk_queue.dart';
@@ -207,7 +208,9 @@ void main() {
         transcripts: transcripts,
         speakers: speakers,
       ),
-      onSegment: (s) => order.add('speech:${s.text}'),
+      onSegment: (s, stage) {
+        if (stage == LineStage.fast) order.add('speech:${s.text}');
+      },
     );
     queue
       ..push(fakeAudio(1), DateTime(2026))

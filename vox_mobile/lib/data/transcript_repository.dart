@@ -147,6 +147,27 @@ GROUP BY who ORDER BY n DESC, MIN(s.id)''',
     return [for (final r in rows) r['who']! as String];
   }
 
+  /// Rewrites a saved line in place (stage 2 cutting it at a speaker change).
+  SegmentView updateSegment(
+    int id, {
+    required String text,
+    required Duration duration,
+    String? speakerId,
+    String? clusterId,
+    double? score,
+    Float32List? embedding,
+    bool overlap = false,
+  }) {
+    _db.raw.execute(
+      'UPDATE segments SET text = ?, duration_ms = ?, speaker_id = ?, cluster_id = ?, score = ?, embedding = ?, overlap = ? '
+      'WHERE id = ?',
+      [text, duration.inMilliseconds, speakerId, clusterId, score, embedding == null ? null : floatsToBlob(embedding), overlap ? 1 : 0, id],
+    );
+    return segment(id)!;
+  }
+
+  void setOverlap(int id) => _db.raw.execute('UPDATE segments SET overlap = 1 WHERE id = ?', [id]);
+
   void deleteConversation(int conversationId) {
     _db.transaction(() {
       _db.raw

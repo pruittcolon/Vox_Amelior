@@ -158,7 +158,7 @@ class _AskScreenState extends State<AskScreen> {
             ? const EmptyState(
                 icon: Icons.record_voice_over_rounded,
                 title: 'No spoken questions yet',
-                message: 'Say "Hey Vox, …" while Vox is listening.',
+                message: 'Add a wake word in Settings to ask out loud.',
               )
             : ListView(
                 controller: controller,

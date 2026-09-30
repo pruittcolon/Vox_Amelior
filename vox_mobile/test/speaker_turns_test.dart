@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
+import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
 import 'package:vox_amelior_mobile/pipeline/engines.dart';
 import 'package:vox_amelior_mobile/pipeline/segment_processor.dart';
 import 'package:vox_amelior_mobile/pipeline/speaker_turns.dart';
@@ -128,11 +129,11 @@ void main() {
 
     test('quick back-and-forth becomes one line per person, with names and times', () {
       final p = processor(
-        ['are you coming', 'yes in a minute'],
+        ['are you coming yes in minute'],
         diarizer: _FakeDiarizer(activity(6, [(0, 0, 3), (1, 3, 6)])),
       );
       final saved = p.process(twoPeople(), t0);
-      expect(saved.map((s) => s.text), ['are you coming', 'yes in a minute']);
+      expect(saved.map((s) => s.text), ['are you coming', 'yes in minute']);
       expect(saved.map((s) => s.speakerId), [alex, sam]);
       expect(saved[1].startedAt, t0.add(const Duration(seconds: 3)));
       expect(saved[0].duration, const Duration(seconds: 3));
@@ -142,7 +143,7 @@ void main() {
 
     test('talking at the same time is marked and stored', () {
       final p = processor(
-        ['wait', 'no listen'],
+        ['wait no listen to me now'],
         diarizer: _FakeDiarizer(activity(6, [(0, 0, 3.6), (1, 2.6, 6)])),
       );
       final saved = p.process(twoPeople(), t0);
@@ -167,17 +168,70 @@ void main() {
 
     test('each saved line gets its own audio for voice clips', () {
       final clipLengths = <int>[];
+      final replaced = <int>[];
       final p = SegmentProcessor(
-        asr: FakeAsr(['a b', 'c d']),
+        asr: FakeAsr(['a b c d']),
         embedder: FakeEmbedder(),
         identifier: SpeakerIdentifier(profiles: speakers.profiles(), newClusterId: SpeakerRepository.newId, nextGuestLabel: speakers.nextGuestLabel),
         transcripts: transcripts,
         speakers: speakers,
         diarizer: _FakeDiarizer(activity(6, [(0, 0, 3), (1, 3, 6)])),
         onSaved: (_, samples) => clipLengths.add(samples.length),
+        onReplaced: replaced.add,
       );
-      p.process(twoPeople(), t0);
-      expect(clipLengths, [48000, 48000]);
+      final saved = p.process(twoPeople(), t0);
+      // The fast line's clip first, then one clip per part after the cut.
+      expect(clipLengths, [96000, 48000, 48000]);
+      expect(replaced, [saved.first.id]);
+    });
+
+    test('two stages: the line shows at once, speakers are checked per chunk after a pause', () {
+      final p = processor(
+        ['are you coming yes in minute', 'sure'],
+        diarizer: _FakeDiarizer(activity(9, [(0, 0, 3), (1, 3, 9)])),
+      );
+      final fast = p.transcribe(twoPeople(), t0);
+      expect(fast.single.text, 'are you coming yes in minute');
+      expect(fast.single.speakerId, isNotNull, reason: 'first voice match right away');
+      expect(p.refineDue(t0.add(const Duration(seconds: 7))), isFalse, reason: 'still talking');
+      // More speech 1 s later joins the same chunk.
+      p.transcribe(fakeAudio(2), t0.add(const Duration(seconds: 7)));
+      expect(p.refineDue(t0.add(const Duration(seconds: 11))), isFalse);
+      expect(p.refineDue(t0.add(const Duration(seconds: 13))), isTrue, reason: '3 s pause');
+      final done = p.refine(t0.add(const Duration(seconds: 13)));
+      expect(done.map((s) => s.text), ['are you coming', 'yes in minute', 'sure']);
+      expect(done.map((s) => s.speakerId), [alex, sam, sam]);
+      expect(done.first.id, fast.single.id, reason: 'the fast line is updated in place');
+      expect(p.hasPending, isFalse);
+    });
+
+    test('a line corrected by hand before the chunk pass is left alone', () {
+      final p = processor(['are you coming yes in minute'], diarizer: _FakeDiarizer(activity(6, [(0, 0, 3), (1, 3, 6)])));
+      final fast = p.transcribe(twoPeople(), t0).single;
+      speakers.assignSegmentToSpeaker(fast.id, fast.speakerId == sam ? alex : sam);
+      p.closeChunk();
+      expect(p.refine(t0), isEmpty);
+      expect(transcripts.segment(fast.id)!.text, 'are you coming yes in minute');
+    });
+
+    test('a long stretch of talk is finished in chunks of about 30 s', () {
+      final p = processor([for (var i = 0; i < 10; i++) 'words $i here'],
+          diarizer: _FakeDiarizer(activity(36, [(0, 0, 36)])));
+      for (var i = 0; i < 6; i++) {
+        p.transcribe(fakeAudio(1), t0.add(Duration(seconds: 3 * i)));
+      }
+      expect(p.hasReadyChunk, isFalse, reason: '18 s so far');
+      for (var i = 6; i < 10; i++) {
+        p.transcribe(fakeAudio(1), t0.add(Duration(seconds: 3 * i)));
+      }
+      expect(p.hasReadyChunk, isTrue, reason: '30 s of speech');
+    });
+
+    test('sherpa tokens become words with the time of their first piece', () {
+      final w = wordsFromTokens([' are', ' you', ' com', 'ing', '\u2581yes'], [0.1, 0.4, 0.8, 0.9, 1.5]);
+      expect(w.map((e) => e.text), ['are', 'you', 'coming', 'yes']);
+      expect(w.map((e) => e.start), [0.1, 0.4, 0.8, 1.5]);
+      expect(wordsFromTokens([' a'], []), isEmpty);
     });
   });
 }

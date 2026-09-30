@@ -81,7 +81,9 @@ void main() {
           transcripts: TranscriptRepository(db),
           speakers: speakers,
         ),
-        onSegment: (SegmentView s) => log.add('saved ${s.text}'),
+        onSegment: (SegmentView s, LineStage stage) {
+          if (stage == LineStage.fast) log.add('saved ${s.text}');
+        },
       );
     });
     tearDown(() => db.close());

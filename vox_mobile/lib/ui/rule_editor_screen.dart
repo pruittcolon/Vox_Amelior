@@ -183,7 +183,7 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
           SegmentedButton<TriggerScope>(
             segments: const [
               ButtonSegment(value: TriggerScope.anySpeech, label: Text('Anyone says')),
-              ButtonSegment(value: TriggerScope.wakeCommand, label: Text('"Hey Vox, …"')),
+              ButtonSegment(value: TriggerScope.wakeCommand, label: Text('After wake word')),
             ],
             selected: {_scope},
             onSelectionChanged: (v) => setState(() => _scope = v.first),

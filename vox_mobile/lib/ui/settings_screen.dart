@@ -47,14 +47,14 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CapacityScreen(services: services))),
               ),
               ListTile(
-                title: const Text('Wake phrases'),
-                subtitle: Text(st.wakePhrases.join(', ')),
+                title: const Text('Wake word'),
+                subtitle: Text(st.wakePhrases.isEmpty ? 'Off — add one to ask Gemma out loud' : st.wakePhrases.join(', ')),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
-                  final v = await askText(context, 'Wake phrases (comma separated)', initial: st.wakePhrases.join(', '));
+                  final v = await askText(context, 'Wake words, comma separated (empty = off)', initial: st.wakePhrases.join(', '));
                   if (v == null) return;
                   final list = v.split(',').map((e) => e.trim().toLowerCase()).where((e) => e.isNotEmpty).toList();
-                  if (list.isNotEmpty) update(st.copyWith(wakePhrases: list));
+                  update(st.copyWith(wakePhrases: list));
                 },
               ),
               SwitchListTile(

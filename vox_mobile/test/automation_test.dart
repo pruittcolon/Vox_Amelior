@@ -329,6 +329,16 @@ void main() {
     });
     tearDown(() => db.close());
 
+    test('phrase rules fire on the fast line, rules about a person on the finished one, never twice', () async {
+      rules.save(rule('anyone', trigger: const RuleTrigger(phrases: ['groceries']), actions: [const NoteAction(template: 'any')]));
+      rules.save(rule('alex', trigger: const RuleTrigger(phrases: ['groceries'], speakerName: 'Alex'), actions: [const NoteAction(template: 'alex')]));
+      final line = seg('we need groceries', speaker: 'Alex');
+      expect((await handler.handle(line, stage: LineStage.fast)).firedRules, 1);
+      expect(notes.all().map((n) => n.text), ['any']);
+      expect((await handler.handle(line, stage: LineStage.finished)).firedRules, 1);
+      expect(notes.all().map((n) => n.text).toSet(), {'any', 'alex'});
+    });
+
     test('a matching rule notifies, saves a note and sends a webhook with rendered values', () async {
       rules.save(rule('r1', trigger: const RuleTrigger(phrases: ['groceries']), actions: [
         const NotifyAction(title: 'Heard {{speaker}}', body: '{{text}}'),
