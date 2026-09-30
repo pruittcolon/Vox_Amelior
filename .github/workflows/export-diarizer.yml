@@ -180,6 +180,33 @@ jobs:
               print(f'preds [{name}]: shape {tuple(ours.shape)} (NeMo {tuple(ref.shape)}), max diff {diff:.2e}')
               assert diff < 2e-2, 'speaker activity changed'
 
+          # 3b. FlexAttention (vmap-built block masks) cannot be traced to ONNX. Use the
+          # same padding mask as a plain boolean tensor and standard scaled-dot-product
+          # attention: identical maths (softmax(QK^T/sqrt(d)) V over allowed keys).
+          import nemo.collections.asr.modules.transformer_encoder as te
+          import nemo.collections.asr.modules.transformer_encoder_utils as teu
+
+          def dense_block_mask(mask_mod, B=None, H=None, Q_LEN=None, KV_LEN=None, device=None, **kw):
+              b = torch.arange(B, device=device).view(B, 1, 1, 1)
+              h = torch.zeros(1, dtype=torch.long, device=device).view(1, 1, 1, 1)
+              q = torch.arange(Q_LEN, device=device).view(1, 1, Q_LEN, 1)
+              kv = torch.arange(KV_LEN, device=device).view(1, 1, 1, KV_LEN)
+              return mask_mod(b, h, q, kv).expand(B, 1, Q_LEN, KV_LEN)
+
+          def plain_attention(q, k, v, block_mask=None, score_mod=None, **kw):
+              assert score_mod is None, 'only RoPE / no score_mod models are handled'
+              return torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=block_mask)
+
+          te.create_block_mask = dense_block_mask
+          teu._get_flex_attention = lambda q: plain_attention
+          for name, a in samples.items():
+              ours = d(*tl(a))
+              ref = refs[name]
+              n = min(ref.shape[1], ours.shape[1])
+              diff = (ref[:, :n] - ours[:, :n]).abs().max().item()
+              print(f'plain attention [{name}]: max diff {diff:.2e}')
+              assert diff < 2e-2, 'plain attention changed the result'
+
           # 3. Export.
           os.makedirs('out', exist_ok=True)
           ex = torch.from_numpy(four[: 16000 * 8]).unsqueeze(0)
