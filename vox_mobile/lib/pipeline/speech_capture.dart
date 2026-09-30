@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:vox_amelior_mobile/core/clock.dart';
@@ -11,20 +12,65 @@ class CapturedSpeech {
   final DateTime startedAt;
 }
 
+/// How loud a stretch of audio is (0–1 samples, after any boost).
+class AudioLevel {
+  const AudioLevel(this.rms, this.peak);
+
+  static const AudioLevel silent = AudioLevel(0, 0);
+
+  final double rms;
+  final double peak;
+
+  static AudioLevel of(Float32List samples) {
+    if (samples.isEmpty) return silent;
+    var sum = 0.0;
+    var peak = 0.0;
+    for (final v in samples) {
+      final a = v.abs();
+      sum += v * v;
+      if (a > peak) peak = a;
+    }
+    return AudioLevel(math.sqrt(sum / samples.length), peak);
+  }
+
+  /// Loudness on a 0–1 meter: -60 dBFS is empty, 0 dBFS is full.
+  static double meter(double amplitude) {
+    if (amplitude <= 0) return 0;
+    final db = 20 * math.log(amplitude) / math.ln10;
+    return ((db + 60) / 60).clamp(0.0, 1.0);
+  }
+
+  /// Full-scale audio: the boost (or the phone) is clipping.
+  bool get clipping => peak >= 0.999;
+}
+
 /// Microphone PCM → speech detection → timestamped speech chunks.
 ///
 /// Cheap enough to run continuously; the expensive work (transcription)
 /// happens later from a queue.
 class SpeechCapture {
-  SpeechCapture(this._vad, {this.clock = systemClock, this.sampleRate = 16000, this.maxDrift = const Duration(seconds: 2)});
+  SpeechCapture(
+    this._vad, {
+    this.clock = systemClock,
+    this.sampleRate = 16000,
+    this.maxDrift = const Duration(seconds: 2),
+    this.gain = 1.0,
+  });
 
-  final VadEngine _vad;
+  VadEngine _vad;
   final Clock clock;
   final int sampleRate;
 
   /// Re-anchor timestamps when the audio clock and wall clock disagree by
   /// more than this (e.g. after the microphone dropped audio).
   final Duration maxDrift;
+
+  /// Boost applied to every sample before detection, transcription and
+  /// voice matching (1.0 = as recorded). Changes apply to the next audio.
+  double gain;
+
+  /// Loudness of the most recent audio, after the boost.
+  AudioLevel level = AudioLevel.silent;
 
   DateTime? _origin;
   int _received = 0;
@@ -60,8 +106,31 @@ class SpeechCapture {
     final expectedNow = _origin!.add(_seconds(_received / sampleRate));
     final drift = now.difference(expectedNow);
     if (drift.abs() > maxDrift) _origin = _origin!.add(drift);
-    _vad.accept(samples);
+    final heard = gain == 1.0 ? samples : _boost(samples, gain);
+    level = AudioLevel.of(heard);
+    _vad.accept(heard);
     return _stamp(_vad.takeSegments());
+  }
+
+  static Float32List _boost(Float32List samples, double gain) {
+    final out = Float32List(samples.length);
+    for (var i = 0; i < samples.length; i++) {
+      out[i] = (samples[i] * gain).clamp(-1.0, 1.0);
+    }
+    return out;
+  }
+
+  /// Puts a new speech detector in place (its settings changed). Speech
+  /// heard so far is returned first, then detection starts fresh.
+  List<CapturedSpeech> swapVad(VadEngine next) {
+    final result = _stamp(_vad.flush());
+    _vad.dispose();
+    _vad = next;
+    // The new detector counts from zero, so timestamps re-anchor too.
+    _origin = null;
+    _received = 0;
+    _pendingByte = -1;
+    return result;
   }
 
   /// Ends the current stream (e.g. listening paused) and starts fresh.

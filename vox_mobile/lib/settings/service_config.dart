@@ -27,15 +27,19 @@ class SpeechModelPaths {
   /// Speaker-change model (optional: lines are simply not split without it).
   final String? diarizer;
 
-  /// Null unless every speech model is fully installed.
-  static SpeechModelPaths? fromStore(ModelStore store) {
+  /// Null unless every speech model is fully installed. [asr] is the
+  /// recognizer the user chose; when it is not installed (yet) the standard
+  /// int8 one is used.
+  static SpeechModelPaths? fromStore(ModelStore store, {ModelAsset? asr}) {
     if (!ModelCatalog.speech.every(store.isInstalled)) return null;
     String path(ModelAsset a, String name) => store.file(a, name).path;
+    final model = asr != null && store.isInstalled(asr) ? asr : ModelCatalog.parakeet;
+    String named(String prefix) => path(model, model.installedFileNames.firstWhere((n) => n.startsWith(prefix)));
     return SpeechModelPaths(
-      encoder: path(ModelCatalog.parakeet, 'encoder.int8.onnx'),
-      decoder: path(ModelCatalog.parakeet, 'decoder.int8.onnx'),
-      joiner: path(ModelCatalog.parakeet, 'joiner.int8.onnx'),
-      tokens: path(ModelCatalog.parakeet, 'tokens.txt'),
+      encoder: named('encoder'),
+      decoder: named('decoder'),
+      joiner: named('joiner'),
+      tokens: named('tokens'),
       vad: path(ModelCatalog.voiceActivity, 'silero_vad.onnx'),
       speaker: path(ModelCatalog.speakerVoiceprint, 'nemo_en_titanet_small.onnx'),
       diarizer: store.isInstalled(ModelCatalog.diarizer) ? path(ModelCatalog.diarizer, 'diarizer.int8.onnx') : null,

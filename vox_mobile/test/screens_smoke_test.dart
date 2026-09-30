@@ -96,6 +96,7 @@ void main() {
       ..devicePixelRatio = 3; // 360 × 760, a small phone
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(
+      key: UniqueKey(), // a fresh app, so pages pushed by an earlier step are gone
       theme: VoxTheme.light(const Appearance(corners: 'square')),
       darkTheme: VoxTheme.dark(),
       themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
@@ -201,9 +202,15 @@ void main() {
     expect(s.settings.value.corners, 'soft');
 
     await show(tester, SettingsScreen(services: s));
+    expect(find.text('Microphone & hearing'), findsOneWidget);
+    expect(find.textContaining('Mic boost +15%'), findsOneWidget);
+    await tapText(tester, 'Assistant');
     await reveal(tester, find.text('Gemma capacity'));
-    await reveal(tester, find.text('Multiple voice patterns'));
-    expect(find.text('Multiple voice patterns'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Voices & speakers');
+    await reveal(tester, find.text('Several voice patterns per person'));
+    expect(find.text('Several voice patterns per person'), findsOneWidget);
     await show(tester, MoreScreen(services: s));
     await reveal(tester, find.text('Appearance'));
     await reveal(tester, find.text('Voice clips'));

@@ -113,6 +113,8 @@ class VoxTaskHandler extends TaskHandler {
         unawaited(runtime.runProbe());
       case ServiceCommands.reviewKick:
         runtime.reviewWorker.kick();
+      case ServiceCommands.levelMeter:
+        runtime.levelMeter = data['on'] == true;
     }
   }
 

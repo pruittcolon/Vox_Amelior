@@ -16,6 +16,12 @@ class AppSettings {
     this.matchMargin = 0.04,
     this.guestThreshold = 0.6,
     this.vadThreshold = 0.5,
+    this.micGain = 1.15,
+    this.pauseSeconds = 0.6,
+    this.minSpeechSeconds = 0.3,
+    this.speechModel = 'int8',
+    this.splitMinSeconds = 1.5,
+    this.splitMinWords = 2,
     this.retentionDays = 90,
     this.speakReplies = true,
     this.llmId = 'gemma-4-e4b-it',
@@ -58,6 +64,24 @@ class AppSettings {
 
   /// Speech-detector sensitivity (lower hears quieter speech, more noise).
   final double vadThreshold;
+
+  /// Microphone boost applied before anything else hears the audio
+  /// (1.0 = as recorded; the default 1.15 is +15%).
+  final double micGain;
+
+  /// How long a pause must last before a sentence counts as finished.
+  final double pauseSeconds;
+
+  /// Shorter bursts of sound are ignored (coughs, clicks).
+  final double minSpeechSeconds;
+
+  /// Which speech model: 'int8' (standard, small) or 'fp16' (half precision, bigger).
+  final String speechModel;
+
+  /// A line is only split at a speaker change when every part lasts at least
+  /// this long and has at least [splitMinWords] words.
+  final double splitMinSeconds;
+  final int splitMinWords;
 
   /// Transcripts older than this are deleted automatically. 0 keeps everything.
   final int retentionDays;
@@ -130,6 +154,9 @@ class AppSettings {
         usePatterns: multiPatterns,
       );
 
+  /// The speech-recognition model chosen in settings.
+  ModelAsset get asrAsset => speechModel == 'fp16' ? ModelCatalog.parakeetFp16 : ModelCatalog.parakeet;
+
   ContextBudget get budget => ContextBudget(contextTokens, chunkTokens: reviewChunkTokens);
 
   ClipPolicy get clipPolicy => ClipPolicy(mode: clipMode, people: clipPeople, limitBytes: clipLimitMb * 1024 * 1024);
@@ -154,6 +181,12 @@ class AppSettings {
     double? matchMargin,
     double? guestThreshold,
     double? vadThreshold,
+    double? micGain,
+    double? pauseSeconds,
+    double? minSpeechSeconds,
+    String? speechModel,
+    double? splitMinSeconds,
+    int? splitMinWords,
     int? retentionDays,
     bool? speakReplies,
     String? llmId,
@@ -187,6 +220,12 @@ class AppSettings {
         matchMargin: matchMargin ?? this.matchMargin,
         guestThreshold: guestThreshold ?? this.guestThreshold,
         vadThreshold: vadThreshold ?? this.vadThreshold,
+        micGain: micGain ?? this.micGain,
+        pauseSeconds: pauseSeconds ?? this.pauseSeconds,
+        minSpeechSeconds: minSpeechSeconds ?? this.minSpeechSeconds,
+        speechModel: speechModel ?? this.speechModel,
+        splitMinSeconds: splitMinSeconds ?? this.splitMinSeconds,
+        splitMinWords: splitMinWords ?? this.splitMinWords,
         retentionDays: retentionDays ?? this.retentionDays,
         speakReplies: speakReplies ?? this.speakReplies,
         llmId: llmId ?? this.llmId,
@@ -221,6 +260,12 @@ class AppSettings {
         'matchMargin': matchMargin,
         'guestThreshold': guestThreshold,
         'vadThreshold': vadThreshold,
+        'micGain': micGain,
+        'pauseSeconds': pauseSeconds,
+        'minSpeechSeconds': minSpeechSeconds,
+        'speechModel': speechModel,
+        'splitMinSeconds': splitMinSeconds,
+        'splitMinWords': splitMinWords,
         'retentionDays': retentionDays,
         'speakReplies': speakReplies,
         'llmId': llmId,
@@ -287,6 +332,12 @@ class AppSettings {
       matchMargin: num01('matchMargin', d.matchMargin, max: 0.3),
       guestThreshold: num01('guestThreshold', d.guestThreshold, min: 0.2, max: 0.95),
       vadThreshold: num01('vadThreshold', d.vadThreshold, min: 0.2, max: 0.9),
+      micGain: num01('micGain', d.micGain, min: 0.5, max: 4.0),
+      pauseSeconds: num01('pauseSeconds', d.pauseSeconds, min: 0.3, max: 1.5),
+      minSpeechSeconds: num01('minSpeechSeconds', d.minSpeechSeconds, min: 0.1, max: 1.0),
+      speechModel: const ['int8', 'fp16'].contains(j['speechModel']) ? j['speechModel']! as String : d.speechModel,
+      splitMinSeconds: num01('splitMinSeconds', d.splitMinSeconds, min: 0.8, max: 3.0),
+      splitMinWords: intIn('splitMinWords', d.splitMinWords, 1, 5),
       retentionDays: days is int && days >= 0 ? days : d.retentionDays,
       speakReplies: typed('speakReplies', d.speakReplies),
       llmId: typed('llmId', d.llmId),

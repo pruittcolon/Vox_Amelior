@@ -383,7 +383,7 @@ class AppServices {
 
   File get serviceConfigFile => File(p.join(supportDir.path, 'service_config.json'));
 
-  bool get speechReady => SpeechModelPaths.fromStore(models) != null;
+  bool get speechReady => SpeechModelPaths.fromStore(models, asr: settings.value.asrAsset) != null;
 
   bool get assistantReady => models.isInstalled(settings.value.llmAsset);
 
@@ -402,7 +402,7 @@ class AppServices {
 
   /// Hands the current settings and model paths to the listening service.
   bool writeServiceConfig() {
-    final paths = SpeechModelPaths.fromStore(models);
+    final paths = SpeechModelPaths.fromStore(models, asr: settings.value.asrAsset);
     if (paths == null) return false;
     ServiceConfig(
       dbPath: db.path,
@@ -421,6 +421,8 @@ class AppServices {
     await settingsRepo.save(next);
     writeServiceConfig();
     listening.reload();
+    // Picking the fp16 model fetches it; the standard one keeps working until it is ready.
+    if (next.speechModel == 'fp16' && !models.isInstalled(next.asrAsset)) unawaited(downloads.download(next.asrAsset));
     if (modelChanged) await localLlm.unload();
   }
 
