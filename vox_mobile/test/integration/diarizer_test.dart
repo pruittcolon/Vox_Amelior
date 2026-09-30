@@ -54,4 +54,23 @@ void main() {
     expect(turns.any((t) => (t.start - 6).abs() < 1.0), isTrue, reason: 'a turn should start near 6 s');
     d.dispose();
   }, skip: skip);
+
+  test('shares the process with sherpa-onnx models, as on the phone', () {
+    final models = Platform.environment['VOX_MODELS_DIR'];
+    if (models == null) return;
+    final speech = readWavAs16k('test/fixtures/speech.wav');
+    final embedder = SherpaSpeakerEmbedder('$models/titanet.onnx');
+    final before = embedder.embed(speech, 16000);
+    final d = SortformerDiarizer(model!);
+    final a = d.analyze(speech, 16000);
+    final after = embedder.embed(speech, 16000);
+    expect(speakersIn(a), hasLength(1));
+    for (var i = 0; i < before.length; i++) {
+      expect(after[i], closeTo(before[i], 1e-5));
+    }
+    d.dispose();
+    // The diarizer's session is gone; sherpa's still work.
+    expect(embedder.embed(speech, 16000).length, before.length);
+    embedder.dispose();
+  }, skip: skip);
 }
