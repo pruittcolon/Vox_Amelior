@@ -114,11 +114,13 @@ void main() {
     });
 
     test('flash ends up holding exactly the new frame after a strip update', () {
-      final flash = Uint8List(a.length)..fillRange(0, a.length, 0xff);
+      // Whole 4 KB blocks, as on the chip.
+      const size = 3 * StripHud.blockBytes;
+      final flash = Uint8List(size)..fillRange(0, size, 0xff);
       writeToG1Flash(flash, a);
-      expect(flash, a);
+      expect(flash.sublist(0, a.length), a);
       writeToG1Flash(flash, hud.delta(a, b)!);
-      expect(flash, b);
+      expect(flash.sublist(0, b.length), b);
     });
 
     test('sizes and estimated update time', () {
