@@ -13,6 +13,8 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
@@ -213,7 +215,33 @@ class BleManager private constructor() {
         }
     }
 
+    /**
+     *  Queue many packets to one arm in a single call (e.g. a whole BMP frame).
+     *  [done] is called on the main thread with how many packets were written.
+     */
+    fun sendBatch(packets: List<ByteArray>, lr: String?, done: (Int) -> Unit) {
+        val device = if (lr == "R") connectedDevice?.rightDevice else connectedDevice?.leftDevice
+        if (device == null) {
+            done(0)
+            return
+        }
+        device.enqueue(packets) { sent -> mainHandler.post { done(sent) } }
+    }
+
     //*================= Method - Private =================*//
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun deviceFor(gatt: BluetoothGatt?): BleDevice? {
+        val address = gatt?.device?.address ?: return null
+        return connectedDevice?.let {
+            when (address) {
+                it.leftDevice?.address -> it.leftDevice
+                it.rightDevice?.address -> it.rightDevice
+                else -> null
+            }
+        }
+    }
 
     /**
      * Check if Bluetooth is turned on and permission status
@@ -299,24 +327,55 @@ class BleManager private constructor() {
                     descriptor?.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                     val isWrite = gatt.writeDescriptor(descriptor)
                     Log.d(LOG_TAG, "BluetoothGattCallback - onServicesDiscovered: descriptor isWrite :${isWrite}")
-                    //  6.
-                    gatt.requestMtu(251)
-                    //  7.
-                    gatt.device?.createBond()
-                    //  8. Update connect status，and check is both connected
-                    if (isLeft) {
-                        it.update(leftGatt = gatt, isLeftConnect = true)
-                    } else if (isRight) {
-                        it.update(rightGatt = gatt, isRightConnected = true)
-                    }
-                    requestData(byteArrayOf(0xf4.toByte(), 0x01.toByte()))
-                    if (it.isBothConnected()) {
-                        weakActivity.get()?.runOnUiThread {
-                            BleChannelHelper.bleMC.flutterGlassesConnected(it.toConnectedJson())
-                        }
+                    //  6～8 continue in onDescriptorWrite / onMtuChanged: Android runs one
+                    //  GATT operation at a time and drops any issued while one is pending.
+                    if (descriptor == null || !isWrite) {
+                        gatt.requestMtu(251)
                     }
                 }
             }
+        }
+
+        override fun onDescriptorWrite(gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor?, status: Int) {
+            super.onDescriptorWrite(gatt, descriptor, status)
+            //  6.
+            gatt?.requestMtu(251)
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+            super.onMtuChanged(gatt, mtu, status)
+            Log.i(LOG_TAG, "BluetoothGattCallback - onMtuChanged: mtu = $mtu, status = $status")
+            gatt ?: return
+            //  Shortest connection interval (7.5～15ms instead of ~30～50ms): the main
+            //  limit on how many packets per second reach the glasses.
+            gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+            //  7.
+            gatt.device?.createBond()
+            //  8. Update connect status，and check is both connected
+            connectedDevice?.let {
+                if (gatt.device?.address == it.leftDevice?.address) {
+                    it.update(leftGatt = gatt, isLeftConnect = true)
+                } else if (gatt.device?.address == it.rightDevice?.address) {
+                    it.update(rightGatt = gatt, isRightConnected = true)
+                } else {
+                    return
+                }
+                deviceFor(gatt)?.sendData(byteArrayOf(0xf4.toByte(), 0x01.toByte()))
+                if (it.isBothConnected()) {
+                    weakActivity.get()?.runOnUiThread {
+                        BleChannelHelper.bleMC.flutterGlassesConnected(it.toConnectedJson())
+                    }
+                }
+            }
+        }
+
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt?,
+            characteristic: BluetoothGattCharacteristic?,
+            status: Int
+        ) {
+            super.onCharacteristicWrite(gatt, characteristic, status)
+            deviceFor(gatt)?.onWriteComplete()
         }
 
         override fun onCharacteristicChanged(

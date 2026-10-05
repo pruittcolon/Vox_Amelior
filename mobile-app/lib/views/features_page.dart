@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:demo_ai_even/views/features/voice_enrollment_page.dart';
 import 'package:demo_ai_even/views/features/notification/vocabulary_game_page.dart';
 import 'package:demo_ai_even/views/features/memory_server.dart';
+import 'package:demo_ai_even/views/features/speed_test_page.dart';
 
 /// A page that displays a list of available device features.
 /// This widget is stateless because it only displays static options and
@@ -73,6 +74,20 @@ class FeaturesPage extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                     builder: (context) => const MemoryServerPage()),
+              );
+            },
+          ),
+          _buildFeatureTile(
+            context: context,
+            icon: Icons.speed_outlined,
+            title: 'BMP Speed Test',
+            subtitle: 'Stream frames to the glasses and measure frames per second.',
+            cardColor: cardColor,
+            accentColor: accentColor,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SpeedTestPage()),
               );
             },
           ),

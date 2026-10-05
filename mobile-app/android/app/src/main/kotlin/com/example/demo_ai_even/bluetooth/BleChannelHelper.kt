@@ -103,6 +103,12 @@ class BleMethodChannel(
         result.success(null)
     }
 
+    fun sendBatch(call: MethodCall, result: MethodChannel.Result) {
+        val args = call.arguments as? Map<*, *>
+        val packets = (args?.get("packets") as? List<*>)?.filterIsInstance<ByteArray>() ?: emptyList()
+        BleManager.instance.sendBatch(packets, args?.get("lr") as? String) { sent -> result.success(sent) }
+    }
+
     fun startEvenAI(call: MethodCall, result: MethodChannel.Result) {
         // MODIFIED: Acquire a wakelock to keep the CPU running
         BleManager.instance.acquireWakeLock()
