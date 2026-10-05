@@ -19,7 +19,7 @@ class AppSettings {
     this.micGain = 1.15,
     this.pauseSeconds = 0.6,
     this.minSpeechSeconds = 0.3,
-    this.speechModel = 'int8',
+    this.speechModel = 'fp16',
     this.splitMinSeconds = 1.5,
     this.splitMinWords = 2,
     this.retentionDays = 90,
@@ -75,7 +75,8 @@ class AppSettings {
   /// Shorter bursts of sound are ignored (coughs, clicks).
   final double minSpeechSeconds;
 
-  /// Which speech model: 'int8' (standard, small) or 'fp16' (half precision, bigger).
+  /// Which speech model: 'fp16' (half precision, the default: most accurate)
+  /// or 'int8' (standard, smaller). Until fp16 has downloaded, int8 is used.
   final String speechModel;
 
   /// A line is only split at a speaker change when every part lasts at least
@@ -263,7 +264,7 @@ class AppSettings {
         'micGain': micGain,
         'pauseSeconds': pauseSeconds,
         'minSpeechSeconds': minSpeechSeconds,
-        'speechModel': speechModel,
+        'asrModel': speechModel,
         'splitMinSeconds': splitMinSeconds,
         'splitMinWords': splitMinWords,
         'retentionDays': retentionDays,
@@ -335,7 +336,9 @@ class AppSettings {
       micGain: num01('micGain', d.micGain, min: 0.5, max: 4.0),
       pauseSeconds: num01('pauseSeconds', d.pauseSeconds, min: 0.3, max: 1.5),
       minSpeechSeconds: num01('minSpeechSeconds', d.minSpeechSeconds, min: 0.1, max: 1.0),
-      speechModel: const ['int8', 'fp16'].contains(j['speechModel']) ? j['speechModel']! as String : d.speechModel,
+      // Stored as 'asrModel': the old 'speechModel' key held int8 for everyone
+      // (the old default), so phones moving up start on fp16 too.
+      speechModel: const ['int8', 'fp16'].contains(j['asrModel']) ? j['asrModel']! as String : d.speechModel,
       splitMinSeconds: num01('splitMinSeconds', d.splitMinSeconds, min: 0.8, max: 3.0),
       splitMinWords: intIn('splitMinWords', d.splitMinWords, 1, 5),
       retentionDays: days is int && days >= 0 ? days : d.retentionDays,

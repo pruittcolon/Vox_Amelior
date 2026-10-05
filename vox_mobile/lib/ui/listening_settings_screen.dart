@@ -90,8 +90,8 @@ class ListeningSettingsScreen extends StatelessWidget {
               SettingsGroup(
                 title: 'Speech model',
                 footer: 'Both are the same NVIDIA Parakeet model and write punctuation and capitals. '
-                    'Standard is smaller and lighter on memory; fp16 keeps the full-precision weights and needs more memory. '
-                    'Standard stays installed as a fallback.',
+                    'fp16 keeps the full-precision weights and is the most accurate (the default); Standard is smaller and lighter on memory. '
+                    'Standard stays installed and is used until fp16 has downloaded.',
                 children: [
                   ChoiceCards<String>(
                     selected: st.speechModel,
@@ -106,7 +106,7 @@ class ListeningSettingsScreen extends StatelessWidget {
                       ChoiceOption(
                         value: 'fp16',
                         title: 'High precision (fp16)',
-                        subtitle: '${formatBytes(ModelCatalog.parakeetFp16.approxDownloadBytes)} download · more memory',
+                        subtitle: '${formatBytes(ModelCatalog.parakeetFp16.approxDownloadBytes)} download · most accurate · recommended',
                         status: _status(context, ModelCatalog.parakeetFp16),
                       ),
                     ],

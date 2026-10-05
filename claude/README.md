@@ -644,7 +644,7 @@ detector).
 | Sensitivity (`vadThreshold`, shown inverted) | 50% | 20–80% | How easily a sound counts as speech |
 | Pause that ends a sentence (`pauseSeconds`) | 0.6 s | 0.3–1.5 s | Silence needed to close a line |
 | Ignore short sounds (`minSpeechSeconds`) | 0.3 s | 0.1–1.0 s | Drops coughs and clicks |
-| Speech model (`speechModel`) | Standard (int8) | int8 / fp16 | fp16 downloads on first selection; int8 stays as the fallback until it is ready |
+| Speech model (`speechModel`, stored as `asrModel`) | **High precision (fp16)** | int8 / fp16 | fp16 downloads automatically right after the standard speech models; int8 is used until it is ready and stays as the fallback. Choosing Standard (or deleting fp16) sticks |
 | How sure before naming (`matchThreshold`) | 55% | 30–90% | Higher = fewer wrong names |
 | Lead over runner-up (`matchMargin`) | 4% | 0–30% | Best match must beat the second by this much |
 | Grouping unknown voices (`guestThreshold`) | 60% | 30–90% | How alike strangers must sound to share a "Guest" |

@@ -155,6 +155,7 @@ class AppServices {
     onInstalled: (_) async {
       writeServiceConfig();
       listening.reload();
+      _fetchChosenSpeechModel();
     },
     onRemoved: _onModelRemoved,
     onBusyChanged: listening.keepAliveForDownloads,
@@ -200,6 +201,7 @@ class AppServices {
     unawaited(downloads.resumeInterrupted());
     // Phones set up before speaker changes existed get that model too.
     if (speechReady && !models.isInstalled(ModelCatalog.diarizer)) unawaited(downloads.download(ModelCatalog.diarizer));
+    _fetchChosenSpeechModel();
     // The service loads its own copy of the model; don't hold two. Reviews
     // move to whichever side runs the model.
     var wasListening = listening.isListening;
@@ -444,6 +446,14 @@ class AppServices {
     } else if (!models.isInstalled(fp16) && (downloads.stateOf(fp16).isBusy || models.partialBytes(fp16) > 0)) {
       downloads.remove(fp16);
     }
+  }
+
+  /// fp16 is the default speech model: fetch it once the standard speech
+  /// models are in (they come first, so listening can start sooner).
+  void _fetchChosenSpeechModel() {
+    final fp16 = ModelCatalog.parakeetFp16;
+    if (settings.value.speechModel != 'fp16' || !speechReady || models.isInstalled(fp16)) return;
+    unawaited(downloads.download(fp16));
   }
 
   /// Deletes the fp16 speech model. If it is in use, the standard model takes over first.

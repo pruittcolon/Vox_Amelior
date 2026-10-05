@@ -201,25 +201,27 @@ void main() {
       expect(back.pauseSeconds, 0.9);
       expect(back.minSpeechSeconds, 0.5);
       expect(back.speechModel, 'fp16');
+      expect(AppSettings.fromJson(s.copyWith(speechModel: 'int8').toJson()).speechModel, 'int8', reason: 'choosing standard sticks');
       expect(back.asrAsset.id, 'parakeet-tdt-0.6b-v2-fp16');
       expect(back.splitMinSeconds, 2.0);
       expect(back.splitMinWords, 3);
     });
 
-    test('settings saved by an older version get the new defaults (including +15%)', () {
+    test('settings saved by an older version get the new defaults (including +15% and fp16)', () {
       final old = const AppSettings().toJson()
         ..remove('micGain')
         ..remove('pauseSeconds')
         ..remove('minSpeechSeconds')
-        ..remove('speechModel')
+        ..remove('asrModel')
+        ..['speechModel'] = 'int8' // what every phone stored before fp16 became the default
         ..remove('splitMinSeconds')
         ..remove('splitMinWords');
       final s = AppSettings.fromJson(old);
       expect(s.micGain, 1.15);
       expect(s.pauseSeconds, 0.6);
       expect(s.minSpeechSeconds, 0.3);
-      expect(s.speechModel, 'int8');
-      expect(s.asrAsset.id, 'parakeet-tdt-0.6b-v2-int8');
+      expect(s.speechModel, 'fp16');
+      expect(s.asrAsset.id, 'parakeet-tdt-0.6b-v2-fp16');
       expect(s.splitMinSeconds, 1.5);
       expect(s.splitMinWords, 2);
     });
@@ -229,14 +231,14 @@ void main() {
         'micGain': 99,
         'pauseSeconds': 0,
         'minSpeechSeconds': 'loud',
-        'speechModel': 'fp64',
+        'asrModel': 'fp64',
         'splitMinSeconds': -3,
         'splitMinWords': 40,
       });
       expect(s.micGain, 4.0);
       expect(s.pauseSeconds, 0.3);
       expect(s.minSpeechSeconds, 0.3);
-      expect(s.speechModel, 'int8');
+      expect(s.speechModel, 'fp16');
       expect(s.splitMinSeconds, 0.8);
       expect(s.splitMinWords, 2);
     });
