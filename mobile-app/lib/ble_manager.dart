@@ -232,6 +232,27 @@ class BleManager {
     return _channel.invokeMethod(method, params);
   }
 
+  /// Write [packets] to one arm back to back; returns how many were written.
+  /// Android queues them natively with proper flow control. Platforms without
+  /// `sendBatch` (iOS) fall back to one `send` per packet with a short gap.
+  static bool _batchSupported = true;
+  static Future<int> sendBatch(List<Uint8List> packets, String lr) async {
+    if (_batchSupported) {
+      try {
+        final sent = await _channel
+            .invokeMethod<int>('sendBatch', {'lr': lr, 'packets': packets});
+        return sent ?? 0;
+      } on MissingPluginException {
+        _batchSupported = false;
+      }
+    }
+    for (final packet in packets) {
+      await sendData(packet, lr: lr);
+      await Future.delayed(const Duration(milliseconds: 8));
+    }
+    return packets.length;
+  }
+
   static Future<BleReceive> requestRetry(
     Uint8List data, {
     String? lr,

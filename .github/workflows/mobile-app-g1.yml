@@ -1,0 +1,30 @@
+name: G1 mobile-app tests
+on:
+  workflow_dispatch:
+  push:
+    branches: [g1-fast-display]
+    paths: ['mobile-app/**', '.github/workflows/mobile-app-g1.yml']
+  pull_request:
+    paths: ['mobile-app/**', '.github/workflows/mobile-app-g1.yml']
+concurrency:
+  group: mobile-app-g1-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      # mobile-app is pinned to Flutter 3.24.5 (see its fresh-clone build fix).
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.24.5', channel: stable, cache: true }
+      # .env holds secrets and is not committed; tests only need it to exist.
+      - run: touch .env
+      - run: flutter pub get
+      - name: Fast BMP + efficient HUD tests (simulated glasses)
+        run: flutter test test/fast_bmp_test.dart test/efficient_gui_test.dart -r expanded
