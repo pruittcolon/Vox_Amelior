@@ -48,6 +48,32 @@ class _PeakVad implements VadEngine {
   void dispose() => disposed = true;
 }
 
+/// Hands back everything it heard as one chunk (like Silero after a pause).
+class _EchoVad implements VadEngine {
+  final List<double> heard = [];
+  int _start = 0;
+
+  @override
+  void accept(Float32List samples) => heard.addAll(samples);
+
+  @override
+  List<SpeechChunk> takeSegments() => const [];
+
+  @override
+  List<SpeechChunk> flush() {
+    final chunk = SpeechChunk(Float32List.fromList(heard), _start / 16000);
+    _start += heard.length;
+    heard.clear();
+    return [chunk];
+  }
+
+  @override
+  void reset() {}
+
+  @override
+  void dispose() {}
+}
+
 Float32List constant(double v, int n) => Float32List.fromList(List.filled(n, v));
 
 void main() {
@@ -56,7 +82,7 @@ void main() {
       expect(const AppSettings().micGain, 1.15);
     });
 
-    test('boosts what the detector and transcriber hear, and never past full scale', () {
+    test('boosts what the detector hears, and never past full scale', () {
       final vad = _PeakVad();
       final capture = SpeechCapture(vad, gain: 1.15)..measureLevel = true;
       capture.addSamples(constant(0.1, 1600));
@@ -64,6 +90,28 @@ void main() {
       capture.addSamples(constant(0.9, 1600));
       expect(vad.peak, 1.0, reason: 'clamped, not wrapped');
       expect(capture.takeLevel().clipping, isTrue);
+    });
+
+    test('transcription gets the audio as recorded: no boost, no clipping', () {
+      final vad = _EchoVad();
+      final capture = SpeechCapture(vad, gain: 1.5);
+      capture.addSamples(constant(0.8, 1600));
+      capture.addSamples(constant(-0.2, 1600));
+      final speech = capture.flush().single.samples;
+      expect(vad.heard, isEmpty);
+      expect(speech, hasLength(3200));
+      expect(speech.first, closeTo(0.8, 1e-6), reason: 'not clipped at 1.0');
+      expect(speech.last, closeTo(-0.2, 1e-6), reason: 'not boosted to -0.3');
+    });
+
+    test('a chunk spanning a boost change is still handed back as recorded', () {
+      final vad = _EchoVad();
+      final capture = SpeechCapture(vad);
+      capture.addSamples(constant(0.3, 800));
+      capture.gain = 4.0;
+      capture.addSamples(constant(0.3, 800));
+      final speech = capture.flush().single.samples;
+      expect(speech.every((v) => (v - 0.3).abs() < 1e-6), isTrue);
     });
 
     test('no boost leaves the audio untouched; a changed gain applies to the next audio', () {
