@@ -155,6 +155,37 @@ void main() {
   });
 
   group('FastBmp protocol', () {
+    test('a UI frame is small enough to stream over BLE', () {
+      // A realistic HUD frame: clock, title, 4 text lines, progress bar.
+      final c = G1Canvas();
+      c.text(4, 4, '12:34');
+      c.text(200, 4, 'CLAUDE CODE');
+      c.rect(0, 24, G1Canvas.width, 25);
+      for (var i = 0; i < 4; i++) {
+        c.text(4, 32 + i * 20, 'LINE ${i + 1} OF TEXT');
+      }
+      c.rect(4, 118, 572, 130, fill: false);
+      final bmp = c.toBmp();
+      final packs = FastBmp.packets(bmp);
+      final perArm = packs.fold<int>(0, (n, p) => n + p.length);
+      final bothArms = perArm * 2;
+      // Air time per packet on the 1M PHY, incl. headers and the empty ack:
+      // (packet + ~14 B overhead) * 8 us + ~400 us gaps ≈ 2 ms for 200 B.
+      double airMs(int bytes) => (bytes + 14) * 8 / 1000 + 0.4;
+      final airTotal =
+          packs.fold<double>(0, (t, p) => t + airMs(p.length)) * 2;
+      // ignore: avoid_print
+      print('frame ${bmp.length} B, ${packs.length} packets/arm, '
+          '$bothArms B both arms, est. radio time ${airTotal.toStringAsFixed(0)} ms '
+          '(~${(1000 / airTotal).toStringAsFixed(1)} fps ceiling at 1M PHY, '
+          '~${(2000 / airTotal).toStringAsFixed(1)} fps at 2M PHY)');
+      expect(bmp.length, 9854);
+      expect(packs.length, 51);
+      expect(packs.every((p) => p.length <= 200), isTrue,
+          reason: 'fits one BLE packet at MTU 251');
+      expect(airTotal, lessThan(500), reason: 'under half a second on air');
+    });
+
     test('packets: 51 of them, address only in the first, payload intact', () {
       final bmp = testFrame(1);
       final packs = FastBmp.packets(bmp);
