@@ -26,5 +26,5 @@ jobs:
       # .env holds secrets and is not committed; tests only need it to exist.
       - run: touch .env
       - run: flutter pub get
-      - name: Fast BMP tests (simulated glasses)
-        run: flutter test test/fast_bmp_test.dart -r expanded
+      - name: Fast BMP + efficient HUD tests (simulated glasses)
+        run: flutter test test/fast_bmp_test.dart test/efficient_gui_test.dart -r expanded
