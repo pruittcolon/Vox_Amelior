@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
@@ -245,6 +249,18 @@ class _PrivacySettings extends StatelessWidget {
                     },
                   ),
                   ListTile(
+                    leading: const IconBadge(Icons.save_alt_rounded, size: 36),
+                    title: const Text('Save all transcripts to a file'),
+                    subtitle: const Text('A text file you can keep, and import again later'),
+                    onTap: () => _saveTranscripts(context, services),
+                  ),
+                  ListTile(
+                    leading: const IconBadge(Icons.upload_file_rounded, size: 36),
+                    title: const Text('Import transcripts'),
+                    subtitle: const Text('From a saved file or copied text (e.g. from before reinstalling)'),
+                    onTap: () => _importTranscripts(context, services),
+                  ),
+                  ListTile(
                     leading: IconBadge(Icons.delete_forever_rounded, size: 36, color: Theme.of(context).colorScheme.error),
                     title: const Text('Delete all transcripts'),
                     subtitle: const Text('People, their voices and saved voice clips are kept.'),
@@ -263,5 +279,76 @@ class _PrivacySettings extends StatelessWidget {
         },
       ),
     );
+  }
+}
+
+Future<void> _saveTranscripts(BuildContext context, AppServices services) async {
+  final now = DateTime.now();
+  final name = 'vox-transcripts-${now.year}-${two(now.month)}-${two(now.day)}.txt';
+  try {
+    final saved = await FilePicker.saveFile(
+      fileName: name,
+      bytes: utf8.encode(services.transcripts.exportText()),
+      mimeType: 'text/plain',
+    );
+    if (saved != null && context.mounted) showMessage(context, 'Saved $name');
+  } on Object catch (e) {
+    if (context.mounted) showMessage(context, 'Could not save: $e');
+  }
+}
+
+Future<void> _importTranscripts(BuildContext context, AppServices services) async {
+  final source = await showModalBottomSheet<String>(
+    context: context,
+    builder: (c) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const ListTile(
+            title: Text('Import transcripts'),
+            subtitle: Text('Use text from "Copy all transcripts" or a file from "Save all transcripts to a file". '
+                'Conversations already on this phone are skipped.'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.content_paste_rounded),
+            title: const Text('Paste copied text'),
+            onTap: () => Navigator.pop(c, 'paste'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.folder_open_rounded),
+            title: const Text('Choose a file'),
+            onTap: () => Navigator.pop(c, 'file'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (source == null) return;
+  String? text;
+  try {
+    if (source == 'paste') {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    } else {
+      final picked = await FilePicker.pickFile();
+      final path = picked?.path;
+      if (path != null) text = await File(path).readAsString();
+    }
+  } on Object catch (e) {
+    if (context.mounted) showMessage(context, 'Could not read it: $e');
+    return;
+  }
+  if (text == null || text.trim().isEmpty) {
+    if (context.mounted) showMessage(context, source == 'paste' ? 'The clipboard is empty.' : 'Nothing to import.');
+    return;
+  }
+  final r = services.transcripts.importText(text);
+  services.dataChanged();
+  if (!context.mounted) return;
+  if (r.conversations == 0 && r.skipped == 0) {
+    showMessage(context, 'No transcripts found in that text.');
+  } else {
+    showMessage(context,
+        'Imported ${r.conversations} conversation${r.conversations == 1 ? '' : 's'} (${r.lines} lines)'
+        '${r.skipped > 0 ? ', ${r.skipped} already here' : ''}.');
   }
 }

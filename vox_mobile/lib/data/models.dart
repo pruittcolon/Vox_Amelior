@@ -40,6 +40,7 @@ class UnknownCluster {
     required this.centroid,
     required this.count,
     required this.updatedAt,
+    this.background = false,
   });
 
   final String id;
@@ -47,6 +48,9 @@ class UnknownCluster {
   Float32List centroid;
   int count;
   DateTime updatedAt;
+
+  /// Marked as TV, radio or other background voice: hidden when reading back.
+  bool background;
 }
 
 /// A transcribed utterance with its resolved speaker, ready for display.
@@ -68,6 +72,8 @@ class SegmentView {
     this.clusterLabel,
     this.score,
     this.overlap = false,
+    this.background = false,
+    this.importedLabel,
   });
 
   final int id;
@@ -84,12 +90,28 @@ class SegmentView {
   /// Someone else was talking at the same time during this line.
   final bool overlap;
 
+  /// Said by a voice marked as TV or background.
+  final bool background;
+
+  /// Speaker name of a line imported from a text export (no voiceprint).
+  final String? importedLabel;
+
   DateTime get endedAt => startedAt.add(duration);
 
   /// Best human-readable speaker label.
-  String get speakerLabel => speakerName ?? clusterLabel ?? 'Unknown';
+  String get speakerLabel => speakerName ?? clusterLabel ?? importedLabel ?? 'Unknown';
 
   bool get isKnownSpeaker => speakerId != null;
+
+  /// Identifies the voice for filtering: a person, a guest voice, an
+  /// imported name, or 'unknown'.
+  String get voiceKey => speakerId != null
+      ? 'person:$speakerId'
+      : clusterId != null
+          ? 'guest:$clusterId'
+          : importedLabel != null
+              ? 'name:$importedLabel'
+              : 'unknown';
 }
 
 class ConversationSummary {
@@ -128,6 +150,8 @@ class SegmentQuery {
   const SegmentQuery({
     this.keywords = const [],
     this.speakerId,
+    this.speakerIds = const {},
+    this.includeBackground = false,
     this.from,
     this.to,
     this.limit = 50,
@@ -135,6 +159,12 @@ class SegmentQuery {
 
   final List<String> keywords;
   final String? speakerId;
+
+  /// Only lines said by any of these people (empty: anyone).
+  final Set<String> speakerIds;
+
+  /// Include lines from voices marked as TV or background.
+  final bool includeBackground;
   final DateTime? from;
   final DateTime? to;
   final int limit;

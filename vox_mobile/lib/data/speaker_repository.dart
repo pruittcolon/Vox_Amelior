@@ -243,6 +243,39 @@ class SpeakerRepository {
     return label;
   }
 
+  /// Marks or unmarks a guest voice as TV / background. Its lines, past and
+  /// future (new lines that match this voice join it), are hidden when
+  /// reading conversations back.
+  void setClusterBackground(String clusterId, bool background) =>
+      _db.raw.execute('UPDATE unknown_clusters SET background = ? WHERE id = ?', [background ? 1 : 0, clusterId]);
+
+  /// "This is TV / background": the voice of line [segmentId] becomes a
+  /// background voice. A line wrongly given to a person is taken off them
+  /// first (as with [markNotSpeaker]). Returns the voice's label, or null
+  /// when the line is too short to have a voice to remember.
+  String? markBackground(int segmentId, {double clusterThreshold = 0.6, int maxClusterWeight = 50}) {
+    final row = _db.raw.select('SELECT speaker_id FROM segments WHERE id = ?', [segmentId]);
+    if (row.isEmpty) return null;
+    if (row.first['speaker_id'] != null) {
+      markNotSpeaker(segmentId, clusterThreshold: clusterThreshold, maxClusterWeight: maxClusterWeight);
+    }
+    String? label;
+    _db.transaction(() {
+      final r = _db.raw.select('SELECT cluster_id, embedding FROM segments WHERE id = ?', [segmentId]).first;
+      var clusterId = r['cluster_id'] as String?;
+      final blob = r['embedding'] as Uint8List?;
+      if (clusterId == null) {
+        if (blob == null) return;
+        final cluster = _guestFor(blobToFloats(blob), clusterThreshold, maxClusterWeight, clock());
+        clusterId = cluster.id;
+        _db.raw.execute('UPDATE segments SET cluster_id = ? WHERE id = ?', [clusterId, segmentId]);
+      }
+      setClusterBackground(clusterId, true);
+      label = _db.raw.select('SELECT label FROM unknown_clusters WHERE id = ?', [clusterId]).first['label'] as String?;
+    });
+    return label;
+  }
+
   /// Names a new person from one line ("New person…").
   SpeakerProfile createFromSegment(int segmentId, String name, {required String embeddingModel}) {
     final rows = _db.raw.select('SELECT embedding FROM segments WHERE id = ?', [segmentId]);
@@ -418,6 +451,7 @@ class SpeakerRepository {
         centroid: blobToFloats(r['centroid']! as Uint8List),
         count: r['count']! as int,
         updatedAt: DateTime.fromMillisecondsSinceEpoch(r['updated_at']! as int),
+        background: (r['background'] as int? ?? 0) != 0,
       );
 
   static final Random _rng = Random.secure();

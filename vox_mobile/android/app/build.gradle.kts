@@ -32,11 +32,26 @@ android {
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 
+    // Every release must be signed with the same key, or Android refuses to
+    // install it over the previous one (and the only way out is uninstalling,
+    // which deletes everything on the phone). CI decodes the key from the
+    // VOX_KEYSTORE_B64 secret; local builds without it fall back to the debug key.
+    val releaseKeystore = System.getenv("VOX_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("VOX_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VOX_KEY_ALIAS") ?: "vox"
+                keyPassword = System.getenv("VOX_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Demo builds are signed with the debug key so they install directly.
-            // For store releases, add a real keystore via signingConfigs.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
             // Several plugins rely on reflection; skip shrinking for reliability.
             isMinifyEnabled = false
             isShrinkResources = false

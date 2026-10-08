@@ -14,7 +14,7 @@ class AppDatabase {
   /// File location, or ':memory:' for test databases.
   final String path;
 
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
 
   /// Opens (creating and migrating if needed) the database at [path].
   static AppDatabase open(String path) {
@@ -61,6 +61,7 @@ class AppDatabase {
       if (current < 2) _v2();
       if (current < 3) _v3();
       if (current < 4) _v4();
+      if (current < 5) _v5();
       raw.userVersion = schemaVersion;
     });
   }
@@ -281,5 +282,13 @@ CREATE TABLE review_items (
   /// Lines where two people talked at the same time.
   void _v4() {
     raw.execute('ALTER TABLE segments ADD COLUMN overlap INTEGER NOT NULL DEFAULT 0');
+  }
+
+  /// Voices marked as TV or background (hidden when reading back), and the
+  /// speaker name of lines imported from a text export.
+  void _v5() {
+    raw
+      ..execute('ALTER TABLE unknown_clusters ADD COLUMN background INTEGER NOT NULL DEFAULT 0')
+      ..execute('ALTER TABLE segments ADD COLUMN speaker_label TEXT');
   }
 }

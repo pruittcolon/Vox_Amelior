@@ -8,11 +8,20 @@ import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// One conversation as a chat, with who said what.
 class ConversationScreen extends StatefulWidget {
-  const ConversationScreen({super.key, required this.services, required this.conversationId, this.highlightSegmentId});
+  const ConversationScreen({
+    super.key,
+    required this.services,
+    required this.conversationId,
+    this.highlightSegmentId,
+    this.focusSpeakerIds = const {},
+  });
 
   final AppServices services;
   final int conversationId;
   final int? highlightSegmentId;
+
+  /// Start showing only these people's lines (e.g. picked on the Timeline).
+  final Set<String> focusSpeakerIds;
 
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -22,11 +31,32 @@ class _ConversationScreenState extends State<ConversationScreen> {
   List<SegmentView> _lines = const [];
   final _highlightKey = GlobalKey();
 
+  /// Voices to show ([SegmentView.voiceKey]); null shows everyone.
+  Set<String>? _only;
+
+  /// Show lines from voices marked as TV / background.
+  bool _showBackground = false;
+
   AppServices get s => widget.services;
+
+  /// Lines after the voice filters.
+  List<SegmentView> get _visible => [
+        for (final l in _lines)
+          if ((_showBackground || !l.background || l.id == widget.highlightSegmentId) &&
+              (_only == null || _only!.contains(l.voiceKey) || l.id == widget.highlightSegmentId))
+            l,
+      ];
+
+  void _toggleVoice(String key) => setState(() {
+        final next = {...?_only};
+        if (!next.remove(key)) next.add(key);
+        _only = next.isEmpty ? null : next;
+      });
 
   @override
   void initState() {
     super.initState();
+    if (widget.focusSpeakerIds.isNotEmpty) _only = {for (final id in widget.focusSpeakerIds) 'person:$id'};
     _load();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _highlightKey.currentContext;
@@ -76,6 +106,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     subtitle: Text('Becomes a guest; similar voices won\'t get this name. $current\'s voiceprint stays the same.'),
                     onTap: () => Navigator.pop(c, '#not'),
                   ),
+                if (seg.background)
+                  ListTile(
+                    leading: const Icon(Icons.record_voice_over_rounded),
+                    title: const Text('Not TV or background'),
+                    subtitle: Text('Show ${seg.speakerLabel}\'s lines again everywhere.'),
+                    onTap: () => Navigator.pop(c, '#unbackground'),
+                  )
+                else
+                  ListTile(
+                    leading: const Icon(Icons.tv_rounded),
+                    title: const Text('TV or background voice'),
+                    subtitle: const Text('Hide this voice\'s lines, now and whenever it is heard again. You can show them any time.'),
+                    onTap: () => Navigator.pop(c, '#background'),
+                  ),
                 ListTile(
                   leading: const Icon(Icons.person_add_rounded),
                   title: const Text('New person…'),
@@ -103,6 +147,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
         case '#not':
           final guest = s.speakers.markNotSpeaker(seg.id, clusterThreshold: s.settings.value.guestThreshold);
           if (mounted) showMessage(context, guest == null ? 'Removed $current from this line.' : 'Not $current — now $guest.');
+        case '#background':
+          final label = s.speakers.markBackground(seg.id, clusterThreshold: s.settings.value.guestThreshold);
+          if (mounted) {
+            showMessage(context, label == null ? 'This line is too short to recognise a voice from.' : '$label is now hidden as TV / background.');
+          }
+          if (label == null) return;
+        case '#unbackground':
+          if (seg.clusterId != null) s.speakers.setClusterBackground(seg.clusterId!, false);
+          if (mounted) showMessage(context, '${seg.speakerLabel} is shown again.');
         case '#new':
           final name = await askText(context, 'Who is this?', hint: 'Name');
           if (name == null || name.isEmpty) return;
@@ -123,7 +176,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Future<void> _menu(String action) async {
     switch (action) {
       case 'copy':
-        final text = _lines.map((l) => '${formatTime(l.startedAt)} ${l.speakerLabel}: ${l.text}').join('\n');
+        final text = _visible.map((l) => '${formatTime(l.startedAt)} ${l.speakerLabel}: ${l.text}').join('\n');
         await Clipboard.setData(ClipboardData(text: text));
         if (mounted) showMessage(context, 'Conversation copied');
       case 'delete':
@@ -139,7 +192,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final t = Theme.of(context);
     final first = _lines.firstOrNull;
     final last = _lines.lastOrNull;
-    final people = <String>{for (final l in _lines) l.speakerLabel}.toList();
+    final visible = _visible;
+    final people = <String>{for (final l in _lines) if (!l.background) l.speakerLabel}.toList();
     return Scaffold(
       appBar: AppBar(
         title: Text(first == null ? 'Conversation' : formatDayName(first.startedAt)),
@@ -173,9 +227,79 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     ],
                   ),
                 ),
-                for (var i = 0; i < _lines.length; i++) _bubble(context, _lines[i], showName: i == 0 || _lines[i - 1].speakerLabel != _lines[i].speakerLabel),
+                _voiceFilter(context),
+                if (visible.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Center(child: Text('No lines from the chosen voices.')),
+                  ),
+                for (var i = 0; i < visible.length; i++)
+                  _bubble(context, visible[i], showName: i == 0 || visible[i - 1].speakerLabel != visible[i].speakerLabel),
               ],
             ),
+    );
+  }
+
+  /// Chips to show only some voices, and to show or hide TV / background.
+  Widget _voiceFilter(BuildContext context) {
+    final t = Theme.of(context);
+    final counts = <String, ({String label, bool known, int n})>{};
+    var background = 0;
+    for (final l in _lines) {
+      if (l.background) {
+        background++;
+        continue;
+      }
+      final c = counts[l.voiceKey];
+      counts[l.voiceKey] = (label: l.speakerLabel, known: l.isKnownSpeaker, n: (c?.n ?? 0) + 1);
+    }
+    final voices = counts.entries.toList()
+      ..sort((a, b) {
+        if (a.value.known != b.value.known) return a.value.known ? -1 : 1;
+        return b.value.n.compareTo(a.value.n);
+      });
+    if (voices.length < 2 && background == 0) return const SizedBox.shrink();
+    final shown = _visible.length;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              ChoiceChip(
+                label: const Text('Everyone'),
+                selected: _only == null,
+                onSelected: (_) => setState(() => _only = null),
+              ),
+              for (final v in voices)
+                FilterChip(
+                  avatar: v.value.known ? null : const Icon(Icons.person_outline_rounded, size: 16),
+                  label: Text('${v.value.label} · ${v.value.n}'),
+                  selected: _only?.contains(v.key) ?? false,
+                  onSelected: (_) => _toggleVoice(v.key),
+                ),
+              if (background > 0)
+                FilterChip(
+                  avatar: const Icon(Icons.tv_rounded, size: 16),
+                  label: Text('TV / background · $background'),
+                  selected: _showBackground,
+                  onSelected: (v) => setState(() => _showBackground = v),
+                ),
+            ],
+          ),
+          if (shown != _lines.length)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                'Showing $shown of ${_lines.length} lines',
+                style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

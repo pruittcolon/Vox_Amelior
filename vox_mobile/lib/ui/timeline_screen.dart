@@ -25,8 +25,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
   List<ConversationSummary> _conversations = const [];
   List<SegmentView> _results = const [];
 
+  /// People picked to narrow the timeline (conversations where all of them talked).
+  final Set<String> _people = {};
+  List<SpeakerProfile> _profiles = const [];
+  List<ConversationSummary> _withPeople = const [];
+
   AppServices get s => widget.services;
   bool get _searching => _search.text.trim().isNotEmpty;
+  bool get _filtering => _people.isNotEmpty;
 
   static DateTime _dayOf(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -51,7 +57,11 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final today = _dayOf(DateTime.now());
     // Always offer today, even before anything is recorded.
     final withToday = days.isNotEmpty && days.first.day == today ? days : [DaySummary(day: today, conversations: 0, segments: 0), ...days];
+    final profiles = s.speakers.profiles();
+    _people.removeWhere((id) => !profiles.any((p) => p.id == id));
     setState(() {
+      _profiles = profiles;
+      _withPeople = s.transcripts.conversationsWith(_people);
       _days = withToday;
       _conversations = s.transcripts.conversationsBetween(_selected, _selected.add(const Duration(days: 1)));
       if (_searching) _runSearch();
@@ -67,8 +77,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   void _runSearch() {
     final words = _search.text.trim().split(RegExp(r'\s+'));
-    _results = s.transcripts.search(SegmentQuery(keywords: words, limit: 100));
+    _results = s.transcripts.search(SegmentQuery(keywords: words, speakerIds: {..._people}, limit: 100));
   }
+
+  void _togglePerson(String id) => setState(() {
+        if (!_people.remove(id)) _people.add(id);
+        _withPeople = s.transcripts.conversationsWith(_people);
+        if (_searching) _runSearch();
+      });
 
   Future<void> _pickDate() async {
     final first = _days.isEmpty ? DateTime.now() : _days.last.day;
@@ -84,7 +100,12 @@ class _TimelineScreenState extends State<TimelineScreen> {
   void _open(int conversationId, {int? highlight}) => Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => ConversationScreen(services: s, conversationId: conversationId, highlightSegmentId: highlight),
+          builder: (_) => ConversationScreen(
+            services: s,
+            conversationId: conversationId,
+            highlightSegmentId: highlight,
+            focusSpeakerIds: {..._people},
+          ),
         ),
       );
 
@@ -103,7 +124,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
               controller: _search,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: 'Search everything that was said',
+                hintText: _filtering ? 'Search what they said' : 'Search everything that was said',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: _searching
                     ? IconButton(
@@ -121,10 +142,93 @@ class _TimelineScreenState extends State<TimelineScreen> {
               },
             ),
           ),
-          if (!_searching) _dayStrip(context),
-          Expanded(child: _searching ? _searchResults(context) : _dayView(context)),
+          if (_profiles.isNotEmpty) _peopleStrip(context),
+          if (!_searching && !_filtering) _dayStrip(context),
+          Expanded(
+            child: _searching
+                ? _searchResults(context)
+                : _filtering
+                    ? _peopleView(context)
+                    : _dayView(context),
+          ),
         ],
       ),
+    );
+  }
+
+  /// Pick people to see only conversations they were in.
+  Widget _peopleStrip(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        scrollDirection: Axis.horizontal,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ChoiceChip(
+              label: const Text('Everyone'),
+              selected: !_filtering,
+              onSelected: (_) => setState(() {
+                _people.clear();
+                _withPeople = const [];
+                if (_searching) _runSearch();
+              }),
+            ),
+          ),
+          for (final p in _profiles)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: FilterChip(
+                avatar: SpeakerAvatar(label: p.name, radius: 11),
+                label: Text(p.name),
+                selected: _people.contains(p.id),
+                onSelected: (_) => _togglePerson(p.id),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Conversations with the picked people, newest first, under day headings.
+  Widget _peopleView(BuildContext context) {
+    final t = Theme.of(context);
+    final names = _profiles.where((p) => _people.contains(p.id)).map((p) => p.name).toList();
+    final who = names.length <= 2 ? names.join(' and ') : '${names.take(names.length - 1).join(', ')} and ${names.last}';
+    if (_withPeople.isEmpty) {
+      return EmptyState(
+        icon: Icons.groups_rounded,
+        title: 'No conversations with $who',
+        message: names.length > 1 ? 'Only conversations where all of them talked are shown.' : 'Nothing recorded with them yet.',
+      );
+    }
+    final items = <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+        child: Text(
+          '${_withPeople.length}${_withPeople.length == 100 ? '+' : ''} conversation${_withPeople.length == 1 ? '' : 's'} with $who',
+          style: t.textTheme.titleSmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
+        ),
+      ),
+    ];
+    DateTime? day;
+    for (final c in _withPeople) {
+      final d = _dayOf(c.startedAt);
+      if (d != day) {
+        day = d;
+        items.add(Padding(
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+          child: Text(formatDayName(d), style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+        ));
+      }
+      items.add(_conversationCard(context, c));
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      itemCount: items.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (_, i) => items[i],
     );
   }
 
@@ -192,8 +296,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
             ),
           );
         }
-        final c = _conversations[i - 1];
-        return VoxCard(
+        return _conversationCard(context, _conversations[i - 1]);
+      },
+    );
+  }
+
+  Widget _conversationCard(BuildContext context, ConversationSummary c) {
+    final t = Theme.of(context);
+    return VoxCard(
           onTap: () => _open(c.id),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,8 +328,6 @@ class _TimelineScreenState extends State<TimelineScreen> {
             ],
           ),
         );
-      },
-    );
   }
 
   Widget _searchResults(BuildContext context) {

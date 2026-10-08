@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:vox_amelior_mobile/core/database.dart';
@@ -16,10 +17,16 @@ class TranscriptRepository {
   static const String _selectSegments = '''
 SELECT s.id, s.conversation_id, s.started_at, s.duration_ms, s.text,
        s.speaker_id, sp.name AS speaker_name,
-       s.cluster_id, c.label AS cluster_label, s.score, s.overlap
+       s.cluster_id, c.label AS cluster_label, s.score, s.overlap,
+       COALESCE(c.background, 0) AS background, s.speaker_label
 FROM segments s
 LEFT JOIN speakers sp ON sp.id = s.speaker_id
 LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
+
+  /// First line of a conversation that is not TV / background.
+  static const String _previewColumn = '''
+(SELECT s.text FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+ WHERE s.conversation_id = c.id AND COALESCE(uc.background, 0) = 0 ORDER BY s.id LIMIT 1) AS preview''';
 
   /// Saves an utterance, attaching it to the current conversation or opening
   /// a new one when the gap since the last utterance is long enough.
@@ -124,7 +131,7 @@ FROM segments s GROUP BY d ORDER BY d DESC LIMIT ?''',
       '''
 SELECT c.id, c.started_at, c.ended_at,
        (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
-       (SELECT text FROM segments s WHERE s.conversation_id = c.id ORDER BY s.id LIMIT 1) AS preview
+       $_previewColumn
 FROM conversations c
 WHERE c.started_at >= ? AND c.started_at < ?
 ORDER BY c.started_at DESC''',
@@ -133,18 +140,42 @@ ORDER BY c.started_at DESC''',
     return rows.map(_summary).where((c) => c.segmentCount > 0).toList();
   }
 
+  /// Who spoke in a conversation, most lines first. TV / background voices
+  /// are left out.
   List<String> participants(int conversationId) {
     final rows = _db.raw.select(
       '''
-SELECT COALESCE(sp.name, uc.label, 'Unknown') AS who, COUNT(*) AS n
+SELECT COALESCE(sp.name, uc.label, s.speaker_label, 'Unknown') AS who, COUNT(*) AS n
 FROM segments s
 LEFT JOIN speakers sp ON sp.id = s.speaker_id
 LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
-WHERE s.conversation_id = ?
+WHERE s.conversation_id = ? AND COALESCE(uc.background, 0) = 0
 GROUP BY who ORDER BY n DESC, MIN(s.id)''',
       [conversationId],
     );
     return [for (final r in rows) r['who']! as String];
+  }
+
+  /// Conversations in which every one of [speakerIds] said something, newest
+  /// first ("me and my wife"). Pass the oldest start already shown as
+  /// [before] for the next page.
+  List<ConversationSummary> conversationsWith(Set<String> speakerIds, {int limit = 100, DateTime? before}) {
+    if (speakerIds.isEmpty) return const [];
+    final marks = List.filled(speakerIds.length, '?').join(',');
+    final rows = _db.raw.select(
+      '''
+SELECT c.id, c.started_at, c.ended_at,
+       (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
+       $_previewColumn
+FROM conversations c
+WHERE c.id IN (
+  SELECT conversation_id FROM segments WHERE speaker_id IN ($marks)
+  GROUP BY conversation_id HAVING COUNT(DISTINCT speaker_id) = ?)
+${before == null ? '' : 'AND c.started_at < ?'}
+ORDER BY c.started_at DESC LIMIT ?''',
+      [...speakerIds, speakerIds.length, ?before?.millisecondsSinceEpoch, limit],
+    );
+    return rows.map(_summary).toList();
   }
 
   /// Rewrites a saved line in place (stage 2 cutting it at a speaker change).
@@ -191,7 +222,7 @@ GROUP BY who ORDER BY n DESC, MIN(s.id)''',
       '''
 SELECT c.id, c.started_at, c.ended_at,
        (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
-       (SELECT text FROM segments s WHERE s.conversation_id = c.id ORDER BY s.id LIMIT 1) AS preview
+       $_previewColumn
 FROM conversations c
 ${beforeId == null ? '' : 'WHERE c.id < ?'}
 ORDER BY c.id DESC LIMIT ?''',
@@ -206,10 +237,12 @@ ORDER BY c.id DESC LIMIT ?''',
     final tokens = q.keywords.map(_sanitizeToken).where((t) => t.isNotEmpty).toSet().toList();
     final where = <String>[];
     final args = <Object?>[];
-    if (q.speakerId != null) {
-      where.add('s.speaker_id = ?');
-      args.add(q.speakerId);
+    final people = {?q.speakerId, ...q.speakerIds};
+    if (people.isNotEmpty) {
+      where.add('s.speaker_id IN (${List.filled(people.length, '?').join(',')})');
+      args.addAll(people);
     }
+    if (!q.includeBackground) where.add('COALESCE(c.background, 0) = 0');
     if (q.from != null) {
       where.add('s.started_at >= ?');
       args.add(q.from!.millisecondsSinceEpoch);
@@ -312,6 +345,70 @@ ORDER BY c.id DESC LIMIT ?''',
     return b.toString();
   }
 
+  /// Reads back text made by [exportText] (or the "Copy all transcripts"
+  /// button of any earlier version), so transcripts survive a reinstall.
+  ///
+  /// Each `--- <time> ---` block becomes a conversation. Names that match a
+  /// person on this phone are linked to them; other names are kept as text.
+  /// Exact times of lines were not exported, so they are spread out from the
+  /// conversation's start by their length. Conversations already here (same
+  /// start time) are skipped, so importing twice adds nothing.
+  ImportResult importText(String text) {
+    final blocks = <({DateTime start, List<({String who, String text})> lines})>[];
+    final header = RegExp(r'^---\s*(.+?)\s*---$');
+    for (final raw in const LineSplitter().convert(text)) {
+      final line = raw.trimRight();
+      if (line.trim().isEmpty) continue;
+      final h = header.firstMatch(line.trim());
+      if (h != null) {
+        final start = DateTime.tryParse(h.group(1)!);
+        if (start != null) blocks.add((start: start, lines: []));
+        continue;
+      }
+      if (blocks.isEmpty) continue;
+      final colon = line.indexOf(': ');
+      final lines = blocks.last.lines;
+      if (colon > 0 && colon <= 60) {
+        lines.add((who: line.substring(0, colon).trim(), text: line.substring(colon + 2).trim()));
+      } else if (lines.isNotEmpty) {
+        lines[lines.length - 1] = (who: lines.last.who, text: '${lines.last.text} ${line.trim()}');
+      }
+    }
+
+    final people = {
+      for (final r in _db.raw.select('SELECT id, name FROM speakers')) (r['name']! as String).toLowerCase(): r['id']! as String,
+    };
+    var conversations = 0, lines = 0, skipped = 0;
+    _db.transaction(() {
+      for (final b in blocks) {
+        if (b.lines.isEmpty) continue;
+        final startMs = b.start.millisecondsSinceEpoch;
+        if (_db.raw.select('SELECT 1 FROM conversations WHERE started_at = ? LIMIT 1', [startMs]).isNotEmpty) {
+          skipped++;
+          continue;
+        }
+        _db.raw.execute('INSERT INTO conversations(started_at, ended_at) VALUES (?, ?)', [startMs, startMs]);
+        final conversationId = _db.raw.lastInsertRowId;
+        var at = startMs;
+        for (final l in b.lines) {
+          final words = l.text.split(RegExp(r'\s+')).length;
+          final ms = (words * 400).clamp(1000, 30000);
+          final speakerId = people[l.who.toLowerCase()];
+          final label = speakerId != null || l.who == 'Unknown' ? null : l.who;
+          _db.raw.execute(
+            'INSERT INTO segments(conversation_id, started_at, duration_ms, text, speaker_id, speaker_label) VALUES (?, ?, ?, ?, ?, ?)',
+            [conversationId, at, ms, l.text, speakerId, label],
+          );
+          at += ms;
+          lines++;
+        }
+        _db.raw.execute('UPDATE conversations SET ended_at = ? WHERE id = ?', [at, conversationId]);
+        conversations++;
+      }
+    });
+    return ImportResult(conversations: conversations, lines: lines, skipped: skipped);
+  }
+
   void _pruneEmpty() {
     _db.raw.execute(
       'DELETE FROM conversations WHERE id NOT IN (SELECT DISTINCT conversation_id FROM segments)',
@@ -332,5 +429,18 @@ ORDER BY c.id DESC LIMIT ?''',
         clusterLabel: r['cluster_label'] as String?,
         score: (r['score'] as num?)?.toDouble(),
         overlap: (r['overlap'] as int? ?? 0) != 0,
+        background: (r['background'] as int? ?? 0) != 0,
+        importedLabel: r['speaker_label'] as String?,
       );
+}
+
+/// What [TranscriptRepository.importText] added.
+class ImportResult {
+  const ImportResult({required this.conversations, required this.lines, required this.skipped});
+
+  final int conversations;
+  final int lines;
+
+  /// Conversations that were already on the phone.
+  final int skipped;
 }
