@@ -3,9 +3,10 @@ import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/settings/app_settings.dart';
 import 'package:vox_amelior_mobile/ui/controls.dart';
+import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/listening_settings_screen.dart';
 
-/// Who is talking: naming people, unknown guests, and when a line is split.
+/// Who is talking: naming people, unknown guests, when a line is split, and tone of voice.
 class SpeakersSettingsScreen extends StatelessWidget {
   const SpeakersSettingsScreen({super.key, required this.services});
 
@@ -27,6 +28,7 @@ class SpeakersSettingsScreen extends StatelessWidget {
         builder: (context, st, _) {
           void update(AppSettings next) => services.updateSettings(next);
           final hasDiarizer = services.models.isInstalled(ModelCatalog.diarizer);
+          final hasTone = services.models.isInstalled(ModelCatalog.toneModel);
           return ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [
@@ -127,6 +129,34 @@ class SpeakersSettingsScreen extends StatelessWidget {
                       onChanged: (v) => update(st.copyWith(splitMinWords: v.round())),
                     ),
                   ],
+                ],
+              ),
+              SettingsGroup(
+                title: 'Tone of voice',
+                footer: hasTone
+                    ? 'Each new line gets a tone (happy, sad, angry, ...) and sounds like laughter or music. '
+                        'Lines said before the model was installed have no tone.'
+                    : 'Needs the tone-of-voice model (${formatBytes(ModelCatalog.toneModel.approxDownloadBytes)}).',
+                children: [
+                  SettingSwitch(
+                    title: 'Hear how things are said',
+                    subtitle: 'Lets you sort and filter conversations by mood, and gives Gemma the tone when it reviews them.',
+                    value: st.hearTone,
+                    onChanged: (v) => update(st.copyWith(hearTone: v)),
+                  ),
+                  if (!hasTone)
+                    ListenableBuilder(
+                      listenable: services.downloads,
+                      builder: (context, _) {
+                        final state = services.downloads.stateOf(ModelCatalog.toneModel);
+                        return ListTile(
+                          leading: const Icon(Icons.download_rounded),
+                          title: Text(state.isBusy ? 'Downloading the tone model…' : 'Download the tone model'),
+                          subtitle: state.isBusy ? Text(describeDownload(state)) : null,
+                          onTap: state.isBusy ? null : () => services.downloads.download(ModelCatalog.toneModel),
+                        );
+                      },
+                    ),
                 ],
               ),
             ],

@@ -37,15 +37,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// Show lines from voices marked as TV / background.
   bool _showBackground = false;
 
+  /// Tones to show ([SegmentView.emotion] or [SegmentView.sound]); empty shows all.
+  final Set<String> _tones = {};
+
   AppServices get s => widget.services;
 
   /// Lines after the voice filters.
   List<SegmentView> get _visible => [
         for (final l in _lines)
           if ((_showBackground || !l.background || l.id == widget.highlightSegmentId) &&
-              (_only == null || _only!.contains(l.voiceKey) || l.id == widget.highlightSegmentId))
+              (_only == null || _only!.contains(l.voiceKey) || l.id == widget.highlightSegmentId) &&
+              (_tones.isEmpty || _tones.contains(l.emotion) || _tones.contains(l.sound) || l.id == widget.highlightSegmentId))
             l,
       ];
+
+  /// One line as text: "20:31 Ericah [angry]: ...".
+  static String lineText(SegmentView l) {
+    final tone = [?l.emotion, ?l.sound].join(', ');
+    return '${formatTime(l.startedAt)} ${l.speakerLabel}${tone.isEmpty ? '' : ' [$tone]'}: ${l.text}';
+  }
+
+  Future<void> _copyLine(SegmentView seg) async {
+    await Clipboard.setData(ClipboardData(text: lineText(seg)));
+    if (mounted) showMessage(context, 'Line copied');
+  }
 
   void _toggleVoice(String key) => setState(() {
         final next = {...?_only};
@@ -129,7 +144,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 ListTile(
                   leading: const Icon(Icons.copy_rounded),
                   title: const Text('Copy this line'),
+                  subtitle: const Text('Just the words'),
                   onTap: () => Navigator.pop(c, '#copy'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.content_copy_rounded),
+                  title: const Text('Copy with name and time'),
+                  subtitle: Text(lineText(seg), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onTap: () => Navigator.pop(c, '#copyFull'),
                 ),
               ],
             ),
@@ -143,6 +165,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         case '#copy':
           await Clipboard.setData(ClipboardData(text: seg.text));
           if (mounted) showMessage(context, 'Copied');
+          return;
+        case '#copyFull':
+          await _copyLine(seg);
           return;
         case '#not':
           final guest = s.speakers.markNotSpeaker(seg.id, clusterThreshold: s.settings.value.guestThreshold);
@@ -176,9 +201,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Future<void> _menu(String action) async {
     switch (action) {
       case 'copy':
-        final text = _visible.map((l) => '${formatTime(l.startedAt)} ${l.speakerLabel}: ${l.text}').join('\n');
-        await Clipboard.setData(ClipboardData(text: text));
-        if (mounted) showMessage(context, 'Conversation copied');
+        await Clipboard.setData(ClipboardData(text: _visible.map(lineText).join('\n')));
+        if (mounted) showMessage(context, _visible.length == _lines.length ? 'Conversation copied' : 'Copied the ${_visible.length} lines shown');
+      case 'select':
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(builder: (_) => SelectTextScreen(title: 'Select text', text: _visible.map(lineText).join('\n'))),
+        );
       case 'delete':
         if (await confirm(context, 'Delete this conversation?', 'It is removed from this phone for good.')) {
           s.deleteConversation(widget.conversationId);
@@ -202,6 +231,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             onSelected: _menu,
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'copy', child: Text('Copy conversation')),
+              PopupMenuItem(value: 'select', child: Text('Select text to copy')),
               PopupMenuItem(value: 'delete', child: Text('Delete conversation')),
             ],
           ),
@@ -258,7 +288,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
         if (a.value.known != b.value.known) return a.value.known ? -1 : 1;
         return b.value.n.compareTo(a.value.n);
       });
-    if (voices.length < 2 && background == 0) return const SizedBox.shrink();
+    final toneCounts = <String, int>{};
+    for (final l in _lines) {
+      if (l.background) continue;
+      for (final tone in [?l.emotion, ?l.sound]) {
+        if (tone != 'neutral') toneCounts[tone] = (toneCounts[tone] ?? 0) + 1;
+      }
+    }
+    final tones = toneCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    if (voices.length < 2 && background == 0 && tones.isEmpty) return const SizedBox.shrink();
     final shown = _visible.length;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -290,6 +328,22 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 ),
             ],
           ),
+          if (tones.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final e in tones)
+                    FilterChip(
+                      label: Text('${Tone.emoji(e.key)} ${Tone.label(e.key)} · ${e.value}'),
+                      selected: _tones.contains(e.key),
+                      onSelected: (v) => setState(() => v ? _tones.add(e.key) : _tones.remove(e.key)),
+                    ),
+                ],
+              ),
+            ),
           if (shown != _lines.length)
             Padding(
               padding: const EdgeInsets.only(top: 6, left: 4),
@@ -326,6 +380,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   ),
                 GestureDetector(
                   onTap: () => _relabel(seg),
+                  onLongPress: () => _copyLine(seg),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
@@ -346,6 +401,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(formatTime(seg.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                            for (final tone in [?seg.emotion, ?seg.sound])
+                              if (tone != 'neutral') ...[
+                                const SizedBox(width: 8),
+                                Text('${Tone.emoji(tone)} ${Tone.label(tone)}',
+                                    style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                              ],
                             if (seg.overlap) ...[
                               const SizedBox(width: 8),
                               Tooltip(
@@ -369,6 +430,40 @@ class _ConversationScreenState extends State<ConversationScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Shows text that can be selected and copied in parts (long-press a word,
+/// drag the handles, then Copy), with a button to copy all of it.
+class SelectTextScreen extends StatelessWidget {
+  const SelectTextScreen({super.key, required this.title, required this.text});
+
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          IconButton(
+            tooltip: 'Copy all',
+            icon: const Icon(Icons.copy_all_rounded),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (context.mounted) showMessage(context, 'Copied');
+            },
+          ),
+        ],
+      ),
+      body: SelectionArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          child: Text(text, style: Theme.of(context).textTheme.bodyLarge),
+        ),
       ),
     );
   }

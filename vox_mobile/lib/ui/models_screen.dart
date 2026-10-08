@@ -97,6 +97,8 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     // Optional smaller recognizer; downloads only when tapped. Also chosen in
                     // Settings → Microphone & hearing.
                     _ModelTile(asset: ModelCatalog.parakeet, downloads: s.downloads),
+                    // Optional: tone of voice and sounds per line; downloads only when tapped.
+                    _ModelTile(asset: ModelCatalog.toneModel, downloads: s.downloads),
                     if (!s.downloads.speechReady)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -287,6 +289,7 @@ class _ModelTile extends StatelessWidget {
               ModelKind.voiceActivity => Icons.graphic_eq_rounded,
               ModelKind.speakerVoiceprint => Icons.fingerprint_rounded,
               ModelKind.speakerTurns => Icons.forum_rounded,
+              ModelKind.toneOfVoice => Icons.mood_rounded,
               ModelKind.languageModel => Icons.auto_awesome_rounded,
             })
           : Icon(selected! ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,

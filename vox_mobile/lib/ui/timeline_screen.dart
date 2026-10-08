@@ -30,9 +30,22 @@ class _TimelineScreenState extends State<TimelineScreen> {
   List<SpeakerProfile> _profiles = const [];
   List<ConversationSummary> _withPeople = const [];
 
+  /// Tones picked to narrow the timeline (conversations with lines in any of them).
+  final Set<String> _moods = {};
+  bool _hasTones = false;
+
   AppServices get s => widget.services;
   bool get _searching => _search.text.trim().isNotEmpty;
-  bool get _filtering => _people.isNotEmpty;
+  bool get _filtering => _people.isNotEmpty || _moods.isNotEmpty;
+
+  /// Conversations matching the picked people (all of them talked) and moods.
+  List<ConversationSummary> _filtered() {
+    if (_moods.isEmpty) return s.transcripts.conversationsWith(_people);
+    final toned = s.transcripts.conversationsWithTone(_moods, speakerIds: _people, limit: 300);
+    if (_people.length < 2) return toned.take(100).toList();
+    final together = {for (final c in s.transcripts.conversationsWith(_people, limit: 100000)) c.id};
+    return toned.where((c) => together.contains(c.id)).take(100).toList();
+  }
 
   static DateTime _dayOf(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -61,7 +74,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
     _people.removeWhere((id) => !profiles.any((p) => p.id == id));
     setState(() {
       _profiles = profiles;
-      _withPeople = s.transcripts.conversationsWith(_people);
+      _withPeople = _filtered();
+      _hasTones = s.transcripts.hasTones;
       _days = withToday;
       _conversations = s.transcripts.conversationsBetween(_selected, _selected.add(const Duration(days: 1)));
       if (_searching) _runSearch();
@@ -77,12 +91,18 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   void _runSearch() {
     final words = _search.text.trim().split(RegExp(r'\s+'));
-    _results = s.transcripts.search(SegmentQuery(keywords: words, speakerIds: {..._people}, limit: 100));
+    _results = s.transcripts.search(SegmentQuery(keywords: words, speakerIds: {..._people}, emotions: {..._moods}, limit: 100));
   }
 
   void _togglePerson(String id) => setState(() {
         if (!_people.remove(id)) _people.add(id);
-        _withPeople = s.transcripts.conversationsWith(_people);
+        _withPeople = _filtered();
+        if (_searching) _runSearch();
+      });
+
+  void _toggleMood(String tone) => setState(() {
+        if (!_moods.remove(tone)) _moods.add(tone);
+        _withPeople = _filtered();
         if (_searching) _runSearch();
       });
 
@@ -143,6 +163,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
             ),
           ),
           if (_profiles.isNotEmpty) _peopleStrip(context),
+          if (_hasTones) _moodStrip(context),
           if (!_searching && !_filtering) _dayStrip(context),
           Expanded(
             child: _searching
@@ -168,10 +189,10 @@ class _TimelineScreenState extends State<TimelineScreen> {
             padding: const EdgeInsets.only(right: 6),
             child: ChoiceChip(
               label: const Text('Everyone'),
-              selected: !_filtering,
+              selected: _people.isEmpty,
               onSelected: (_) => setState(() {
                 _people.clear();
-                _withPeople = const [];
+                _withPeople = _filtered();
                 if (_searching) _runSearch();
               }),
             ),
@@ -191,23 +212,66 @@ class _TimelineScreenState extends State<TimelineScreen> {
     );
   }
 
-  /// Conversations with the picked people, newest first, under day headings.
+  /// Pick moods to see only conversations where someone sounded that way.
+  Widget _moodStrip(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        scrollDirection: Axis.horizontal,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ChoiceChip(
+              label: const Text('Any mood'),
+              selected: _moods.isEmpty,
+              onSelected: (_) => setState(() {
+                _moods.clear();
+                _withPeople = _filtered();
+                if (_searching) _runSearch();
+              }),
+            ),
+          ),
+          for (final tone in [...Tone.names.where((n) => n != 'neutral'), 'laughter'])
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: FilterChip(
+                label: Text('${Tone.emoji(tone)} ${Tone.label(tone)}'),
+                selected: _moods.contains(tone),
+                onSelected: (_) => _toggleMood(tone),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Conversations with the picked people and moods, newest first, under day headings.
   Widget _peopleView(BuildContext context) {
     final t = Theme.of(context);
     final names = _profiles.where((p) => _people.contains(p.id)).map((p) => p.name).toList();
-    final who = names.length <= 2 ? names.join(' and ') : '${names.take(names.length - 1).join(', ')} and ${names.last}';
+    final moods = [for (final m in Tone.names.followedBy(Tone.sounds)) if (_moods.contains(m)) m.toLowerCase()];
+    final whoNames = names.length <= 2 ? names.join(' and ') : '${names.take(names.length - 1).join(', ')} and ${names.last}';
+    final who = [
+      if (names.isNotEmpty) 'with $whoNames',
+      if (moods.isNotEmpty) 'that sounded ${moods.join(' or ')}',
+    ].join(' ');
     if (_withPeople.isEmpty) {
       return EmptyState(
-        icon: Icons.groups_rounded,
-        title: 'No conversations with $who',
-        message: names.length > 1 ? 'Only conversations where all of them talked are shown.' : 'Nothing recorded with them yet.',
+        icon: moods.isEmpty ? Icons.groups_rounded : Icons.mood_rounded,
+        title: 'No conversations $who',
+        message: names.length > 1
+            ? 'Only conversations where all of them talked are shown.'
+            : moods.isNotEmpty
+                ? 'Only lines heard after the tone model was installed have a mood.'
+                : 'Nothing recorded with them yet.',
       );
     }
     final items = <Widget>[
       Padding(
         padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
         child: Text(
-          '${_withPeople.length}${_withPeople.length == 100 ? '+' : ''} conversation${_withPeople.length == 1 ? '' : 's'} with $who',
+          '${_withPeople.length}${_withPeople.length == 100 ? '+' : ''} conversation${_withPeople.length == 1 ? '' : 's'} $who',
           style: t.textTheme.titleSmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
         ),
       ),
@@ -322,12 +386,20 @@ class _TimelineScreenState extends State<TimelineScreen> {
               Text(c.preview, maxLines: 2, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyLarge),
               const SizedBox(height: 8),
               Text(
-                '${c.participants.take(3).join(', ')}${c.participants.length > 3 ? ' +${c.participants.length - 3}' : ''} · ${c.segmentCount} lines',
+                '${c.participants.take(3).join(', ')}${c.participants.length > 3 ? ' +${c.participants.length - 3}' : ''} · ${c.segmentCount} lines'
+                '${_moodText(c.id)}',
                 style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
               ),
             ],
           ),
         );
+  }
+
+  /// " · 😠 3 · 😊 2" for the conversation's most common non-neutral tones.
+  String _moodText(int conversationId) {
+    if (!_hasTones) return '';
+    final top = s.transcripts.mood(conversationId).notable.take(3);
+    return top.map((e) => ' · ${Tone.emoji(e.key)} ${e.value}').join();
   }
 
   Widget _searchResults(BuildContext context) {
@@ -343,7 +415,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
         return ListTile(
           leading: SpeakerAvatar(label: r.speakerLabel, known: r.isKnownSpeaker),
           title: Text(r.text),
-          subtitle: Text('${r.speakerLabel} · ${formatDayName(r.startedAt)} ${formatTime(r.startedAt)}',
+          subtitle: Text(
+              '${r.speakerLabel}${r.emotion == null || r.emotion == 'neutral' ? '' : ' ${Tone.emoji(r.emotion!)}'} · '
+              '${formatDayName(r.startedAt)} ${formatTime(r.startedAt)}',
               style: TextStyle(color: t.colorScheme.onSurfaceVariant)),
           onTap: () => _open(r.conversationId, highlight: r.id),
         );

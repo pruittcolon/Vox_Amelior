@@ -18,7 +18,7 @@ class TranscriptRepository {
 SELECT s.id, s.conversation_id, s.started_at, s.duration_ms, s.text,
        s.speaker_id, sp.name AS speaker_name,
        s.cluster_id, c.label AS cluster_label, s.score, s.overlap,
-       COALESCE(c.background, 0) AS background, s.speaker_label
+       COALESCE(c.background, 0) AS background, s.speaker_label, s.emotion, s.sound
 FROM segments s
 LEFT JOIN speakers sp ON sp.id = s.speaker_id
 LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
@@ -199,6 +199,97 @@ ORDER BY c.started_at DESC LIMIT ?''',
 
   void setOverlap(int id) => _db.raw.execute('UPDATE segments SET overlap = 1 WHERE id = ?', [id]);
 
+  /// Saves the tone of voice and sound heard in line [id] (see [Tone]).
+  void setTone(int id, {String? emotion, String? sound}) =>
+      _db.raw.execute('UPDATE segments SET emotion = ?, sound = ? WHERE id = ?', [emotion, sound, id]);
+
+  /// How many lines of each tone conversation [conversationId] has (TV /
+  /// background voices left out). Empty when the tone model never ran.
+  MoodCount mood(int conversationId) {
+    final rows = _db.raw.select(
+      '''
+SELECT s.emotion AS e, COUNT(*) AS n FROM segments s
+LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+WHERE s.conversation_id = ? AND s.emotion IS NOT NULL AND COALESCE(uc.background, 0) = 0
+GROUP BY s.emotion''',
+      [conversationId],
+    );
+    return MoodCount({for (final r in rows) r['e']! as String: r['n']! as int});
+  }
+
+  /// Whether any line has a tone yet (the tone model has run at least once).
+  bool get hasTones =>
+      _db.raw.select('SELECT 1 FROM segments WHERE emotion IS NOT NULL OR sound IS NOT NULL LIMIT 1').isNotEmpty;
+
+  /// Matches lines whose emotion or sound is one of [n] values (bind them twice).
+  static String _toneClause(int n) {
+    final marks = List.filled(n, '?').join(',');
+    return '(s.emotion IN ($marks) OR s.sound IN ($marks))';
+  }
+
+  /// Conversations with at least one line in any of [emotions] (or sounds) (by people,
+  /// not TV), newest first. With [speakerIds], only lines by them count.
+  List<ConversationSummary> conversationsWithTone(
+    Set<String> emotions, {
+    Set<String> speakerIds = const {},
+    int limit = 100,
+    DateTime? before,
+  }) {
+    if (emotions.isEmpty) return const [];
+    final people = List.filled(speakerIds.length, '?').join(',');
+    final rows = _db.raw.select(
+      '''
+SELECT c.id, c.started_at, c.ended_at,
+       (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
+       $_previewColumn
+FROM conversations c
+WHERE c.id IN (
+  SELECT s.conversation_id FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+  WHERE ${_toneClause(emotions.length)} AND COALESCE(uc.background, 0) = 0
+  ${speakerIds.isEmpty ? '' : 'AND s.speaker_id IN ($people)'})
+${before == null ? '' : 'AND c.started_at < ?'}
+ORDER BY c.started_at DESC LIMIT ?''',
+      [...emotions, ...emotions, ...speakerIds, ?before?.millisecondsSinceEpoch, limit],
+    );
+    return rows.map(_summary).toList();
+  }
+
+  /// The newest [count] lines said by any of [speakerIds] (everyone when
+  /// empty), optionally only in [emotions], returned oldest first. TV /
+  /// background voices are always left out. Used to pick lines for a review
+  /// ("the last 100 things Pruitt and Ericah said").
+  List<SegmentView> lastLines({
+    required int count,
+    Set<String> speakerIds = const {},
+    Set<String> emotions = const {},
+    DateTime? from,
+    DateTime? to,
+  }) {
+    final where = <String>['COALESCE(c.background, 0) = 0'];
+    final args = <Object?>[];
+    if (speakerIds.isNotEmpty) {
+      where.add('s.speaker_id IN (${List.filled(speakerIds.length, '?').join(',')})');
+      args.addAll(speakerIds);
+    }
+    if (emotions.isNotEmpty) {
+      where.add(_toneClause(emotions.length));
+      args.addAll([...emotions, ...emotions]);
+    }
+    if (from != null) {
+      where.add('s.started_at >= ?');
+      args.add(from.millisecondsSinceEpoch);
+    }
+    if (to != null) {
+      where.add('s.started_at < ?');
+      args.add(to.millisecondsSinceEpoch);
+    }
+    final rows = _db.raw.select(
+      '$_selectSegments WHERE ${where.join(' AND ')} ORDER BY s.started_at DESC, s.id DESC LIMIT ?',
+      [...args, count],
+    );
+    return rows.map(_view).toList().reversed.toList();
+  }
+
   void deleteConversation(int conversationId) {
     _db.transaction(() {
       _db.raw
@@ -243,6 +334,10 @@ ORDER BY c.id DESC LIMIT ?''',
       args.addAll(people);
     }
     if (!q.includeBackground) where.add('COALESCE(c.background, 0) = 0');
+    if (q.emotions.isNotEmpty) {
+      where.add(_toneClause(q.emotions.length));
+      args.addAll([...q.emotions, ...q.emotions]);
+    }
     if (q.from != null) {
       where.add('s.started_at >= ?');
       args.add(q.from!.millisecondsSinceEpoch);
@@ -340,7 +435,8 @@ ORDER BY c.id DESC LIMIT ?''',
         b.writeln('--- ${s.startedAt.toIso8601String()} ---');
         lastConversation = s.conversationId;
       }
-      b.writeln('${s.speakerLabel}: ${s.text}');
+      final tone = [?s.emotion, ?s.sound].join(', ');
+      b.writeln('${s.speakerLabel}${tone.isEmpty ? '' : ' [$tone]'}: ${s.text}');
     }
     return b.toString();
   }
@@ -354,7 +450,7 @@ ORDER BY c.id DESC LIMIT ?''',
   /// conversation's start by their length. Conversations already here (same
   /// start time) are skipped, so importing twice adds nothing.
   ImportResult importText(String text) {
-    final blocks = <({DateTime start, List<({String who, String text})> lines})>[];
+    final blocks = <({DateTime start, List<({String who, String text, String? emotion, String? sound})> lines})>[];
     final header = RegExp(r'^---\s*(.+?)\s*---$');
     for (final raw in const LineSplitter().convert(text)) {
       final line = raw.trimRight();
@@ -368,10 +464,12 @@ ORDER BY c.id DESC LIMIT ?''',
       if (blocks.isEmpty) continue;
       final colon = line.indexOf(': ');
       final lines = blocks.last.lines;
-      if (colon > 0 && colon <= 60) {
-        lines.add((who: line.substring(0, colon).trim(), text: line.substring(colon + 2).trim()));
+      if (colon > 0 && colon <= 80) {
+        final (who, emotion, sound) = _splitTone(line.substring(0, colon).trim());
+        lines.add((who: who, text: line.substring(colon + 2).trim(), emotion: emotion, sound: sound));
       } else if (lines.isNotEmpty) {
-        lines[lines.length - 1] = (who: lines.last.who, text: '${lines.last.text} ${line.trim()}');
+        final l = lines.last;
+        lines[lines.length - 1] = (who: l.who, text: '${l.text} ${line.trim()}', emotion: l.emotion, sound: l.sound);
       }
     }
 
@@ -396,8 +494,9 @@ ORDER BY c.id DESC LIMIT ?''',
           final speakerId = people[l.who.toLowerCase()];
           final label = speakerId != null || l.who == 'Unknown' ? null : l.who;
           _db.raw.execute(
-            'INSERT INTO segments(conversation_id, started_at, duration_ms, text, speaker_id, speaker_label) VALUES (?, ?, ?, ?, ?, ?)',
-            [conversationId, at, ms, l.text, speakerId, label],
+            'INSERT INTO segments(conversation_id, started_at, duration_ms, text, speaker_id, speaker_label, emotion, sound) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [conversationId, at, ms, l.text, speakerId, label, l.emotion, l.sound],
           );
           at += ms;
           lines++;
@@ -407,6 +506,20 @@ ORDER BY c.id DESC LIMIT ?''',
       }
     });
     return ImportResult(conversations: conversations, lines: lines, skipped: skipped);
+  }
+
+  /// "Ericah [angry, laughter]" → ('Ericah', 'angry', 'laughter'). Only known
+  /// tone words are taken; anything else stays part of the name.
+  static (String, String?, String?) _splitTone(String who) {
+    final m = RegExp(r'^(.*?)\s*\[([a-z ,]+)\]$').firstMatch(who);
+    if (m == null) return (who, null, null);
+    final words = m.group(2)!.split(',').map((w) => w.trim()).toList();
+    if (words.isEmpty || !words.every((w) => Tone.names.contains(w) || Tone.sounds.contains(w))) return (who, null, null);
+    return (
+      m.group(1)!.trim(),
+      words.where(Tone.names.contains).firstOrNull,
+      words.where(Tone.sounds.contains).firstOrNull,
+    );
   }
 
   void _pruneEmpty() {
@@ -431,6 +544,8 @@ ORDER BY c.id DESC LIMIT ?''',
         overlap: (r['overlap'] as int? ?? 0) != 0,
         background: (r['background'] as int? ?? 0) != 0,
         importedLabel: r['speaker_label'] as String?,
+        emotion: r['emotion'] as String?,
+        sound: r['sound'] as String?,
       );
 }
 

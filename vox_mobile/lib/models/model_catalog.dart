@@ -1,5 +1,5 @@
 /// Which on-device model a feature needs.
-enum ModelKind { speechToText, voiceActivity, speakerVoiceprint, speakerTurns, languageModel }
+enum ModelKind { speechToText, voiceActivity, speakerVoiceprint, speakerTurns, toneOfVoice, languageModel }
 
 /// One file to fetch for a model.
 class RemoteFile {
@@ -171,6 +171,28 @@ class ModelCatalog {
   static const int _diarizerBytes = 107759677;
   static const String _diarizerSha = 'f468ec639d5cd4c9df925b4f54398d68d23fdc8ebc171e6cda1f3d5e0b281886';
 
+  /// SenseVoice Small (FunAudioLLM), sherpa-onnx int8 export. Only its
+  /// emotion and sound tags are used.
+  static const ModelAsset toneModel = ModelAsset(
+    id: 'sense-voice-small-int8',
+    kind: ModelKind.toneOfVoice,
+    title: 'Tone of voice',
+    description: 'SenseVoice Small. Hears how each line was said (happy, sad, angry, ...) and sounds like laughter '
+        'or music, so you can sort conversations by mood. Optional.',
+    approxDownloadBytes: 163002883,
+    essential: false,
+    licenseUrl: 'https://github.com/FunAudioLLM/SenseVoice/blob/main/MODEL_LICENSE',
+    files: [
+      RemoteFile(
+        url: '$_sherpa/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2',
+        fileName: 'sense-voice.tar.bz2',
+        sha256: '7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e',
+        sizeBytes: 163002883,
+        extractFromArchive: {'model.int8.onnx', 'tokens.txt'},
+      ),
+    ],
+  );
+
   static const String _lc = 'https://huggingface.co/litert-community';
 
   static const ModelAsset gemma4E4b = ModelAsset(
@@ -226,7 +248,7 @@ class ModelCatalog {
   /// in order of preference when the chosen one is not installed.
   static const List<ModelAsset> recognizers = [parakeetFp16, parakeet];
   static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
-  static const List<ModelAsset> all = [...speech, parakeet, ...speechExtras, ...assistants];
+  static const List<ModelAsset> all = [...speech, parakeet, ...speechExtras, toneModel, ...assistants];
 
   /// Listening can start: the support models plus either recognizer are installed.
   static bool speechReady(bool Function(ModelAsset asset) isInstalled) =>

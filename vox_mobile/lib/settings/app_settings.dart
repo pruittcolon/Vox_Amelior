@@ -36,6 +36,7 @@ class AppSettings {
     this.places = const [],
     this.multiPatterns = true,
     this.splitSpeakers = true,
+    this.hearTone = true,
     this.clipMode = ClipMode.off,
     this.clipPeople = const [],
     this.clipLimitMb = 2048,
@@ -114,6 +115,9 @@ class AppSettings {
   /// Split a line where the speaker changes and mark people talking at once
   /// (needs the speaker-change model).
   final bool splitSpeakers;
+
+  /// Note the tone of voice and sounds of each line (needs the tone model).
+  final bool hearTone;
 
   /// Saving audio clips of what was said (for training later).
   final ClipMode clipMode;
@@ -201,6 +205,7 @@ class AppSettings {
     List<Place>? places,
     bool? multiPatterns,
     bool? splitSpeakers,
+    bool? hearTone,
     ClipMode? clipMode,
     List<String>? clipPeople,
     int? clipLimitMb,
@@ -240,6 +245,7 @@ class AppSettings {
         places: places ?? this.places,
         multiPatterns: multiPatterns ?? this.multiPatterns,
         splitSpeakers: splitSpeakers ?? this.splitSpeakers,
+        hearTone: hearTone ?? this.hearTone,
         clipMode: clipMode ?? this.clipMode,
         clipPeople: clipPeople ?? this.clipPeople,
         clipLimitMb: clipLimitMb ?? this.clipLimitMb,
@@ -280,6 +286,7 @@ class AppSettings {
         'places': [for (final p in places) p.toJson()],
         'multiPatterns': multiPatterns,
         'splitSpeakers': splitSpeakers,
+        'hearTone': hearTone,
         'clipMode': clipMode.name,
         'clipPeople': clipPeople,
         'clipLimitMb': clipLimitMb,
@@ -354,6 +361,7 @@ class AppSettings {
       places: places,
       multiPatterns: typed('multiPatterns', d.multiPatterns),
       splitSpeakers: typed('splitSpeakers', d.splitSpeakers),
+      hearTone: typed('hearTone', d.hearTone),
       clipMode: ClipMode.values.asNameMap()[j['clipMode']] ?? d.clipMode,
       clipPeople: clipPeople,
       clipLimitMb: intIn('clipLimitMb', d.clipLimitMb, 100, 64 * 1024),

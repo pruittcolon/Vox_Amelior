@@ -63,8 +63,65 @@ class ReviewEngine {
     required DateTime to,
     required ContextBudget budget,
     List<String> focus = const [],
+  }) =>
+      startWith(
+        title: title,
+        prompt: prompt,
+        format: format,
+        kind: kind,
+        periodLabel: periodLabel,
+        segments: transcripts.between(from, to, limit: 1000000),
+        from: from,
+        to: to,
+        budget: budget,
+        focus: focus,
+      );
+
+  /// Plans a review over the newest [count] lines said by [speakerIds]
+  /// (everyone when empty), optionally only those in [emotions], within
+  /// [from]–[to] when given. TV / background voices are left out. Returns
+  /// its id, or null when no line matches.
+  int? startLast({
+    required String title,
+    required String prompt,
+    required String format,
+    required ReviewKind kind,
+    required int count,
+    required ContextBudget budget,
+    Set<String> speakerIds = const {},
+    Set<String> emotions = const {},
+    DateTime? from,
+    DateTime? to,
+    String? label,
   }) {
-    final segments = transcripts.between(from, to, limit: 1000000);
+    final lines = transcripts.lastLines(count: count, speakerIds: speakerIds, emotions: emotions, from: from, to: to);
+    if (lines.isEmpty) return null;
+    return startWith(
+      title: title,
+      prompt: prompt,
+      format: format,
+      kind: kind,
+      periodLabel: label ?? 'Last ${lines.length} lines',
+      segments: lines,
+      from: lines.first.startedAt,
+      to: lines.last.endedAt,
+      budget: budget,
+    );
+  }
+
+  /// Plans a review over exactly [segments] (oldest first) and saves it.
+  int? startWith({
+    required String title,
+    required String prompt,
+    required String format,
+    required ReviewKind kind,
+    required String periodLabel,
+    required List<SegmentView> segments,
+    required DateTime from,
+    required DateTime to,
+    required ContextBudget budget,
+    List<String> focus = const [],
+  }) {
     if (segments.isEmpty) return null;
     final parts = plan(segments, budget.chunkTokens);
     return reviews.create(
@@ -421,8 +478,16 @@ class ReviewEngine {
     }
   }
 
-  static String _line(int n, SegmentView s) =>
-      '[$n] ${PromptBuilder.hm(s.startedAt)} ${s.speakerLabel}${s.overlap ? ' (over someone else)' : ''}: ${s.text}';
+  /// "[12] 20:31 Ericah (angry, laughing): ..." — the tone of voice comes
+  /// from the tone model, so Gemma can tell a fight from a joke.
+  static String _line(int n, SegmentView s) {
+    final notes = [
+      if (s.emotion != null && s.emotion != 'neutral') s.emotion!,
+      if (s.sound != null) s.sound == 'laughter' ? 'laughing' : '${s.sound} in background',
+      if (s.overlap) 'over someone else',
+    ];
+    return '[$n] ${PromptBuilder.hm(s.startedAt)} ${s.speakerLabel}${notes.isEmpty ? '' : ' (${notes.join(', ')})'}: ${s.text}';
+  }
 
   static String _dayHeader(DateTime d) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

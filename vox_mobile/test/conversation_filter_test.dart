@@ -175,6 +175,8 @@ void main() {
     TranscriptRepository(first).addSegment(text: 'kept', startedAt: t0, duration: const Duration(seconds: 2));
     first.close();
     final old = sqlite3.open(path)
+      ..execute('ALTER TABLE segments DROP COLUMN emotion')
+      ..execute('ALTER TABLE segments DROP COLUMN sound')
       ..execute('ALTER TABLE segments DROP COLUMN speaker_label')
       ..execute('ALTER TABLE unknown_clusters DROP COLUMN background')
       ..userVersion = 4;

@@ -14,7 +14,7 @@ class AppDatabase {
   /// File location, or ':memory:' for test databases.
   final String path;
 
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   /// Opens (creating and migrating if needed) the database at [path].
   static AppDatabase open(String path) {
@@ -62,6 +62,7 @@ class AppDatabase {
       if (current < 3) _v3();
       if (current < 4) _v4();
       if (current < 5) _v5();
+      if (current < 6) _v6();
       raw.userVersion = schemaVersion;
     });
   }
@@ -290,5 +291,13 @@ CREATE TABLE review_items (
     raw
       ..execute('ALTER TABLE unknown_clusters ADD COLUMN background INTEGER NOT NULL DEFAULT 0')
       ..execute('ALTER TABLE segments ADD COLUMN speaker_label TEXT');
+  }
+
+  /// Tone of voice per line (happy, sad, angry, ...) and sounds heard in it
+  /// (laughter, music, ...), when the tone model is installed.
+  void _v6() {
+    raw
+      ..execute('ALTER TABLE segments ADD COLUMN emotion TEXT')
+      ..execute('ALTER TABLE segments ADD COLUMN sound TEXT');
   }
 }

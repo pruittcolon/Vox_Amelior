@@ -19,6 +19,7 @@ class ProcessorConfig {
     this.chunkSeconds = 30,
     this.chunkPause = const Duration(seconds: 3),
     this.minPartWords = 2,
+    this.maxToneSeconds = 15,
   });
 
   final int sampleRate;
@@ -40,6 +41,9 @@ class ProcessorConfig {
   /// A line is only cut when every part has at least this many words (and
   /// lasts at least [SpeakerTurns.minTurnSeconds]); otherwise it stays whole.
   final int minPartWords;
+
+  /// Only the first seconds of long lines are used to hear the tone of voice.
+  final double maxToneSeconds;
 }
 
 class ProcessorStats {
@@ -70,6 +74,7 @@ class SegmentProcessor {
     required this._speakers,
     this.config = const ProcessorConfig(),
     this.diarizer,
+    this.tone,
     this.turns = const SpeakerTurns(),
     this.onSaved,
     this.onReplaced,
@@ -89,6 +94,12 @@ class SegmentProcessor {
 
   /// Settings switch for splitting.
   bool splitSpeakers = true;
+
+  /// Hears the tone of voice of each saved line when set (the model may arrive later).
+  ToneEngine? tone;
+
+  /// Settings switch for [tone].
+  bool hearTone = true;
   SpeakerTurns turns;
 
   /// Called with each saved utterance and its audio (e.g. to keep a clip).
@@ -333,8 +344,7 @@ class SegmentProcessor {
           embedding: m?.$2,
           overlap: t.overlap,
         );
-        saved.add(v);
-        _afterSave(v, slice);
+        saved.add(_afterSave(v, slice));
       } else {
         saved.add(_save(
           text: texts[i],
@@ -396,16 +406,30 @@ class SegmentProcessor {
       embedding: embedding,
       overlap: overlap,
     );
-    _afterSave(saved, samples);
-    return saved;
+    return _afterSave(saved, samples);
   }
 
-  void _afterSave(SegmentView saved, Float32List samples) {
+  /// Notes the tone of the line, then runs [onSaved]. Returns the line as
+  /// stored now. A failure here never loses the line.
+  SegmentView _afterSave(SegmentView saved, Float32List samples) {
+    var view = saved;
+    final t = hearTone ? tone : null;
+    if (t != null) {
+      try {
+        final cap = math.min(samples.length, (config.maxToneSeconds * _sr).round());
+        final heard = t.analyze(Float32List.sublistView(samples, 0, cap), _sr);
+        _transcripts.setTone(saved.id, emotion: heard.emotion, sound: heard.sound);
+        if (!heard.isEmpty) view = _transcripts.segment(saved.id) ?? saved;
+      } on Object catch (e) {
+        Log.w('processor', 'tone of voice failed; line kept without it', e);
+      }
+    }
     try {
-      onSaved?.call(saved, samples);
+      onSaved?.call(view, samples);
     } on Object catch (e) {
       Log.w('processor', 'after-save hook failed', e);
     }
+    return view;
   }
 
   /// Audio where only [slot] talks, joined, up to [ProcessorConfig.maxEmbedSeconds].
@@ -434,6 +458,7 @@ class SegmentProcessor {
     _asr.dispose();
     _embedder.dispose();
     diarizer?.dispose();
+    tone?.dispose();
   }
 
   bool _isUsable(String text) {

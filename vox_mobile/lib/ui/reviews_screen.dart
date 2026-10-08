@@ -8,6 +8,7 @@ import 'package:vox_amelior_mobile/assistant/review_engine.dart';
 import 'package:vox_amelior_mobile/assistant/review_repository.dart';
 import 'package:vox_amelior_mobile/assistant/review_templates.dart';
 import 'package:vox_amelior_mobile/assistant/time_window.dart';
+import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/ui/capacity_screen.dart';
 import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
@@ -214,6 +215,15 @@ class _ReviewCreateScreenState extends State<ReviewCreateScreen> {
   DateTimeRange? _custom;
   final Set<String> _focus = {};
 
+  /// Read the newest [_count] lines of the chosen people instead of a whole period.
+  bool _byLines = false;
+  int _count = 100;
+
+  /// Only lines said in these tones (by-lines mode).
+  final Set<String> _moods = {};
+
+  static const List<int> countChoices = [50, 100, 200, 500];
+
   AppServices get s => widget.services;
 
   List<ReviewTemplate> get _templates => [...ReviewTemplate.builtIns, ...s.settings.value.customTemplates, ReviewTemplate.blank];
@@ -289,13 +299,39 @@ class _ReviewCreateScreenState extends State<ReviewCreateScreen> {
     _use(ReviewTemplate.builtIns.first);
   }
 
+  /// "Last 100 lines · Pruitt, Ericah · angry, sad".
+  String _linesLabel(int found, List<SpeakerProfile> people) {
+    final names = [for (final p in people) if (_focus.contains(p.id)) p.name];
+    return [
+      'Last $found line${found == 1 ? '' : 's'}',
+      if (names.isNotEmpty) names.join(', '),
+      if (_moods.isNotEmpty) _moods.join(', '),
+    ].join(' · ');
+  }
+
   void _start() {
-    final window = _window;
-    if (window == null) return;
     if (_prompt.text.trim().isEmpty) {
       showMessage(context, 'Say what Gemma should look for.');
       return;
     }
+    if (_byLines) {
+      final found = s.transcripts.lastLines(count: _count, speakerIds: _focus, emotions: _moods).length;
+      final id = s.startReviewOfLines(
+        template: _template.copyWith(prompt: _prompt.text.trim(), format: _format.text.trim()),
+        count: _count,
+        speakerIds: {..._focus},
+        emotions: {..._moods},
+        label: _linesLabel(found, s.speakers.profiles()),
+      );
+      if (id == null) {
+        showMessage(context, 'No lines match.');
+        return;
+      }
+      Navigator.pushReplacement(context, MaterialPageRoute<void>(builder: (_) => ReviewDetailScreen(services: s, runId: id)));
+      return;
+    }
+    final window = _window;
+    if (window == null) return;
     final id = s.startReview(
       template: _template.copyWith(prompt: _prompt.text.trim(), format: _format.text.trim()),
       window: window,
@@ -314,7 +350,13 @@ class _ReviewCreateScreenState extends State<ReviewCreateScreen> {
     final window = _window;
     final people = s.speakers.profiles();
     final budget = s.budget;
-    final size = window == null ? null : s.transcripts.sizeBetween(window.from, window.to);
+    final picked = _byLines ? s.transcripts.lastLines(count: _count, speakerIds: _focus, emotions: _moods) : null;
+    final size = picked != null
+        ? (lines: picked.length, chars: picked.fold<int>(0, (a, l) => a + l.text.length))
+        : window == null
+            ? null
+            : s.transcripts.sizeBetween(window.from, window.to);
+    final hasTones = s.transcripts.hasTones;
     final parts = size == null || size.lines == 0
         ? 0
         : (((size.chars / ContextBudget.charsPerToken) + size.lines * 8) / budget.chunkTokens).ceil().clamp(1, 1 << 30);
@@ -385,8 +427,45 @@ class _ReviewCreateScreenState extends State<ReviewCreateScreen> {
               }),
             ),
           ],
-          const SectionHeader('When', padding: EdgeInsets.fromLTRB(4, 20, 4, 10)),
-          Wrap(
+          const SectionHeader('Read', padding: EdgeInsets.fromLTRB(4, 20, 4, 10)),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, icon: Icon(Icons.date_range_rounded), label: Text('A period')),
+              ButtonSegment(value: true, icon: Icon(Icons.format_list_numbered_rounded), label: Text('Last lines')),
+            ],
+            selected: {_byLines},
+            onSelectionChanged: (v) => setState(() => _byLines = v.first),
+          ),
+          if (_byLines) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final n in countChoices)
+                  ChoiceChip(label: Text('Last $n'), selected: _count == n, onSelected: (_) => setState(() => _count = n)),
+              ],
+            ),
+            if (hasTones) ...[
+              const SectionHeader('Only when they sounded', padding: EdgeInsets.fromLTRB(4, 20, 4, 10)),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(label: const Text('Any way'), selected: _moods.isEmpty, onSelected: (_) => setState(_moods.clear)),
+                  for (final tone in [...Tone.names.where((n) => n != 'neutral'), 'laughter'])
+                    FilterChip(
+                      label: Text('${Tone.emoji(tone)} ${Tone.label(tone)}'),
+                      selected: _moods.contains(tone),
+                      onSelected: (v) => setState(() => v ? _moods.add(tone) : _moods.remove(tone)),
+                    ),
+                ],
+              ),
+            ],
+          ],
+          if (!_byLines) const SectionHeader('When', padding: EdgeInsets.fromLTRB(4, 20, 4, 10)),
+          if (!_byLines)
+            Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
@@ -419,7 +498,10 @@ class _ReviewCreateScreenState extends State<ReviewCreateScreen> {
             if (_focus.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
-                child: Text('Gemma still reads everyone for context, but only reports what the chosen people said.',
+                child: Text(
+                    _byLines
+                        ? 'Gemma reads only the chosen people\'s lines, in the order they were said.'
+                        : 'Gemma still reads everyone for context, but only reports what the chosen people said.',
                     style: t.textTheme.bodySmall),
               ),
           ],
@@ -435,8 +517,8 @@ class _ReviewCreateScreenState extends State<ReviewCreateScreen> {
                     size == null
                         ? 'Pick a period.'
                         : size.lines == 0
-                            ? 'Nothing was said in ${window!.describe()}.'
-                            : '${size.lines} lines in ${window!.describe()} → $parts part${parts == 1 ? '' : 's'} of '
+                            ? (_byLines ? 'No lines match.' : 'Nothing was said in ${window!.describe()}.')
+                            : '${size.lines} lines${_byLines ? '' : ' in ${window!.describe()}'} → $parts part${parts == 1 ? '' : 's'} of '
                                 '~${ContextBudget.linesFor(budget.chunkTokens)} lines. '
                                 'About ${_minutes(parts, low: true)}–${_minutes(parts)} min on a phone.',
                     style: TextStyle(color: t.colorScheme.onSecondaryContainer),
@@ -514,7 +596,7 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
 
   Future<void> _menu(String v, ReviewRun run, List<ReviewItem> items) async {
     switch (v) {
-      case 'copy':
+      case 'copy' || 'select':
         final b = StringBuffer()
           ..writeln('${run.title} — ${run.periodLabel}')
           ..writeln()
@@ -523,7 +605,12 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
           b.writeln('- ${it.saidAt == null ? '' : '${formatDayName(it.saidAt!)} ${formatTime(it.saidAt!)} '}'
               '${it.speaker ?? ''}: "${it.quote}" — ${it.category}${it.note.isEmpty ? '' : ' — ${it.note}'}');
         }
-        await Clipboard.setData(ClipboardData(text: b.toString().trim()));
+        final text = b.toString().trim();
+        if (v == 'select') {
+          await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SelectTextScreen(title: run.title, text: text)));
+          return;
+        }
+        await Clipboard.setData(ClipboardData(text: text));
         if (mounted) showMessage(context, 'Copied');
       case 'delete':
         if (await confirm(context, 'Delete this review?', 'Only the review is deleted, not the transcripts.')) {
@@ -556,6 +643,7 @@ class _ReviewDetailScreenState extends State<ReviewDetailScreen> {
                 onSelected: (v) => _menu(v, run, items),
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'copy', child: Text('Copy results')),
+                  PopupMenuItem(value: 'select', child: Text('Select text to copy')),
                   PopupMenuItem(value: 'delete', child: Text('Delete review')),
                 ],
               ),

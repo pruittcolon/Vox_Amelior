@@ -333,6 +333,34 @@ class AppServices {
     return id;
   }
 
+  /// Starts a review of the newest [count] lines said by [speakerIds]
+  /// (everyone when empty), optionally only in [emotions] and within [window].
+  int? startReviewOfLines({
+    required ReviewTemplate template,
+    required int count,
+    Set<String> speakerIds = const {},
+    Set<String> emotions = const {},
+    TimeWindow? window,
+    String? label,
+  }) {
+    final id = reviewEngine.startLast(
+      title: template.name,
+      prompt: template.prompt,
+      format: template.format,
+      kind: template.kind,
+      count: count,
+      speakerIds: speakerIds,
+      emotions: emotions,
+      from: window?.from,
+      to: window?.to,
+      label: label,
+      budget: budget,
+    );
+    if (id != null) kickReviews();
+    reviewVersion.value++;
+    return id;
+  }
+
   void pauseReview(int id) {
     reviews.setStatus(id, ReviewStatus.paused);
     reviewVersion.value++;
