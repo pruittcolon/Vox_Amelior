@@ -75,8 +75,7 @@ class AppSettings {
   /// Shorter bursts of sound are ignored (coughs, clicks).
   final double minSpeechSeconds;
 
-  /// Which speech model: 'fp16' (half precision, the default: most accurate)
-  /// or 'int8' (standard, smaller). Until fp16 has downloaded, int8 is used.
+  /// Which speech model: 'fp16' (half precision, the default) or 'int8' (smaller, optional download).
   final String speechModel;
 
   /// A line is only split at a speaker change when every part lasts at least
@@ -156,7 +155,7 @@ class AppSettings {
       );
 
   /// The speech-recognition model chosen in settings.
-  ModelAsset get asrAsset => speechModel == 'fp16' ? ModelCatalog.parakeetFp16 : ModelCatalog.parakeet;
+  ModelAsset get asrAsset => speechModel == 'int8' ? ModelCatalog.parakeet : ModelCatalog.parakeetFp16;
 
   ContextBudget get budget => ContextBudget(contextTokens, chunkTokens: reviewChunkTokens);
 

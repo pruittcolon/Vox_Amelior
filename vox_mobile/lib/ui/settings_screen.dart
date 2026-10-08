@@ -41,7 +41,7 @@ class SettingsScreen extends StatelessWidget {
 
   String _hearingSummary(AppSettings st) {
     final preset = MicPreset.of(st);
-    return 'Mic boost ${formatBoost(st.micGain)} · ${preset?.name ?? 'Custom'} · ${st.speechModel == 'fp16' ? 'fp16' : 'standard'} model';
+    return 'Mic boost ${formatBoost(st.micGain)} · ${preset?.name ?? 'Custom'} · ${st.speechModel == 'int8' ? 'int8' : 'fp16'} model';
   }
 
   String _speakersSummary(AppSettings st) =>

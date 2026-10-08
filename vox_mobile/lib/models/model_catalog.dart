@@ -69,9 +69,10 @@ class ModelAsset {
 
 /// The models the app downloads.
 ///
-/// Speech: NVIDIA Parakeet TDT 0.6B v2 (the ready-made int8 sherpa-onnx
-/// export; it writes punctuation and capitals), Silero VAD and
-/// TitaNet voiceprints. Assistant: Google Gemma 4 E4B for LiteRT-LM.
+/// Speech: NVIDIA Parakeet TDT 0.6B v2 (the ready-made sherpa-onnx exports in
+/// fp16 and int8; it writes punctuation and capitals), Silero VAD and
+/// TitaNet voiceprints. The fp16 recognizer is downloaded by default; the
+/// int8 one only when the user picks it. Assistant: Google Gemma 4 E4B for LiteRT-LM.
 class ModelCatalog {
   const ModelCatalog._();
 
@@ -81,8 +82,9 @@ class ModelCatalog {
     id: 'parakeet-tdt-0.6b-v2-int8',
     kind: ModelKind.speechToText,
     title: 'Parakeet speech recognition',
-    description: 'NVIDIA Parakeet TDT 0.6B (int8). Turns speech into text on your phone.',
+    description: 'NVIDIA Parakeet TDT 0.6B (int8). Smaller and lighter on memory; downloads only if you choose it.',
     approxDownloadBytes: 482468385,
+    essential: false,
     files: [
       RemoteFile(
         url: '$_sherpa/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2',
@@ -94,15 +96,14 @@ class ModelCatalog {
     ],
   );
 
-  /// The same model in half precision: a bigger download, no quantization.
-  /// Optional; the int8 model above stays installed as the fallback.
+  /// The same model in half precision: no quantization. The default
+  /// recognizer, and the first model downloaded at setup.
   static const ModelAsset parakeetFp16 = ModelAsset(
     id: 'parakeet-tdt-0.6b-v2-fp16',
     kind: ModelKind.speechToText,
     title: 'Parakeet speech recognition (fp16)',
-    description: 'NVIDIA Parakeet TDT 0.6B in half precision (fp16). Larger and uses more memory; no quantization.',
+    description: 'NVIDIA Parakeet TDT 0.6B in half precision (fp16). Turns speech into text on your phone.',
     approxDownloadBytes: 1120982957,
-    essential: false,
     files: [
       RemoteFile(
         url: '$_sherpa/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16.tar.bz2',
@@ -212,16 +213,24 @@ class ModelCatalog {
     ],
   );
 
-  /// Needed before listening can start.
-  static const List<ModelAsset> speech = [parakeet, voiceActivity, speakerVoiceprint];
+  /// Downloaded at setup, in this order (the fp16 recognizer first).
+  static const List<ModelAsset> speech = [parakeetFp16, voiceActivity, speakerVoiceprint];
+
+  /// Needed before listening can start, together with any one of [recognizers].
+  static const List<ModelAsset> speechSupport = [voiceActivity, speakerVoiceprint];
 
   /// Downloaded with the speech models, but listening works without them.
   static const List<ModelAsset> speechExtras = [diarizer];
 
-  /// Speech-recognition models to choose from (settings `speechModel`: 'int8' or 'fp16').
-  static const List<ModelAsset> recognizers = [parakeet, parakeetFp16];
+  /// Speech-recognition models to choose from (settings `speechModel`: 'fp16' or 'int8'),
+  /// in order of preference when the chosen one is not installed.
+  static const List<ModelAsset> recognizers = [parakeetFp16, parakeet];
   static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
-  static const List<ModelAsset> all = [...speech, parakeetFp16, ...speechExtras, ...assistants];
+  static const List<ModelAsset> all = [...speech, parakeet, ...speechExtras, ...assistants];
+
+  /// Listening can start: the support models plus either recognizer are installed.
+  static bool speechReady(bool Function(ModelAsset asset) isInstalled) =>
+      speechSupport.every(isInstalled) && recognizers.any(isInstalled);
 
   static const String customLlmId = 'custom-llm';
 

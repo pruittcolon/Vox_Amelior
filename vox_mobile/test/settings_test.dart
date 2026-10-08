@@ -118,8 +118,8 @@ void main() {
         fakeInstall(store, a);
       }
       final paths = SpeechModelPaths.fromStore(store)!;
-      expect(p.basename(paths.encoder), 'encoder.int8.onnx');
-      for (final n in ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']) {
+      expect(p.basename(paths.encoder), 'encoder.fp16.onnx', reason: 'fp16 is the default download');
+      for (final n in ['encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt']) {
         expect(File(p.join(p.dirname(paths.encoder), n)).existsSync(), isTrue, reason: n);
       }
       expect(LlmConfig.fromStore(store, ModelCatalog.gemma4E4b), isNull);
@@ -146,9 +146,9 @@ void main() {
       expect(old.existsSync(), isFalse, reason: 'about 1.1 GB freed');
       expect(store.isInstalled(ModelCatalog.voiceActivity), isTrue, reason: 'other models are kept');
       expect(store.isInstalled(ModelCatalog.speakerVoiceprint), isTrue);
-      expect(store.isInstalled(ModelCatalog.parakeet), isFalse);
+      expect(store.isInstalled(ModelCatalog.parakeetFp16), isFalse);
       expect(SpeechModelPaths.fromStore(store), isNull, reason: 'setup screen offers the 0.6B download');
-      fakeInstall(store, ModelCatalog.parakeet);
+      fakeInstall(store, ModelCatalog.parakeetFp16);
       expect(SpeechModelPaths.fromStore(store), isNotNull);
     });
 

@@ -435,37 +435,49 @@ class AppServices {
     if (modelChanged) await localLlm.unload();
   }
 
-  /// Chooses the speech model ('int8' or 'fp16'). The fp16 model is fetched
-  /// when chosen; the standard one keeps working until it is ready. Going
-  /// back to the standard model stops (and discards) an unfinished fp16 download.
+  /// Chooses the speech model ('fp16' or 'int8'). The chosen model is fetched
+  /// if it is missing; whichever one is installed keeps working until it is
+  /// ready. Switching away from a model that never finished downloading
+  /// stops (and discards) that download.
   Future<void> selectSpeechModel(String model) async {
     await updateSettings(settings.value.copyWith(speechModel: model));
-    final fp16 = ModelCatalog.parakeetFp16;
-    if (model == 'fp16') {
-      if (!models.isInstalled(fp16)) await downloads.download(fp16);
-    } else if (!models.isInstalled(fp16) && (downloads.stateOf(fp16).isBusy || models.partialBytes(fp16) > 0)) {
-      downloads.remove(fp16);
+    final chosen = settings.value.asrAsset;
+    if (!models.isInstalled(chosen)) await downloads.download(chosen);
+    for (final other in ModelCatalog.recognizers) {
+      if (other.id == chosen.id || models.isInstalled(other)) continue;
+      if (downloads.stateOf(other).isBusy || models.partialBytes(other) > 0) downloads.remove(other);
     }
   }
 
-  /// fp16 is the default speech model: fetch it once the standard speech
-  /// models are in (they come first, so listening can start sooner).
+  /// fp16 is the default speech model and is downloaded first at setup. A
+  /// phone that only has the int8 model (set up by an older version) gets
+  /// fp16 too, unless int8 was chosen.
   void _fetchChosenSpeechModel() {
     final fp16 = ModelCatalog.parakeetFp16;
     if (settings.value.speechModel != 'fp16' || !speechReady || models.isInstalled(fp16)) return;
     unawaited(downloads.download(fp16));
   }
 
-  /// Deletes the fp16 speech model. If it is in use, the standard model takes over first.
-  Future<void> removeFp16() async {
-    if (settings.value.speechModel == 'fp16') await updateSettings(settings.value.copyWith(speechModel: 'int8'));
-    downloads.remove(ModelCatalog.parakeetFp16);
+  /// Deletes a speech model. If it is in use and the other one is
+  /// installed, the other one takes over first.
+  Future<void> removeSpeechModel(ModelAsset asset) async {
+    final other = _otherInstalledRecognizer(asset);
+    if (settings.value.asrAsset.id == asset.id && other != null) {
+      await updateSettings(settings.value.copyWith(speechModel: _speechModelName(other)));
+    }
+    downloads.remove(asset);
   }
+
+  ModelAsset? _otherInstalledRecognizer(ModelAsset asset) =>
+      ModelCatalog.recognizers.where((m) => m.id != asset.id && models.isInstalled(m)).firstOrNull;
+
+  static String _speechModelName(ModelAsset asset) => asset.id == ModelCatalog.parakeet.id ? 'int8' : 'fp16';
 
   /// A model was deleted: stop pointing the listening service at it.
   void _onModelRemoved(ModelAsset asset) {
-    if (asset.id == ModelCatalog.parakeetFp16.id && settings.value.speechModel == 'fp16') {
-      unawaited(updateSettings(settings.value.copyWith(speechModel: 'int8')));
+    final other = _otherInstalledRecognizer(asset);
+    if (asset.id == settings.value.asrAsset.id && other != null) {
+      unawaited(updateSettings(settings.value.copyWith(speechModel: _speechModelName(other))));
       return;
     }
     writeServiceConfig();

@@ -42,6 +42,10 @@ class ResumableDownloader {
     String? expectedSha256,
     int? expectedSize,
     void Function(int received, int total)? onProgress,
+
+    /// Progress of the checksum check after the last byte arrives (it reads
+    /// the whole file again, which takes a while for a large model).
+    void Function(int checked, int total)? onVerifying,
     CancelToken? cancelToken,
   }) async {
     await destination.parent.create(recursive: true);
@@ -61,7 +65,7 @@ class ResumableDownloader {
       try {
         if (result.status == 416) {
           // Nothing left to fetch, or our partial file is unusable.
-          if (size != null && existing == size) return await _finish(part, destination, size, sha);
+          if (size != null && existing == size) return await _finish(part, destination, size, sha, onVerifying);
           if (attemptedRestart) throw const DownloadException(DownloadFailure.http, 'Server rejected resume request');
           attemptedRestart = true;
           if (part.existsSync()) part.deleteSync();
@@ -97,7 +101,7 @@ class ResumableDownloader {
         if (result.contentLength != null && received != total) {
           throw const DownloadException(DownloadFailure.network, 'Connection closed before the download finished');
         }
-        return await _finish(part, destination, size, sha);
+        return await _finish(part, destination, size, sha, onVerifying);
       } on FileSystemException catch (e) {
         if (e.osError?.errorCode == 28) {
           throw const DownloadException(DownloadFailure.diskFull, 'Not enough free storage on the phone');
@@ -112,14 +116,28 @@ class ResumableDownloader {
     }
   }
 
-  Future<File> _finish(File part, File destination, int? size, String? sha) async {
+  Future<File> _finish(File part, File destination, int? size, String? sha, void Function(int, int)? onVerifying) async {
     if (size != null && part.lengthSync() != size) {
       final actual = part.lengthSync();
       part.deleteSync();
       throw DownloadException(DownloadFailure.sizeMismatch, 'Downloaded file has the wrong size ($actual of $size bytes)');
     }
     if (sha != null) {
-      final actual = (await sha256.bind(part.openRead()).first).toString();
+      final length = part.lengthSync();
+      var checked = 0;
+      var lastReport = DateTime.fromMillisecondsSinceEpoch(0);
+      onVerifying?.call(0, length);
+      final counted = part.openRead().map((chunk) {
+        checked += chunk.length;
+        final now = DateTime.now();
+        if (now.difference(lastReport).inMilliseconds >= 200) {
+          lastReport = now;
+          onVerifying?.call(checked, length);
+        }
+        return chunk;
+      });
+      final actual = (await sha256.bind(counted).first).toString();
+      onVerifying?.call(length, length);
       if (actual != sha.toLowerCase()) {
         part.deleteSync();
         throw const DownloadException(DownloadFailure.checksum, 'Download is corrupted (checksum mismatch). Please retry.');

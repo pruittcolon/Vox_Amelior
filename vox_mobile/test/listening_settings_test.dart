@@ -261,26 +261,37 @@ void main() {
       store.markInstalled(a);
     }
 
-    test('fp16 is an optional download with its own pinned files', () {
+    test('fp16 is the default download with its own pinned files; int8 is optional', () {
       final a = ModelCatalog.parakeetFp16;
-      expect(a.essential, isFalse);
+      expect(a.essential, isTrue);
+      expect(ModelCatalog.speech.first, a, reason: 'downloaded first');
+      expect(ModelCatalog.parakeet.essential, isFalse);
+      expect(ModelCatalog.speech, isNot(contains(ModelCatalog.parakeet)), reason: 'int8 only downloads when chosen');
       expect(a.installedFileNames, {'encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt'});
       expect(a.files.single.sha256, hasLength(64));
       expect(a.files.single.sizeBytes, 1120982957);
       expect(ModelCatalog.all, contains(a), reason: 'kept on disk by the upgrade cleanup');
     });
 
-    test('the fp16 files are used once installed; until then the standard model keeps working', () {
-      for (final a in ModelCatalog.speech) {
+    test('either recognizer alone is enough to listen; the chosen one is used once installed', () {
+      for (final a in ModelCatalog.speechSupport) {
         install(a);
       }
-      final before = SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeetFp16)!;
-      expect(p.basename(before.encoder), 'encoder.int8.onnx', reason: 'fp16 not downloaded yet');
+      expect(SpeechModelPaths.fromStore(store), isNull, reason: 'no recognizer yet');
+
       install(ModelCatalog.parakeetFp16);
-      final after = SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeetFp16)!;
-      expect([after.encoder, after.decoder, after.joiner, after.tokens].map(p.basename),
+      final fp16Only = SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeet)!;
+      expect(p.basename(fp16Only.encoder), 'encoder.fp16.onnx', reason: 'int8 chosen but not downloaded');
+      expect([fp16Only.encoder, fp16Only.decoder, fp16Only.joiner, fp16Only.tokens].map(p.basename),
           ['encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt']);
-      expect(p.basename(SpeechModelPaths.fromStore(store)!.encoder), 'encoder.int8.onnx', reason: 'default stays int8');
+
+      install(ModelCatalog.parakeet);
+      expect(p.basename(SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeet)!.encoder), 'encoder.int8.onnx');
+      expect(p.basename(SpeechModelPaths.fromStore(store)!.encoder), 'encoder.fp16.onnx', reason: 'default is fp16');
+
+      // Only int8 (e.g. installed by an older version, fp16 deleted): still ready.
+      store.remove(ModelCatalog.parakeetFp16);
+      expect(p.basename(SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeetFp16)!.encoder), 'encoder.int8.onnx');
     });
 
     test('the fp16 folder survives the upgrade cleanup', () {

@@ -94,8 +94,9 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 child: Column(
                   children: [
                     for (final m in speechAll) _ModelTile(asset: m, downloads: s.downloads),
-                    // Optional; chosen in Settings → Microphone & hearing. Listed here so it can be deleted.
-                    _ModelTile(asset: ModelCatalog.parakeetFp16, downloads: s.downloads),
+                    // Optional smaller recognizer; downloads only when tapped. Also chosen in
+                    // Settings → Microphone & hearing.
+                    _ModelTile(asset: ModelCatalog.parakeet, downloads: s.downloads),
                     if (!s.downloads.speechReady)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -247,13 +248,15 @@ class _ModelTile extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(value: unpacking ? null : st.progress, minHeight: 8),
+              child: LinearProgressIndicator(value: st.progress, minHeight: 8),
             ),
             const SizedBox(height: 6),
-            Text(unpacking
-                ? 'Finishing…'
-                : '${formatBytes(st.received)} of ${formatBytes(st.total)}'
-                    '${st.progress == null ? '' : ' · ${(st.progress! * 100).toStringAsFixed(0)}%'}'),
+            Text(describeDownload(st)),
+            if (unpacking)
+              Text(
+                'Downloaded. Getting it ready to use — this can take a few minutes on a phone.',
+                style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
+              ),
           ],
         );
         actions = [

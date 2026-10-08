@@ -8,17 +8,34 @@ import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/models/model_store.dart';
 import 'package:vox_amelior_mobile/models/resumable_downloader.dart';
 
-enum InstallPhase { downloading, unpacking, finishing }
+/// What an install is doing. After the download comes a checksum check,
+/// then (for archives) decompressing and copying out the model files, then
+/// a quick save of the install record.
+enum InstallPhase { downloading, verifying, unpacking, copying, finishing }
 
 class InstallProgress {
-  const InstallProgress(this.phase, this.receivedBytes, this.totalBytes);
+  const InstallProgress(this.phase, this.receivedBytes, this.totalBytes, {this.stepDone = 0, this.stepTotal = 0, this.fileName});
 
   final InstallPhase phase;
+
+  /// Bytes downloaded of the whole model.
   final int receivedBytes;
   final int totalBytes;
 
-  /// 0..1, or null when not measurable (unpacking).
-  double? get fraction => phase == InstallPhase.downloading && totalBytes > 0 ? receivedBytes / totalBytes : null;
+  /// Progress within the current phase after downloading (bytes checked,
+  /// decompressed or copied).
+  final int stepDone;
+  final int stepTotal;
+
+  /// The file being checked or copied, when there is one.
+  final String? fileName;
+
+  /// 0..1 for the current phase, or null when not measurable (finishing).
+  double? get fraction => switch (phase) {
+        InstallPhase.downloading => totalBytes > 0 ? receivedBytes / totalBytes : null,
+        InstallPhase.finishing => null,
+        _ => stepTotal > 0 ? (stepDone / stepTotal).clamp(0.0, 1.0) : null,
+      };
 }
 
 /// Downloads, verifies and unpacks a [ModelAsset] into the [ModelStore].
@@ -72,12 +89,28 @@ class ModelInstaller {
             cancelToken: cancelToken,
             onProgress: (received, total) =>
                 onProgress?.call(InstallProgress(InstallPhase.downloading, base + received, totalBytes)),
+            onVerifying: (checked, total) => onProgress?.call(InstallProgress(
+                InstallPhase.verifying, base + (file.sizeBytes ?? total), totalBytes,
+                stepDone: checked, stepTotal: total, fileName: file.fileName)),
           ));
       completedBytes += file.sizeBytes ?? target.lengthSync();
 
       if (file.isArchive) {
         onProgress?.call(InstallProgress(InstallPhase.unpacking, completedBytes, totalBytes));
-        await extractor.extractTarBz2(target, dir, wanted: file.extractFromArchive);
+        final downloaded = completedBytes;
+        await extractor.extractTarBz2(
+          target,
+          dir,
+          wanted: file.extractFromArchive,
+          onProgress: (e) => onProgress?.call(InstallProgress(
+            e.stage == ExtractStage.decompressing ? InstallPhase.unpacking : InstallPhase.copying,
+            downloaded,
+            totalBytes,
+            stepDone: e.doneBytes,
+            stepTotal: e.totalBytes,
+            fileName: e.fileName,
+          )),
+        );
         target.deleteSync(); // reclaim ~half a GB
       }
     }

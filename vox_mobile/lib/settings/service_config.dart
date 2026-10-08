@@ -27,13 +27,13 @@ class SpeechModelPaths {
   /// Speaker-change model (optional: lines are simply not split without it).
   final String? diarizer;
 
-  /// Null unless every speech model is fully installed. [asr] is the
-  /// recognizer the user chose; when it is not installed (yet) the standard
-  /// int8 one is used.
+  /// Null unless the speech models and at least one recognizer are fully
+  /// installed. [asr] is the recognizer the user chose; when it is not
+  /// installed the other one (fp16 first) is used.
   static SpeechModelPaths? fromStore(ModelStore store, {ModelAsset? asr}) {
-    if (!ModelCatalog.speech.every(store.isInstalled)) return null;
+    if (!ModelCatalog.speechReady(store.isInstalled)) return null;
     String path(ModelAsset a, String name) => store.file(a, name).path;
-    final model = asr != null && store.isInstalled(asr) ? asr : ModelCatalog.parakeet;
+    final model = asr != null && store.isInstalled(asr) ? asr : ModelCatalog.recognizers.firstWhere(store.isInstalled);
     String named(String prefix) => path(model, model.installedFileNames.firstWhere((n) => n.startsWith(prefix)));
     return SpeechModelPaths(
       encoder: named('encoder'),

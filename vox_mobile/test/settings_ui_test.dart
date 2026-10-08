@@ -204,8 +204,8 @@ void main() {
 
     testWidgets('both speech models are offered and fp16 is selected by default', (tester) async {
       await show(tester, ListeningSettingsScreen(services: s));
-      await scrollTo(tester, find.text('High precision (fp16)'));
-      expect(find.text('Standard (int8)'), findsOneWidget);
+      await scrollTo(tester, find.text('Smaller (int8)'));
+      expect(find.text('High precision (fp16)'), findsOneWidget);
       expect(find.textContaining('1.1 GB download'), findsOneWidget);
       expect(s.settings.value.speechModel, 'fp16');
     });

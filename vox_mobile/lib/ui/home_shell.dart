@@ -104,9 +104,8 @@ class _DownloadBar extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          st.status == DownloadStatus.unpacking
-                              ? 'Finishing ${cur.asset.title}…'
-                              : 'Downloading ${cur.asset.title} · ${formatBytes(st.received)} of ${formatBytes(st.total)}',
+                          '${st.status == DownloadStatus.unpacking ? 'Setting up' : 'Downloading'} ${cur.asset.title} · '
+                          '${describeDownload(st)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.w600),
@@ -117,7 +116,7 @@ class _DownloadBar extends StatelessWidget {
                   const SizedBox(height: 6),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(value: st.status == DownloadStatus.unpacking ? null : st.progress, minHeight: 5),
+                    child: LinearProgressIndicator(value: st.progress, minHeight: 5),
                   ),
                 ],
               ),

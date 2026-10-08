@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vox_amelior_mobile/app/model_downloads.dart';
 
 String formatBytes(int bytes) {
   if (bytes >= 1000000000) return '${(bytes / 1e9).toStringAsFixed(1)} GB';
@@ -90,4 +91,20 @@ Future<String?> askText(BuildContext context, String title, {String initial = ''
       ],
     ),
   );
+}
+
+/// One line describing a download in progress, e.g. "320 MB of 1.1 GB · 29% · about 4 min left"
+/// or "Step 3 of 4: Unpacking the model · 45% · about 2 min left".
+String describeDownload(DownloadState st) {
+  final parts = <String>[
+    if (st.status == DownloadStatus.queued)
+      'Waiting to download'
+    else if (st.status == DownloadStatus.unpacking)
+      st.step > 0 && st.steps > 0 ? 'Step ${st.step} of ${st.steps}: ${st.stage ?? 'Finishing'}' : '${st.stage ?? 'Finishing'}…'
+    else
+      '${formatBytes(st.received)} of ${formatBytes(st.total)}',
+    if (st.status != DownloadStatus.queued && st.progress != null) '${(st.progress! * 100).toStringAsFixed(0)}%',
+    if (st.remaining != null) 'about ${formatDuration(st.remaining!)} left',
+  ];
+  return parts.join(' · ');
 }
