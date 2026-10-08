@@ -35,7 +35,7 @@ class ArchiveExtractor {
       onProgress?.call(ExtractProgress(ExtractStage.values[stage], done, total, file));
     });
     try {
-      final paths = await Isolate.run(() => _extractSync(archivePath, destPath, wantedCopy, send));
+      final paths = await _runExtract(archivePath, destPath, wantedCopy, send);
       return paths.map(File.new).toList();
     } finally {
       // Let progress messages already sent arrive before closing.
@@ -45,6 +45,12 @@ class ArchiveExtractor {
     }
   }
 }
+
+/// Top level so the isolate's closure captures only these sendable values
+/// (a closure inside [ArchiveExtractor.extractTarBz2] would also capture the
+/// progress callback and everything it references, e.g. an HTTP client).
+Future<List<String>> _runExtract(String archivePath, String destPath, Set<String> wanted, SendPort progress) =>
+    Isolate.run(() => _extractSync(archivePath, destPath, wanted, progress));
 
 enum ExtractStage { decompressing, copying }
 
