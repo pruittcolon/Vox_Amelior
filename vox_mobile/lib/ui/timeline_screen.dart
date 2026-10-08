@@ -319,8 +319,11 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 color: selected ? t.colorScheme.primary : t.colorScheme.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              // Shrinks with large system text instead of overflowing the tile.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(const ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'][d.day.weekday - 1],
                       style: t.textTheme.labelSmall?.copyWith(color: fg, fontWeight: FontWeight.w700)),
@@ -328,6 +331,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
                   Text(d.conversations == 0 ? '–' : '${d.conversations}',
                       style: t.textTheme.labelSmall?.copyWith(color: fg.withValues(alpha: 0.8))),
                 ],
+              ),
               ),
             ),
           );

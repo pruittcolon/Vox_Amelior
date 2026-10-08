@@ -59,10 +59,10 @@ void main() {
     dir.deleteSync(recursive: true);
   });
 
-  Future<void> show(WidgetTester tester, Widget screen) async {
+  Future<void> show(WidgetTester tester, Widget screen, {bool tall = false}) async {
     tester.view
-      ..physicalSize = const Size(1080, 2280)
-      ..devicePixelRatio = 3; // 360 × 760, a small phone
+      ..physicalSize = Size(1080, tall ? 4800 : 2280)
+      ..devicePixelRatio = 3; // 360 wide, a small phone (tall: every line of a conversation on screen)
     addTearDown(tester.view.reset);
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'Clipboard.setData') clipboard.add((call.arguments as Map)['text'] as String);
@@ -97,7 +97,7 @@ void main() {
   }
 
   testWidgets('a conversation shows each line\'s tone and filters by it', (tester) async {
-    await show(tester, ConversationScreen(services: s, conversationId: conversationId));
+    await show(tester, ConversationScreen(services: s, conversationId: conversationId), tall: true);
     expect(find.text('😠 Angry'), findsNWidgets(2), reason: 'shown on the two angry lines');
     expect(find.text('😂 Laughter'), findsOneWidget);
     expect(find.textContaining('Neutral'), findsNothing, reason: 'neutral is not worth a chip');
@@ -115,7 +115,7 @@ void main() {
   });
 
   testWidgets('long-press copies a line with name, time and tone', (tester) async {
-    await show(tester, ConversationScreen(services: s, conversationId: conversationId));
+    await show(tester, ConversationScreen(services: s, conversationId: conversationId), tall: true);
     await tester.longPress(find.text('You never listen to me'));
     await tester.pumpAndSettle();
     expect(clipboard.single, endsWith('Pruitt [angry]: You never listen to me'));
@@ -123,14 +123,14 @@ void main() {
   });
 
   testWidgets('"Select text to copy" opens the conversation as selectable text', (tester) async {
-    await show(tester, ConversationScreen(services: s, conversationId: conversationId));
+    await show(tester, ConversationScreen(services: s, conversationId: conversationId), tall: true);
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Select text to copy'));
     await tester.pumpAndSettle();
     expect(find.byType(SelectTextScreen), findsOneWidget);
     expect(find.byType(SelectionArea), findsOneWidget);
-    expect(find.textContaining('Ericah [happy, laughter]: Okay, that was funny though'), findsOneWidget);
+    expect(find.textContaining('Pruitt [happy, laughter]: Okay, that was funny though'), findsOneWidget);
     await tester.tap(find.byTooltip('Copy all'));
     await tester.pumpAndSettle();
     expect(clipboard.single.split('\n'), hasLength(6));
