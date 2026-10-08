@@ -378,10 +378,16 @@ class _TimelineScreenState extends State<TimelineScreen> {
             children: [
               Row(
                 children: [
-                  Text('${formatTime(c.startedAt)} – ${formatTime(c.endedAt)}',
-                      style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  Flexible(
+                    child: Text('${formatTime(c.startedAt)} – ${formatTime(c.endedAt)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  ),
                   const SizedBox(width: 8),
-                  Text(formatDuration(c.duration), style: t.textTheme.bodySmall),
+                  Flexible(
+                    child: Text(formatDuration(c.duration), maxLines: 1, overflow: TextOverflow.ellipsis, style: t.textTheme.bodySmall),
+                  ),
                   const Spacer(),
                   AvatarStack(labels: c.participants),
                 ],

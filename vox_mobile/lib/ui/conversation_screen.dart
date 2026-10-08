@@ -397,29 +397,29 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       children: [
                         Text(seg.text, style: t.textTheme.bodyLarge),
                         const SizedBox(height: 4),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
+                        // Wraps onto a second line on narrow screens or with large text.
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 2,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             Text(formatTime(seg.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
                             for (final tone in [?seg.emotion, ?seg.sound])
-                              if (tone != 'neutral') ...[
-                                const SizedBox(width: 8),
+                              if (tone != 'neutral')
                                 Text('${Tone.emoji(tone)} ${Tone.label(tone)}',
                                     style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
-                              ],
-                            if (seg.overlap) ...[
-                              const SizedBox(width: 8),
+                            if (seg.overlap)
                               Tooltip(
                                 message: 'Someone else was talking at the same time',
-                                child: Icon(Icons.forum_rounded, size: 14, color: t.colorScheme.tertiary),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.forum_rounded, size: 14, color: t.colorScheme.tertiary),
+                                    const SizedBox(width: 3),
+                                    Text('talking at once', style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.tertiary)),
+                                  ],
+                                ),
                               ),
-                              const SizedBox(width: 3),
-                              Flexible(
-                                child: Text('talking at once',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.tertiary)),
-                              ),
-                            ],
                           ],
                         ),
                       ],
