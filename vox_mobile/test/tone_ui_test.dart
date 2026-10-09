@@ -98,12 +98,15 @@ void main() {
 
   /// Scrolls the Timeline's filter row until [f] is on screen (chips far to
   /// the right are not built until then).
-  Future<void> revealChip(WidgetTester tester, Finder f, {double step = 120}) async {
+  Future<void> revealChip(WidgetTester tester, Finder f) async {
     // The first horizontal list (the day strip comes after it). Not just any
     // horizontal Scrollable: the search box has one too.
     final strip = find.byWidgetPredicate((w) => w is ListView && w.scrollDirection == Axis.horizontal).first;
     final row = find.descendant(of: strip, matching: find.byType(Scrollable)).first;
-    await tester.scrollUntilVisible(f, step, scrollable: row);
+    // From the start of the row, so chips left of the current scroll are found too.
+    tester.state<ScrollableState>(row).position.jumpTo(0);
+    await tester.pump();
+    await tester.scrollUntilVisible(f, 120, scrollable: row);
     await tester.pumpAndSettle();
   }
 
@@ -175,7 +178,7 @@ void main() {
     expect(find.text('Did you take the trash out'), findsOneWidget);
 
     // "All" clears people and moods together.
-    await revealChip(tester, find.text('All'), step: -120);
+    await revealChip(tester, find.text('All'));
     await tester.tap(find.text('All'));
     await tester.pumpAndSettle();
     expect(find.textContaining('that sounded'), findsNothing);
