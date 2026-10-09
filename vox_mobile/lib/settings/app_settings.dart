@@ -37,6 +37,7 @@ class AppSettings {
     this.multiPatterns = true,
     this.splitSpeakers = true,
     this.hearTone = true,
+    this.meaningSearch = true,
     this.clipMode = ClipMode.off,
     this.clipPeople = const [],
     this.clipLimitMb = 2048,
@@ -119,6 +120,10 @@ class AppSettings {
 
   /// Note the tone of voice and sounds of each line (needs the tone model).
   final bool hearTone;
+
+  /// Search by meaning and help Gemma pick what to read (needs the
+  /// EmbeddingGemma model; lines are embedded in the background).
+  final bool meaningSearch;
 
   /// Saving audio clips of what was said (for training later).
   final ClipMode clipMode;
@@ -207,6 +212,7 @@ class AppSettings {
     bool? multiPatterns,
     bool? splitSpeakers,
     bool? hearTone,
+    bool? meaningSearch,
     ClipMode? clipMode,
     List<String>? clipPeople,
     int? clipLimitMb,
@@ -247,6 +253,7 @@ class AppSettings {
         multiPatterns: multiPatterns ?? this.multiPatterns,
         splitSpeakers: splitSpeakers ?? this.splitSpeakers,
         hearTone: hearTone ?? this.hearTone,
+        meaningSearch: meaningSearch ?? this.meaningSearch,
         clipMode: clipMode ?? this.clipMode,
         clipPeople: clipPeople ?? this.clipPeople,
         clipLimitMb: clipLimitMb ?? this.clipLimitMb,
@@ -288,6 +295,7 @@ class AppSettings {
         'multiPatterns': multiPatterns,
         'splitSpeakers': splitSpeakers,
         'hearTone': hearTone,
+        'meaningSearch': meaningSearch,
         'clipMode': clipMode.name,
         'clipPeople': clipPeople,
         'clipLimitMb': clipLimitMb,
@@ -363,6 +371,7 @@ class AppSettings {
       multiPatterns: typed('multiPatterns', d.multiPatterns),
       splitSpeakers: typed('splitSpeakers', d.splitSpeakers),
       hearTone: typed('hearTone', d.hearTone),
+      meaningSearch: typed('meaningSearch', d.meaningSearch),
       clipMode: ClipMode.values.asNameMap()[j['clipMode']] ?? d.clipMode,
       clipPeople: clipPeople,
       clipLimitMb: intIn('clipLimitMb', d.clipLimitMb, 100, 64 * 1024),

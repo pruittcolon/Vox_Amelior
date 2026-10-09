@@ -26,6 +26,10 @@ import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/core/log.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
 import 'package:vox_amelior_mobile/data/insights_repository.dart';
+import 'package:vox_amelior_mobile/search/embedder_worker.dart';
+import 'package:vox_amelior_mobile/search/embedding.dart';
+import 'package:vox_amelior_mobile/search/hybrid_search.dart';
+import 'package:vox_amelior_mobile/search/vector_store.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
@@ -79,6 +83,52 @@ class AppServices {
 
   /// Statistics over the transcripts (Insights).
   late final InsightsRepository insights = InsightsRepository(db, transcripts);
+
+  // ---- search by meaning (EmbeddingGemma) ---------------------------------------
+
+  /// One compact vector per line.
+  late final VectorStore vectors = VectorStore(db);
+
+  /// Words + meaning search, and the lines Gemma reads for a question.
+  late final HybridSearch search = HybridSearch(
+    db: db,
+    transcripts: transcripts,
+    vectors: vectors,
+    embedder: () => embedder,
+    modelId: ModelCatalog.textEmbedder.id,
+  );
+
+  /// Embeds new lines in the background.
+  late final SearchIndexer indexer = SearchIndexer(store: vectors, embedder: () => embedder, modelId: ModelCatalog.textEmbedder.id);
+
+  AsyncEmbedder? _embedder;
+  AsyncEmbedder Function()? _embedderForTests;
+
+  /// The embedder while meaning search is on and its model installed, else null.
+  /// The worker isolate only starts on the first embedding.
+  AsyncEmbedder? get embedder {
+    if (!settings.value.meaningSearch) return null;
+    final test = _embedderForTests;
+    if (test != null) return _embedder ??= test();
+    final m = ModelCatalog.textEmbedder;
+    if (!models.isInstalled(m)) return null;
+    return _embedder ??= IsolateEmbedder(
+      modelPath: models.file(m, 'model_quantized.onnx').path,
+      tokenizerPath: models.file(m, 'tokenizer.model').path,
+    );
+  }
+
+  /// Catches meaning search up with new lines (no-op when it is off).
+  void indexForSearch() {
+    if (embedder != null) unawaited(indexer.run());
+  }
+
+  void _closeEmbedder() {
+    indexer.stop();
+    final e = _embedder;
+    _embedder = null;
+    if (e != null) unawaited(e.close());
+  }
 
   /// Bumped whenever a review makes progress, so review screens refresh.
   final ValueNotifier<int> reviewVersion = ValueNotifier(0);
@@ -149,6 +199,8 @@ class AppServices {
         budget: () => budget,
       ),
     ),
+    // RAG: lines found by meaning are read alongside the keyword matches.
+    hints: (question) => search.hintsFor(question),
   );
 
   late final ModelDownloads downloads = ModelDownloads(
@@ -156,10 +208,11 @@ class AppServices {
     installer: ModelInstaller(store: models),
     tokenProvider: tokens.huggingFace,
     resolve: _assetById,
-    onInstalled: (_) async {
+    onInstalled: (asset) async {
       writeServiceConfig();
       listening.reload();
       _fetchChosenSpeechModel();
+      if (asset.id == ModelCatalog.textEmbedder.id) indexForSearch();
     },
     onRemoved: _onModelRemoved,
     onBusyChanged: listening.keepAliveForDownloads,
@@ -171,7 +224,13 @@ class AppServices {
 
   /// Services over [db] and [dir] without starting anything (for tests).
   @visibleForTesting
-  factory AppServices.forTesting({required Directory dir, required AppDatabase db, AppSettings settings = const AppSettings()}) =>
+  /// [embedder] stands in for EmbeddingGemma (meaning search on).
+  factory AppServices.forTesting({
+    required Directory dir,
+    required AppDatabase db,
+    AppSettings settings = const AppSettings(),
+    AsyncEmbedder Function()? embedder,
+  }) =>
       AppServices._(
         supportDir: dir,
         db: db,
@@ -179,7 +238,7 @@ class AppServices {
         settings: ValueNotifier(settings),
         tokens: TokenStore(),
         models: ModelStore(Directory(p.join(dir.path, 'models'))),
-      );
+      ).._embedderForTests = embedder;
 
   static Future<AppServices> create() async {
     final support = await getApplicationSupportDirectory();
@@ -203,6 +262,9 @@ class AppServices {
     writeServiceConfig();
     unawaited(LocalNotifier.instance.initialize());
     unawaited(downloads.resumeInterrupted());
+    // Lines heard while the app was closed (or before the model arrived).
+    indexForSearch();
+    dataVersion.addListener(indexForSearch);
     // Phones set up before speaker changes existed get that model too.
     if (speechReady && !models.isInstalled(ModelCatalog.diarizer)) unawaited(downloads.download(ModelCatalog.diarizer));
     _fetchChosenSpeechModel();
@@ -460,7 +522,9 @@ class AppServices {
   Future<void> updateSettings(AppSettings next) async {
     final modelChanged = next.llmAsset.id != settings.value.llmAsset.id ||
         next.llmAsset.files.first.url != settings.value.llmAsset.files.first.url;
+    final searchChanged = next.meaningSearch != settings.value.meaningSearch;
     settings.value = next;
+    if (searchChanged) next.meaningSearch ? indexForSearch() : _closeEmbedder();
     await settingsRepo.save(next);
     writeServiceConfig();
     listening.reload();
@@ -507,6 +571,7 @@ class AppServices {
 
   /// A model was deleted: stop pointing the listening service at it.
   void _onModelRemoved(ModelAsset asset) {
+    if (asset.id == ModelCatalog.textEmbedder.id) _closeEmbedder();
     final other = _otherInstalledRecognizer(asset);
     if (asset.id == settings.value.asrAsset.id && other != null) {
       unawaited(updateSettings(settings.value.copyWith(speechModel: _speechModelName(other))));

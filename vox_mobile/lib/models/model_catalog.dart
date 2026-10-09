@@ -1,5 +1,5 @@
 /// Which on-device model a feature needs.
-enum ModelKind { speechToText, voiceActivity, speakerVoiceprint, speakerTurns, toneOfVoice, languageModel }
+enum ModelKind { speechToText, voiceActivity, speakerVoiceprint, speakerTurns, toneOfVoice, textEmbedding, languageModel }
 
 /// One file to fetch for a model.
 class RemoteFile {
@@ -230,6 +230,43 @@ class ModelCatalog {
     ],
   );
 
+  /// Google EmbeddingGemma 300M (int8), the ONNX export from onnx-community,
+  /// pinned to one commit. Turns lines and questions into vectors for search
+  /// by meaning and for picking what Gemma reads when it answers.
+  static const ModelAsset textEmbedder = ModelAsset(
+    id: 'embeddinggemma-300m-q8',
+    kind: ModelKind.textEmbedding,
+    title: 'Search by meaning',
+    description: 'Google EmbeddingGemma 300M. Finds what was said even in other words ("money worries" finds '
+        '"we can\'t pay the bill"), and helps Gemma pick what to read when it answers. Optional.',
+    approxDownloadBytes: 567874 + 308890624 + 4689074,
+    essential: false,
+    licenseUrl: 'https://ai.google.dev/gemma/terms',
+    files: [
+      RemoteFile(
+        url: '$_eg/onnx/model_quantized.onnx',
+        fileName: 'model_quantized.onnx',
+        sha256: '172efde319fe1542dc41f31be6154910b05b78f7a861c265c4600eec906bd6d8',
+        sizeBytes: 567874,
+      ),
+      // Named exactly as model_quantized.onnx refers to it.
+      RemoteFile(
+        url: '$_eg/onnx/model_quantized.onnx_data',
+        fileName: 'model_quantized.onnx_data',
+        sha256: '705626e28e4c23c82ade34566b4197d97f534c12275fa406dfb71e9937d388c0',
+        sizeBytes: 308890624,
+      ),
+      RemoteFile(
+        url: '$_eg/tokenizer.model',
+        fileName: 'tokenizer.model',
+        sha256: '1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c',
+        sizeBytes: 4689074,
+      ),
+    ],
+  );
+  static const String _eg =
+      'https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/5090578d9565bb06545b4552f76e6bc2c93e4a66';
+
   static const String _lc = 'https://huggingface.co/litert-community';
 
   static const ModelAsset gemma4E4b = ModelAsset(
@@ -299,7 +336,7 @@ class ModelCatalog {
         _ => parakeetFp16,
       };
   static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
-  static const List<ModelAsset> all = [...speech, parakeet, parakeetFp32, ...speechExtras, toneModel, ...assistants];
+  static const List<ModelAsset> all = [...speech, parakeet, parakeetFp32, ...speechExtras, toneModel, textEmbedder, ...assistants];
 
   /// Listening can start: the support models plus either recognizer are installed.
   static bool speechReady(bool Function(ModelAsset asset) isInstalled) =>

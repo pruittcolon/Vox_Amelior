@@ -391,7 +391,7 @@ class ListeningRuntime {
         final buffer = StringBuffer();
         var sources = const <SegmentView>[];
         final finished = Completer<void>();
-        final sub = assistant.ask(request.text).listen(
+        final sub = assistant.ask(request.text, hints: request.hintIds).listen(
           (e) {
             if (e.sources != null) {
               sources = e.sources!;

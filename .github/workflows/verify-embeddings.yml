@@ -1,0 +1,59 @@
+name: Verify EmbeddingGemma (search by meaning)
+# Runs the real EmbeddingGemma model through the app's own Dart pipeline
+# (SentencePiece tokenizer + ONNX Runtime bindings) and checks it against
+# Hugging Face's reference tokenizer and ONNX Runtime in Python: identical
+# token ids, near-identical vectors, and sensible similarities.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-cerf-zer2dj]
+    paths:
+      - 'vox_mobile/lib/native/embedding_gemma.dart'
+      - 'vox_mobile/lib/native/onnx_runtime.dart'
+      - 'vox_mobile/lib/search/**'
+      - 'vox_mobile/test/integration/embedding_gemma_test.dart'
+      - 'vox_mobile/tool/embedding_reference.py'
+      - 'vox_mobile/pubspec.yaml'
+      - '.github/workflows/verify-embeddings.yml'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: vox_mobile
+    env:
+      EG: /tmp/embeddinggemma
+      BASE: https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/5090578d9565bb06545b4552f76e6bc2c93e4a66
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.47.5', channel: stable, cache: true }
+      - run: flutter pub get
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Download the pinned model (checked against the app's checksums)
+        run: |
+          mkdir -p "$EG"
+          curl -sSfL "$BASE/onnx/model_quantized.onnx" -o "$EG/model_quantized.onnx"
+          curl -sSfL "$BASE/onnx/model_quantized.onnx_data" -o "$EG/model_quantized.onnx_data"
+          curl -sSfL "$BASE/tokenizer.model" -o "$EG/tokenizer.model"
+          curl -sSfL "$BASE/tokenizer.json" -o "$EG/tokenizer.json"
+          cat > "$EG/SHA256SUMS" <<SUMS
+          172efde319fe1542dc41f31be6154910b05b78f7a861c265c4600eec906bd6d8  $EG/model_quantized.onnx
+          705626e28e4c23c82ade34566b4197d97f534c12275fa406dfb71e9937d388c0  $EG/model_quantized.onnx_data
+          1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c  $EG/tokenizer.model
+          SUMS
+          sed -i 's/^ *//' "$EG/SHA256SUMS"
+          sha256sum -c "$EG/SHA256SUMS"
+      - name: Reference ids and vectors (Hugging Face tokenizer + ONNX Runtime)
+        run: |
+          pip install --quiet onnxruntime tokenizers numpy
+          python3 tool/embedding_reference.py "$EG" "$EG/reference.json"
+      - name: The app's Dart pipeline against the reference
+        run: |
+          lib=$(find / -path '*sherpa_onnx_linux*/linux/x64/libonnxruntime.so' 2>/dev/null | head -n 1)
+          test -n "$lib" || { echo "::error::libonnxruntime.so from sherpa_onnx_linux not found"; exit 1; }
+          echo "ONNX Runtime: $lib"
+          SHERPA_LIB_DIR=$(dirname "$lib") VOX_EMBEDDER_DIR="$EG" VOX_EMBEDDER_REFERENCE="$EG/reference.json" \
+            flutter test test/integration/embedding_gemma_test.dart --reporter expanded

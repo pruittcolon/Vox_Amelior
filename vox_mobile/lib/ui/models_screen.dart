@@ -115,6 +115,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   ],
                 ),
               ),
+              const SectionHeader('Search', padding: EdgeInsets.fromLTRB(4, 24, 4, 8)),
+              VoxCard(
+                padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+                child: _ModelTile(asset: ModelCatalog.textEmbedder, downloads: s.downloads),
+              ),
               const SectionHeader('Assistant', padding: EdgeInsets.fromLTRB(4, 24, 4, 8)),
               VoxCard(
                 padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
@@ -291,6 +296,7 @@ class _ModelTile extends StatelessWidget {
               ModelKind.speakerVoiceprint => Icons.fingerprint_rounded,
               ModelKind.speakerTurns => Icons.forum_rounded,
               ModelKind.toneOfVoice => Icons.mood_rounded,
+              ModelKind.textEmbedding => Icons.manage_search_rounded,
               ModelKind.languageModel => Icons.auto_awesome_rounded,
             })
           : Icon(selected! ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,

@@ -5,7 +5,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/app/model_downloads.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
+import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/settings/app_settings.dart';
 import 'package:vox_amelior_mobile/ui/appearance_screen.dart';
 import 'package:vox_amelior_mobile/ui/capacity_screen.dart';
@@ -187,6 +189,7 @@ class _AssistantSettings extends StatelessWidget {
                   ),
                 ],
               ),
+              MeaningSearchSettings(services: services),
             ],
           );
         },
@@ -350,5 +353,64 @@ Future<void> _importTranscripts(BuildContext context, AppServices services) asyn
     showMessage(context,
         'Imported ${r.conversations} conversation${r.conversations == 1 ? '' : 's'} (${r.lines} lines)'
         '${r.skipped > 0 ? ', ${r.skipped} already here' : ''}.');
+  }
+}
+
+/// Search by meaning (EmbeddingGemma): on/off, download, and how many lines
+/// are ready.
+class MeaningSearchSettings extends StatelessWidget {
+  const MeaningSearchSettings({super.key, required this.services});
+
+  final AppServices services;
+
+  @override
+  Widget build(BuildContext context) {
+    final model = ModelCatalog.textEmbedder;
+    return ListenableBuilder(
+      listenable: Listenable.merge([services.settings, services.downloads]),
+      builder: (context, _) {
+        final st = services.settings.value;
+        final installed = services.models.isInstalled(model);
+        final dl = services.downloads.stateOf(model);
+        return SettingsGroup(
+          title: 'Search',
+          footer: 'Search by meaning finds what was said in other words, and lets Gemma read the lines that '
+              'match a question best. Lines are prepared in the background while the app is open. Everything stays on this phone.',
+          children: [
+            SettingSwitch(
+              title: 'Search by meaning',
+              subtitle: installed ? 'EmbeddingGemma, on this phone' : 'Needs a ${formatBytes(model.approxDownloadBytes)} download',
+              value: st.meaningSearch,
+              onChanged: (v) => services.updateSettings(st.copyWith(meaningSearch: v)),
+            ),
+            if (st.meaningSearch && !installed)
+              ListTile(
+                leading: Icon(dl.status == DownloadStatus.failed ? Icons.error_outline_rounded : Icons.download_rounded),
+                title: Text(dl.isBusy
+                    ? 'Downloading…'
+                    : dl.status == DownloadStatus.failed
+                        ? 'Download failed — tap to try again'
+                        : 'Download search by meaning'),
+                subtitle: dl.isBusy ? Text(describeDownload(dl)) : (dl.error == null ? null : Text(dl.error!, maxLines: 2)),
+                onTap: dl.isBusy ? null : () => services.downloads.download(model),
+              ),
+            if (st.meaningSearch && installed)
+              StreamBuilder<({int done, int total})>(
+                stream: services.indexer.progress,
+                builder: (context, snap) {
+                  final p = snap.data ?? services.vectors.progress(model.id);
+                  final ready = p.total == 0 || p.done >= p.total;
+                  return ListTile(
+                    leading: Icon(ready ? Icons.check_circle_outline_rounded : Icons.hourglass_top_rounded),
+                    title: Text(ready ? 'All lines ready' : 'Preparing lines: ${formatCount(p.done)} of ${formatCount(p.total)}'),
+                    subtitle: ready ? null : LinearProgressIndicator(value: p.total == 0 ? null : p.done / p.total),
+                    onTap: ready ? null : services.indexForSearch,
+                  );
+                },
+              ),
+          ],
+        );
+      },
+    );
   }
 }

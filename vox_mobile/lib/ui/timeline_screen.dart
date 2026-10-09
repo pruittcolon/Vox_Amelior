@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
+import 'package:vox_amelior_mobile/models/model_catalog.dart';
+import 'package:vox_amelior_mobile/search/hybrid_search.dart';
 import 'package:vox_amelior_mobile/ui/charts.dart';
 import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/search_answer.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Browse the past by day and conversation, or search everything.
@@ -35,7 +38,16 @@ class _TimelineScreenState extends State<TimelineScreen> {
   List<DaySummary> _days = const [];
   DateTime _selected = _dayOf(DateTime.now());
   List<ConversationSummary> _conversations = const [];
-  List<SegmentView> _results = const [];
+  /// Search results, and how each was found.
+  List<SearchHit> _hits = const [];
+  SearchMode _mode = SearchMode.smart;
+
+  /// The meaning half of a search is still running.
+  bool _meaningPending = false;
+
+  /// Bumped per search, so a slow answer for an old query is dropped.
+  int _searchToken = 0;
+  StreamSubscription<({int done, int total})>? _indexing;
 
   /// People picked to narrow the timeline (conversations where all of them talked).
   final Set<String> _people = {};
@@ -71,10 +83,15 @@ class _TimelineScreenState extends State<TimelineScreen> {
     if (widget.initialQuery != null) _search.text = widget.initialQuery!;
     _load();
     s.dataVersion.addListener(_load);
+    // Meaning search catching up: refresh the "lines ready" note.
+    _indexing = s.indexer.progress.listen((_) {
+      if (mounted && _searching) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    unawaited(_indexing?.cancel());
     s.dataVersion.removeListener(_load);
     _debounce?.cancel();
     _search.dispose();
@@ -109,10 +126,39 @@ class _TimelineScreenState extends State<TimelineScreen> {
     });
   }
 
+  SearchFilters get _filters => SearchFilters(speakerIds: {..._people}, emotions: {..._moods});
+
+  /// Word matches show at once; meaning matches (a model run) are merged in
+  /// when they arrive.
   void _runSearch() {
-    final words = _search.text.trim().split(RegExp(r'\s+'));
-    _results = s.transcripts.search(SegmentQuery(keywords: words, speakerIds: {..._people}, emotions: {..._moods}, limit: 100));
+    final query = _search.text.trim();
+    final token = ++_searchToken;
+    _hits = _mode == SearchMode.meaning
+        ? const []
+        : [for (final seg in s.search.words(query, _filters, limit: 100)) SearchHit(seg, byWords: true, byMeaning: false)];
+    if (_mode == SearchMode.words || s.embedder == null || query.isEmpty) {
+      _meaningPending = false;
+      return;
+    }
+    _meaningPending = true;
+    s.indexForSearch();
+    unawaited(s.search.search(query, _filters, mode: _mode, limit: 100).then((hits) {
+      if (!mounted || token != _searchToken) return;
+      setState(() {
+        _hits = hits;
+        _meaningPending = false;
+      });
+    }, onError: (Object e) {
+      if (!mounted || token != _searchToken) return;
+      setState(() => _meaningPending = false);
+      showMessage(context, 'Search by meaning failed: $e');
+    }));
   }
+
+  void _setMode(SearchMode m) => setState(() {
+        _mode = m;
+        _runSearch();
+      });
 
   void _togglePerson(String id) => setState(() {
         if (!_people.remove(id)) _people.add(id);
@@ -195,7 +241,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
                         icon: const Icon(Icons.close_rounded),
                         onPressed: () => setState(() {
                           _search.clear();
-                          _results = const [];
+                          _hits = const [];
+                          _searchToken++;
+                          _meaningPending = false;
                         }),
                       )
                     : null,
@@ -479,24 +527,119 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   Widget _searchResults(BuildContext context) {
     final t = Theme.of(context);
-    if (_results.isEmpty) {
-      return const EmptyState(icon: Icons.search_off_rounded, title: 'No matches', message: 'Try other words.');
-    }
-    return ListView.builder(
+    final query = _search.text.trim();
+    final meaningOn = s.embedder != null;
+    return ListView(
       padding: const EdgeInsets.only(bottom: 24),
-      itemCount: _results.length,
-      itemBuilder: (context, i) {
-        final r = _results[i];
-        return ListTile(
-          leading: SpeakerAvatar(label: r.speakerLabel, known: r.isKnownSpeaker),
-          title: Text.rich(_highlight(r.text, TextStyle(fontWeight: FontWeight.w800, color: t.colorScheme.primary))),
-          subtitle: Text(
-              '${r.speakerLabel}${r.emotion == null || r.emotion == 'neutral' ? '' : ' ${Tone.emoji(r.emotion!)}'} · '
-              '${formatDayName(r.startedAt)} ${formatTime(r.startedAt)}',
-              style: TextStyle(color: t.colorScheme.onSurfaceVariant)),
-          onTap: () => _open(r.conversationId, highlight: r.id),
-        );
-      },
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final (m, label, icon) in const [
+                (SearchMode.smart, 'Smart', Icons.auto_awesome_rounded),
+                (SearchMode.words, 'Exact words', Icons.short_text_rounded),
+                (SearchMode.meaning, 'Meaning', Icons.lightbulb_outline_rounded),
+              ])
+                if (m == SearchMode.words || meaningOn)
+                  ChoiceChip(
+                    avatar: Icon(icon, size: 16),
+                    label: Text(label),
+                    selected: _mode == m || (!meaningOn && m == SearchMode.words),
+                    onSelected: (_) => _setMode(m),
+                  ),
+            ],
+          ),
+        ),
+        _searchNote(context),
+        _askCard(context, query),
+        if (_hits.isEmpty && !_meaningPending)
+          const Padding(
+            padding: EdgeInsets.only(top: 24),
+            child: EmptyState(icon: Icons.search_off_rounded, title: 'No matches', message: 'Try other words, or search by meaning.'),
+          ),
+        if (_meaningPending && _hits.isEmpty)
+          const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
+        for (final h in _hits) _hitTile(context, h, t),
+      ],
+    );
+  }
+
+  /// Meaning search: how far indexing has got, or how to turn it on.
+  Widget _searchNote(BuildContext context) {
+    final t = Theme.of(context);
+    final style = t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant);
+    if (s.embedder == null) {
+      if (!s.settings.value.meaningSearch || s.models.isInstalled(ModelCatalog.textEmbedder)) return const SizedBox.shrink();
+      final state = s.downloads.stateOf(ModelCatalog.textEmbedder);
+      return ListTile(
+        dense: true,
+        leading: const Icon(Icons.lightbulb_outline_rounded),
+        title: Text(state.isBusy ? 'Downloading search by meaning…' : 'Also find what was said in other words'),
+        subtitle: Text(state.isBusy
+            ? describeDownload(state)
+            : 'Download search by meaning (${formatBytes(ModelCatalog.textEmbedder.approxDownloadBytes)})'),
+        onTap: state.isBusy ? null : () => s.downloads.download(ModelCatalog.textEmbedder),
+      );
+    }
+    final p = s.vectors.progress(ModelCatalog.textEmbedder.id);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 4),
+      child: Row(
+        children: [
+          if (_meaningPending) ...[
+            const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              p.done >= p.total
+                  ? (_meaningPending ? 'Searching by meaning…' : 'Searched by words and meaning')
+                  : 'Meaning search ready for ${formatCount(p.done)} of ${formatCount(p.total)} lines — more in the background',
+              style: style,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// RAG: Gemma answers the search as a question, from the best matches.
+  Widget _askCard(BuildContext context, String query) {
+    if (query.split(RegExp(r'\s+')).length < 2) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: VoxCard(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        onTap: () => showSearchAnswer(context, s, query),
+        child: Row(
+          children: [
+            Icon(Icons.auto_awesome_rounded, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(child: Text('Ask Gemma: "$query"', maxLines: 2, overflow: TextOverflow.ellipsis)),
+            const Icon(Icons.chevron_right_rounded),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _hitTile(BuildContext context, SearchHit h, ThemeData t) {
+    final r = h.segment;
+    final how = [
+      if (h.byWords) 'words',
+      if (h.byMeaning) 'meaning${h.similarity == null ? '' : ' ${(h.similarity! * 100).round()}%'}',
+    ].join(' + ');
+    return ListTile(
+      leading: SpeakerAvatar(label: r.speakerLabel, known: r.isKnownSpeaker),
+      title: Text.rich(_highlight(r.text, TextStyle(fontWeight: FontWeight.w800, color: t.colorScheme.primary))),
+      subtitle: Text(
+          '${r.speakerLabel}${r.emotion == null || r.emotion == 'neutral' ? '' : ' ${Tone.emoji(r.emotion!)}'} · '
+          '${formatDayName(r.startedAt)} ${formatTime(r.startedAt)}${how.isEmpty ? '' : ' · $how'}',
+          style: TextStyle(color: t.colorScheme.onSurfaceVariant)),
+      onTap: () => _open(r.conversationId, highlight: r.id),
     );
   }
 }
