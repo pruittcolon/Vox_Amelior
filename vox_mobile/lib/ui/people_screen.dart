@@ -30,7 +30,8 @@ class PeopleScreen extends StatelessWidget {
         builder: (context, _, _) {
           final people = services.speakers.profiles();
           // Voices marked as TV / background last: they are rarely worth naming.
-          final guests = services.speakers.clusters()..sort((a, b) => (a.background ? 1 : 0) - (b.background ? 1 : 0));
+          final all = services.speakers.clusters();
+          final guests = [...all.where((g) => !g.background), ...all.where((g) => g.background)];
           final now = DateTime.now();
           final month = {
             for (final p in services.insights.people(InsightsScope(from: DateTime(now.year, now.month, now.day - 29)))) p.id: p,

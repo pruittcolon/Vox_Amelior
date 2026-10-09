@@ -447,7 +447,7 @@ class RankBar extends StatelessWidget {
                     builder: (context, box) => Align(
                       alignment: Alignment.centerLeft,
                       child: Container(
-                        width: math.max(4, box.maxWidth * fraction.clamp(0, 1)),
+                        width: math.max(4.0, box.maxWidth * fraction.clamp(0.0, 1.0)),
                         height: 8,
                         decoration: BoxDecoration(
                           color: color ?? t.colorScheme.primary,
