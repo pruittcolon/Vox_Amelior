@@ -118,9 +118,10 @@ class AppServices {
     );
   }
 
-  /// Catches meaning search up with new lines (no-op when it is off).
-  void indexForSearch() {
-    if (embedder != null) unawaited(indexer.run());
+  /// Catches meaning search up with new lines (no-op when it is off). After
+  /// a failure it waits a while before trying again, unless [retry].
+  void indexForSearch({bool retry = false}) {
+    if (embedder != null) unawaited(indexer.run(retry: retry));
   }
 
   void _closeEmbedder() {
@@ -212,7 +213,7 @@ class AppServices {
       writeServiceConfig();
       listening.reload();
       _fetchChosenSpeechModel();
-      if (asset.id == ModelCatalog.textEmbedder.id) indexForSearch();
+      if (asset.id == ModelCatalog.textEmbedder.id) indexForSearch(retry: true);
     },
     onRemoved: _onModelRemoved,
     onBusyChanged: listening.keepAliveForDownloads,
@@ -524,7 +525,7 @@ class AppServices {
         next.llmAsset.files.first.url != settings.value.llmAsset.files.first.url;
     final searchChanged = next.meaningSearch != settings.value.meaningSearch;
     settings.value = next;
-    if (searchChanged) next.meaningSearch ? indexForSearch() : _closeEmbedder();
+    if (searchChanged) next.meaningSearch ? indexForSearch(retry: true) : _closeEmbedder();
     await settingsRepo.save(next);
     writeServiceConfig();
     listening.reload();

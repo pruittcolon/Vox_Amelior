@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:vox_amelior_mobile/core/clock.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
@@ -78,6 +79,10 @@ class HybridSearch {
   VectorIndex _index = VectorIndex.empty;
   String _signature = '';
 
+  /// The last query's vector: results refresh as new lines arrive, and
+  /// switching mode re-ranks, without running the model again.
+  (AsyncEmbedder, String, Float32List)? _lastQuery;
+
   /// Meaning search can run (model on, some lines embedded).
   bool get meaningReady => embedder() != null && _currentIndex().length > 0;
 
@@ -108,10 +113,11 @@ class HybridSearch {
   /// Empty when meaning search is not available.
   Future<List<(int, double)>> meaning(String query, SearchFilters f, {int limit = 50, double min = minSimilarity}) async {
     final e = embedder();
-    if (e == null || query.trim().isEmpty) return const [];
+    final text = query.trim();
+    if (e == null || text.isEmpty || _currentIndex().length == 0) return const [];
+    final q = await _queryVector(e, text);
+    // Read after the model ran: lines embedded meanwhile are included.
     final index = _currentIndex();
-    if (index.length == 0) return const [];
-    final q = EmbeddingCodec.shorten((await e.embed([query.trim()], task: EmbedTask.query)).single);
     final allowed = _allowed(f);
     const dims = EmbeddingCodec.dims;
     final scored = <(int, double)>[];
@@ -125,6 +131,13 @@ class HybridSearch {
     if (scored.isEmpty) return const [];
     final cut = scored.first.$2 - relativeMargin;
     return scored.where((e) => e.$2 >= cut).take(limit).toList();
+  }
+
+  Future<Float32List> _queryVector(AsyncEmbedder e, String text) async {
+    if (_lastQuery case (final cached, final t, final v) when identical(cached, e) && t == text) return v;
+    final v = EmbeddingCodec.shorten((await e.embed([text], task: EmbedTask.query)).single);
+    _lastQuery = (e, text, v);
+    return v;
   }
 
   /// Ids of lines the filters allow (not TV, chosen people, tones, period).
@@ -224,6 +237,8 @@ class SearchIndexer {
     required this.modelId,
     this.batch = 8,
     this.pause = const Duration(milliseconds: 150),
+    this.retryAfter = const Duration(minutes: 5),
+    this.clock = systemClock,
   });
 
   final VectorStore store;
@@ -236,13 +251,20 @@ class SearchIndexer {
   /// listening (transcribing at the same time) is never starved.
   final Duration pause;
 
-  /// Lines done and in total; updated as it works.
+  /// After a failure, how long before indexing tries again by itself (so a
+  /// model that will not load is not reloaded with every new line).
+  final Duration retryAfter;
+  final Clock clock;
+
+  /// Lines done and in total; updated as it works, and when it stops.
   final StreamController<({int done, int total})> _progress = StreamController.broadcast();
   Stream<({int done, int total})> get progress => _progress.stream;
 
   bool _running = false;
   bool _again = false;
   bool _stopped = false;
+  bool _disposed = false;
+  DateTime? _failedAt;
 
   /// Last error, if indexing stopped because of one.
   Object? error;
@@ -250,42 +272,69 @@ class SearchIndexer {
   bool get isRunning => _running;
 
   /// Starts (or continues) indexing. Returns when nothing is left to do.
-  Future<void> run() async {
+  /// After a failure it waits [retryAfter] unless asked to [retry] now.
+  Future<void> run({bool retry = false}) async {
+    if (_disposed) return;
+    final failedAt = _failedAt;
+    if (!retry && failedAt != null && clock().difference(failedAt) < retryAfter) return;
+    _stopped = false;
     if (_running) {
       _again = true;
       return;
     }
     _running = true;
-    _stopped = false;
+    final retrying = error != null;
     error = null;
+    _failedAt = null;
+    if (retrying) _report(); // no longer shown as stopped
     try {
       do {
         _again = false;
-        while (!_stopped) {
-          final e = embedder();
-          if (e == null) return;
-          final lines = store.pending(modelId, limit: batch);
-          if (lines.isEmpty) break;
-          final texts = [for (final l in lines) if (l.text != null) l.text!];
-          final watch = Stopwatch()..start();
-          final vectors = texts.isEmpty ? const <Float32List>[] : await e.embed(texts, task: EmbedTask.document);
-          final took = watch.elapsed;
-          var next = 0;
-          store.put(modelId, [for (final l in lines) (l.id, l.text == null ? null : vectors[next++])]);
-          if (!_progress.isClosed) _progress.add(store.progress(modelId));
-          await Future<void>.delayed(took > pause ? took : pause);
-        }
+        await _catchUp();
       } while (_again && !_stopped);
     } on Object catch (e) {
       error = e;
+      _failedAt = clock();
     } finally {
       _running = false;
+      if (error != null) _report(); // so progress shown on screen sees it stopped
     }
+  }
+
+  /// Embeds batches until no line is left, or until stopped.
+  Future<void> _catchUp() async {
+    while (!_stopped) {
+      final e = embedder();
+      if (e == null) return;
+      final lines = store.pending(modelId, limit: batch);
+      if (lines.isEmpty) return;
+      final texts = [for (final l in lines) if (l.text != null) l.text!];
+      final watch = Stopwatch()..start();
+      final List<Float32List> vectors;
+      try {
+        vectors = texts.isEmpty ? const <Float32List>[] : await e.embed(texts, task: EmbedTask.document);
+      } on Object {
+        // Switched off, or switched off and on again (a new embedder) while
+        // this batch ran: not a failure.
+        if (_stopped || !identical(embedder(), e)) continue;
+        rethrow;
+      }
+      final took = watch.elapsed;
+      var next = 0;
+      store.put(modelId, [for (final l in lines) (l.id, l.text == null ? null : vectors[next++])]);
+      _report();
+      await Future<void>.delayed(took > pause ? took : pause);
+    }
+  }
+
+  void _report() {
+    if (!_progress.isClosed) _progress.add(store.progress(modelId));
   }
 
   void stop() => _stopped = true;
 
   void dispose() {
+    _disposed = true;
     stop();
     unawaited(_progress.close());
   }

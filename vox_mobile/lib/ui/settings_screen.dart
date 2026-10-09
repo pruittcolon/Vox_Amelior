@@ -400,11 +400,20 @@ class MeaningSearchSettings extends StatelessWidget {
                 builder: (context, snap) {
                   final p = snap.data ?? services.vectors.progress(model.id);
                   final ready = p.total == 0 || p.done >= p.total;
+                  final error = services.indexer.error;
+                  if (!ready && error != null) {
+                    return ListTile(
+                      leading: Icon(Icons.error_outline_rounded, color: Theme.of(context).colorScheme.error),
+                      title: Text('Preparing lines stopped at ${formatCount(p.done)} of ${formatCount(p.total)}'),
+                      subtitle: Text('Tap to try again. $error', maxLines: 3, overflow: TextOverflow.ellipsis),
+                      onTap: () => services.indexForSearch(retry: true),
+                    );
+                  }
                   return ListTile(
                     leading: Icon(ready ? Icons.check_circle_outline_rounded : Icons.hourglass_top_rounded),
                     title: Text(ready ? 'All lines ready' : 'Preparing lines: ${formatCount(p.done)} of ${formatCount(p.total)}'),
                     subtitle: ready ? null : LinearProgressIndicator(value: p.total == 0 ? null : p.done / p.total),
-                    onTap: ready ? null : services.indexForSearch,
+                    onTap: ready ? null : () => services.indexForSearch(retry: true),
                   );
                 },
               ),

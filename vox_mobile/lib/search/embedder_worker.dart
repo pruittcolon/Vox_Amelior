@@ -5,104 +5,186 @@ import 'dart:typed_data';
 import 'package:vox_amelior_mobile/native/embedding_gemma.dart';
 import 'package:vox_amelior_mobile/search/embedding.dart';
 
+/// Loads the model inside the worker. Sent to the worker isolate, so it must
+/// be a top-level or static function.
+typedef EmbedderLoader = TextEmbedder Function(String modelPath, String tokenizerPath);
+
+TextEmbedder loadEmbeddingGemma(String modelPath, String tokenizerPath) =>
+    EmbeddingGemmaOnnx(modelPath: modelPath, tokenizerPath: tokenizerPath);
+
 /// Runs EmbeddingGemma in a long-lived worker isolate, so embedding never
 /// blocks the UI. The model (about 400 MB in memory) is loaded on first use
-/// and the worker exits after [idle] without work, freeing it again.
+/// and released after [idle] without work, or on [close].
+///
+/// The model's memory is native (ONNX Runtime), so it is only freed when the
+/// worker disposes it: closing asks the worker to dispose and waits for it to
+/// end, rather than killing it (which would leak the whole model).
 class IsolateEmbedder implements AsyncEmbedder {
-  IsolateEmbedder({required this.modelPath, required this.tokenizerPath, this.idle = const Duration(minutes: 2)});
+  IsolateEmbedder({
+    required this.modelPath,
+    required this.tokenizerPath,
+    this.load = loadEmbeddingGemma,
+    this.idle = const Duration(minutes: 2),
+    this.closeTimeout = const Duration(seconds: 30),
+  });
 
   final String modelPath;
   final String tokenizerPath;
+  final EmbedderLoader load;
   final Duration idle;
 
-  Isolate? _isolate;
-  ReceivePort? _inbox;
-  SendPort? _worker;
-  Future<SendPort>? _starting;
+  /// How long [close] waits for the worker to finish what it is doing and
+  /// release the model before ending it the hard way.
+  final Duration closeTimeout;
+
+  _Worker? _current;
   Timer? _idleTimer;
-  int _nextId = 0;
-  final Map<int, Completer<List<Float32List>>> _pending = {};
 
   @override
   Future<List<Float32List>> embed(List<String> texts, {required EmbedTask task}) async {
     if (texts.isEmpty) return const [];
     _idleTimer?.cancel();
-    final worker = await (_starting ??= _start());
-    final id = _nextId++;
-    final done = Completer<List<Float32List>>();
-    _pending[id] = done;
-    worker.send((id, texts, task.index));
+    if (_current?.dead ?? false) _current = null; // it failed: start afresh
+    final worker = _current ??= _Worker.start(load, modelPath, tokenizerPath);
     try {
-      return await done.future;
+      return await worker.embed(texts, task);
     } finally {
-      if (_pending.isEmpty) _idleTimer = Timer(idle, () => unawaited(close()));
-    }
-  }
-
-  Future<SendPort> _start() async {
-    final inbox = ReceivePort();
-    final ready = Completer<SendPort>();
-    _inbox = inbox;
-    inbox.listen((Object? message) {
-      switch (message) {
-        case final SendPort port:
-          ready.complete(port);
-        case (final int id, final List<Float32List> vectors):
-          _pending.remove(id)?.complete(vectors);
-        case (final int id, final String error):
-          _pending.remove(id)?.completeError(StateError(error));
-        case final String fatal: // the model could not load
-          final error = StateError(fatal);
-          if (!ready.isCompleted) ready.completeError(error);
-          _failAll(error);
-          unawaited(close());
-        case [final Object error, _]: // an uncaught error in the worker
-          _failAll(StateError('$error'));
-          unawaited(close());
+      if (identical(worker, _current)) {
+        if (worker.dead) {
+          _current = null;
+        } else if (worker.idle) {
+          _idleTimer?.cancel();
+          _idleTimer = Timer(idle, () => unawaited(close()));
+        }
       }
-    });
-    try {
-      _isolate = await Isolate.spawn(
-        _main,
-        (inbox.sendPort, modelPath, tokenizerPath),
-        onError: inbox.sendPort,
-        debugName: 'embedder',
-      );
-      return _worker = await ready.future;
-    } on Object {
-      unawaited(close());
-      rethrow;
     }
-  }
-
-  void _failAll(Object error) {
-    for (final c in _pending.values) {
-      if (!c.isCompleted) c.completeError(error);
-    }
-    _pending.clear();
   }
 
   @override
   Future<void> close() async {
     _idleTimer?.cancel();
-    _worker?.send(null);
-    _isolate?.kill(priority: Isolate.beforeNextEvent);
-    _inbox?.close();
-    _failAll(StateError('Embedder closed'));
-    _isolate = null;
-    _inbox = null;
-    _worker = null;
-    _starting = null;
+    final worker = _current;
+    _current = null;
+    await worker?.shutdown(closeTimeout);
+  }
+}
+
+/// One worker isolate and the model loaded in it.
+class _Worker {
+  _Worker._() {
+    // Callers wait on this; with none waiting, a failed start is not an
+    // unhandled error.
+    _ready.future.ignore();
   }
 
-  static void _main((SendPort, String, String) args) {
-    final (reply, model, tokenizer) = args;
+  final ReceivePort _inbox = ReceivePort();
+  final Completer<SendPort> _ready = Completer();
+  final Completer<void> _ended = Completer();
+  final Map<int, Completer<List<Float32List>>> _pending = {};
+  Isolate? _isolate;
+  SendPort? _port;
+  int _nextId = 0;
+  bool _closing = false;
+
+  /// Failed or closed: it takes no more work.
+  bool dead = false;
+
+  bool get idle => _pending.isEmpty;
+
+  static _Worker start(EmbedderLoader load, String modelPath, String tokenizerPath) {
+    final w = _Worker._();
+    w._inbox.listen(w._receive);
+    unawaited(w._spawn(load, modelPath, tokenizerPath));
+    return w;
+  }
+
+  Future<void> _spawn(EmbedderLoader load, String modelPath, String tokenizerPath) async {
+    try {
+      _isolate = await Isolate.spawn(
+        _main,
+        (_inbox.sendPort, load, modelPath, tokenizerPath),
+        onError: _inbox.sendPort,
+        onExit: _inbox.sendPort, // sends null when the isolate has ended
+        debugName: 'embedder',
+      );
+    } on Object catch (e) {
+      _fail(StateError('Search by meaning could not start: $e'));
+      _end();
+    }
+  }
+
+  Future<List<Float32List>> embed(List<String> texts, EmbedTask task) async {
+    final port = await _ready.future;
+    if (dead) throw StateError('Embedder closed');
+    final id = _nextId++;
+    final done = Completer<List<Float32List>>();
+    _pending[id] = done;
+    port.send((id, texts, task.index));
+    return done.future;
+  }
+
+  void _receive(Object? message) {
+    switch (message) {
+      case final SendPort port:
+        _port = port;
+        // Closed while the model was loading: release it straight away.
+        if (_closing) {
+          port.send(null);
+        } else if (!_ready.isCompleted) {
+          _ready.complete(port);
+        }
+      case (final int id, final List<Float32List> vectors):
+        _pending.remove(id)?.complete(vectors);
+      case (final int id, final String error):
+        _pending.remove(id)?.completeError(StateError(error));
+      case final String fatal: // the model could not load
+        _fail(StateError(fatal));
+      case [final Object error, _]: // an uncaught error in the worker
+        _fail(StateError('$error'));
+      case null: // the isolate has ended
+        _fail(StateError('Search by meaning stopped'));
+        _end();
+    }
+  }
+
+  void _fail(Object error) {
+    dead = true;
+    if (!_ready.isCompleted) _ready.completeError(error);
+    for (final c in _pending.values) {
+      c.completeError(error);
+    }
+    _pending.clear();
+  }
+
+  void _end() {
+    _inbox.close();
+    if (!_ended.isCompleted) _ended.complete();
+  }
+
+  /// Asks the worker to release the model and waits until it has ended.
+  Future<void> shutdown(Duration timeout) async {
+    if (!_closing) {
+      _closing = true;
+      _fail(StateError('Embedder closed'));
+      // Still loading: the worker is told as soon as it is ready (above).
+      _port?.send(null);
+    }
+    await _ended.future.timeout(timeout, onTimeout: () {
+      // Stuck in a run that never returns: the model's memory is lost, but
+      // the worker must not live on.
+      _isolate?.kill(priority: Isolate.immediate);
+      _end();
+    });
+  }
+
+  static void _main((SendPort, EmbedderLoader, String, String) args) {
+    final (reply, load, modelPath, tokenizerPath) = args;
     final TextEmbedder embedder;
     try {
-      embedder = EmbeddingGemmaOnnx(modelPath: model, tokenizerPath: tokenizer);
+      embedder = load(modelPath, tokenizerPath);
     } on Object catch (e) {
       reply.send('Search by meaning could not start: $e');
-      return;
+      return; // nothing left open: the isolate ends
     }
     final inbox = ReceivePort();
     reply.send(inbox.sendPort);
@@ -114,6 +196,8 @@ class IsolateEmbedder implements AsyncEmbedder {
           reply.send((id, '$e'));
         }
       } else {
+        // Asked to stop: free the model's native memory, then let the
+        // isolate end (its last port closes).
         embedder.dispose();
         inbox.close();
       }

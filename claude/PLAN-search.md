@@ -11,7 +11,7 @@
 | Runtime | The ONNX Runtime 1.28.2 already inside sherpa-onnx, through the app's own FFI bindings | No second native library and no APK size increase. The contrib operators the model needs (RotaryEmbedding, MultiHeadAttention) were checked in the phone's library. |
 | Tokenizer | Pure-Dart `dart_sentencepiece_tokenizer` on `tokenizer.model` | It is what flutter_gemma uses for EmbeddingGemma. Ids are `[BOS=2, …prompt+text…, EOS=1]`. |
 | Prompts | query: `task: search result \| query: `; document: `title: none \| text: ` | From the model card. Retrieval quality drops without them. |
-| Where it runs | A worker isolate in the app, started on first use and unloaded after 2 minutes idle | The UI never stutters, and the ~400 MB of memory is freed when search is not in use. |
+| Where it runs | A worker isolate in the app, started on first use and unloaded after 2 minutes idle | The UI never stutters, and the ~400 MB of memory is freed when search is not in use. The model's memory is native, so unloading asks the worker to release it and waits for the worker to end; killing the worker would leak the whole model. |
 
 ## Storing vectors
 
@@ -23,7 +23,8 @@
 ## Search
 
 - **Words:** SQLite FTS5 with Porter stemming, ranked by BM25 (already in the app).
-- **Meaning:** cosine similarity between the query and every stored vector, which is fast enough at phone scale (no ANN index needed). Lines below 0.35 similarity are dropped.
+- **Meaning:** cosine similarity between the query and every stored vector, which is fast enough at phone scale (no ANN index needed). Lines below 0.30 are never matches. Lines more than 0.12 below the best match are dropped too. EmbeddingGemma's scores are compressed (in CI, related lines scored 0.44–0.62 and unrelated ones up to 0.43), so a cut relative to the best match separates them better than any fixed threshold.
+- **Query vector:** the last query's vector is kept. Results refresh as new lines arrive, and switching mode re-ranks, without running the model again. While a refresh runs, the current results stay on screen.
 - **Fusion:** Reciprocal Rank Fusion with k = 60. It uses only ranks, so BM25 and cosine scores never have to share a scale. It is the standard method in Elastic, Azure AI Search and Weaviate.
 - **Filters:** people, tone and period apply to both halves. TV and background voices are always left out.
 - **Fallbacks:** smart search falls back to words if the model fails or is not installed.
@@ -39,6 +40,9 @@
 ## Indexing
 
 New lines are embedded in batches of 8, newest first, while the app is open: at startup, when data changes, when the app resumes, and when you search. The indexer rests at least as long as each batch took, so it never uses more than half the CPU, and transcription keeps up.
+
+- **Failures:** if the model fails, indexing waits 5 minutes before trying again by itself, so a model that will not load is not reloaded with every new line. Settings shows where it stopped and why, and a tap retries at once.
+- **Switching off:** turning meaning search off and on again in the middle of a batch is not a failure. Indexing carries on with the new model.
 
 ## Verification
 

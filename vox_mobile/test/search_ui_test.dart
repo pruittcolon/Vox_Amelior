@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,12 +20,13 @@ void main() {
   late Directory dir;
   late AppDatabase db;
   late AppServices s;
+  _SlowQueries? slow;
 
   Future<void> setUpServices({bool meaning = true}) async {
     SharedPreferences.setMockInitialValues({});
     dir = Directory.systemTemp.createTempSync('vox_search_ui_');
     db = AppDatabase.inMemory();
-    s = AppServices.forTesting(dir: dir, db: db, embedder: meaning ? () => InlineEmbedder(FakeTextEmbedder()) : null);
+    s = AppServices.forTesting(dir: dir, db: db, embedder: meaning ? () => slow = _SlowQueries(InlineEmbedder(FakeTextEmbedder())) : null);
     final p = s.speakers.create(name: 'Pruitt', embeddingModel: 'f', samples: [voiceprint(1)]).id;
     final e = s.speakers.create(name: 'Ericah', embeddingModel: 'f', samples: [voiceprint(2)]).id;
     final t = DateTime.now().subtract(const Duration(hours: 3));
@@ -95,6 +98,41 @@ void main() {
     expect(find.textContaining('Ask Gemma: "electric bill"'), findsOneWidget, reason: 'a question-sized search offers an answer');
   });
 
+  testWidgets('a line heard during a search: the results stay on screen while they refresh', (tester) async {
+    await tester.runAsync(() => setUpServices());
+    await show(tester, TimelineScreen(services: s));
+    await type(tester, 'money');
+    expect(find.textContaining('We cannot pay the electric bill'), findsOneWidget);
+
+    // Meaning search was unloaded meanwhile: the next refresh has to run the
+    // model again, which takes a while.
+    await tester.runAsync(() async {
+      await s.updateSettings(s.settings.value.copyWith(meaningSearch: false));
+      await s.updateSettings(s.settings.value.copyWith(meaningSearch: true));
+    });
+    final hold = Completer<void>();
+    slow!.hold = hold.future;
+    await tester.runAsync(() async {
+      s.transcripts.addSegment(
+          text: 'Can we pay the water bill on Friday',
+          startedAt: DateTime.now().subtract(const Duration(minutes: 5)),
+          duration: const Duration(seconds: 3));
+      s.dataVersion.value++; // as when the listening service adds a line
+      s.indexForSearch();
+    });
+    await tester.pump();
+    expect(find.textContaining('We cannot pay the electric bill'), findsOneWidget, reason: 'not emptied while refreshing');
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    await tester.runAsync(() async {
+      hold.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    });
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Can we pay the water bill on Friday'), findsOneWidget, reason: 'the new line joins once it is ready');
+    expect(find.textContaining('We cannot pay the electric bill'), findsOneWidget);
+  });
+
   testWidgets('without the model: words only, and an offer to download meaning search', (tester) async {
     await setUpServices(meaning: false);
     await show(tester, TimelineScreen(services: s));
@@ -116,4 +154,21 @@ void main() {
     expect(s.settings.value.meaningSearch, isFalse);
     expect(find.text('Download search by meaning'), findsNothing, reason: 'switched off: nothing to download');
   });
+}
+
+/// Queries wait for [hold], as when the model has to load first.
+class _SlowQueries implements AsyncEmbedder {
+  _SlowQueries(this._inner);
+
+  final AsyncEmbedder _inner;
+  Future<void>? hold;
+
+  @override
+  Future<List<Float32List>> embed(List<String> texts, {required EmbedTask task}) async {
+    if (task == EmbedTask.query && hold != null) await hold;
+    return _inner.embed(texts, task: task);
+  }
+
+  @override
+  Future<void> close() => _inner.close();
 }

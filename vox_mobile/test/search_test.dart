@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -151,6 +152,59 @@ void main() {
         expect(indexer.isRunning, isFalse);
       });
 
+      test('after a failure it waits before trying again by itself; asked to retry, it goes at once', () async {
+        archive();
+        var now = DateTime(2026, 10, 1, 20);
+        final idx = SearchIndexer(
+            store: store, embedder: () => embedder, modelId: model, batch: 3, pause: Duration.zero, clock: () => now);
+        final seen = <({int done, int total})>[];
+        final sub = idx.progress.listen(seen.add);
+        fake.fail = true;
+        await idx.run();
+        expect(idx.error, isNotNull);
+        await Future<void>.delayed(Duration.zero);
+        expect(seen, isNotEmpty, reason: 'progress shown on screen learns it stopped');
+        fake.fail = false;
+        await idx.run(); // a new line was heard
+        expect(store.progress(model).done, 0, reason: 'a model that failed is not reloaded with every new line');
+        now = now.add(const Duration(minutes: 6));
+        await idx.run();
+        expect(idx.error, isNull);
+        expect(store.pending(model), isEmpty);
+
+        say('The car needs new tyres', 200);
+        fake.fail = true;
+        await idx.run();
+        fake.fail = false;
+        await idx.run(retry: true);
+        expect(idx.error, isNull);
+        expect(store.pending(model), isEmpty);
+        await sub.cancel();
+        idx.dispose();
+      });
+
+      test('switched off and on again in the middle of a batch, it carries on with the new model', () async {
+        archive();
+        final gate = Completer<void>();
+        AsyncEmbedder current = _Held(embedder, gate.future);
+        final idx = SearchIndexer(store: store, embedder: () => current, modelId: model, batch: 3, pause: Duration.zero);
+        final first = idx.run(); // waiting on the first batch
+        idx.stop(); // switched off: the old model is closed…
+        current = embedder; // …and on again, with a new one
+        await idx.run(); // already running: it carries on
+        gate.completeError(StateError('Embedder closed'));
+        await first;
+        expect(idx.error, isNull, reason: 'a batch cut short by switching off is not a failure');
+        expect(store.pending(model), isEmpty);
+      });
+
+      test('stopped for good, it does not start again', () async {
+        archive();
+        indexer.dispose();
+        await indexer.run();
+        expect(store.progress(model).done, 0);
+      });
+
       test('a new model means everything is embedded again', () async {
         archive();
         await indexer.run();
@@ -209,6 +263,17 @@ void main() {
         expect(meaningOnly.every((h) => !h.byWords), isTrue);
       });
 
+      test('the query runs through the model once, however often its results are refreshed', () async {
+        fake.seen.clear();
+        await search.search('money', const SearchFilters());
+        await search.search('money', const SearchFilters(), mode: SearchMode.meaning);
+        say('We pay the rent bill in cash today', 120, who: pruitt);
+        await indexer.run();
+        final hits = await search.search('money', const SearchFilters());
+        expect(fake.seen.where((t) => t == 'money'), hasLength(1));
+        expect(hits.map((h) => h.segment.text), contains('We pay the rent bill in cash today'), reason: 'lines embedded since are found');
+      });
+
       test('if the model fails, smart search still answers with words', () async {
         fake.fail = true;
         final hits = await search.search('electric', const SearchFilters());
@@ -220,7 +285,7 @@ void main() {
         final hints = await search.hintsFor('are we short of money?');
         expect(transcripts.segmentsByIds(hints).map((s) => s.text), contains('We cannot pay the electric bill this month'));
         fake.fail = true;
-        expect(await search.hintsFor('are we short of money?'), isEmpty);
+        expect(await search.hintsFor('who walks the dog?'), isEmpty);
         final off = HybridSearch(db: db, transcripts: transcripts, vectors: store, embedder: () => null, modelId: model);
         expect(await off.hintsFor('money'), isEmpty);
         expect(off.meaningReady, isFalse);
@@ -288,4 +353,21 @@ void main() {
     expect(TranscriptRepository(upgraded).search(const SegmentQuery()).single.text, 'kept line here');
     expect(VectorStore(upgraded).pending(model).single.text, 'kept line here');
   });
+}
+
+/// An embedder whose next batch waits for [gate].
+class _Held implements AsyncEmbedder {
+  _Held(this._inner, this._gate);
+
+  final AsyncEmbedder _inner;
+  final Future<void> _gate;
+
+  @override
+  Future<List<Float32List>> embed(List<String> texts, {required EmbedTask task}) async {
+    await _gate;
+    return _inner.embed(texts, task: task);
+  }
+
+  @override
+  Future<void> close() async {}
 }

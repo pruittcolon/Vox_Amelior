@@ -83,9 +83,13 @@ class _TimelineScreenState extends State<TimelineScreen> {
     if (widget.initialQuery != null) _search.text = widget.initialQuery!;
     _load();
     s.dataVersion.addListener(_load);
-    // Meaning search catching up: refresh the "lines ready" note.
-    _indexing = s.indexer.progress.listen((_) {
-      if (mounted && _searching) setState(() {});
+    // Meaning search catching up: refresh the "lines ready" note, and the
+    // results once every line is ready.
+    _indexing = s.indexer.progress.listen((p) {
+      if (!mounted || !_searching) return;
+      setState(() {
+        if (p.done >= p.total) _runSearch(refresh: true);
+      });
     });
   }
 
@@ -115,7 +119,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
       _withPeople = _filtered();
       _days = withToday;
       _conversations = s.transcripts.conversationsBetween(_selected, _selected.add(const Duration(days: 1)));
-      if (_searching) _runSearch();
+      // A search opened with the screen is a first search, not a refresh.
+      if (_searching) _runSearch(refresh: _searchToken > 0);
     });
   }
 
@@ -129,19 +134,23 @@ class _TimelineScreenState extends State<TimelineScreen> {
   SearchFilters get _filters => SearchFilters(speakerIds: {..._people}, emotions: {..._moods});
 
   /// Word matches show at once; meaning matches (a model run) are merged in
-  /// when they arrive.
-  void _runSearch() {
+  /// when they arrive. A [refresh] (new lines heard, more lines ready) keeps
+  /// the current results on screen until the new ones are in.
+  void _runSearch({bool refresh = false}) {
     final query = _search.text.trim();
     final token = ++_searchToken;
-    _hits = _mode == SearchMode.meaning
-        ? const []
-        : [for (final seg in s.search.words(query, _filters, limit: 100)) SearchHit(seg, byWords: true, byMeaning: false)];
+    List<SearchHit> byWords() =>
+        [for (final seg in s.search.words(query, _filters, limit: 100)) SearchHit(seg, byWords: true, byMeaning: false)];
     if (_mode == SearchMode.words || s.embedder == null || query.isEmpty) {
+      _hits = _mode == SearchMode.meaning ? const [] : byWords();
       _meaningPending = false;
       return;
     }
-    _meaningPending = true;
-    s.indexForSearch();
+    if (!refresh) {
+      _hits = _mode == SearchMode.meaning ? const [] : byWords();
+      _meaningPending = true;
+      s.indexForSearch();
+    }
     unawaited(s.search.search(query, _filters, mode: _mode, limit: 100).then((hits) {
       if (!mounted || token != _searchToken) return;
       setState(() {
@@ -151,7 +160,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     }, onError: (Object e) {
       if (!mounted || token != _searchToken) return;
       setState(() => _meaningPending = false);
-      showMessage(context, 'Search by meaning failed: $e');
+      if (!refresh) showMessage(context, 'Search by meaning failed: $e');
     }));
   }
 
