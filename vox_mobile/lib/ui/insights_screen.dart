@@ -139,7 +139,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget build(BuildContext context) {
     final name = _personName;
     return Scaffold(
-      appBar: AppBar(title: Text(name == null ? 'Insights' : name)),
+      appBar: AppBar(title: Text(name ?? 'Insights')),
       body: RefreshIndicator(
         onRefresh: () async => _load(),
         child: ListView(
