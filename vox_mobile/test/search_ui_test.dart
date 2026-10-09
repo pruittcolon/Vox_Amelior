@@ -114,7 +114,7 @@ void main() {
     slow!.hold = hold.future;
     await tester.runAsync(() async {
       s.transcripts.addSegment(
-          text: 'Can we pay the water bill on Friday',
+          text: 'Did you pay the water bill yet',
           startedAt: DateTime.now().subtract(const Duration(minutes: 5)),
           duration: const Duration(seconds: 3));
       s.dataVersion.value++; // as when the listening service adds a line
@@ -129,7 +129,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 400));
     });
     await tester.pumpAndSettle();
-    expect(find.textContaining('Can we pay the water bill on Friday'), findsOneWidget, reason: 'the new line joins once it is ready');
+    expect(find.textContaining('Did you pay the water bill yet'), findsOneWidget, reason: 'the new line joins once it is ready');
     expect(find.textContaining('We cannot pay the electric bill'), findsOneWidget);
   });
 
