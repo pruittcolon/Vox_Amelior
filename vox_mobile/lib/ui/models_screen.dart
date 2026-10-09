@@ -97,6 +97,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     // Optional smaller recognizer; downloads only when tapped. Also chosen in
                     // Settings → Microphone & hearing.
                     _ModelTile(asset: ModelCatalog.parakeet, downloads: s.downloads),
+                    _ModelTile(asset: ModelCatalog.parakeetFp32, downloads: s.downloads),
                     // Optional: tone of voice and sounds per line; downloads only when tapped.
                     _ModelTile(asset: ModelCatalog.toneModel, downloads: s.downloads),
                     if (!s.downloads.speechReady)

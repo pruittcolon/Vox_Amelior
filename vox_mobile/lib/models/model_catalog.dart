@@ -115,6 +115,43 @@ class ModelCatalog {
     ],
   );
 
+  /// The same model in full precision (fp32), exported by this repo's CI
+  /// (sherpa-onnx publishes only int8 and fp16). The encoder's weights are
+  /// split over two files to fit GitHub's 2 GB limit; ONNX Runtime reads
+  /// them from beside encoder.onnx.
+  static const ModelAsset parakeetFp32 = ModelAsset(
+    id: 'parakeet-tdt-0.6b-v2-fp32',
+    kind: ModelKind.speechToText,
+    title: 'Parakeet speech recognition (fp32)',
+    description: 'NVIDIA Parakeet TDT 0.6B in full precision (fp32). The largest and slowest; downloads only if you choose it.',
+    approxDownloadBytes: _fp32Bytes,
+    essential: false,
+    files: [
+      RemoteFile(url: '$_fp32/encoder.onnx', fileName: 'encoder.onnx', sha256: _fp32EncoderSha, sizeBytes: _fp32EncoderBytes),
+      RemoteFile(url: '$_fp32/encoder.weights.0', fileName: 'encoder.weights.0', sha256: _fp32Weights0Sha, sizeBytes: _fp32Weights0Bytes),
+      RemoteFile(url: '$_fp32/encoder.weights.1', fileName: 'encoder.weights.1', sha256: _fp32Weights1Sha, sizeBytes: _fp32Weights1Bytes),
+      RemoteFile(url: '$_fp32/decoder.onnx', fileName: 'decoder.onnx', sha256: _fp32DecoderSha, sizeBytes: _fp32DecoderBytes),
+      RemoteFile(url: '$_fp32/joiner.onnx', fileName: 'joiner.onnx', sha256: _fp32JoinerSha, sizeBytes: _fp32JoinerBytes),
+      RemoteFile(url: '$_fp32/tokens.txt', fileName: 'tokens.txt', sha256: _fp32TokensSha, sizeBytes: _fp32TokensBytes),
+    ],
+  );
+  static const String _fp32 = 'https://github.com/pruittcolon/Vox_Amelior/releases/download/parakeet-tdt-0.6b-v2-fp32';
+  // From the release's SHA256SUMS.txt.
+  static const int _fp32EncoderBytes = 41767385;
+  static const String _fp32EncoderSha = '1ed2c852e1640ef0f3c0744034217507b03291f260dc68fd1c406510c36944fb';
+  static const int _fp32Weights0Bytes = 1219072000;
+  static const String _fp32Weights0Sha = '6c6e8252650925f7cba45c6e0b95f18a826cf9db0e5b212651b8fd27aa094bf6';
+  static const int _fp32Weights1Bytes = 1216348160;
+  static const String _fp32Weights1Sha = 'ec5b540a725bfb85a774286dcd8a072646800410a010aea4af09acd3078ae87d';
+  static const int _fp32DecoderBytes = 28883663;
+  static const String _fp32DecoderSha = '7872e9917796c3dc49aa327b3cf1448fece3f7d3be2d14457a29cef95fff283e';
+  static const int _fp32JoinerBytes = 6907576;
+  static const String _fp32JoinerSha = '03887cfc670935ccfafe895df734eaea01b227d8a25e4ad4dac20bced83b6203';
+  static const int _fp32TokensBytes = 9384;
+  static const String _fp32TokensSha = 'ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d';
+  static const int _fp32Bytes =
+      _fp32EncoderBytes + _fp32Weights0Bytes + _fp32Weights1Bytes + _fp32DecoderBytes + _fp32JoinerBytes + _fp32TokensBytes;
+
   static const ModelAsset voiceActivity = ModelAsset(
     id: 'silero-vad',
     kind: ModelKind.voiceActivity,
@@ -244,11 +281,25 @@ class ModelCatalog {
   /// Downloaded with the speech models, but listening works without them.
   static const List<ModelAsset> speechExtras = [diarizer];
 
-  /// Speech-recognition models to choose from (settings `speechModel`: 'fp16' or 'int8'),
-  /// in order of preference when the chosen one is not installed.
-  static const List<ModelAsset> recognizers = [parakeetFp16, parakeet];
+  /// Speech-recognition models to choose from (settings `speechModel`: 'fp16',
+  /// 'int8' or 'fp32'), in order of preference when the chosen one is not installed.
+  static const List<ModelAsset> recognizers = [parakeetFp16, parakeetFp32, parakeet];
+
+  /// The settings name of a recognizer ('fp16', 'int8' or 'fp32').
+  static String recognizerName(ModelAsset asset) => switch (asset.id) {
+        'parakeet-tdt-0.6b-v2-int8' => 'int8',
+        'parakeet-tdt-0.6b-v2-fp32' => 'fp32',
+        _ => 'fp16',
+      };
+
+  /// The recognizer for a settings name; fp16 for anything unknown.
+  static ModelAsset recognizerNamed(String name) => switch (name) {
+        'int8' => parakeet,
+        'fp32' => parakeetFp32,
+        _ => parakeetFp16,
+      };
   static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
-  static const List<ModelAsset> all = [...speech, parakeet, ...speechExtras, toneModel, ...assistants];
+  static const List<ModelAsset> all = [...speech, parakeet, parakeetFp32, ...speechExtras, toneModel, ...assistants];
 
   /// Listening can start: the support models plus either recognizer are installed.
   static bool speechReady(bool Function(ModelAsset asset) isInstalled) =>

@@ -40,7 +40,9 @@ class SpeechModelPaths {
     if (!ModelCatalog.speechReady(store.isInstalled)) return null;
     String path(ModelAsset a, String name) => store.file(a, name).path;
     final model = asr != null && store.isInstalled(asr) ? asr : ModelCatalog.recognizers.firstWhere(store.isInstalled);
-    String named(String prefix) => path(model, model.installedFileNames.firstWhere((n) => n.startsWith(prefix)));
+    // The model file itself, never the fp32 encoder's weight files beside it.
+    String named(String prefix) =>
+        path(model, model.installedFileNames.firstWhere((n) => n.startsWith(prefix) && !n.contains('.weights')));
     final tone = store.isInstalled(ModelCatalog.toneModel);
     return SpeechModelPaths(
       encoder: named('encoder'),

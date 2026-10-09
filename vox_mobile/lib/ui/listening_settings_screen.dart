@@ -89,9 +89,10 @@ class ListeningSettingsScreen extends StatelessWidget {
               ),
               SettingsGroup(
                 title: 'Speech model',
-                footer: 'Both are the same NVIDIA Parakeet model and write punctuation and capitals. '
-                    'High precision (fp16) is downloaded first and used by default. The smaller int8 model is only '
-                    'downloaded if you pick it; either one is enough to listen.',
+                footer: 'All three are the same NVIDIA Parakeet model and write punctuation and capitals. '
+                    'High precision (fp16) is downloaded first and used by default. The smaller int8 and the full '
+                    'precision fp32 models are only downloaded if you pick them; any one is enough to listen. '
+                    'fp32 is rarely more accurate than fp16 but needs about twice the space and memory.',
                 children: [
                   ChoiceCards<String>(
                     selected: st.speechModel,
@@ -108,6 +109,13 @@ class ListeningSettingsScreen extends StatelessWidget {
                         title: 'Smaller (int8)',
                         subtitle: '${formatBytes(ModelCatalog.parakeet.approxDownloadBytes)} download · small and fast',
                         status: _status(context, ModelCatalog.parakeet),
+                      ),
+                      ChoiceOption(
+                        value: 'fp32',
+                        title: 'Full precision (fp32)',
+                        subtitle: '${formatBytes(ModelCatalog.parakeetFp32.approxDownloadBytes)} download · largest and slowest · '
+                            'needs that much free space',
+                        status: _status(context, ModelCatalog.parakeetFp32),
                       ),
                     ],
                   ),
@@ -135,9 +143,9 @@ class ListeningSettingsScreen extends StatelessWidget {
               icon: const Icon(Icons.delete_outline_rounded, size: 18),
               label: const Text('Delete'),
               onPressed: () async {
-                final other = ModelCatalog.recognizers.firstWhere((m) => m.id != asset.id);
-                final message = services.models.isInstalled(other)
-                    ? 'Frees about ${formatBytes(asset.approxDownloadBytes)}. Vox switches to the other speech model.'
+                final other = ModelCatalog.recognizers.where((m) => m.id != asset.id && services.models.isInstalled(m)).firstOrNull;
+                final message = other != null
+                    ? 'Frees about ${formatBytes(asset.approxDownloadBytes)}. Vox switches to ${other.title}.'
                     : 'Frees about ${formatBytes(asset.approxDownloadBytes)}. This is your only speech model, so '
                         'listening stops until you download one again.';
                 if (await confirm(context, 'Delete ${asset.title}?', message)) {

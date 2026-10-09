@@ -467,7 +467,7 @@ class AppServices {
     if (modelChanged) await localLlm.unload();
   }
 
-  /// Chooses the speech model ('fp16' or 'int8'). The chosen model is fetched
+  /// Chooses the speech model ('fp16', 'int8' or 'fp32'). The chosen model is fetched
   /// if it is missing; whichever one is installed keeps working until it is
   /// ready. Switching away from a model that never finished downloading
   /// stops (and discards) that download.
@@ -503,7 +503,7 @@ class AppServices {
   ModelAsset? _otherInstalledRecognizer(ModelAsset asset) =>
       ModelCatalog.recognizers.where((m) => m.id != asset.id && models.isInstalled(m)).firstOrNull;
 
-  static String _speechModelName(ModelAsset asset) => asset.id == ModelCatalog.parakeet.id ? 'int8' : 'fp16';
+  static String _speechModelName(ModelAsset asset) => ModelCatalog.recognizerName(asset);
 
   /// A model was deleted: stop pointing the listening service at it.
   void _onModelRemoved(ModelAsset asset) {

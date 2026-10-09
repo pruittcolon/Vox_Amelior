@@ -76,7 +76,8 @@ class AppSettings {
   /// Shorter bursts of sound are ignored (coughs, clicks).
   final double minSpeechSeconds;
 
-  /// Which speech model: 'fp16' (half precision, the default) or 'int8' (smaller, optional download).
+  /// Which speech model: 'fp16' (half precision, the default), 'int8' (smaller) or
+  /// 'fp32' (full precision, largest); the last two are optional downloads.
   final String speechModel;
 
   /// A line is only split at a speaker change when every part lasts at least
@@ -159,7 +160,7 @@ class AppSettings {
       );
 
   /// The speech-recognition model chosen in settings.
-  ModelAsset get asrAsset => speechModel == 'int8' ? ModelCatalog.parakeet : ModelCatalog.parakeetFp16;
+  ModelAsset get asrAsset => ModelCatalog.recognizerNamed(speechModel);
 
   ContextBudget get budget => ContextBudget(contextTokens, chunkTokens: reviewChunkTokens);
 
@@ -344,7 +345,7 @@ class AppSettings {
       minSpeechSeconds: num01('minSpeechSeconds', d.minSpeechSeconds, min: 0.1, max: 1.0),
       // Stored as 'asrModel': the old 'speechModel' key held int8 for everyone
       // (the old default), so phones moving up start on fp16 too.
-      speechModel: const ['int8', 'fp16'].contains(j['asrModel']) ? j['asrModel']! as String : d.speechModel,
+      speechModel: const ['int8', 'fp16', 'fp32'].contains(j['asrModel']) ? j['asrModel']! as String : d.speechModel,
       splitMinSeconds: num01('splitMinSeconds', d.splitMinSeconds, min: 0.8, max: 3.0),
       splitMinWords: intIn('splitMinWords', d.splitMinWords, 1, 5),
       retentionDays: days is int && days >= 0 ? days : d.retentionDays,
