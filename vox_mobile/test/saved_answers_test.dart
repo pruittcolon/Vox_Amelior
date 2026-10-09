@@ -157,6 +157,8 @@ void main() {
       await tester.tap(find.text('When is the plumber coming?'));
       await tester.pumpAndSettle();
       expect(find.byType(SelectableText), findsOneWidget);
+      await tester.ensureVisible(find.text('Copy'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Copy'));
       await tester.pumpAndSettle();
       expect(copied.single, 'Q: When is the plumber coming?\nA: At four, Sam said.');
