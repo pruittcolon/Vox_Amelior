@@ -191,9 +191,9 @@ void main() {
     say('Sunday brunch', DateTime(2026, 10, 4, 11, 30), who: sam.id, seconds: 90);
     final h = insights.weekHours(const InsightsScope());
     expect(h, hasLength(7 * 24));
-    expect(h[2 * 24 + 20], 26, reason: 'Wednesday 20:00');
+    expect(h[2 * 24 + 20], 22, reason: 'Wednesday 20:00: 4 + 6 + 4 + 4 + 4 s');
     expect(h[6 * 24 + 11], 90, reason: 'Sunday 11:00');
-    expect(h.fold<int>(0, (a, b) => a + b), 116);
+    expect(h.fold<int>(0, (a, b) => a + b), 112);
   });
 
   group('standout conversations', () {

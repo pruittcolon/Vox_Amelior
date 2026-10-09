@@ -10,7 +10,7 @@ import 'package:vox_amelior_mobile/ui/timeline_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Periods offered on the Insights screen: label and length in days (0 = all time).
-const List<(String, int)> kInsightPeriods = [('Week', 7), ('Month', 30), ('3 months', 90), ('Year', 365), ('All', 0)];
+const List<(String, int)> kInsightPeriods = [('Week', 7), ('Month', 30), ('3 months', 90), ('Year', 365), ('All time', 0)];
 
 /// Statistics over everything that was said: headline numbers, mood over
 /// time, who talks, when, with whom, standout conversations and common
@@ -59,6 +59,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
   }
 
   String? get _personName => _profiles.where((p) => p.id == _person).firstOrNull?.name;
+
+  /// "Month", "All time", ...
+  String get _periodLabel => kInsightPeriods.firstWhere((p) => p.$2 == _days).$1;
 
   @override
   void initState() {
@@ -139,16 +142,34 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget build(BuildContext context) {
     final name = _personName;
     return Scaffold(
-      appBar: AppBar(title: Text(name ?? 'Insights')),
+      appBar: AppBar(
+        title: Text(name ?? 'Insights'),
+        actions: [
+          PopupMenuButton<int>(
+            tooltip: 'Period',
+            initialValue: _days,
+            onSelected: _setPeriod,
+            itemBuilder: (_) => [for (final (label, days) in kInsightPeriods) PopupMenuItem(value: days, child: Text(label))],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.date_range_rounded, size: 20),
+                  const SizedBox(width: 6),
+                  Text(_periodLabel, style: Theme.of(context).textTheme.labelLarge),
+                  const Icon(Icons.arrow_drop_down_rounded),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: () async => _load(),
         child: ListView(
           padding: const EdgeInsets.only(bottom: 32),
           children: [
-            _chipRow([
-              for (final (label, days) in kInsightPeriods)
-                ChoiceChip(label: Text(label), selected: _days == days, onSelected: (_) => _setPeriod(days)),
-            ]),
             if (_profiles.isNotEmpty)
               _chipRow([
                 ChoiceChip(label: const Text('Everyone'), selected: _person == null, onSelected: (_) => _setPerson(null)),
@@ -443,7 +464,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       children: [
         for (final p in _pairs)
           RankBar(
-            leading: SizedBox(width: 40, child: AvatarStack(labels: [p.aName, p.bName])),
+            leading: AvatarStack(labels: [p.aName, p.bName]),
             label: '${p.aName} & ${p.bName}',
             value: '${p.conversations}',
             fraction: p.conversations / most,

@@ -28,7 +28,33 @@ class AssistantClient {
     final q = question.trim();
     if (q.isEmpty) return const Stream.empty();
     if (service.isListening && service.state != ListenState.error) return _remote(q);
-    return local.ask(q);
+    return _localSaved(q);
+  }
+
+  /// Answers in the app, and keeps the finished answer in the saved list
+  /// (the service keeps the ones it answers). Stopped answers are not kept.
+  /// The question is only stored once answered, so a starting service never
+  /// mistakes it for one still waiting.
+  Stream<AnswerEvent> _localSaved(String question) {
+    final answer = StringBuffer();
+    var sources = const <int>[];
+    var failed = false;
+    return local.ask(question).transform(StreamTransformer<AnswerEvent, AnswerEvent>.fromHandlers(
+      handleError: (e, st, sink) {
+        failed = true;
+        sink.addError(e, st);
+      },
+      handleData: (e, sink) {
+        if (e.token != null) answer.write(e.token);
+        if (e.sources != null) sources = [for (final s in e.sources!) s.id];
+        sink.add(e);
+      },
+      handleDone: (sink) {
+        final text = answer.toString().trim();
+        if (!failed && text.isNotEmpty) requests.answer(requests.add(question, source: RequestSource.app), text, sources: sources);
+        sink.close();
+      },
+    ));
   }
 
   Stream<AnswerEvent> _remote(String question) {

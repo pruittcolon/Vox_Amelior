@@ -86,12 +86,20 @@ void main() {
         expect(find.text('Talk time'), findsOneWidget);
         expect(find.text('Conversations'), findsOneWidget);
         expect(find.text('2'), findsWidgets, reason: 'two conversations');
+        // Each check right after scrolling to it: cards far off screen are not built.
         for (final title in ['Mood over time', 'Who talks', 'When you talk', 'Together', 'Standout conversations', 'Most said']) {
           await reveal(tester, find.text(title));
           expect(find.text(title), findsOneWidget, reason: title);
+          if (title == 'Mood over time') {
+            await reveal(tester, find.byType(StackedColumnChart));
+            expect(find.byType(StackedColumnChart), findsOneWidget);
+          }
+          if (title == 'When you talk') {
+            await reveal(tester, find.byType(WeekHourHeatmap));
+            expect(find.byType(WeekHourHeatmap), findsOneWidget);
+          }
         }
-        expect(find.byType(StackedColumnChart), findsOneWidget);
-        expect(find.byType(WeekHourHeatmap), findsOneWidget);
+        await reveal(tester, find.textContaining('garden · '));
         expect(find.textContaining('garden · '), findsOneWidget, reason: 'the most said word');
       });
     }
@@ -142,8 +150,12 @@ void main() {
     testWidgets('nothing heard yet', (tester) async {
       await show(tester, InsightsScreen(services: s));
       expect(find.text('Nothing to show yet'), findsOneWidget);
-      await tester.tap(find.text('All'));
+      expect(find.text('Month'), findsOneWidget, reason: 'the period shown in the top bar');
+      await tester.tap(find.byTooltip('Period'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('All time').last);
+      await tester.pumpAndSettle();
+      expect(find.text('All time'), findsOneWidget);
       expect(find.text('Nothing to show yet'), findsOneWidget);
     });
 

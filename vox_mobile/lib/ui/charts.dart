@@ -439,7 +439,14 @@ class RankBar extends StatelessWidget {
                         child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
                       ),
                       const SizedBox(width: 8),
-                      Text(value, style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                      // Shares the row with the name, so neither can push past the edge.
+                      Flexible(
+                        child: Text(value,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
