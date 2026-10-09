@@ -96,6 +96,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Scrolls the Timeline's filter row until [f] is on screen (chips far to
+  /// the right are not built until then).
+  Future<void> revealChip(WidgetTester tester, Finder f, {double step = 120}) async {
+    final row = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.right).first;
+    await tester.scrollUntilVisible(f, step, scrollable: row);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('a conversation shows each line\'s tone and filters by it', (tester) async {
     await show(tester, ConversationScreen(services: s, conversationId: conversationId), tall: true);
     expect(find.text('😠 Angry'), findsNWidgets(2), reason: 'shown on the two angry lines');
@@ -148,8 +156,7 @@ void main() {
     // People and moods share one row, after "All".
     expect(find.text('All'), findsOneWidget);
     expect(find.text('Any mood'), findsNothing);
-    await tester.ensureVisible(find.text('😠 Angry'));
-    await tester.pumpAndSettle();
+    await revealChip(tester, find.text('😠 Angry'));
     await tester.tap(find.text('😠 Angry'));
     await tester.pumpAndSettle();
     expect(find.textContaining('that sounded angry'), findsOneWidget);
@@ -158,16 +165,14 @@ void main() {
     expect(find.textContaining('😠 2'), findsOneWidget, reason: 'the card shows how often each mood came up');
 
     // With a person as well: only their angry lines count.
-    await tester.ensureVisible(find.widgetWithText(FilterChip, 'Ericah'));
-    await tester.pumpAndSettle();
+    await revealChip(tester, find.widgetWithText(FilterChip, 'Ericah'));
     await tester.tap(find.widgetWithText(FilterChip, 'Ericah'));
     await tester.pumpAndSettle();
     expect(find.textContaining('with Ericah that sounded angry'), findsOneWidget);
     expect(find.text('Did you take the trash out'), findsOneWidget);
 
     // "All" clears people and moods together.
-    await tester.ensureVisible(find.text('All'));
-    await tester.pumpAndSettle();
+    await revealChip(tester, find.text('All'), step: -120);
     await tester.tap(find.text('All'));
     await tester.pumpAndSettle();
     expect(find.textContaining('that sounded'), findsNothing);
@@ -175,8 +180,7 @@ void main() {
 
   testWidgets('a picked mood is dropped when no line has a tone any more', (tester) async {
     await show(tester, TimelineScreen(services: s));
-    await tester.ensureVisible(find.text('😢 Sad'));
-    await tester.pumpAndSettle();
+    await revealChip(tester, find.text('😢 Sad'));
     await tester.tap(find.text('😢 Sad'));
     await tester.pumpAndSettle();
     expect(find.textContaining('that sounded sad'), findsOneWidget);
