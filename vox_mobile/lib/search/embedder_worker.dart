@@ -45,13 +45,13 @@ class IsolateEmbedder implements AsyncEmbedder {
     _inbox = inbox;
     inbox.listen((Object? message) {
       switch (message) {
-        case SendPort port:
+        case final SendPort port:
           ready.complete(port);
-        case (int id, List<Float32List> vectors):
+        case (final int id, final List<Float32List> vectors):
           _pending.remove(id)?.complete(vectors);
-        case (int id, String error):
+        case (final int id, final String error):
           _pending.remove(id)?.completeError(StateError(error));
-        case String fatal: // the model could not load
+        case final String fatal: // the model could not load
           final error = StateError(fatal);
           if (!ready.isCompleted) ready.completeError(error);
           _failAll(error);
@@ -107,7 +107,7 @@ class IsolateEmbedder implements AsyncEmbedder {
     final inbox = ReceivePort();
     reply.send(inbox.sendPort);
     inbox.listen((Object? message) {
-      if (message case (int id, List<String> texts, int task)) {
+      if (message case (final int id, final List<String> texts, final int task)) {
         try {
           reply.send((id, embedder.embed(texts, task: EmbedTask.values[task])));
         } on Object catch (e) {

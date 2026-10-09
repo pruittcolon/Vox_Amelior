@@ -29,7 +29,7 @@ void main() {
     final t = DateTime.now().subtract(const Duration(hours: 3));
     s.transcripts.addSegment(text: 'We cannot pay the electric bill this month', startedAt: t, duration: const Duration(seconds: 3), speakerId: e);
     s.transcripts.addSegment(
-        text: 'Rent is due on Friday too', startedAt: t.add(const Duration(seconds: 10)), duration: const Duration(seconds: 3), speakerId: p);
+        text: 'Rent is due', startedAt: t.add(const Duration(seconds: 10)), duration: const Duration(seconds: 3), speakerId: p);
     s.transcripts.addSegment(
         text: 'The puppy chewed my shoe again', startedAt: t.add(const Duration(hours: 1)), duration: const Duration(seconds: 3), speakerId: p);
     // Every line embedded before the screen opens (no timers left behind).
@@ -71,7 +71,7 @@ void main() {
     expect(find.text('Smart'), findsOneWidget);
     expect(find.text('Meaning'), findsOneWidget);
     expect(find.textContaining('We cannot pay the electric bill'), findsOneWidget);
-    expect(find.textContaining('Rent is due on Friday'), findsOneWidget);
+    expect(find.textContaining('Rent is due'), findsOneWidget);
     expect(find.textContaining('puppy'), findsNothing);
     expect(find.textContaining('· meaning'), findsNWidgets(2));
     expect(find.textContaining('Searched by words and meaning'), findsOneWidget);

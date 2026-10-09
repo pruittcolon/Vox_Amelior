@@ -48,12 +48,12 @@ class SearchHit {
 /// be put on one scale. Also picks the lines Gemma reads for a question (RAG).
 class HybridSearch {
   HybridSearch({
-    required AppDatabase db,
+    required this._db,
     required this.transcripts,
     required this.vectors,
     required this.embedder,
     required this.modelId,
-  }) : _db = db;
+  });
 
   final AppDatabase _db;
   final TranscriptRepository transcripts;
@@ -66,8 +66,14 @@ class HybridSearch {
   /// RRF's constant: the usual 60 keeps one list's top hit from drowning the other.
   static const int rrfK = 60;
 
-  /// Below this cosine similarity a line is not considered related.
-  static const double minSimilarity = 0.35;
+  /// Below this cosine similarity a line is never considered related.
+  static const double minSimilarity = 0.30;
+
+  /// Lines more than this below the best match are left out. EmbeddingGemma's
+  /// scores are compressed (in CI: related lines 0.44–0.62, unrelated up to
+  /// 0.43), so a cut relative to the best match separates them better than
+  /// any fixed threshold.
+  static const double relativeMargin = 0.12;
 
   VectorIndex _index = VectorIndex.empty;
   String _signature = '';
@@ -116,7 +122,9 @@ class HybridSearch {
       if (s >= min) scored.add((id, s));
     }
     scored.sort((a, b) => b.$2.compareTo(a.$2));
-    return scored.take(limit).toList();
+    if (scored.isEmpty) return const [];
+    final cut = scored.first.$2 - relativeMargin;
+    return scored.where((e) => e.$2 >= cut).take(limit).toList();
   }
 
   /// Ids of lines the filters allow (not TV, chosen people, tones, period).
@@ -223,7 +231,9 @@ class SearchIndexer {
   final String modelId;
   final int batch;
 
-  /// Breathing room between batches, so listening is never starved.
+  /// Shortest rest between batches. The rest is at least as long as the
+  /// batch took, so indexing uses at most half the CPU it could and
+  /// listening (transcribing at the same time) is never starved.
   final Duration pause;
 
   /// Lines done and in total; updated as it works.
@@ -257,11 +267,13 @@ class SearchIndexer {
           final lines = store.pending(modelId, limit: batch);
           if (lines.isEmpty) break;
           final texts = [for (final l in lines) if (l.text != null) l.text!];
+          final watch = Stopwatch()..start();
           final vectors = texts.isEmpty ? const <Float32List>[] : await e.embed(texts, task: EmbedTask.document);
+          final took = watch.elapsed;
           var next = 0;
           store.put(modelId, [for (final l in lines) (l.id, l.text == null ? null : vectors[next++])]);
           if (!_progress.isClosed) _progress.add(store.progress(modelId));
-          await Future<void>.delayed(pause);
+          await Future<void>.delayed(took > pause ? took : pause);
         }
       } while (_again && !_stopped);
     } on Object catch (e) {

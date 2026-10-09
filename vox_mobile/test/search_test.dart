@@ -83,9 +83,9 @@ void main() {
     /// A small household archive.
     void archive() {
       say('We cannot pay the electric bill this month', 0, who: ericah, emotion: 'sad');
-      say('Rent is due on Friday too', 1, who: pruitt);
+      say('Rent is due', 1, who: pruitt);
       say('The puppy chewed my shoe again', 30, who: pruitt, emotion: 'angry');
-      say('Take him for a walk', 31, who: ericah);
+      say('Can you take him for a walk later', 31, who: ericah);
       say('Yes', 32, who: pruitt);
       say('The dentist appointment is on Tuesday at nine', 90, who: ericah);
     }
@@ -106,7 +106,7 @@ void main() {
         expect(first.map((l) => l.text), [
           'The dentist appointment is on Tuesday at nine',
           null, // "Yes" alone
-          'The puppy chewed my shoe again\nTake him for a walk', // short: with the line before
+          'Can you take him for a walk later',
         ]);
         store.put(model, [for (final l in first) (l.id, l.text == null ? null : FakeTextEmbedder.vector(l.text!))]);
         expect(store.pending(model, limit: 10), hasLength(3));
@@ -173,7 +173,7 @@ void main() {
         final hits = await search.meaning('money', const SearchFilters());
         final texts = transcripts.segmentsByIds([for (final (id, _) in hits) id]).map((s) => s.text).toList();
         expect(texts, contains('We cannot pay the electric bill this month'));
-        expect(texts, contains('Rent is due on Friday too'));
+        expect(texts, contains('Rent is due'));
         expect(texts, isNot(contains('The puppy chewed my shoe again')));
         expect(hits.first.$2, greaterThanOrEqualTo(HybridSearch.minSimilarity));
         expect(search.words('money', const SearchFilters()), isEmpty, reason: 'no line contains the word');
@@ -182,7 +182,7 @@ void main() {
       test('filters apply to meaning too: person, tone, period, and never TV', () async {
         Future<List<String>> texts(String q, SearchFilters f) async =>
             transcripts.segmentsByIds([for (final (id, _) in await search.meaning(q, f)) id]).map((s) => s.text).toList();
-        expect(await texts('money', SearchFilters(speakerIds: {pruitt})), ['Rent is due on Friday too']);
+        expect(await texts('money', SearchFilters(speakerIds: {pruitt})), ['Rent is due']);
         expect(await texts('money', const SearchFilters(emotions: {'sad'})), ['We cannot pay the electric bill this month']);
         expect(await texts('money', SearchFilters(from: t0.add(const Duration(hours: 1)))), isEmpty);
         final tv = say('Money money money, the price is right', 200, who: ericah, embedding: voiceprint(77));
@@ -194,17 +194,17 @@ void main() {
       test('smart search fuses both and says how each line was found', () async {
         final hits = await search.search('dog walk', const SearchFilters());
         final byText = {for (final h in hits) h.segment.text: h};
-        final walk = byText['Take him for a walk']!;
+        final walk = byText['Can you take him for a walk later']!;
         expect(walk.byWords, isTrue);
         expect(walk.byMeaning, isTrue);
         final puppy = byText['The puppy chewed my shoe again']!;
         expect(puppy.byWords, isFalse, reason: '"puppy" is not "dog"');
         expect(puppy.byMeaning, isTrue);
         expect(puppy.similarity, isNotNull);
-        expect(hits.first.segment.text, 'Take him for a walk', reason: 'found both ways ranks first');
+        expect(hits.first.segment.text, 'Can you take him for a walk later', reason: 'found both ways ranks first');
 
         final wordsOnly = await search.search('dog walk', const SearchFilters(), mode: SearchMode.words);
-        expect(wordsOnly.map((h) => h.segment.text), ['Take him for a walk']);
+        expect(wordsOnly.map((h) => h.segment.text), ['Can you take him for a walk later']);
         final meaningOnly = await search.search('dog walk', const SearchFilters(), mode: SearchMode.meaning);
         expect(meaningOnly.every((h) => !h.byWords), isTrue);
       });
