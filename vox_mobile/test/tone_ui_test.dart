@@ -99,7 +99,10 @@ void main() {
   /// Scrolls the Timeline's filter row until [f] is on screen (chips far to
   /// the right are not built until then).
   Future<void> revealChip(WidgetTester tester, Finder f, {double step = 120}) async {
-    final row = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.right).first;
+    // The first horizontal list (the day strip comes after it). Not just any
+    // horizontal Scrollable: the search box has one too.
+    final strip = find.byWidgetPredicate((w) => w is ListView && w.scrollDirection == Axis.horizontal).first;
+    final row = find.descendant(of: strip, matching: find.byType(Scrollable)).first;
     await tester.scrollUntilVisible(f, step, scrollable: row);
     await tester.pumpAndSettle();
   }
