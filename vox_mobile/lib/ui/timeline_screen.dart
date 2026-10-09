@@ -3,15 +3,27 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
+import 'package:vox_amelior_mobile/ui/charts.dart';
 import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Browse the past by day and conversation, or search everything.
 class TimelineScreen extends StatefulWidget {
-  const TimelineScreen({super.key, required this.services});
+  const TimelineScreen({
+    super.key,
+    required this.services,
+    this.initialPeople = const {},
+    this.initialMoods = const {},
+    this.initialQuery,
+  });
 
   final AppServices services;
+
+  /// Start filtered (e.g. opened from Insights): people, moods, search words.
+  final Set<String> initialPeople;
+  final Set<String> initialMoods;
+  final String? initialQuery;
 
   @override
   State<TimelineScreen> createState() => _TimelineScreenState();
@@ -34,6 +46,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
   final Set<String> _moods = {};
   bool _hasTones = false;
 
+  /// Order of the filtered list.
+  _Sort _sort = _Sort.newest;
+
   AppServices get s => widget.services;
   bool get _searching => _search.text.trim().isNotEmpty;
   bool get _filtering => _people.isNotEmpty || _moods.isNotEmpty;
@@ -51,6 +66,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
   @override
   void initState() {
     super.initState();
+    _people.addAll(widget.initialPeople);
+    _moods.addAll(widget.initialMoods);
+    if (widget.initialQuery != null) _search.text = widget.initialQuery!;
     _load();
     s.dataVersion.addListener(_load);
   }
@@ -143,7 +161,20 @@ class _TimelineScreenState extends State<TimelineScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Timeline'),
-        actions: [IconButton(tooltip: 'Pick a date', icon: const Icon(Icons.calendar_month_rounded), onPressed: _pickDate)],
+        actions: [
+          if (_filtering && !_searching)
+            PopupMenuButton<_Sort>(
+              tooltip: 'Sort',
+              icon: const Icon(Icons.sort_rounded),
+              initialValue: _sort,
+              onSelected: (v) => setState(() => _sort = v),
+              itemBuilder: (_) => [
+                for (final v in _Sort.values)
+                  if (v != _Sort.heated || _hasTones) PopupMenuItem(value: v, child: Text(v.label)),
+              ],
+            ),
+          IconButton(tooltip: 'Pick a date', icon: const Icon(Icons.calendar_month_rounded), onPressed: _pickDate),
+        ],
       ),
       body: Column(
         children: [
@@ -260,17 +291,25 @@ class _TimelineScreenState extends State<TimelineScreen> {
         ),
       ),
     ];
+    final list = _sorted(_withPeople);
+    final byDay = _sort == _Sort.newest || _sort == _Sort.oldest;
+    if (!byDay) {
+      items.add(Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+        child: Text('Sorted by ${_sort.label.toLowerCase()}', style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+      ));
+    }
     DateTime? day;
-    for (final c in _withPeople) {
+    for (final c in list) {
       final d = _dayOf(c.startedAt);
-      if (d != day) {
+      if (byDay && d != day) {
         day = d;
         items.add(Padding(
           padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
           child: Text(formatDayName(d), style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
         ));
       }
-      items.add(_conversationCard(context, c));
+      items.add(_conversationCard(context, c, showDay: !byDay));
     }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -353,13 +392,39 @@ class _TimelineScreenState extends State<TimelineScreen> {
     );
   }
 
-  Widget _conversationCard(BuildContext context, ConversationSummary c) {
+  /// [list] in the chosen order (it arrives newest first).
+  List<ConversationSummary> _sorted(List<ConversationSummary> list) {
+    final out = List.of(list);
+    switch (_sort) {
+      case _Sort.newest:
+        break;
+      case _Sort.oldest:
+        out.sort((a, b) => a.startedAt.compareTo(b.startedAt));
+      case _Sort.longest:
+        out.sort((a, b) => b.duration.compareTo(a.duration));
+      case _Sort.lines:
+        out.sort((a, b) => b.segmentCount.compareTo(a.segmentCount));
+      case _Sort.heated:
+        int heat(ConversationSummary c) => s.transcripts.mood(c.id).counts.entries
+            .where((e) => e.key == 'angry' || e.key == 'disgusted')
+            .fold(0, (a, e) => a + e.value);
+        final scores = {for (final c in out) c.id: heat(c)};
+        out.sort((a, b) => scores[b.id]!.compareTo(scores[a.id]!));
+    }
+    return out;
+  }
+
+  Widget _conversationCard(BuildContext context, ConversationSummary c, {bool showDay = false}) {
     final t = Theme.of(context);
+    final mood = _hasTones ? s.transcripts.mood(c.id) : null;
+    final top = mood?.notable.take(3) ?? const <MapEntry<String, int>>[];
     return VoxCard(
           onTap: () => _open(c.id),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (showDay)
+                Text(formatDayName(c.startedAt), style: t.textTheme.labelMedium?.copyWith(color: t.colorScheme.primary)),
               Row(
                 children: [
                   // One text, so the time is never squeezed by the duration; it
@@ -384,19 +449,32 @@ class _TimelineScreenState extends State<TimelineScreen> {
               const SizedBox(height: 8),
               Text(
                 '${c.participants.take(3).join(', ')}${c.participants.length > 3 ? ' +${c.participants.length - 3}' : ''} · ${c.segmentCount} lines'
-                '${_moodText(c.id)}',
+                '${top.map((e) => ' · ${Tone.emoji(e.key)} ${e.value}').join()}',
                 style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
               ),
+              if (mood != null && mood.notable.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                MoodStrip(counts: mood.counts, height: 4),
+              ],
             ],
           ),
         );
   }
 
-  /// " · 😠 3 · 😊 2" for the conversation's most common non-neutral tones.
-  String _moodText(int conversationId) {
-    if (!_hasTones) return '';
-    final top = s.transcripts.mood(conversationId).notable.take(3);
-    return top.map((e) => ' · ${Tone.emoji(e.key)} ${e.value}').join();
+  /// [text] with the searched words in bold.
+  TextSpan _highlight(String text, TextStyle? bold) {
+    final words = _search.text.trim().split(RegExp(r'\s+')).where((w) => w.length > 1).map(RegExp.escape).toList();
+    if (words.isEmpty) return TextSpan(text: text);
+    final re = RegExp('(${words.join('|')})', caseSensitive: false);
+    final spans = <TextSpan>[];
+    var at = 0;
+    for (final m in re.allMatches(text)) {
+      if (m.start > at) spans.add(TextSpan(text: text.substring(at, m.start)));
+      spans.add(TextSpan(text: m.group(0), style: bold));
+      at = m.end;
+    }
+    if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
+    return TextSpan(children: spans);
   }
 
   Widget _searchResults(BuildContext context) {
@@ -411,7 +489,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
         final r = _results[i];
         return ListTile(
           leading: SpeakerAvatar(label: r.speakerLabel, known: r.isKnownSpeaker),
-          title: Text(r.text),
+          title: Text.rich(_highlight(r.text, TextStyle(fontWeight: FontWeight.w800, color: t.colorScheme.primary))),
           subtitle: Text(
               '${r.speakerLabel}${r.emotion == null || r.emotion == 'neutral' ? '' : ' ${Tone.emoji(r.emotion!)}'} · '
               '${formatDayName(r.startedAt)} ${formatTime(r.startedAt)}',
@@ -421,4 +499,16 @@ class _TimelineScreenState extends State<TimelineScreen> {
       },
     );
   }
+}
+
+/// Orders for the filtered list of conversations.
+enum _Sort {
+  newest('Newest'),
+  oldest('Oldest'),
+  longest('Longest'),
+  lines('Most lines'),
+  heated('Most heated');
+
+  const _Sort(this.label);
+  final String label;
 }

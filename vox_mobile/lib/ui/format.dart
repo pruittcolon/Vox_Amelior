@@ -22,6 +22,30 @@ String formatDayName(DateTime d, {DateTime? now}) {
   return formatDay(d, now: now);
 }
 
+/// 1,284 · 12.9K · 3.4M
+String formatCount(int n) {
+  if (n >= 1000000) return '${(n / 1e6).toStringAsFixed(1)}M';
+  if (n >= 10000) return '${(n / 1e3).toStringAsFixed(1)}K';
+  final s = n.toString();
+  return s.length > 3 ? '${s.substring(0, s.length - 3)},${s.substring(s.length - 3)}' : s;
+}
+
+/// Short talk time: "45 s", "12 min", "3 h 20 min", "41 h".
+String formatTalk(Duration d) {
+  if (d.inMinutes < 1) return '${d.inSeconds} s';
+  if (d.inHours < 1) return '${d.inMinutes} min';
+  if (d.inHours >= 10) return '${d.inHours} h';
+  final m = d.inMinutes % 60;
+  return m == 0 ? '${d.inHours} h' : '${d.inHours} h $m min';
+}
+
+/// For use mid-sentence: "today 20:31", "yesterday 08:02", "Monday 19:40",
+/// "3 Sep 2026 19:40".
+String formatWhen(DateTime d, {DateTime? now}) {
+  final day = formatDayName(d, now: now);
+  return '${day == 'Today' || day == 'Yesterday' ? day.toLowerCase() : day} ${formatTime(d)}';
+}
+
 String formatDuration(Duration d) {
   if (d.inMinutes < 1) return '<1 min';
   if (d.inHours < 1) return '${d.inMinutes} min';

@@ -3,8 +3,8 @@ import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/app/model_downloads.dart';
 import 'package:vox_amelior_mobile/ui/ask_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/insights_screen.dart';
 import 'package:vox_amelior_mobile/ui/models_screen.dart';
-import 'package:vox_amelior_mobile/ui/more_screen.dart';
 import 'package:vox_amelior_mobile/ui/now_screen.dart';
 import 'package:vox_amelior_mobile/ui/people_screen.dart';
 import 'package:vox_amelior_mobile/ui/prompt_editor.dart';
@@ -28,9 +28,11 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final s = widget.services;
+    // Settings (More) open from the gear on Now and People.
     final pages = [
       NowScreen(services: s),
       TimelineScreen(services: s),
+      InsightsScreen(services: s),
       ListenableBuilder(
         listenable: Listenable.merge([s.downloads, s.settings, s.listening]),
         builder: (context, _) => AskScreen(
@@ -44,7 +46,6 @@ class _HomeShellState extends State<HomeShell> {
         ),
       ),
       PeopleScreen(services: s),
-      MoreScreen(services: s),
     ];
     return Scaffold(
       body: IndexedStack(
@@ -62,9 +63,9 @@ class _HomeShellState extends State<HomeShell> {
             destinations: const [
               NavigationDestination(icon: Icon(Icons.graphic_eq_rounded), label: 'Now'),
               NavigationDestination(icon: Icon(Icons.calendar_view_day_rounded), label: 'Timeline'),
+              NavigationDestination(icon: Icon(Icons.insights_rounded), label: 'Insights'),
               NavigationDestination(icon: Icon(Icons.auto_awesome_rounded), label: 'Ask'),
               NavigationDestination(icon: Icon(Icons.people_alt_rounded), label: 'People'),
-              NavigationDestination(icon: Icon(Icons.more_horiz_rounded), label: 'More'),
             ],
           ),
         ],

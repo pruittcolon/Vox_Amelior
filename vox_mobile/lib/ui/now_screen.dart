@@ -10,6 +10,7 @@ import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/mic_tune.dart';
 import 'package:vox_amelior_mobile/ui/models_screen.dart';
+import 'package:vox_amelior_mobile/ui/more_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Home: turn Vox on/off, see its state and what was just said.
@@ -113,7 +114,12 @@ class _NowScreenState extends State<NowScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(formatDayName(now), style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary)),
+          Row(
+            children: [
+              Expanded(child: Text(formatDayName(now), style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary))),
+              SettingsButton(builder: (_) => MoreScreen(services: s)),
+            ],
+          ),
           Text(greeting, style: t.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
         ],
       ),

@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/data/insights_repository.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
+import 'package:vox_amelior_mobile/ui/charts.dart';
 import 'package:vox_amelior_mobile/ui/enroll_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/insights_screen.dart';
+import 'package:vox_amelior_mobile/ui/more_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Enrolled people and voices Vox has heard but cannot name yet.
@@ -15,7 +19,7 @@ class PeopleScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('People')),
+      appBar: AppBar(title: const Text('People'), actions: [SettingsButton(builder: (_) => MoreScreen(services: services))]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEnroll(context),
         icon: const Icon(Icons.person_add_rounded),
@@ -25,7 +29,13 @@ class PeopleScreen extends StatelessWidget {
         valueListenable: services.dataVersion,
         builder: (context, _, _) {
           final people = services.speakers.profiles();
-          final guests = services.speakers.clusters();
+          // Voices marked as TV / background last: they are rarely worth naming.
+          final guests = services.speakers.clusters()..sort((a, b) => (a.background ? 1 : 0) - (b.background ? 1 : 0));
+          final now = DateTime.now();
+          final month = {
+            for (final p in services.insights.people(InsightsScope(from: DateTime(now.year, now.month, now.day - 29)))) p.id: p,
+          };
+          final heard = services.insights.lastHeard();
           if (people.isEmpty && guests.isEmpty) {
             return const EmptyState(
               icon: Icons.people_alt_rounded,
@@ -38,7 +48,7 @@ class PeopleScreen extends StatelessWidget {
             children: [
               if (people.isNotEmpty) const SectionHeader('Household', padding: EdgeInsets.fromLTRB(4, 8, 4, 8)),
               for (final p in people)
-                Padding(padding: const EdgeInsets.only(bottom: 8), child: _personCard(context, p)),
+                Padding(padding: const EdgeInsets.only(bottom: 8), child: _personCard(context, p, month[p.id], heard[p.id])),
               if (guests.isNotEmpty) ...[
                 const SectionHeader('Voices Vox has heard', padding: EdgeInsets.fromLTRB(4, 16, 4, 4)),
                 Padding(
@@ -55,7 +65,9 @@ class PeopleScreen extends StatelessWidget {
     );
   }
 
-  Widget _personCard(BuildContext context, SpeakerProfile p) => VoxCard(
+  /// One person: tap for their statistics and conversations.
+  Widget _personCard(BuildContext context, SpeakerProfile p, PersonStats? month, DateTime? lastHeard) => VoxCard(
+        onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => InsightsScreen(services: services, personId: p.id))),
         padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
         child: Row(
           children: [
@@ -66,7 +78,18 @@ class PeopleScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(p.name, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  Text('${p.sampleCount} voice samples · since ${formatDay(p.createdAt)}'),
+                  Text(
+                    lastHeard == null
+                        ? 'Not heard yet · ${p.sampleCount} voice samples'
+                        : 'Last heard ${formatWhen(lastHeard)}'
+                            '${month == null ? '' : ' · ${formatTalk(month.talk)} this month'}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (month != null && month.moods.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    MoodStrip(counts: month.moods),
+                  ],
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 6,
@@ -136,7 +159,11 @@ class PeopleScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(g.label, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  Text('Heard ${g.count} times · last ${formatDayName(g.updatedAt)} ${formatTime(g.updatedAt)}'),
+                  Text('Heard ${g.count} times · last ${formatWhen(g.updatedAt)}'),
+                  if (g.background) ...[
+                    const SizedBox(height: 4),
+                    const Pill('TV / background', icon: Icons.tv_rounded),
+                  ],
                 ],
               ),
             ),

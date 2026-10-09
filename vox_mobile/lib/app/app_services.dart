@@ -25,6 +25,7 @@ import 'package:vox_amelior_mobile/automation/webhook_dispatcher.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/core/log.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
+import 'package:vox_amelior_mobile/data/insights_repository.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
@@ -75,6 +76,9 @@ class AppServices {
   final ReviewRepository reviews;
   final ClipStore clips;
   final ServiceController listening;
+
+  /// Statistics over the transcripts (Insights).
+  late final InsightsRepository insights = InsightsRepository(db, transcripts);
 
   /// Bumped whenever a review makes progress, so review screens refresh.
   final ValueNotifier<int> reviewVersion = ValueNotifier(0);

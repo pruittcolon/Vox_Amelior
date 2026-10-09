@@ -178,6 +178,22 @@ ORDER BY c.started_at DESC LIMIT ?''',
     return rows.map(_summary).toList();
   }
 
+  /// Summaries of conversations [ids], in the order given (missing ones left out).
+  List<ConversationSummary> summariesFor(List<int> ids) {
+    if (ids.isEmpty) return const [];
+    final rows = _db.raw.select(
+      '''
+SELECT c.id, c.started_at, c.ended_at,
+       (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
+       $_previewColumn
+FROM conversations c
+WHERE c.id IN (${List.filled(ids.length, '?').join(',')})''',
+      ids,
+    );
+    final byId = {for (final r in rows) r['id']! as int: _summary(r)};
+    return [for (final id in ids) ?byId[id]];
+  }
+
   /// Rewrites a saved line in place (stage 2 cutting it at a speaker change).
   SegmentView updateSegment(
     int id, {

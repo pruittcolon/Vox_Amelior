@@ -1,6 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 
+/// Gear button that opens settings and everything else (the More screen).
+class SettingsButton extends StatelessWidget {
+  const SettingsButton({super.key, required this.builder});
+
+  /// Builds the settings screen (kept out of this file to avoid an import cycle).
+  final WidgetBuilder builder;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        tooltip: 'Settings and more',
+        icon: const Icon(Icons.settings_rounded),
+        onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: builder)),
+      );
+}
+
 /// Small bold heading above a group of content.
 class SectionHeader extends StatelessWidget {
   const SectionHeader(this.text, {super.key, this.trailing, this.padding = const EdgeInsets.fromLTRB(20, 24, 16, 8)});

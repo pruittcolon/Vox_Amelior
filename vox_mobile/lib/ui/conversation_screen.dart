@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
+import 'package:vox_amelior_mobile/ui/charts.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
@@ -223,6 +224,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final last = _lines.lastOrNull;
     final visible = _visible;
     final people = <String>{for (final l in _lines) if (!l.background) l.speakerLabel}.toList();
+    final mood = <String, int>{};
+    for (final l in _lines) {
+      if (!l.background && l.emotion != null) mood[l.emotion!] = (mood[l.emotion!] ?? 0) + 1;
+    }
+    final hasMood = mood.keys.any((k) => k != 'neutral');
     return Scaffold(
       appBar: AppBar(
         title: Text(first == null ? 'Conversation' : formatDayName(first.startedAt)),
@@ -243,7 +249,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: EdgeInsets.only(bottom: hasMood ? 8 : 12),
                   child: Row(
                     children: [
                       AvatarStack(labels: people),
@@ -257,6 +263,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     ],
                   ),
                 ),
+                if (hasMood) Padding(padding: const EdgeInsets.only(bottom: 12), child: MoodStrip(counts: mood)),
                 _voiceFilter(context),
                 if (visible.isEmpty)
                   const Padding(
