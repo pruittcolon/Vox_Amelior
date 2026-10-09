@@ -65,7 +65,8 @@ void main() {
   }
 
   testWidgets('smart search finds what was said in other words, and says how', (tester) async {
-    await setUpServices();
+    // Indexing waits on real timers: outside the test's fake clock.
+    await tester.runAsync(() => setUpServices());
     await show(tester, TimelineScreen(services: s));
     await type(tester, 'money');
     expect(find.text('Smart'), findsOneWidget);
@@ -86,7 +87,8 @@ void main() {
   });
 
   testWidgets('a line found both ways is labelled with both', (tester) async {
-    await setUpServices();
+    // Indexing waits on real timers: outside the test's fake clock.
+    await tester.runAsync(() => setUpServices());
     await show(tester, TimelineScreen(services: s));
     await type(tester, 'electric bill');
     expect(find.textContaining('words + meaning'), findsOneWidget);
