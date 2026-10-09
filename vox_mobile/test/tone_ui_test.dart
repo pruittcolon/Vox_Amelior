@@ -145,7 +145,11 @@ void main() {
       speakerId: pruitt,
     );
     await show(tester, TimelineScreen(services: s));
-    expect(find.text('Any mood'), findsOneWidget);
+    // People and moods share one row, after "All".
+    expect(find.text('All'), findsOneWidget);
+    expect(find.text('Any mood'), findsNothing);
+    await tester.ensureVisible(find.text('😠 Angry'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('😠 Angry'));
     await tester.pumpAndSettle();
     expect(find.textContaining('that sounded angry'), findsOneWidget);
@@ -154,10 +158,47 @@ void main() {
     expect(find.textContaining('😠 2'), findsOneWidget, reason: 'the card shows how often each mood came up');
 
     // With a person as well: only their angry lines count.
+    await tester.ensureVisible(find.widgetWithText(FilterChip, 'Ericah'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilterChip, 'Ericah'));
     await tester.pumpAndSettle();
     expect(find.textContaining('with Ericah that sounded angry'), findsOneWidget);
     expect(find.text('Did you take the trash out'), findsOneWidget);
+
+    // "All" clears people and moods together.
+    await tester.ensureVisible(find.text('All'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('All'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('that sounded'), findsNothing);
+  });
+
+  testWidgets('a picked mood is dropped when no line has a tone any more', (tester) async {
+    await show(tester, TimelineScreen(services: s));
+    await tester.ensureVisible(find.text('😢 Sad'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('😢 Sad'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('that sounded sad'), findsOneWidget);
+
+    s.transcripts.deleteAllTranscripts();
+    s.dataChanged();
+    await tester.pumpAndSettle();
+    expect(find.text('😢 Sad'), findsNothing, reason: 'no tones, no mood chips');
+    expect(find.textContaining('that sounded sad'), findsNothing, reason: 'otherwise stuck on a filter that cannot be cleared');
+  });
+
+  testWidgets('a conversation with one voice shows no pointless voice chips', (tester) async {
+    final solo = s.transcripts.addSegment(
+      text: 'Talking to myself',
+      startedAt: DateTime.now().add(const Duration(hours: 1)),
+      duration: const Duration(seconds: 2),
+      speakerId: pruitt,
+    );
+    s.transcripts.setTone(solo.id, emotion: 'happy');
+    await show(tester, ConversationScreen(services: s, conversationId: solo.conversationId));
+    expect(find.text('Everyone'), findsNothing);
+    expect(find.text('😊 Happy · 1'), findsOneWidget, reason: 'the mood chip is still offered');
   });
 
   testWidgets('review the last lines of chosen people, only when they sounded angry', (tester) async {

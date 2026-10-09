@@ -177,19 +177,43 @@ void main() {
       expect(transcripts.segment(saved.id)!.emotion, 'angry');
     });
 
-    test('the clip hook sees the line with its tone', () {
-      SegmentView? seen;
+    test('a line shows at once; its tone is added in the second pass', () {
+      final clips = <SegmentView>[];
+      final tone = FakeTone([const LineTone(emotion: 'happy')]);
       final p = SegmentProcessor(
         asr: FakeAsr(['hello there']),
         embedder: FakeEmbedder(),
         identifier: SpeakerIdentifier(profiles: speakers.profiles(), newClusterId: SpeakerRepository.newId, nextGuestLabel: speakers.nextGuestLabel),
         transcripts: transcripts,
         speakers: speakers,
-        tone: FakeTone([const LineTone(emotion: 'happy')]),
-        onSaved: (s, _) => seen = s,
+        tone: tone,
+        onSaved: (s, _) => clips.add(s),
       );
-      p.process(fakeAudio(1), t0);
-      expect(seen!.emotion, 'happy');
+      final fast = p.transcribe(fakeAudio(1), t0).single;
+      expect(fast.emotion, isNull);
+      expect(tone.heardSamples, isEmpty, reason: 'the first pass does not wait for the tone model');
+      expect(clips.single.id, fast.id, reason: 'the clip is kept straight away');
+
+      final finished = p.refine(t0.add(const Duration(minutes: 1)));
+      expect(finished.single.emotion, 'happy');
+      expect(transcripts.segment(fast.id)!.emotion, 'happy');
+    });
+
+    test('a line re-labelled by hand before the second pass still gets its tone', () {
+      final p = processor(['hello there'], tone: FakeTone([const LineTone(emotion: 'surprised')]));
+      final fast = p.transcribe(fakeAudio(1), t0).single;
+      speakers.assignSegmentToSpeaker(fast.id, speakers.profiles().last.id);
+      p.refine(t0.add(const Duration(minutes: 1)));
+      expect(transcripts.segment(fast.id)!.emotion, 'surprised');
+    });
+
+    test('a line deleted before the second pass is skipped', () {
+      final tone = FakeTone([const LineTone(emotion: 'sad')]);
+      final p = processor(['hello there'], tone: tone);
+      final fast = p.transcribe(fakeAudio(1), t0).single;
+      transcripts.deleteConversation(fast.conversationId);
+      expect(p.refine(t0.add(const Duration(minutes: 1))), isEmpty);
+      expect(tone.heardSamples, isEmpty);
     });
 
     test('without the model, or switched off, lines have no tone', () {
@@ -218,7 +242,6 @@ void main() {
 
     test('a line split at a speaker change gets a tone per part', () {
       final tone = FakeTone([
-        const LineTone(emotion: 'neutral'), // the whole line, first pass
         const LineTone(emotion: 'angry'), // Pruitt's part
         const LineTone(emotion: 'sad'), // Ericah's part
       ]);
@@ -226,7 +249,7 @@ void main() {
       final parts = processor(['why did you do that I am sorry okay'], tone: tone, diarizer: _TwoVoices()).process(audio, t0);
       expect(parts, hasLength(2));
       expect(parts.map((p) => p.emotion), ['angry', 'sad']);
-      expect(tone.heardSamples, [96000, 48000, 48000]);
+      expect(tone.heardSamples, [48000, 48000], reason: 'each part once; the uncut line is never analysed');
     });
 
     test('disposing the processor frees the tone model', () {
@@ -292,6 +315,20 @@ void main() {
       expect(transcripts.conversationsWithTone({'laughter'}).single.preview, 'ha ha', reason: 'sounds count too');
       expect(transcripts.conversationsWithTone({'angry'}, speakerIds: {pruitt.id}), isEmpty);
       expect(transcripts.conversationsWithTone({}), isEmpty);
+    });
+
+    test('with two people, both must have talked and one of them sounded that way', () {
+      say('stop it', 0, speakerId: ericah.id, emotion: 'angry');
+      say('sorry', 1, speakerId: pruitt.id, emotion: 'sad'); // conversation 1: both, Ericah angry
+      say('why', 60, speakerId: ericah.id, emotion: 'angry'); // conversation 2: only Ericah
+      say('fine', 120, speakerId: pruitt.id, emotion: 'neutral');
+      say('ok', 121, speakerId: ericah.id, emotion: 'neutral'); // conversation 3: both, calm
+      final both = {pruitt.id, ericah.id};
+      expect(transcripts.conversationsWithTone({'angry'}, speakerIds: both).single.preview, 'stop it');
+      expect(transcripts.conversationsWithTone({'sad', 'angry'}, speakerIds: both), hasLength(1));
+      expect(transcripts.conversationsWithTone({'angry'}, speakerIds: {ericah.id}), hasLength(2));
+      final first = transcripts.conversationsWithTone({'angry'}, speakerIds: {ericah.id}).first;
+      expect(transcripts.conversationsWithTone({'angry'}, speakerIds: {ericah.id}, before: first.startedAt).single.preview, 'stop it');
     });
 
     test('search can be narrowed to tones', () {

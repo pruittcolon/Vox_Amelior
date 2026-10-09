@@ -20,14 +20,19 @@ Rejected alternatives:
 - Asking Gemma per line is far too slow and uses too much battery.
 - wav2vec2 emotion classifiers (95 MB) offer only 4 to 7 classes and no sound events.
 
-**Where it runs:** after each line is saved (`SegmentProcessor._afterSave`), in the background service that already does the transcription. That includes lines split at speaker changes. Audio is capped at 15 s per line. A failure never loses the line.
+**Where it runs:** in the background service, in the second pass (`SegmentProcessor.refine`).
+- Lines still show the moment they are transcribed; their tone follows a moment later.
+- A line split at a speaker change is analysed once per part, never as a whole.
+- Audio is capped at 15 s per line.
+- A failure never loses the line.
+- Switching tone off frees the model's memory (about 250 MB).
 
 **Storage:** schema v6 adds the columns `segments.emotion` and `segments.sound`. These are new columns only, so updating keeps all data.
 
 ## 2. Sort and filter by emotion
 
 - Conversation screen: each line shows a small tone chip (😠 angry, 😊 happy, ...). A tone filter row sits next to the people chips.
-- Timeline: a "Tone" filter finds conversations with angry or sad lines, and conversation cards show a mood summary such as "3 angry · 1 sad".
+- Timeline: one filter row, with **All**, then people, then moods. Picking two people and "angry" finds conversations where both talked and one of them sounded angry. Cards show a mood summary such as "😠 3 · 😢 1".
 - Search (`SegmentQuery.emotions`) can be narrowed to tones.
 
 ## 3. Gemma analyses that are kept in a list ("Reviews", extended)
@@ -43,7 +48,8 @@ The app already has Reviews: Gemma reads transcripts part by part, writes findin
   - *Fights & tension*: what started it, how it escalated, how it ended.
   - *Who said what in arguments*: each person's position.
   - *Kind words*: appreciation and support, so the analysis isn't only negative.
-- **Answer list:** every run and its findings stay in the Reviews list, and can be copied or shared as text.
+- **Answer list:** every run and its findings stay in the Reviews list, and can be copied or selected as text.
+- **Ask and agent tools:** Gemma sees the tone on each line, as in reviews.
 
 ## 4. Transfer and copy/paste
 

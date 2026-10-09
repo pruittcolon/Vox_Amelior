@@ -295,42 +295,49 @@ class _ConversationScreenState extends State<ConversationScreen> {
         if (tone != 'neutral') toneCounts[tone] = (toneCounts[tone] ?? 0) + 1;
       }
     }
+    // A picked tone stays offered (even at 0) so it can always be un-picked.
+    for (final tone in _tones) {
+      toneCounts.putIfAbsent(tone, () => 0);
+    }
     final tones = toneCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-    if (voices.length < 2 && background == 0 && tones.isEmpty) return const SizedBox.shrink();
+    // One voice and nothing hidden: choosing voices would change nothing.
+    final showVoices = voices.length > 1 || background > 0 || _only != null;
+    if (!showVoices && tones.isEmpty) return const SizedBox.shrink();
     final shown = _visible.length;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              ChoiceChip(
-                label: const Text('Everyone'),
-                selected: _only == null,
-                onSelected: (_) => setState(() => _only = null),
-              ),
-              for (final v in voices)
-                FilterChip(
-                  avatar: v.value.known ? null : const Icon(Icons.person_outline_rounded, size: 16),
-                  label: Text('${v.value.label} · ${v.value.n}'),
-                  selected: _only?.contains(v.key) ?? false,
-                  onSelected: (_) => _toggleVoice(v.key),
+          if (showVoices)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                ChoiceChip(
+                  label: const Text('Everyone'),
+                  selected: _only == null,
+                  onSelected: (_) => setState(() => _only = null),
                 ),
-              if (background > 0)
-                FilterChip(
-                  avatar: const Icon(Icons.tv_rounded, size: 16),
-                  label: Text('TV / background · $background'),
-                  selected: _showBackground,
-                  onSelected: (v) => setState(() => _showBackground = v),
-                ),
-            ],
-          ),
+                for (final v in voices)
+                  FilterChip(
+                    avatar: v.value.known ? null : const Icon(Icons.person_outline_rounded, size: 16),
+                    label: Text('${v.value.label} · ${v.value.n}'),
+                    selected: _only?.contains(v.key) ?? false,
+                    onSelected: (_) => _toggleVoice(v.key),
+                  ),
+                if (background > 0)
+                  FilterChip(
+                    avatar: const Icon(Icons.tv_rounded, size: 16),
+                    label: Text('TV / background · $background'),
+                    selected: _showBackground,
+                    onSelected: (v) => setState(() => _showBackground = v),
+                  ),
+              ],
+            ),
           if (tones.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: EdgeInsets.only(top: showVoices ? 6 : 0),
               child: Wrap(
                 spacing: 6,
                 runSpacing: 6,

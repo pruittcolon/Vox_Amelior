@@ -64,7 +64,8 @@ class ProcessorStats {
 /// 2. [refine]: per chunk of recent lines (up to [ProcessorConfig.chunkSeconds]
 ///    of speech, or until a pause), the [diarizer] finds who spoke when; a line
 ///    where the speaker changes is cut into one line per person, and people
-///    talking at the same time are marked.
+///    talking at the same time are marked. Each finished line then gets its
+///    tone of voice from the [tone] model, when loaded.
 class SegmentProcessor {
   SegmentProcessor({
     required this._asr,
@@ -95,7 +96,7 @@ class SegmentProcessor {
   /// Settings switch for splitting.
   bool splitSpeakers = true;
 
-  /// Hears the tone of voice of each saved line when set (the model may arrive later).
+  /// Hears the tone of voice of each finished line when set (the model may arrive later).
   ToneEngine? tone;
 
   /// Settings switch for [tone].
@@ -214,7 +215,7 @@ class SegmentProcessor {
     final lines = [for (final l in chunk) if (_current([l]).isNotEmpty) l];
     final total = lines.fold<int>(0, (a, l) => a + l.samples.length);
     final d = splitSpeakers ? diarizer : null;
-    if (d == null || total < config.minDiarizeSeconds * _sr) return _current(lines);
+    if (d == null || total < config.minDiarizeSeconds * _sr) return _finished(lines);
     final audio = Float32List(total);
     final offsets = <int>[];
     var at = 0;
@@ -228,7 +229,7 @@ class SegmentProcessor {
       activity = d.analyze(audio, _sr);
     } on Object catch (e) {
       Log.w('processor', 'diarizer failed; keeping lines as they are', e);
-      return _current(lines);
+      return _finished(lines);
     }
     final all = turns.turns(activity, totalSeconds: total / _sr);
 
@@ -267,7 +268,7 @@ class SegmentProcessor {
       } else if (parts.length == 1 && parts.single.overlap && !l.fast.overlap) {
         _transcripts.setOverlap(l.fast.id);
       }
-      out.addAll(_current([l]));
+      out.addAll(_finished([l]));
     }
     return out;
   }
@@ -344,16 +345,18 @@ class SegmentProcessor {
           embedding: m?.$2,
           overlap: t.overlap,
         );
-        saved.add(_afterSave(v, slice));
+        _afterSave(v, slice);
+        saved.add(_hearTone(v, slice));
       } else {
-        saved.add(_save(
+        final part = _save(
           text: texts[i],
           startedAt: l.fast.startedAt.add(Duration(microseconds: (t.start * 1e6).round())),
           samples: slice,
           match: match,
           embedding: m?.$2,
           overlap: t.overlap,
-        ));
+        );
+        saved.add(_hearTone(part, slice));
       }
     }
     stats.split++;
@@ -406,30 +409,43 @@ class SegmentProcessor {
       embedding: embedding,
       overlap: overlap,
     );
-    return _afterSave(saved, samples);
+    _afterSave(saved, samples);
+    return saved;
   }
 
-  /// Notes the tone of the line, then runs [onSaved]. Returns the line as
-  /// stored now. A failure here never loses the line.
-  SegmentView _afterSave(SegmentView saved, Float32List samples) {
-    var view = saved;
-    final t = hearTone ? tone : null;
-    if (t != null) {
-      try {
-        final cap = math.min(samples.length, (config.maxToneSeconds * _sr).round());
-        final heard = t.analyze(Float32List.sublistView(samples, 0, cap), _sr);
-        _transcripts.setTone(saved.id, emotion: heard.emotion, sound: heard.sound);
-        if (!heard.isEmpty) view = _transcripts.segment(saved.id) ?? saved;
-      } on Object catch (e) {
-        Log.w('processor', 'tone of voice failed; line kept without it', e);
-      }
-    }
+  void _afterSave(SegmentView saved, Float32List samples) {
     try {
-      onSaved?.call(view, samples);
+      onSaved?.call(saved, samples);
     } on Object catch (e) {
       Log.w('processor', 'after-save hook failed', e);
     }
-    return view;
+  }
+
+  /// [lines] as they are now (see [_current]), each with its tone of voice.
+  List<SegmentView> _finished(List<_Line> lines) {
+    for (final l in lines) {
+      // Lines re-labelled by hand meanwhile still get their tone.
+      if (_transcripts.segment(l.fast.id) case final v?) _hearTone(v, l.samples);
+    }
+    return _current(lines);
+  }
+
+  /// Notes the tone of voice of [line] from its [samples]. Done in stage 2,
+  /// so lines show without waiting for it and a line cut at a speaker change
+  /// is heard once per part. Returns the line as stored now; a failure here
+  /// never loses the line.
+  SegmentView _hearTone(SegmentView line, Float32List samples) {
+    final t = hearTone ? tone : null;
+    if (t == null) return line;
+    try {
+      final cap = math.min(samples.length, (config.maxToneSeconds * _sr).round());
+      final heard = t.analyze(Float32List.sublistView(samples, 0, cap), _sr);
+      _transcripts.setTone(line.id, emotion: heard.emotion, sound: heard.sound);
+      return _transcripts.segment(line.id) ?? line;
+    } on Object catch (e) {
+      Log.w('processor', 'tone of voice failed; line kept without it', e);
+      return line;
+    }
   }
 
   /// Audio where only [slot] talks, joined, up to [ProcessorConfig.maxEmbedSeconds].

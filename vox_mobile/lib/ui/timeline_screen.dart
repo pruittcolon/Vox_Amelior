@@ -39,13 +39,12 @@ class _TimelineScreenState extends State<TimelineScreen> {
   bool get _filtering => _people.isNotEmpty || _moods.isNotEmpty;
 
   /// Conversations matching the picked people (all of them talked) and moods.
-  List<ConversationSummary> _filtered() {
-    if (_moods.isEmpty) return s.transcripts.conversationsWith(_people);
-    final toned = s.transcripts.conversationsWithTone(_moods, speakerIds: _people, limit: 300);
-    if (_people.length < 2) return toned.take(100).toList();
-    final together = {for (final c in s.transcripts.conversationsWith(_people, limit: 100000)) c.id};
-    return toned.where((c) => together.contains(c.id)).take(100).toList();
-  }
+  List<ConversationSummary> _filtered() => _moods.isEmpty
+      ? s.transcripts.conversationsWith(_people)
+      : s.transcripts.conversationsWithTone(_moods, speakerIds: _people);
+
+  /// Moods offered as filters.
+  static final List<String> _moodChoices = [...Tone.names.where((n) => n != 'neutral'), 'laughter'];
 
   static DateTime _dayOf(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -72,10 +71,13 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final withToday = days.isNotEmpty && days.first.day == today ? days : [DaySummary(day: today, conversations: 0, segments: 0), ...days];
     final profiles = s.speakers.profiles();
     _people.removeWhere((id) => !profiles.any((p) => p.id == id));
+    final hasTones = s.transcripts.hasTones;
+    // Without any tones the mood chips are hidden, so a picked mood could not be cleared.
+    if (!hasTones) _moods.clear();
     setState(() {
       _profiles = profiles;
+      _hasTones = hasTones;
       _withPeople = _filtered();
-      _hasTones = s.transcripts.hasTones;
       _days = withToday;
       _conversations = s.transcripts.conversationsBetween(_selected, _selected.add(const Duration(days: 1)));
       if (_searching) _runSearch();
@@ -103,6 +105,13 @@ class _TimelineScreenState extends State<TimelineScreen> {
   void _toggleMood(String tone) => setState(() {
         if (!_moods.remove(tone)) _moods.add(tone);
         _withPeople = _filtered();
+        if (_searching) _runSearch();
+      });
+
+  void _clearFilters() => setState(() {
+        _people.clear();
+        _moods.clear();
+        _withPeople = const [];
         if (_searching) _runSearch();
       });
 
@@ -144,7 +153,11 @@ class _TimelineScreenState extends State<TimelineScreen> {
               controller: _search,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: _filtering ? 'Search what they said' : 'Search everything that was said',
+                hintText: _people.isNotEmpty
+                    ? 'Search what they said'
+                    : _moods.isNotEmpty
+                        ? 'Search lines with that mood'
+                        : 'Search everything that was said',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: _searching
                     ? IconButton(
@@ -162,8 +175,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
               },
             ),
           ),
-          if (_profiles.isNotEmpty) _peopleStrip(context),
-          if (_hasTones) _moodStrip(context),
+          if (_profiles.isNotEmpty || _hasTones) _filterStrip(context),
           if (!_searching && !_filtering) _dayStrip(context),
           Expanded(
             child: _searching
@@ -177,70 +189,42 @@ class _TimelineScreenState extends State<TimelineScreen> {
     );
   }
 
-  /// Pick people to see only conversations they were in.
-  Widget _peopleStrip(BuildContext context) {
+  /// One row of filters: people (conversations where all of them talked)
+  /// and, once lines have a tone, moods. "All" clears both.
+  Widget _filterStrip(BuildContext context) {
+    final t = Theme.of(context);
+    Widget spaced(Widget chip) => Padding(padding: const EdgeInsets.only(right: 6), child: chip);
     return SizedBox(
       height: 48,
       child: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         scrollDirection: Axis.horizontal,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: ChoiceChip(
-              label: const Text('Everyone'),
-              selected: _people.isEmpty,
-              onSelected: (_) => setState(() {
-                _people.clear();
-                _withPeople = _filtered();
-                if (_searching) _runSearch();
-              }),
-            ),
-          ),
+          spaced(ChoiceChip(label: const Text('All'), selected: !_filtering, onSelected: (_) => _clearFilters())),
           for (final p in _profiles)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: FilterChip(
-                avatar: SpeakerAvatar(label: p.name, radius: 11),
-                label: Text(p.name),
-                selected: _people.contains(p.id),
-                onSelected: (_) => _togglePerson(p.id),
+            spaced(FilterChip(
+              avatar: SpeakerAvatar(label: p.name, radius: 11),
+              label: Text(p.name),
+              selected: _people.contains(p.id),
+              onSelected: (_) => _togglePerson(p.id),
+            )),
+          if (_hasTones) ...[
+            if (_profiles.isNotEmpty)
+              Center(
+                child: Container(
+                  width: 1,
+                  height: 24,
+                  margin: const EdgeInsets.only(left: 4, right: 10),
+                  color: t.colorScheme.outlineVariant,
+                ),
               ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// Pick moods to see only conversations where someone sounded that way.
-  Widget _moodStrip(BuildContext context) {
-    return SizedBox(
-      height: 48,
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        scrollDirection: Axis.horizontal,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: ChoiceChip(
-              label: const Text('Any mood'),
-              selected: _moods.isEmpty,
-              onSelected: (_) => setState(() {
-                _moods.clear();
-                _withPeople = _filtered();
-                if (_searching) _runSearch();
-              }),
-            ),
-          ),
-          for (final tone in [...Tone.names.where((n) => n != 'neutral'), 'laughter'])
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: FilterChip(
+            for (final tone in _moodChoices)
+              spaced(FilterChip(
                 label: Text('${Tone.emoji(tone)} ${Tone.label(tone)}'),
                 selected: _moods.contains(tone),
                 onSelected: (_) => _toggleMood(tone),
-              ),
-            ),
+              )),
+          ],
         ],
       ),
     );
@@ -323,15 +307,15 @@ class _TimelineScreenState extends State<TimelineScreen> {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(const ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'][d.day.weekday - 1],
-                      style: t.textTheme.labelSmall?.copyWith(color: fg, fontWeight: FontWeight.w700)),
-                  Text('${d.day.day}', style: t.textTheme.titleLarge?.copyWith(color: fg, fontWeight: FontWeight.w800)),
-                  Text(d.conversations == 0 ? '–' : '${d.conversations}',
-                      style: t.textTheme.labelSmall?.copyWith(color: fg.withValues(alpha: 0.8))),
-                ],
-              ),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(const ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'][d.day.weekday - 1],
+                        style: t.textTheme.labelSmall?.copyWith(color: fg, fontWeight: FontWeight.w700)),
+                    Text('${d.day.day}', style: t.textTheme.titleLarge?.copyWith(color: fg, fontWeight: FontWeight.w800)),
+                    Text(d.conversations == 0 ? '–' : '${d.conversations}',
+                        style: t.textTheme.labelSmall?.copyWith(color: fg.withValues(alpha: 0.8))),
+                  ],
+                ),
               ),
             ),
           );
@@ -378,17 +362,20 @@ class _TimelineScreenState extends State<TimelineScreen> {
             children: [
               Row(
                 children: [
-                  Flexible(
-                    child: Text('${formatTime(c.startedAt)} – ${formatTime(c.endedAt)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  // One text, so the time is never squeezed by the duration; it
+                  // only shortens when large system text leaves no room.
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        text: '${formatTime(c.startedAt)} – ${formatTime(c.endedAt)}',
+                        style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                        children: [TextSpan(text: '   ${formatDuration(c.duration)}', style: t.textTheme.bodySmall)],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(formatDuration(c.duration), maxLines: 1, overflow: TextOverflow.ellipsis, style: t.textTheme.bodySmall),
-                  ),
-                  const Spacer(),
                   AvatarStack(labels: c.participants),
                 ],
               ),

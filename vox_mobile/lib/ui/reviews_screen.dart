@@ -466,19 +466,19 @@ class _ReviewCreateScreenState extends State<ReviewCreateScreen> {
           if (!_byLines) const SectionHeader('When', padding: EdgeInsets.fromLTRB(4, 20, 4, 10)),
           if (!_byLines)
             Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final (label, phrase) in kPeriodChoices)
-                ChoiceChip(label: Text(label), selected: _period == phrase, onSelected: (_) => setState(() => _period = phrase)),
-              ChoiceChip(
-                avatar: const Icon(Icons.date_range_rounded, size: 18),
-                label: Text(_custom == null ? 'Pick dates…' : window?.label ?? 'Pick dates…'),
-                selected: _period == 'custom',
-                onSelected: (_) => _pickDates(),
-              ),
-            ],
-          ),
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final (label, phrase) in kPeriodChoices)
+                  ChoiceChip(label: Text(label), selected: _period == phrase, onSelected: (_) => setState(() => _period = phrase)),
+                ChoiceChip(
+                  avatar: const Icon(Icons.date_range_rounded, size: 18),
+                  label: Text(_custom == null ? 'Pick dates…' : window?.label ?? 'Pick dates…'),
+                  selected: _period == 'custom',
+                  onSelected: (_) => _pickDates(),
+                ),
+              ],
+            ),
           if (people.isNotEmpty) ...[
             const SectionHeader('Whose words', padding: EdgeInsets.fromLTRB(4, 20, 4, 10)),
             Wrap(

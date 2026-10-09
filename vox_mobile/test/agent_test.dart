@@ -102,6 +102,17 @@ void main() {
     expect((await tb.call('get_timeline', {'period': 'whenever'}))['error'], isNotNull);
   });
 
+  test('tool results carry how a line sounded', () async {
+    final milk = transcripts.recent(limit: 1).single;
+    expect(milk.text, 'we need oat milk');
+    transcripts.setTone(milk.id, emotion: 'angry');
+    final r = await toolbox().call('get_timeline', {'period': 'yesterday'});
+    final line = (r['lines']! as List).single as Map;
+    expect(line['tone'], 'angry');
+    final calm = await toolbox().call('get_timeline', {'period': 'last week'});
+    expect((calm['lines']! as List).every((l) => !(l as Map).containsKey('tone')), isTrue, reason: 'no tone, no field');
+  });
+
   test('timeline tool reads the requested period', () async {
     final r = await toolbox().call('get_timeline', {'period': 'yesterday'});
     expect(r['period'], startsWith('yesterday'));

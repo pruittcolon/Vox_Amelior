@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/app/model_downloads.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/settings/app_settings.dart';
 import 'package:vox_amelior_mobile/ui/controls.dart';
@@ -14,6 +15,35 @@ class SpeakersSettingsScreen extends StatelessWidget {
 
   static String _pct(double v) => '${(v * 100).round()}%';
 
+  /// Download row for the tone model: progress while busy, the error if it failed.
+  Widget _toneDownload(BuildContext context) {
+    final t = Theme.of(context);
+    final state = services.downloads.stateOf(ModelCatalog.toneModel);
+    final failed = state.status == DownloadStatus.failed;
+    return ListTile(
+      leading: Icon(failed ? Icons.error_outline_rounded : Icons.download_rounded, color: failed ? t.colorScheme.error : null),
+      title: Text(state.isBusy
+          ? 'Downloading the tone model…'
+          : failed
+              ? 'Download failed — tap to try again'
+              : 'Download the tone model'),
+      subtitle: state.isBusy
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 6),
+                LinearProgressIndicator(value: state.progress),
+                const SizedBox(height: 4),
+                Text(describeDownload(state)),
+              ],
+            )
+          : failed && state.error != null
+              ? Text(state.error!, maxLines: 3, overflow: TextOverflow.ellipsis)
+              : null,
+      onTap: state.isBusy ? null : () => services.downloads.download(ModelCatalog.toneModel),
+    );
+  }
+
   static double? _parsePct(String t) {
     final n = double.tryParse(t.trim().replaceAll('%', ''));
     return n == null ? null : (n > 1 ? n / 100 : n);
@@ -23,9 +53,11 @@ class SpeakersSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Voices & speakers')),
-      body: ValueListenableBuilder<AppSettings>(
-        valueListenable: services.settings,
-        builder: (context, st, _) {
+      // Downloads too: the tone-model row changes as its download progresses and finishes.
+      body: ListenableBuilder(
+        listenable: Listenable.merge([services.settings, services.downloads]),
+        builder: (context, _) {
+          final st = services.settings.value;
           void update(AppSettings next) => services.updateSettings(next);
           final hasDiarizer = services.models.isInstalled(ModelCatalog.diarizer);
           final hasTone = services.models.isInstalled(ModelCatalog.toneModel);
@@ -144,19 +176,7 @@ class SpeakersSettingsScreen extends StatelessWidget {
                     value: st.hearTone,
                     onChanged: (v) => update(st.copyWith(hearTone: v)),
                   ),
-                  if (!hasTone)
-                    ListenableBuilder(
-                      listenable: services.downloads,
-                      builder: (context, _) {
-                        final state = services.downloads.stateOf(ModelCatalog.toneModel);
-                        return ListTile(
-                          leading: const Icon(Icons.download_rounded),
-                          title: Text(state.isBusy ? 'Downloading the tone model…' : 'Download the tone model'),
-                          subtitle: state.isBusy ? Text(describeDownload(state)) : null,
-                          onTap: state.isBusy ? null : () => services.downloads.download(ModelCatalog.toneModel),
-                        );
-                      },
-                    ),
+                  if (!hasTone) _toneDownload(context),
                 ],
               ),
             ],

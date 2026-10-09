@@ -211,6 +211,11 @@ class AgentToolbox {
 
   static List<Map<String, Object?>> _lines(List<SegmentView> segments) => [
         for (final s in segments)
-          {'when': s.startedAt.toIso8601String().substring(0, 16), 'who': s.speakerLabel, 'said': s.text},
+          {
+            'when': s.startedAt.toIso8601String().substring(0, 16),
+            'who': s.speakerLabel,
+            'said': s.text,
+            if (s.toneNotes.isNotEmpty) 'tone': s.toneNotes.join(', '),
+          },
       ];
 }

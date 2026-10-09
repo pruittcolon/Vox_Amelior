@@ -106,6 +106,13 @@ class SegmentView {
 
   DateTime get endedAt => startedAt.add(duration);
 
+  /// How the line sounded, for Gemma: e.g. ['angry', 'laughing']. Neutral
+  /// and lines without a tone give nothing.
+  List<String> get toneNotes => [
+        if (emotion != null && emotion != 'neutral') emotion!,
+        if (sound != null) sound == 'laughter' ? 'laughing' : '$sound in background',
+      ];
+
   /// Best human-readable speaker label.
   String get speakerLabel => speakerName ?? clusterLabel ?? importedLabel ?? 'Unknown';
 

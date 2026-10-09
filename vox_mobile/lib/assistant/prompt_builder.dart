@@ -21,7 +21,8 @@ class PromptBuilder {
       ..writeln("You are Vox, a private assistant living on the user's phone. "
           'You help the household remember and act on what was said in their own conversations.')
       ..writeln(custom == null || custom.isEmpty ? defaultInstructions : custom)
-      ..writeln('The excerpts come from automatic speech recognition and may contain mistakes.')
+      ..writeln('The excerpts come from automatic speech recognition and may contain mistakes. '
+          'A note in brackets after a name, like (angry) or (laughing), is how the line sounded, heard from the voice.')
       ..writeln('Current date and time: ${stamp(now)}. Weeks start on Monday.');
     if (people.isNotEmpty) b.writeln('People in this household: ${people.join(', ')}.');
     if (agent) {
@@ -49,7 +50,8 @@ class PromptBuilder {
           b.writeln('--- conversation on ${stamp(s.startedAt)} ---');
           lastConversation = s.conversationId;
         }
-        b.writeln('[${hm(s.startedAt)}] ${s.speakerLabel}${s.overlap ? ' (over someone else)' : ''}: ${s.text}');
+        final notes = [...s.toneNotes, if (s.overlap) 'over someone else'];
+        b.writeln('[${hm(s.startedAt)}] ${s.speakerLabel}${notes.isEmpty ? '' : ' (${notes.join(', ')})'}: ${s.text}');
       }
     }
     b

@@ -48,8 +48,9 @@ class ReviewEngine {
 
   static const String system =
       "You are Vox, reviewing transcripts of the user's own conversations. They come from automatic speech "
-      'recognition and may contain mistakes. Follow the task and the answer format exactly. Use only the '
-      'transcript; never invent lines, quotes or line numbers.';
+      'recognition and may contain mistakes. A note in brackets after a name, like (angry) or (laughing), is how '
+      'the line sounded, heard automatically from the voice: a hint, not a fact. Follow the task and the answer '
+      'format exactly. Use only the transcript; never invent lines, quotes or line numbers.';
 
   /// Plans a review over [from]–[to] and saves it. Returns its id, or null
   /// when nothing was said in that period.
@@ -481,11 +482,7 @@ class ReviewEngine {
   /// "[12] 20:31 Ericah (angry, laughing): ..." — the tone of voice comes
   /// from the tone model, so Gemma can tell a fight from a joke.
   static String _line(int n, SegmentView s) {
-    final notes = [
-      if (s.emotion != null && s.emotion != 'neutral') s.emotion!,
-      if (s.sound != null) s.sound == 'laughter' ? 'laughing' : '${s.sound} in background',
-      if (s.overlap) 'over someone else',
-    ];
+    final notes = [...s.toneNotes, if (s.overlap) 'over someone else'];
     return '[$n] ${PromptBuilder.hm(s.startedAt)} ${s.speakerLabel}${notes.isEmpty ? '' : ' (${notes.join(', ')})'}: ${s.text}';
   }
 

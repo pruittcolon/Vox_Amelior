@@ -227,8 +227,10 @@ GROUP BY s.emotion''',
     return '(s.emotion IN ($marks) OR s.sound IN ($marks))';
   }
 
-  /// Conversations with at least one line in any of [emotions] (or sounds) (by people,
-  /// not TV), newest first. With [speakerIds], only lines by them count.
+  /// Conversations with at least one line (not TV / background) in any of
+  /// [emotions] or sounds, newest first. With [speakerIds], only conversations
+  /// where all of them talked, and only their lines count for the tone ("me
+  /// and my wife, when someone sounded angry").
   List<ConversationSummary> conversationsWithTone(
     Set<String> emotions, {
     Set<String> speakerIds = const {},
@@ -247,9 +249,18 @@ WHERE c.id IN (
   SELECT s.conversation_id FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
   WHERE ${_toneClause(emotions.length)} AND COALESCE(uc.background, 0) = 0
   ${speakerIds.isEmpty ? '' : 'AND s.speaker_id IN ($people)'})
+${speakerIds.length < 2 ? '' : 'AND c.id IN (SELECT conversation_id FROM segments WHERE speaker_id IN ($people) '
+        'GROUP BY conversation_id HAVING COUNT(DISTINCT speaker_id) = ?)'}
 ${before == null ? '' : 'AND c.started_at < ?'}
 ORDER BY c.started_at DESC LIMIT ?''',
-      [...emotions, ...emotions, ...speakerIds, ?before?.millisecondsSinceEpoch, limit],
+      [
+        ...emotions,
+        ...emotions,
+        ...speakerIds,
+        if (speakerIds.length >= 2) ...[...speakerIds, speakerIds.length],
+        ?before?.millisecondsSinceEpoch,
+        limit,
+      ],
     );
     return rows.map(_summary).toList();
   }

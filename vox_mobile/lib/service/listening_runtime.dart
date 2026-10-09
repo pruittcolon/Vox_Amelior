@@ -549,11 +549,15 @@ class ListeningRuntime {
       if (processor.diarizer == null && fresh.paths.diarizer != null) {
         processor.diarizer = _loadDiarizer(fresh.paths.diarizer);
       }
-      // Likewise the tone model; it is only loaded while switched on.
+      // Likewise the tone model. It is only kept in memory while switched on
+      // (it takes about 250 MB), and swapped if a new copy was installed.
       processor.hearTone = fresh.settings.hearTone;
-      if (processor.tone == null && fresh.settings.hearTone && fresh.paths.toneModel != null) {
-        processor.tone = _loadTone(fresh.paths);
+      final toneWanted = fresh.settings.hearTone && fresh.paths.toneModel != null;
+      if (!toneWanted || fresh.paths.toneModel != old.paths.toneModel) {
+        processor.tone?.dispose();
+        processor.tone = null;
       }
+      if (toneWanted && processor.tone == null) processor.tone = _loadTone(fresh.paths);
       handler.wakeParser = WakeCommandParser(fresh.settings.wakePhrases);
       if (llmChanged) await llm.unload();
     }
