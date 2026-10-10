@@ -381,6 +381,19 @@ void main() {
       ]));
     });
 
+    test('files left from an earlier layout of the model are cleared first', () async {
+      final archive = tarBz2({'m/encoder.onnx': bytes(300, seed: 21), 'm/tokens.txt': bytes(20, seed: 22)});
+      server.files['/model.tar.bz2'] = archive;
+      final asset = assetFor(archive);
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      final old = File(p.join(store.dir(asset).path, 'older-layout.tar.bz2.part'))
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(bytes(1000, seed: 23));
+      await ModelInstaller(store: store, retryDelay: Duration.zero).install(asset);
+      expect(old.existsSync(), isFalse);
+      expect(store.isInstalled(asset), isTrue);
+    });
+
     test('is a no-op when already installed; detects a damaged install', () async {
       final archive = tarBz2({'m/encoder.onnx': bytes(300, seed: 15), 'm/tokens.txt': bytes(20, seed: 16)});
       server.files['/model.tar.bz2'] = archive;
@@ -568,7 +581,11 @@ void main() {
       expect(ModelCatalog.parakeet.id, 'parakeet-tdt-0.6b-v2-int8');
       expect(ModelCatalog.parakeet.installedFileNames,
           {'encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'});
-      expect(ModelCatalog.parakeet.files.single.sizeBytes, 482468385);
+      expect(ModelCatalog.parakeet.approxDownloadBytes, ModelCatalog.parakeet.files.fold<int>(0, (a, f) => a + f.sizeBytes!));
+      // Published unpacked (nothing to unpack on the phone), same files as the archives.
+      expect(ModelCatalog.parakeetFp16.files.where((f) => f.isArchive), isEmpty);
+      expect(ModelCatalog.parakeetFp16.installedFileNames,
+          {'encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt'});
       // Every fixed download is pinned to an exact size and checksum.
       for (final m in ModelCatalog.all) {
         for (final f in m.files) {

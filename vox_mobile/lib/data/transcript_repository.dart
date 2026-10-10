@@ -44,15 +44,21 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
     final endMs = startMs + duration.inMilliseconds;
     late int id;
     _db.transaction(() {
-      final last = _db.raw.select(
-        'SELECT id, ended_at FROM conversations ORDER BY id DESC LIMIT 1',
+      // The conversation the line falls in, or starts or ends within the gap
+      // of. Usually the newest, but not for a line from earlier on (heard
+      // earlier and transcribed later, or imported): that must not join
+      // today's conversation.
+      final gap = conversationGap.inMilliseconds;
+      final near = _db.raw.select(
+        'SELECT id FROM conversations WHERE started_at - ? <= ? AND ? <= ended_at + ? ORDER BY started_at DESC LIMIT 1',
+        [gap, startMs, startMs, gap],
       );
       int conversationId;
-      if (last.isNotEmpty && startMs - (last.first['ended_at'] as int) <= conversationGap.inMilliseconds) {
-        conversationId = last.first['id'] as int;
+      if (near.isNotEmpty) {
+        conversationId = near.first['id'] as int;
         _db.raw.execute(
-          'UPDATE conversations SET ended_at = MAX(ended_at, ?) WHERE id = ?',
-          [endMs, conversationId],
+          'UPDATE conversations SET started_at = MIN(started_at, ?), ended_at = MAX(ended_at, ?) WHERE id = ?',
+          [startMs, endMs, conversationId],
         );
       } else {
         _db.raw.execute(

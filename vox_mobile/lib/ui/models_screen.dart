@@ -159,6 +159,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   (ModelCatalog.parakeetFp32, 'Full precision · fp32', 'The most accurate; the largest and slowest.'),
                 ])
                   _ChoiceRow(
+                    key: ValueKey('model-${m.id}'),
                     asset: m,
                     label: label,
                     blurb: blurb,
@@ -181,8 +182,14 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   _SupportRow(asset: m, downloads: s.downloads),
               ]),
               _section(context, 'Tone of voice', Icons.mood_rounded, 'Hears how each line was said (happy, angry…) and sounds like laughter.', [
-                _OffRow(label: 'Off', chosen: !st.hearTone, onChoose: () => s.updateSettings(st.copyWith(hearTone: false))),
+                _OffRow(
+                  key: const ValueKey('model-off-tone'),
+                  label: 'Off',
+                  chosen: !st.hearTone,
+                  onChoose: () => s.updateSettings(st.copyWith(hearTone: false)),
+                ),
                 _ChoiceRow(
+                  key: ValueKey('model-${ModelCatalog.toneModel.id}'),
                   asset: ModelCatalog.toneModel,
                   label: 'On · SenseVoice Small',
                   blurb: 'Notes how each line sounded, and laughter or music.',
@@ -198,13 +205,19 @@ class _ModelsScreenState extends State<ModelsScreen> {
               ]),
               _section(context, 'Search by meaning', Icons.manage_search_rounded,
                   'Finds what was said in other words, and picks what Gemma reads to answer. Each size prepares every line once.', [
-                _OffRow(label: 'Off · words only', chosen: !st.meaningSearch, onChoose: () => s.updateSettings(st.copyWith(meaningSearch: false))),
+                _OffRow(
+                  key: const ValueKey('model-off-search'),
+                  label: 'Off · words only',
+                  chosen: !st.meaningSearch,
+                  onChoose: () => s.updateSettings(st.copyWith(meaningSearch: false)),
+                ),
                 for (final (m, blurb) in [
                   (ModelCatalog.textEmbedderSmall, 'The quickest and lightest; nearly as good.'),
                   (ModelCatalog.textEmbedder, 'Recommended: a good balance.'),
                   (ModelCatalog.textEmbedderFull, 'The most precise; about 1.3 GB of memory while it works.'),
                 ])
                   _ChoiceRow(
+                    key: ValueKey('model-${m.id}'),
                     asset: m,
                     label: ModelCatalog.embedderLabel(m),
                     blurb: blurb,
@@ -221,6 +234,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
               _section(context, 'Assistant', Icons.auto_awesome_rounded, 'Gemma answers questions and writes reviews.', [
                 for (final m in [...ModelCatalog.assistants, ?custom])
                   _ChoiceRow(
+                    key: ValueKey('model-${m.id}'),
                     asset: m,
                     label: m.title,
                     blurb: switch (m.id) {
@@ -330,7 +344,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
 
 /// A radio-style choice without a model ("Off").
 class _OffRow extends StatelessWidget {
-  const _OffRow({required this.label, required this.chosen, required this.onChoose});
+  const _OffRow({super.key, required this.label, required this.chosen, required this.onChoose});
 
   final String label;
   final bool chosen;
@@ -351,6 +365,7 @@ class _OffRow extends StatelessWidget {
 /// Shows whether it is in use, waiting, downloading or here, and its size.
 class _ChoiceRow extends StatelessWidget {
   const _ChoiceRow({
+    super.key,
     required this.asset,
     required this.label,
     required this.blurb,

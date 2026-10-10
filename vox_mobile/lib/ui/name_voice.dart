@@ -104,50 +104,121 @@ bool applyVoiceChoice(BuildContext context, AppServices s, VoiceToName voice, Vo
 String _lines(int n) => n == 1 ? '1 line' : '$n lines';
 
 /// Who a voice is: what it said, then one tap on a person (or a new name,
-/// or TV / background). Used in a sheet and in [NameVoicesScreen].
-class VoiceNamer extends StatefulWidget {
-  const VoiceNamer({
-    super.key,
-    required this.voice,
-    required this.people,
-    required this.onChoice,
-    this.onSkip,
-    this.onOpenLine,
-    this.pinChoices = false,
-    this.intro,
-  });
+/// or TV / background). The sheet's content; [NameVoicesScreen] uses the
+/// two halves ([VoiceSummary], [VoiceChoices]) on their own.
+class VoiceNamer extends StatelessWidget {
+  const VoiceNamer({super.key, required this.voice, required this.people, required this.onChoice, this.onOpenLine});
 
   final VoiceToName voice;
   final List<SpeakerProfile> people;
   final ValueChanged<VoiceChoice> onChoice;
 
-  /// Fills the space it is given: what the voice said scrolls, and the
-  /// choices stay in view at the bottom (a full screen). Otherwise it is
-  /// as tall as its content (a sheet).
-  final bool pinChoices;
+  /// Opens a sample line in its conversation.
+  final ValueChanged<SegmentView>? onOpenLine;
 
-  /// Shown above the voice when [pinChoices] ("3 voices to name").
-  final Widget? intro;
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          VoiceSummary(voice: voice, onOpenLine: onOpenLine),
+          const SizedBox(height: 8),
+          VoiceChoices(voiceId: voice.clusterId, people: people, onChoice: onChoice),
+        ],
+      );
+}
 
-  /// Shows a "Not now" button.
-  final VoidCallback? onSkip;
+/// A voice and a few of its clearest lines, to recognise who it is.
+class VoiceSummary extends StatelessWidget {
+  const VoiceSummary({super.key, required this.voice, this.onOpenLine});
+
+  final VoiceToName voice;
 
   /// Opens a sample line in its conversation.
   final ValueChanged<SegmentView>? onOpenLine;
 
   @override
-  State<VoiceNamer> createState() => _VoiceNamerState();
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final v = voice;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            SpeakerAvatar(label: v.label, known: false, radius: 24),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Who is ${v.label}?', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                  Text(
+                    '${_lines(v.lines)} · last heard ${formatWhen(v.lastHeard)}'
+                    '${v.heardWith.isEmpty ? '' : ' · with ${v.heardWith.join(', ')}'}',
+                    style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        for (final line in v.samples)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: t.colorScheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: onOpenLine == null ? null : () => onOpenLine!(line),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('"${line.text}"', maxLines: 3, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyLarge),
+                      const SizedBox(height: 2),
+                      Text(formatWhen(line.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
-class _VoiceNamerState extends State<VoiceNamer> {
+/// "It's…": one tap on a person, a new name, TV / background, or (with
+/// [onSkip]) not now.
+class VoiceChoices extends StatefulWidget {
+  const VoiceChoices({super.key, required this.voiceId, required this.people, required this.onChoice, this.onSkip});
+
+  /// The voice being named (a new one starts afresh).
+  final String voiceId;
+  final List<SpeakerProfile> people;
+  final ValueChanged<VoiceChoice> onChoice;
+
+  /// Shows a "Not now" button.
+  final VoidCallback? onSkip;
+
+  @override
+  State<VoiceChoices> createState() => _VoiceChoicesState();
+}
+
+class _VoiceChoicesState extends State<VoiceChoices> {
   final _name = TextEditingController();
   bool _typing = false;
   String? _error;
 
   @override
-  void didUpdateWidget(VoiceNamer old) {
+  void didUpdateWidget(VoiceChoices old) {
     super.didUpdateWidget(old);
-    if (old.voice.clusterId != widget.voice.clusterId) {
+    if (old.voiceId != widget.voiceId) {
       _name.clear();
       _typing = false;
       _error = null;
@@ -178,53 +249,7 @@ class _VoiceNamerState extends State<VoiceNamer> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    final v = widget.voice;
-    final muted = t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant);
-    final header = Row(
-      children: [
-        SpeakerAvatar(label: v.label, known: false, radius: 24),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Who is ${v.label}?', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              Text(
-                '${_lines(v.lines)} · last heard ${formatWhen(v.lastHeard)}'
-                '${v.heardWith.isEmpty ? '' : ' · with ${v.heardWith.join(', ')}'}',
-                style: muted,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-    final samples = [
-      for (final line in v.samples)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Material(
-            color: t.colorScheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(14),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: widget.onOpenLine == null ? null : () => widget.onOpenLine!(line),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('"${line.text}"', maxLines: 3, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyLarge),
-                    const SizedBox(height: 2),
-                    Text(formatWhen(line.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-    ];
-    final choices = Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -280,31 +305,6 @@ class _VoiceNamerState extends State<VoiceNamer> {
             ),
             if (widget.onSkip != null) TextButton(onPressed: widget.onSkip, child: const Text('Not now')),
           ],
-        ),
-      ],
-    );
-    if (!widget.pinChoices) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [header, const SizedBox(height: 14), ...samples, const SizedBox(height: 8), choices],
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-            children: [?widget.intro, header, const SizedBox(height: 14), ...samples],
-          ),
-        ),
-        Material(
-          color: t.colorScheme.surfaceContainer,
-          child: SafeArea(
-            top: false,
-            child: Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 4), child: choices),
-          ),
         ),
       ],
     );
@@ -374,6 +374,20 @@ class _NameVoicesScreenState extends State<NameVoicesScreen> {
     final v = _current;
     return Scaffold(
       appBar: AppBar(title: const Text("Who's this?")),
+      // The choices stay in view (and above the keyboard while typing a
+      // name); messages such as Undo float above them.
+      bottomNavigationBar: v == null
+          ? null
+          : Material(
+              color: t.colorScheme.surfaceContainer,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(20, 12, 20, 4 + MediaQuery.viewInsetsOf(context).bottom),
+                  child: VoiceChoices(voiceId: v.clusterId, people: s.speakers.profiles(), onChoice: _choose, onSkip: _skip),
+                ),
+              ),
+            ),
       body: v == null
           ? EmptyState(
               icon: Icons.how_to_reg_rounded,
@@ -383,21 +397,18 @@ class _NameVoicesScreenState extends State<NameVoicesScreen> {
                   : 'Named ${_named == 1 ? '1 voice' : '$_named voices'}. Thank you!',
               action: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
             )
-          : VoiceNamer(
-              key: ValueKey(v.clusterId),
-              voice: v,
-              people: s.speakers.profiles(),
-              onChoice: _choose,
-              onSkip: _skip,
-              onOpenLine: (line) => widget.openLine(context, line),
-              pinChoices: true,
-              intro: Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  _waiting.length == 1 ? 'Last voice to name' : '${_waiting.length} voices to name',
-                  style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary),
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    _waiting.length == 1 ? 'Last voice to name' : '${_waiting.length} voices to name',
+                    style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary),
+                  ),
                 ),
-              ),
+                VoiceSummary(voice: v, onOpenLine: (line) => widget.openLine(context, line)),
+              ],
             ),
     );
   }

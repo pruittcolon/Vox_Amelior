@@ -421,20 +421,33 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800, color: t.colorScheme.onTertiaryContainer),
               ),
               for (final g in sorted)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Row(
-                    children: [
-                      SpeakerAvatar(label: g.value.label, known: false, radius: 16),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '${g.value.label} · ${g.value.n == 1 ? '1 line' : '${g.value.n} lines'} here',
-                          style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onTertiaryContainer),
+                // The whole row is the button; its words wrap on a narrow screen.
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _nameVoice(g.key),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        SpeakerAvatar(label: g.value.label, known: false, radius: 16),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '${g.value.label} · ${g.value.n == 1 ? '1 line' : '${g.value.n} lines'} here',
+                            style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onTertiaryContainer),
+                          ),
                         ),
-                      ),
-                      FilledButton.tonal(onPressed: () => _nameVoice(g.key), child: const Text("Who's this?")),
-                    ],
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            "Who's this?",
+                            textAlign: TextAlign.end,
+                            style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded, color: t.colorScheme.primary),
+                      ],
+                    ),
                   ),
                 ),
             ],

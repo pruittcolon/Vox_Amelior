@@ -15,6 +15,10 @@ adb logcat -c || true
 # Warnings and errors from everything, plus the app's own log.
 adb logcat -v time '*:W' 'flutter:I' 'ActivityManager:I' > "$OUT/logcat.txt" 2>&1 &
 
+# An overloaded emulator shows "Pixel Launcher isn't responding" over the
+# app; the tour is about the app, not the launcher.
+adb shell settings put global hide_error_dialogs 1 || true
+
 # Screenshots on request: the tour logs "TOUR_SHOT <name>" and waits.
 ( adb logcat -v raw -s flutter:I | while IFS= read -r line; do
     case "$line" in

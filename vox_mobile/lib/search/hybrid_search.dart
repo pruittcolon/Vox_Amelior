@@ -98,9 +98,30 @@ class HybridSearch {
     return _index;
   }
 
+  /// Little words that say nothing about what a line is about: a search
+  /// for "when is the vet" looks for "vet", not every line with "the".
+  static const Set<String> commonWords = {
+    'a', 'about', 'after', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'can',
+    'could', 'did', 'do', 'does', 'for', 'from', 'had', 'has', 'have', 'he', 'her', 'him', 'his', 'how', 'i', 'if',
+    'in', 'into', 'is', 'it', 'its', 'just', 'me', 'my', 'no', 'not', 'of', 'on', 'or', 'our', 'out', 'over', 'she',
+    'so', 'some', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'to', 'up', 'us',
+    'was', 'we', 'were', 'what', 'when', 'where', 'which', 'who', 'why', 'will', 'with', 'would', 'you', 'your',
+  };
+
+  /// The words of [query] worth matching: [commonWords] are left out,
+  /// unless they are all there is.
+  static List<String> keywordsOf(String query) {
+    final all = query.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final kept = [
+      for (final w in all)
+        if (!commonWords.contains(w.toLowerCase().replaceAll(RegExp(r"[^\p{L}\p{N}']", unicode: true), ''))) w,
+    ];
+    return kept.isEmpty ? all : kept;
+  }
+
   /// Lines containing [query]'s words, best first.
   List<SegmentView> words(String query, SearchFilters f, {int limit = 50}) {
-    final keywords = query.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final keywords = keywordsOf(query);
     if (keywords.isEmpty) return const [];
     return transcripts.search(SegmentQuery(
       keywords: keywords,

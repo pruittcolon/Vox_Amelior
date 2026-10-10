@@ -293,6 +293,12 @@ void main() {
       });
     });
 
+    test('little words are not searched for, unless they are all there is', () {
+      expect(HybridSearch.keywordsOf('when is the vet?'), ['vet?']);
+      expect(HybridSearch.keywordsOf('  The  '), ['The']);
+      expect(HybridSearch.keywordsOf("Ericah's electric bill"), ["Ericah's", 'electric', 'bill']);
+    });
+
     test('rank fusion: in both lists beats top of one', () {
       final fused = HybridSearch.fuse([
         [1, 2, 3],

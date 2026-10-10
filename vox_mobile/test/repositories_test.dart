@@ -42,6 +42,18 @@ void main() {
       expect(repo.conversations().first.segmentCount, 1);
     });
 
+    test('a line from earlier on goes to its own time, not into the newest conversation', () {
+      final today = add('good morning', 600);
+      final yesterday = add('from the day before', -1440);
+      expect(yesterday.conversationId, isNot(today.conversationId));
+      expect(add('a minute later', 601).conversationId, today.conversationId);
+      // Heard just before, transcribed after: it opens the conversation.
+      final before = add('just before', 598);
+      expect(before.conversationId, today.conversationId);
+      expect(repo.conversation(today.conversationId).map((l) => l.text), ['just before', 'good morning', 'a minute later']);
+      expect(repo.conversationsBetween(base, base.add(const Duration(days: 1))).single.preview, 'just before');
+    });
+
     test('full-text search is stemmed, ranked and case-insensitive', () {
       add('The plumbers are coming Tuesday', 0);
       add('we need milk and eggs', 1);

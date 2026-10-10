@@ -278,6 +278,24 @@ void main() {
       expect(p.hasReadyChunk, isTrue, reason: '30 s of speech');
     });
 
+    test('a change noticed a moment late: a short sentence goes to the person who said it', () {
+      // 11 words over 6 s; "Perfect." starts at 2.73 s, the change is noticed at 3.2 s.
+      final p = processor(
+        ['did you see the lake. Perfect. I will pack the food'],
+        diarizer: _FakeDiarizer(activity(6, [(0, 0, 3.2), (1, 3.2, 6)])),
+      );
+      expect(p.process(twoPeople(), t0).map((s) => s.text), ['did you see the lake.', 'Perfect. I will pack the food']);
+    });
+
+    test('a change noticed a moment early: the end of a sentence stays with who said it', () {
+      // "lake." starts at 2.18 s, the change is noticed at 2.0 s.
+      final p = processor(
+        ['did you see the lake. Perfect. I will pack the food'],
+        diarizer: _FakeDiarizer(activity(6, [(0, 0, 2.0), (1, 2.0, 6)])),
+      );
+      expect(p.process(twoPeople(), t0).map((s) => s.text), ['did you see the lake.', 'Perfect. I will pack the food']);
+    });
+
     test('sherpa tokens become words with the time of their first piece', () {
       final w = wordsFromTokens([' are', ' you', ' com', 'ing', '\u2581yes'], [0.1, 0.4, 0.8, 0.9, 1.5]);
       expect(w.map((e) => e.text), ['are', 'you', 'coming', 'yes']);

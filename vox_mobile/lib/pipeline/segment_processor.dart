@@ -381,13 +381,48 @@ class SegmentProcessor {
               .trim(),
       ];
     }
-    final buckets = [for (final _ in parts) <String>[]];
+    final buckets = [for (final _ in parts) <TimedWord>[]];
     for (final w in l.words) {
       var i = parts.indexWhere((t) => w.start < t.end);
       if (i < 0) i = parts.length - 1;
-      buckets[i].add(w.text);
+      buckets[i].add(w);
     }
-    return [for (final b in buckets) b.join(' ')];
+    for (var i = 0; i + 1 < parts.length; i++) {
+      _snapToSentence(buckets[i], buckets[i + 1], parts[i].end);
+    }
+    return [for (final b in buckets) b.map((w) => w.text).join(' ')];
+  }
+
+  /// How far from a speaker change a sentence end may be and still be
+  /// taken as the real change.
+  static const double sentenceSnapSeconds = 0.8;
+
+  /// The speaker-change model notices a new voice a moment late (or early),
+  /// so a word or two can land with the wrong person: "…by the lake.
+  /// Perfect." / "I will pack…". A sentence of at most two words that began
+  /// just before the change goes to the next person; the end of a sentence
+  /// cut just after the change goes back to the person who said it.
+  static void _snapToSentence(List<TimedWord> left, List<TimedWord> right, double change) {
+    bool ends(String w) => RegExp(r'[.?!]["”’)]*$').hasMatch(w);
+    if (left.length > 1 && ends(left.last.text)) {
+      var i = left.length - 1;
+      while (i > 0 && !ends(left[i - 1].text)) {
+        i--;
+      }
+      final tail = left.length - i;
+      if (i > 0 && tail <= 2 && change - left[i].start <= sentenceSnapSeconds) {
+        right.insertAll(0, left.sublist(i));
+        left.removeRange(i, left.length);
+        return;
+      }
+    }
+    if (left.isNotEmpty && !ends(left.last.text)) {
+      final end = right.indexWhere((w) => ends(w.text));
+      if (end >= 0 && end < 2 && end + 1 < right.length && right[end].start - change <= sentenceSnapSeconds) {
+        left.addAll(right.sublist(0, end + 1));
+        right.removeRange(0, end + 1);
+      }
+    }
   }
 
   SegmentView _save({

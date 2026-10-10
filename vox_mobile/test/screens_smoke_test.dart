@@ -163,7 +163,15 @@ void main() {
 
   testWidgets('conversation: "Not [name]" and "New person…" in the menu', (tester) async {
     await show(tester, ConversationScreen(services: s, conversationId: conversationId));
-    await tester.tap(find.textContaining('Line 0 about').first);
+    // Lines are built as they scroll into view.
+    final line = find.textContaining('Line 0 about').first;
+    await tester.scrollUntilVisible(
+      line,
+      200,
+      scrollable: find.descendant(of: find.byKey(const ValueKey('conversation-lines')), matching: find.byType(Scrollable)).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(line);
     await tester.pumpAndSettle();
     expect(find.text('Not Alexandria Montgomery'), findsOneWidget);
     final sheet = find.descendant(of: find.byType(BottomSheet), matching: find.byType(Scrollable)).first;

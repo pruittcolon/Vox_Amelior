@@ -78,21 +78,47 @@ class ModelCatalog {
 
   static const String _sherpa = 'https://github.com/k2-fsa/sherpa-onnx/releases/download';
 
+  /// sherpa-onnx's Parakeet exports come as .tar.bz2 archives. Unpacking
+  /// one on a phone takes minutes and needs room for the archive, the tar
+  /// and the files at once, so this repo's CI republishes the files,
+  /// unchanged (`republish-speech-models.yml`), and phones download them
+  /// directly. Installs made from the archives stay valid: same files.
+  static const String _int8Files = 'https://github.com/pruittcolon/Vox_Amelior/releases/download/parakeet-tdt-0.6b-v2-int8-files';
+  static const String _fp16Files = 'https://github.com/pruittcolon/Vox_Amelior/releases/download/parakeet-tdt-0.6b-v2-fp16-files';
+  static const RemoteFile _parakeetTokens = RemoteFile(
+    url: '$_fp16Files/tokens.txt',
+    fileName: 'tokens.txt',
+    sha256: 'ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d',
+    sizeBytes: 9384,
+  );
+
   static const ModelAsset parakeet = ModelAsset(
     id: 'parakeet-tdt-0.6b-v2-int8',
     kind: ModelKind.speechToText,
     title: 'Parakeet speech recognition',
     description: 'NVIDIA Parakeet TDT 0.6B (int8). Smaller and lighter on memory; downloads only if you choose it.',
-    approxDownloadBytes: 482468385,
+    approxDownloadBytes: 652184296 + 7257753 + 1739080 + 9384,
     essential: false,
     files: [
       RemoteFile(
-        url: '$_sherpa/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2',
-        fileName: 'parakeet.tar.bz2',
-        sha256: '157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad',
-        sizeBytes: 482468385,
-        extractFromArchive: {'encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'},
+        url: '$_int8Files/encoder.int8.onnx',
+        fileName: 'encoder.int8.onnx',
+        sha256: 'a32b12d17bbbc309d0686fbbcc2987b5e9b8333a7da83fa6b089f0a2acd651ab',
+        sizeBytes: 652184296,
       ),
+      RemoteFile(
+        url: '$_int8Files/decoder.int8.onnx',
+        fileName: 'decoder.int8.onnx',
+        sha256: 'b6bb64963457237b900e496ee9994b59294526439fbcc1fecf705b31a15c6b4e',
+        sizeBytes: 7257753,
+      ),
+      RemoteFile(
+        url: '$_int8Files/joiner.int8.onnx',
+        fileName: 'joiner.int8.onnx',
+        sha256: '7946164367946e7f9f29a122407c3252b680dbae9a51343eb2488d057c3c43d2',
+        sizeBytes: 1739080,
+      ),
+      _parakeetTokens,
     ],
   );
 
@@ -103,15 +129,27 @@ class ModelCatalog {
     kind: ModelKind.speechToText,
     title: 'Parakeet speech recognition (fp16)',
     description: 'NVIDIA Parakeet TDT 0.6B in half precision (fp16). Turns speech into text on your phone.',
-    approxDownloadBytes: 1120982957,
+    approxDownloadBytes: 1239245548 + 14446596 + 3456459 + 9384,
     files: [
       RemoteFile(
-        url: '$_sherpa/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16.tar.bz2',
-        fileName: 'parakeet-fp16.tar.bz2',
-        sha256: '37f67a1a6c942dae27d345ee395fbd19e25ee48996faf70fca25779026054cf0',
-        sizeBytes: 1120982957,
-        extractFromArchive: {'encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt'},
+        url: '$_fp16Files/encoder.fp16.onnx',
+        fileName: 'encoder.fp16.onnx',
+        sha256: 'bb1cc16e8223472b36bd637e2f77725d62b9895eaf609fec6cc91183e2753e38',
+        sizeBytes: 1239245548,
       ),
+      RemoteFile(
+        url: '$_fp16Files/decoder.fp16.onnx',
+        fileName: 'decoder.fp16.onnx',
+        sha256: '45b04b71eb29dddeeb560e13a515291615bc541f8f5e9e336004956c0ce1a538',
+        sizeBytes: 14446596,
+      ),
+      RemoteFile(
+        url: '$_fp16Files/joiner.fp16.onnx',
+        fileName: 'joiner.fp16.onnx',
+        sha256: '5d9d840eff9a3f3724ebce6d84c52038ee4664a08955c5a69d277f2d9733f9b1',
+        sizeBytes: 3456459,
+      ),
+      _parakeetTokens,
     ],
   );
 

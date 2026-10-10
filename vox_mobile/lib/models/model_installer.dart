@@ -70,6 +70,15 @@ class ModelInstaller {
     final dir = store.dir(asset)..createSync(recursive: true);
     final marker = File(p.join(dir.path, '.installed'));
     if (marker.existsSync()) marker.deleteSync(); // stale/invalid marker
+    // Anything else left from an earlier way the model was published (say
+    // a half-downloaded archive) is not wanted any more, and can be large.
+    final keep = {
+      for (final f in asset.files) ...[f.fileName, '${f.fileName}.part'],
+      ...asset.installedFileNames,
+    };
+    for (final f in dir.listSync().whereType<File>()) {
+      if (!keep.contains(p.basename(f.path))) f.deleteSync();
+    }
 
     final headers = <String, String>{
       if (token != null && token.trim().isNotEmpty) 'Authorization': 'Bearer ${token.trim()}',

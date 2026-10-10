@@ -535,9 +535,11 @@ class _TimelineScreenState extends State<TimelineScreen> with RefreshWhenShown {
 
   /// [text] with the searched words in bold.
   TextSpan _highlight(String text, TextStyle? bold) {
-    final words = _search.text.trim().split(RegExp(r'\s+')).where((w) => w.length > 1).map(RegExp.escape).toList();
+    final words = HybridSearch.keywordsOf(_search.text).where((w) => w.length > 1).map(RegExp.escape).toList();
     if (words.isEmpty) return TextSpan(text: text);
-    final re = RegExp('(${words.join('|')})', caseSensitive: false);
+    // Whole words and their endings ("bill" marks "bills"), never a piece
+    // of another word ("is" in "his"); little words are not marked at all.
+    final re = RegExp('\\b(?:${words.join('|')})\\w*', caseSensitive: false, unicode: true);
     final spans = <TextSpan>[];
     var at = 0;
     for (final m in re.allMatches(text)) {

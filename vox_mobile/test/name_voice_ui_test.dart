@@ -77,6 +77,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Scrolls the conversation until [f] is on screen (lines are built as
+  /// they scroll into view).
+  Future<void> reveal(WidgetTester tester, Finder f) async {
+    final list = find.descendant(of: find.byKey(const ValueKey('conversation-lines')), matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(f, 200, scrollable: list);
+    await tester.pumpAndSettle();
+  }
+
   List<SegmentView> linesOf(String voiceOrPerson) =>
       s.transcripts.recent().where((l) => l.clusterId == voiceOrPerson || l.speakerId == voiceOrPerson).toList();
 
@@ -85,7 +93,7 @@ void main() {
     expect(find.text('A voice without a name'), findsOneWidget);
     expect(find.text('Guest 1 · 2 lines here'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, "Who's this?"));
+    await tester.tap(find.text("Who's this?").first);
     await tester.pumpAndSettle();
     expect(find.text('Who is Guest 1?'), findsOneWidget);
     expect(find.textContaining('almost twice what we paid'), findsWidgets, reason: 'what the voice said, to recognise it');
@@ -121,7 +129,7 @@ void main() {
 
   testWidgets('typing a name that is already in the household picks that person', (tester) async {
     await show(tester, ConversationScreen(services: s, conversationId: conversation));
-    await tester.tap(find.widgetWithText(FilledButton, "Who's this?"));
+    await tester.tap(find.text("Who's this?").first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Someone new'));
     await tester.pumpAndSettle();
@@ -134,6 +142,7 @@ void main() {
 
   testWidgets("a guest's line leads to naming the whole voice", (tester) async {
     await show(tester, ConversationScreen(services: s, conversationId: conversation));
+    await reveal(tester, find.textContaining('rent is due'));
     await tester.tap(find.textContaining('rent is due'));
     await tester.pumpAndSettle();
     expect(find.text('Who said this?'), findsOneWidget);
@@ -145,6 +154,7 @@ void main() {
 
   testWidgets("a named person's line: one tap gives just that line to someone else", (tester) async {
     await show(tester, ConversationScreen(services: s, conversationId: conversation));
+    await reveal(tester, find.textContaining('stop eating out'));
     await tester.tap(find.textContaining('stop eating out'));
     await tester.pumpAndSettle();
     expect(find.text("Said by Pruitt. If not, it's…"), findsOneWidget);

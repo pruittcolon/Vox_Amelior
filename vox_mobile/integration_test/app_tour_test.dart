@@ -283,9 +283,7 @@ class _Tour {
   }
 
   Future<void> _settings() async {
-    await tab('Now');
-    await t.tap(find.byTooltip('Settings and more').first);
-    await settle();
+    await openMore();
     await shot('more');
     for (final page in ['Places', 'Automations', 'Appearance', 'Voice clips', 'Settings']) {
       await tapText(page);
@@ -548,10 +546,15 @@ class _Tour {
     await settle();
   }
 
-  Future<void> openModels() async {
-    await tab('Now');
+  /// Settings from People's top bar (Now's gear scrolls away with its page).
+  Future<void> openMore() async {
+    await tab('People');
     await t.tap(find.byTooltip('Settings and more').first);
     await settle();
+  }
+
+  Future<void> openModels() async {
+    await openMore();
     await tapText('Models');
   }
 

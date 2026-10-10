@@ -52,11 +52,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Scrolls [f] into view, up or down (every row of the list is built).
   Future<void> reveal(WidgetTester tester, Finder f) async {
-    final list = find.descendant(of: find.byKey(const ValueKey('models-list')), matching: find.byType(Scrollable)).first;
-    await tester.scrollUntilVisible(f, 200, scrollable: list);
+    await tester.ensureVisible(f);
     await tester.pumpAndSettle();
   }
+
+  Finder row(String id) => find.byKey(ValueKey('model-$id'));
 
   testWidgets('each job with its choices, and which model is in use', (tester) async {
     install(ModelCatalog.textEmbedder);
@@ -76,8 +78,8 @@ void main() {
     install(ModelCatalog.textEmbedder);
     install(ModelCatalog.textEmbedderSmall);
     await show(tester);
-    await reveal(tester, find.text('Small · 4-bit'));
-    await tester.tap(find.text('Small · 4-bit'));
+    await reveal(tester, row(ModelCatalog.textEmbedderSmall.id));
+    await tester.tap(row(ModelCatalog.textEmbedderSmall.id));
     await tester.pumpAndSettle();
     expect(s.settings.value.searchModel, 'q4');
     expect(s.searchModel?.id, ModelCatalog.textEmbedderSmall.id);
@@ -88,7 +90,7 @@ void main() {
 
   testWidgets('a big download is confirmed first', (tester) async {
     await show(tester);
-    final full = find.text('Full precision · fp32').last;
+    final full = row(ModelCatalog.textEmbedderFull.id);
     await reveal(tester, full);
     await tester.tap(full);
     await tester.pumpAndSettle();
@@ -100,12 +102,12 @@ void main() {
 
   testWidgets('search by meaning and tone of voice can be switched off', (tester) async {
     await show(tester);
-    await reveal(tester, find.text('Off · words only'));
-    await tester.tap(find.text('Off · words only'));
+    await reveal(tester, row('off-search'));
+    await tester.tap(row('off-search'));
     await tester.pumpAndSettle();
     expect(s.settings.value.meaningSearch, isFalse);
-    await reveal(tester, find.text('Off'));
-    await tester.tap(find.text('Off'));
+    await reveal(tester, row('off-tone'));
+    await tester.tap(row('off-tone'));
     await tester.pumpAndSettle();
     expect(s.settings.value.hearTone, isFalse);
   });

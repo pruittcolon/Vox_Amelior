@@ -234,8 +234,11 @@ class _PeopleScreenState extends State<PeopleScreen> with RefreshWhenShown {
               ),
             ],
           ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+          // Wraps onto two lines rather than overflowing with large text.
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            runSpacing: 4,
             children: [
               TextButton(
                 onPressed: () async {
@@ -251,7 +254,6 @@ class _PeopleScreenState extends State<PeopleScreen> with RefreshWhenShown {
                 },
                 child: const Text('Forget'),
               ),
-              const SizedBox(width: 4),
               FilledButton.tonal(onPressed: () => nameVoice(context, services, v.clusterId), child: const Text("Who's this?")),
             ],
           ),
