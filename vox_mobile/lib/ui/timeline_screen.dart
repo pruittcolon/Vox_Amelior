@@ -31,7 +31,7 @@ class TimelineScreen extends StatefulWidget {
   State<TimelineScreen> createState() => _TimelineScreenState();
 }
 
-class _TimelineScreenState extends State<TimelineScreen> {
+class _TimelineScreenState extends State<TimelineScreen> with RefreshWhenShown {
   final _search = TextEditingController();
   Timer? _debounce;
   List<DaySummary> _days = const [];
@@ -80,8 +80,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     _people.addAll(widget.initialPeople);
     _moods.addAll(widget.initialMoods);
     if (widget.initialQuery != null) _search.text = widget.initialQuery!;
-    _load();
-    s.dataVersion.addListener(_load);
+    s.dataVersion.addListener(onDataChanged);
     // Meaning search catching up: refresh the "lines ready" note, and the
     // results once every line is ready.
     _indexing = s.indexer.progress.listen((p) {
@@ -95,11 +94,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
   @override
   void dispose() {
     unawaited(_indexing?.cancel());
-    s.dataVersion.removeListener(_load);
+    s.dataVersion.removeListener(onDataChanged);
     _debounce?.cancel();
     _search.dispose();
     super.dispose();
   }
+
+  @override
+  void reload() => _load();
 
   void _load() {
     if (!mounted) return;

@@ -26,7 +26,7 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
   /// First line of a conversation that is not TV / background.
   static const String _previewColumn = '''
 (SELECT s.text FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
- WHERE s.conversation_id = c.id AND COALESCE(uc.background, 0) = 0 ORDER BY s.id LIMIT 1) AS preview''';
+ WHERE s.conversation_id = c.id AND COALESCE(uc.background, 0) = 0 ORDER BY s.started_at, s.id LIMIT 1) AS preview''';
 
   /// Saves an utterance, attaching it to the current conversation or opening
   /// a new one when the gap since the last utterance is long enough.
@@ -95,9 +95,11 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
     return rows.map(_view).toList();
   }
 
+  /// A conversation's lines in the order they were said (a line split at a
+  /// speaker change is stored later than the lines around it).
   List<SegmentView> conversation(int conversationId) {
     final rows = _db.raw.select(
-      '$_selectSegments WHERE s.conversation_id = ? ORDER BY s.id',
+      '$_selectSegments WHERE s.conversation_id = ? ORDER BY s.started_at, s.id',
       [conversationId],
     );
     return rows.map(_view).toList();
@@ -439,7 +441,7 @@ ORDER BY c.id DESC LIMIT ?''',
     if (tokens.isEmpty) {
       final clause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
       final rows = _db.raw.select(
-        '$_selectSegments $clause ORDER BY s.id DESC LIMIT ?',
+        '$_selectSegments $clause ORDER BY s.started_at DESC, s.id DESC LIMIT ?',
         [...args, q.limit],
       );
       return rows.map(_view).toList();
@@ -453,23 +455,28 @@ ORDER BY c.id DESC LIMIT ?''',
     return rows.map(_view).toList();
   }
 
-  /// Up to [before]/[after] neighbouring segments of [seg] in its conversation.
+  /// Up to [before]/[after] segments said just before and after [seg] in its conversation.
   List<SegmentView> around(SegmentView seg, {int before = 2, int after = 2}) {
+    final t = seg.startedAt.millisecondsSinceEpoch;
     final prev = _db.raw.select(
-      '$_selectSegments WHERE s.conversation_id = ? AND s.id < ? ORDER BY s.id DESC LIMIT ?',
-      [seg.conversationId, seg.id, before],
+      '$_selectSegments WHERE s.conversation_id = ? AND (s.started_at < ? OR (s.started_at = ? AND s.id < ?)) '
+      'ORDER BY s.started_at DESC, s.id DESC LIMIT ?',
+      [seg.conversationId, t, t, seg.id, before],
     );
     final next = _db.raw.select(
-      '$_selectSegments WHERE s.conversation_id = ? AND s.id > ? ORDER BY s.id LIMIT ?',
-      [seg.conversationId, seg.id, after],
+      '$_selectSegments WHERE s.conversation_id = ? AND (s.started_at > ? OR (s.started_at = ? AND s.id > ?)) '
+      'ORDER BY s.started_at, s.id LIMIT ?',
+      [seg.conversationId, t, t, seg.id, after],
     );
     return [...prev.map(_view).toList().reversed, seg, ...next.map(_view)];
   }
 
-  /// Segments between [from] (inclusive) and [to] (exclusive), oldest first.
-  List<SegmentView> between(DateTime from, DateTime to, {int limit = 2000}) {
+  /// Segments between [from] (inclusive) and [to] (exclusive), oldest first
+  /// (or the newest [limit], newest first). A negative [limit] means all.
+  List<SegmentView> between(DateTime from, DateTime to, {int limit = 2000, bool newestFirst = false}) {
+    final order = newestFirst ? 'DESC' : '';
     final rows = _db.raw.select(
-      '$_selectSegments WHERE s.started_at >= ? AND s.started_at < ? ORDER BY s.id LIMIT ?',
+      '$_selectSegments WHERE s.started_at >= ? AND s.started_at < ? ORDER BY s.started_at $order, s.id $order LIMIT ?',
       [from.millisecondsSinceEpoch, to.millisecondsSinceEpoch, limit],
     );
     return rows.map(_view).toList();
@@ -514,7 +521,8 @@ ORDER BY c.id DESC LIMIT ?''',
 
   /// Plain-text export, oldest first.
   String exportText({DateTime? from, DateTime? to}) {
-    final rows = between(from ?? DateTime.fromMillisecondsSinceEpoch(0), to ?? DateTime(9999));
+    // Everything: not just the first 2000 lines.
+    final rows = between(from ?? DateTime.fromMillisecondsSinceEpoch(0), to ?? DateTime(9999), limit: -1);
     final b = StringBuffer();
     int? lastConversation;
     for (final s in rows) {

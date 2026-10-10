@@ -93,6 +93,28 @@ class _ModelsScreenState extends State<ModelsScreen> {
     final t = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: Text(widget.onDone == null ? 'Models' : 'Set up Vox')),
+      // At setup the way on is always in view, however far the list scrolls.
+      bottomNavigationBar: widget.onDone == null
+          ? null
+          : ListenableBuilder(
+              listenable: s.downloads,
+              builder: (context, _) => SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton(
+                        onPressed: s.downloads.speechReady ? widget.onDone : null,
+                        child: Text(s.downloads.speechReady ? 'Continue' : 'Waiting for speech models…'),
+                      ),
+                      const SizedBox(height: 6),
+                      Text('You can leave this screen; downloads keep going.', textAlign: TextAlign.center, style: t.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ),
+            ),
       body: ListenableBuilder(
         listenable: Listenable.merge([s.downloads, s.settings]),
         builder: (context, _) {
@@ -131,17 +153,19 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 ),
               ],
               _section(context, 'Hearing speech', Icons.hearing_rounded, 'Turns speech into text. Larger models are a little more accurate and slower.', [
-                for (final (m, label) in [
-                  (ModelCatalog.parakeetFp16, 'Standard · fp16'),
-                  (ModelCatalog.parakeet, 'Small · int8'),
-                  (ModelCatalog.parakeetFp32, 'Full precision · fp32'),
+                for (final (m, label, blurb) in [
+                  (ModelCatalog.parakeetFp16, 'Standard · fp16', 'Recommended: accurate and quick.'),
+                  (ModelCatalog.parakeet, 'Small · int8', 'Smaller and lighter on memory; a little less accurate.'),
+                  (ModelCatalog.parakeetFp32, 'Full precision · fp32', 'The most accurate; the largest and slowest.'),
                 ])
                   _ChoiceRow(
                     asset: m,
                     label: label,
+                    blurb: blurb,
                     downloads: s.downloads,
                     chosen: st.asrAsset.id == m.id,
                     inUse: asr?.id == m.id,
+                    replacing: asr != null && asr.id != m.id,
                     onChoose: () async {
                       if (!await _okToDownload(m)) return;
                       await s.selectSpeechModel(ModelCatalog.recognizerName(m));
@@ -161,6 +185,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                 _ChoiceRow(
                   asset: ModelCatalog.toneModel,
                   label: 'On · SenseVoice Small',
+                  blurb: 'Notes how each line sounded, and laughter or music.',
                   downloads: s.downloads,
                   chosen: st.hearTone,
                   inUse: st.hearTone && installed(ModelCatalog.toneModel),
@@ -174,13 +199,19 @@ class _ModelsScreenState extends State<ModelsScreen> {
               _section(context, 'Search by meaning', Icons.manage_search_rounded,
                   'Finds what was said in other words, and picks what Gemma reads to answer. Each size prepares every line once.', [
                 _OffRow(label: 'Off · words only', chosen: !st.meaningSearch, onChoose: () => s.updateSettings(st.copyWith(meaningSearch: false))),
-                for (final m in [ModelCatalog.textEmbedderSmall, ModelCatalog.textEmbedder, ModelCatalog.textEmbedderFull])
+                for (final (m, blurb) in [
+                  (ModelCatalog.textEmbedderSmall, 'The quickest and lightest; nearly as good.'),
+                  (ModelCatalog.textEmbedder, 'Recommended: a good balance.'),
+                  (ModelCatalog.textEmbedderFull, 'The most precise; about 1.3 GB of memory while it works.'),
+                ])
                   _ChoiceRow(
                     asset: m,
                     label: ModelCatalog.embedderLabel(m),
+                    blurb: blurb,
                     downloads: s.downloads,
                     chosen: st.meaningSearch && st.searchAsset.id == m.id,
                     inUse: st.meaningSearch && search?.id == m.id,
+                    replacing: search != null && search.id != m.id,
                     onChoose: () async {
                       if (await _okToDownload(m)) await s.selectSearchModel(ModelCatalog.embedderName(m));
                     },
@@ -192,6 +223,11 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   _ChoiceRow(
                     asset: m,
                     label: m.title,
+                    blurb: switch (m.id) {
+                      'gemma-4-e4b-it' => 'The best answers; needs about 8 GB of RAM.',
+                      'gemma-4-e2b-it' => 'Quicker answers, for phones with less memory.',
+                      _ => m.description,
+                    },
                     downloads: s.downloads,
                     chosen: st.llmId == m.id,
                     inUse: st.llmId == m.id && installed(m),
@@ -253,15 +289,6 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   ],
                 ),
               ),
-              if (widget.onDone != null) ...[
-                const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: s.downloads.speechReady ? widget.onDone : null,
-                  child: Text(s.downloads.speechReady ? 'Continue' : 'Waiting for speech models…'),
-                ),
-                const SizedBox(height: 8),
-                Text('You can leave this screen; downloads keep going.', textAlign: TextAlign.center, style: t.textTheme.bodySmall),
-              ],
             ],
           );
         },
@@ -326,17 +353,25 @@ class _ChoiceRow extends StatelessWidget {
   const _ChoiceRow({
     required this.asset,
     required this.label,
+    required this.blurb,
     required this.downloads,
     required this.chosen,
     required this.inUse,
     required this.onChoose,
+    this.replacing = false,
     this.onDelete,
     this.onEdit,
   });
 
   final ModelAsset asset;
   final String label;
+
+  /// One line on what this choice is good for.
+  final String blurb;
   final ModelDownloads downloads;
+
+  /// Another model does this job now (this one takes over once ready).
+  final bool replacing;
 
   /// Picked in settings (it may still be downloading).
   final bool chosen;
@@ -364,7 +399,7 @@ class _ChoiceRow extends StatelessWidget {
             ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(value: st.progress, minHeight: 6)),
             const SizedBox(height: 4),
             Text(
-              '${describeDownload(st)}${chosen ? ' · switches when ready' : ''}',
+              '${describeDownload(st)}${chosen && replacing ? ' · switches when ready' : ''}',
               style: t.textTheme.bodySmall,
             ),
           ],
@@ -390,7 +425,7 @@ class _ChoiceRow extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(asset.description, maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text(blurb, maxLines: 2, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 6),
             status,
           ],

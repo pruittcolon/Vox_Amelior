@@ -183,3 +183,37 @@ class VoxCard extends StatelessWidget {
         child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
       );
 }
+
+/// For screens that reload when the archive changes: while hidden (a tab
+/// that is not selected, or a page covered by another) they only note that
+/// they are out of date, and reload once when shown again. While listening
+/// a line arrives every few seconds; hidden tabs then don't recompute
+/// everything each time. The first load also waits until the screen is shown.
+mixin RefreshWhenShown<T extends StatefulWidget> on State<T> {
+  bool _shown = false;
+  bool _stale = true;
+
+  /// Loads the screen's data (with setState).
+  void reload();
+
+  /// The data changed: reload now if shown, otherwise once shown again.
+  void onDataChanged() {
+    if (!mounted) return;
+    if (_shown) {
+      reload();
+    } else {
+      _stale = true;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // TickerMode is off for an unselected tab and for a page under another.
+    _shown = TickerMode.valuesOf(context).enabled;
+    if (_shown && _stale) {
+      _stale = false;
+      reload();
+    }
+  }
+}

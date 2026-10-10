@@ -58,7 +58,7 @@ jobs:
           ram-size: 6144M
           heap-size: 512M
           disk-size: 14G
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none -no-snapshot-save
           disable-animations: false
           working-directory: vox_mobile
           script: bash tool/run_tour.sh

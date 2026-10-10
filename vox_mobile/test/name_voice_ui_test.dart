@@ -104,7 +104,7 @@ void main() {
     expect(find.text('A voice without a name'), findsOneWidget);
   });
 
-  testWidgets("someone new: typed once, and the voice gets the name", (tester) async {
+  testWidgets('someone new: typed once, and the voice gets the name', (tester) async {
     await show(tester, ConversationScreen(services: s, conversationId: conversation));
     // The guest's name on its lines is a button too.
     await tester.tap(find.text("Who's this?").last);
@@ -112,7 +112,7 @@ void main() {
     await tester.tap(find.text('Someone new'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Grandma');
-    await tester.tap(find.byTooltip('Save name'));
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     final grandma = s.speakers.profiles().singleWhere((p) => p.name == 'Grandma');
     expect(linesOf(grandma.id), hasLength(2));
@@ -126,7 +126,7 @@ void main() {
     await tester.tap(find.text('Someone new'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'pruitt ');
-    await tester.tap(find.byTooltip('Save name'));
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(s.speakers.profiles(), hasLength(2), reason: 'no second Pruitt');
     expect(linesOf(pruitt), hasLength(4));

@@ -87,6 +87,9 @@ bool applyVoiceChoice(BuildContext context, AppServices s, VoiceToName voice, Vo
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(
       content: Text(done),
+      // Gone after a while, like any message; Undo is there until then.
+      persist: false,
+      duration: const Duration(seconds: 6),
       action: SnackBarAction(
         label: 'Undo',
         onPressed: () {
@@ -103,11 +106,28 @@ String _lines(int n) => n == 1 ? '1 line' : '$n lines';
 /// Who a voice is: what it said, then one tap on a person (or a new name,
 /// or TV / background). Used in a sheet and in [NameVoicesScreen].
 class VoiceNamer extends StatefulWidget {
-  const VoiceNamer({super.key, required this.voice, required this.people, required this.onChoice, this.onSkip, this.onOpenLine});
+  const VoiceNamer({
+    super.key,
+    required this.voice,
+    required this.people,
+    required this.onChoice,
+    this.onSkip,
+    this.onOpenLine,
+    this.pinChoices = false,
+    this.intro,
+  });
 
   final VoiceToName voice;
   final List<SpeakerProfile> people;
   final ValueChanged<VoiceChoice> onChoice;
+
+  /// Fills the space it is given: what the voice said scrolls, and the
+  /// choices stay in view at the bottom (a full screen). Otherwise it is
+  /// as tall as its content (a sheet).
+  final bool pinChoices;
+
+  /// Shown above the voice when [pinChoices] ("3 voices to name").
+  final Widget? intro;
 
   /// Shows a "Not now" button.
   final VoidCallback? onSkip;
@@ -160,54 +180,54 @@ class _VoiceNamerState extends State<VoiceNamer> {
     final t = Theme.of(context);
     final v = widget.voice;
     final muted = t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
+    final header = Row(
       children: [
-        Row(
-          children: [
-            SpeakerAvatar(label: v.label, known: false, radius: 24),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Who is ${v.label}?', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                  Text(
-                    '${_lines(v.lines)} · last heard ${formatWhen(v.lastHeard)}'
-                    '${v.heardWith.isEmpty ? '' : ' · with ${v.heardWith.join(', ')}'}',
-                    style: muted,
-                  ),
-                ],
+        SpeakerAvatar(label: v.label, known: false, radius: 24),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Who is ${v.label}?', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+              Text(
+                '${_lines(v.lines)} · last heard ${formatWhen(v.lastHeard)}'
+                '${v.heardWith.isEmpty ? '' : ' · with ${v.heardWith.join(', ')}'}',
+                style: muted,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        const SizedBox(height: 14),
-        for (final line in v.samples)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Material(
-              color: t.colorScheme.surfaceContainerHigh,
+      ],
+    );
+    final samples = [
+      for (final line in v.samples)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: t.colorScheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
               borderRadius: BorderRadius.circular(14),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: widget.onOpenLine == null ? null : () => widget.onOpenLine!(line),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('"${line.text}"', maxLines: 3, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyLarge),
-                      const SizedBox(height: 2),
-                      Text(formatWhen(line.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
-                    ],
-                  ),
+              onTap: widget.onOpenLine == null ? null : () => widget.onOpenLine!(line),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('"${line.text}"', maxLines: 3, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyLarge),
+                    const SizedBox(height: 2),
+                    Text(formatWhen(line.startedAt), style: t.textTheme.labelSmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                  ],
                 ),
               ),
             ),
           ),
-        const SizedBox(height: 8),
+        ),
+    ];
+    final choices = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
         Text("It's…", style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         Wrap(
@@ -229,20 +249,25 @@ class _VoiceNamerState extends State<VoiceNamer> {
         ),
         if (_typing) ...[
           const SizedBox(height: 12),
-          TextField(
-            controller: _name,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            textInputAction: TextInputAction.done,
-            decoration: InputDecoration(
-              labelText: 'Their name',
-              errorText: _error,
-              suffixIcon: IconButton(tooltip: 'Save name', icon: const Icon(Icons.check_rounded), onPressed: _saveNew),
-            ),
-            onSubmitted: (_) => _saveNew(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _name,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(labelText: 'Their name', errorText: _error),
+                  onSubmitted: (_) => _saveNew(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: _saveNew, child: const Text('Save')),
+            ],
           ),
         ],
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 4,
@@ -255,6 +280,31 @@ class _VoiceNamerState extends State<VoiceNamer> {
             ),
             if (widget.onSkip != null) TextButton(onPressed: widget.onSkip, child: const Text('Not now')),
           ],
+        ),
+      ],
+    );
+    if (!widget.pinChoices) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [header, const SizedBox(height: 14), ...samples, const SizedBox(height: 8), choices],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            children: [?widget.intro, header, const SizedBox(height: 14), ...samples],
+          ),
+        ),
+        Material(
+          color: t.colorScheme.surfaceContainer,
+          child: SafeArea(
+            top: false,
+            child: Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 4), child: choices),
+          ),
         ),
       ],
     );
@@ -333,23 +383,21 @@ class _NameVoicesScreenState extends State<NameVoicesScreen> {
                   : 'Named ${_named == 1 ? '1 voice' : '$_named voices'}. Thank you!',
               action: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
             )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
-              children: [
-                Text(
+          : VoiceNamer(
+              key: ValueKey(v.clusterId),
+              voice: v,
+              people: s.speakers.profiles(),
+              onChoice: _choose,
+              onSkip: _skip,
+              onOpenLine: (line) => widget.openLine(context, line),
+              pinChoices: true,
+              intro: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
                   _waiting.length == 1 ? 'Last voice to name' : '${_waiting.length} voices to name',
                   style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary),
                 ),
-                const SizedBox(height: 12),
-                VoiceNamer(
-                  key: ValueKey(v.clusterId),
-                  voice: v,
-                  people: s.speakers.profiles(),
-                  onChoice: _choose,
-                  onSkip: _skip,
-                  onOpenLine: (line) => widget.openLine(context, line),
-                ),
-              ],
+              ),
             ),
     );
   }

@@ -64,15 +64,53 @@ String formatDay(DateTime d, {DateTime? now}) {
   return '${d.day} ${months[d.month - 1]} ${d.year}';
 }
 
-/// Stable colour per speaker label so people are easy to tell apart.
-Color speakerColor(String label, {bool known = true}) {
-  if (!known) return const Color(0xFF868E96);
-  const palette = [Color(0xFF0E9F6E), Color(0xFF4F46E5), Color(0xFFE8590C), Color(0xFF9C36B5), Color(0xFF1C7ED6), Color(0xFFD6336C), Color(0xFF087F5B), Color(0xFFB08800)];
+const List<Color> _speakerPalette = [
+  Color(0xFF0E9F6E), Color(0xFF4F46E5), Color(0xFFE8590C), Color(0xFF9C36B5),
+  Color(0xFF1C7ED6), Color(0xFFD6336C), Color(0xFF087F5B), Color(0xFFB08800),
+];
+
+int _paletteIndex(String label) {
   var h = 0;
   for (final c in label.codeUnits) {
     h = (h * 31 + c) & 0x7fffffff;
   }
-  return palette[h % palette.length];
+  return h % _speakerPalette.length;
+}
+
+/// Each household member's colour (see [setHouseholdColors]).
+final Map<String, Color> _household = {};
+
+/// Gives everyone in the household a colour of their own, so two people
+/// never look alike (up to eight). Sorted by name, so colours stay put
+/// until someone is added or renamed.
+void setHouseholdColors(Iterable<String> names) {
+  _household
+    ..clear()
+    ..addAll(distinctSpeakerColors(names.toList()..sort()));
+}
+
+/// A colour per label: the one its letters pick when free, else the next
+/// free one.
+Map<String, Color> distinctSpeakerColors(Iterable<String> labels) {
+  final out = <String, Color>{};
+  final used = <int>{};
+  for (final label in labels) {
+    if (out.containsKey(label)) continue;
+    var i = _paletteIndex(label);
+    for (var k = 0; k < _speakerPalette.length && used.contains(i); k++) {
+      i = (i + 1) % _speakerPalette.length;
+    }
+    used.add(i);
+    out[label] = _speakerPalette[i];
+  }
+  return out;
+}
+
+/// Stable colour per speaker label so people are easy to tell apart. Guests
+/// are grey.
+Color speakerColor(String label, {bool known = true}) {
+  if (!known) return const Color(0xFF868E96);
+  return _household[label] ?? _speakerPalette[_paletteIndex(label)];
 }
 
 void showMessage(BuildContext context, String text) {

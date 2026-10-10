@@ -12,10 +12,49 @@ import 'package:vox_amelior_mobile/ui/name_voice.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Enrolled people and voices Vox has heard but cannot name yet.
-class PeopleScreen extends StatelessWidget {
+class PeopleScreen extends StatefulWidget {
   const PeopleScreen({super.key, required this.services});
 
   final AppServices services;
+
+  @override
+  State<PeopleScreen> createState() => _PeopleScreenState();
+}
+
+class _PeopleScreenState extends State<PeopleScreen> with RefreshWhenShown {
+  List<SpeakerProfile> _people = const [];
+  List<VoiceToName> _voices = const [];
+  List<UnknownCluster> _background = const [];
+  Map<String, PersonStats> _month = const {};
+  Map<String, DateTime> _heard = const {};
+
+  AppServices get services => widget.services;
+
+  @override
+  void initState() {
+    super.initState();
+    services.dataVersion.addListener(onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    services.dataVersion.removeListener(onDataChanged);
+    super.dispose();
+  }
+
+  @override
+  void reload() {
+    final now = DateTime.now();
+    setState(() {
+      _people = services.speakers.profiles();
+      _voices = services.transcripts.voicesToName(detailed: 30, samples: 1);
+      _background = services.speakers.clusters().where((g) => g.background).toList();
+      _month = {
+        for (final p in services.insights.people(InsightsScope(from: DateTime(now.year, now.month, now.day - 29)))) p.id: p,
+      };
+      _heard = services.insights.lastHeard();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,17 +65,13 @@ class PeopleScreen extends StatelessWidget {
         icon: const Icon(Icons.person_add_rounded),
         label: const Text('Add person'),
       ),
-      body: ValueListenableBuilder<int>(
-        valueListenable: services.dataVersion,
-        builder: (context, _, _) {
-          final people = services.speakers.profiles();
-          final voices = services.transcripts.voicesToName(detailed: 30, samples: 1);
-          final background = services.speakers.clusters().where((g) => g.background).toList();
-          final now = DateTime.now();
-          final month = {
-            for (final p in services.insights.people(InsightsScope(from: DateTime(now.year, now.month, now.day - 29)))) p.id: p,
-          };
-          final heard = services.insights.lastHeard();
+      body: Builder(
+        builder: (context) {
+          final people = _people;
+          final voices = _voices;
+          final background = _background;
+          final month = _month;
+          final heard = _heard;
           if (people.isEmpty && voices.isEmpty && background.isEmpty) {
             return const EmptyState(
               icon: Icons.people_alt_rounded,

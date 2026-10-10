@@ -31,7 +31,7 @@ class InsightsScreen extends StatefulWidget {
   State<InsightsScreen> createState() => _InsightsScreenState();
 }
 
-class _InsightsScreenState extends State<InsightsScreen> {
+class _InsightsScreenState extends State<InsightsScreen> with RefreshWhenShown {
   int _days = 30;
   late String? _person = widget.personId;
   HighlightKind _standout = HighlightKind.heated;
@@ -66,15 +66,17 @@ class _InsightsScreenState extends State<InsightsScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
-    s.dataVersion.addListener(_load);
+    s.dataVersion.addListener(onDataChanged);
   }
 
   @override
   void dispose() {
-    s.dataVersion.removeListener(_load);
+    s.dataVersion.removeListener(onDataChanged);
     super.dispose();
   }
+
+  @override
+  void reload() => _load();
 
   void _load() {
     if (!mounted) return;

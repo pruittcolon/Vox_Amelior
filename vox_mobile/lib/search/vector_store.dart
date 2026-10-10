@@ -43,8 +43,9 @@ class VectorStore {
     final rows = _db.raw.select(
       '''
 SELECT s.id, s.text,
-  (SELECT p.text FROM segments p WHERE p.conversation_id = s.conversation_id AND p.id < s.id
-   ORDER BY p.id DESC LIMIT 1) AS prev
+  (SELECT p.text FROM segments p WHERE p.conversation_id = s.conversation_id
+     AND (p.started_at < s.started_at OR (p.started_at = s.started_at AND p.id < s.id))
+   ORDER BY p.started_at DESC, p.id DESC LIMIT 1) AS prev
 FROM segments s
 LEFT JOIN segment_vectors v ON v.segment_id = s.id AND v.model = ?
 LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id

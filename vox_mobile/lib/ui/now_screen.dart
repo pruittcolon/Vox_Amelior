@@ -23,7 +23,7 @@ class NowScreen extends StatefulWidget {
   State<NowScreen> createState() => _NowScreenState();
 }
 
-class _NowScreenState extends State<NowScreen> {
+class _NowScreenState extends State<NowScreen> with RefreshWhenShown {
   StreamSubscription<Map<Object?, Object?>>? _events;
   List<SegmentView> _recent = const [];
 
@@ -32,25 +32,28 @@ class _NowScreenState extends State<NowScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
-    s.dataVersion.addListener(_load);
+    s.dataVersion.addListener(onDataChanged);
     _events = s.listening.events.listen((e) {
-      if (e['type'] == ServiceEvents.segment) _load();
+      if (e['type'] == ServiceEvents.segment) onDataChanged();
     });
   }
 
   @override
   void dispose() {
-    s.dataVersion.removeListener(_load);
+    s.dataVersion.removeListener(onDataChanged);
     unawaited(_events?.cancel());
     super.dispose();
   }
+
+  @override
+  void reload() => _load();
 
   void _load() {
     if (!mounted) return;
     final today = DateTime.now();
     final start = DateTime(today.year, today.month, today.day);
-    setState(() => _recent = s.transcripts.between(start, start.add(const Duration(days: 1))).reversed.take(40).toList());
+    // The newest 40 (a busy day has thousands of lines).
+    setState(() => _recent = s.transcripts.between(start, start.add(const Duration(days: 1)), limit: 40, newestFirst: true));
   }
 
   Future<void> _toggle() async {
@@ -139,9 +142,13 @@ class _NowScreenState extends State<NowScreen> {
       (true, ListenState.autoPaused) => (const Color(0xFFE8590C), Icons.location_off_rounded, 'Paused here'),
       (true, ListenState.error) => (t.colorScheme.error, Icons.error_rounded, 'Needs attention'),
     };
+    final reason = l.lastError ?? l.reason;
     final detail = !on
         ? 'Tap to start. Vox keeps listening in the background.'
-        : (l.lastError ?? (l.reason.isEmpty ? 'Ready' : l.reason));
+        // Not "Listening" twice: the title already says it.
+        : (reason.isEmpty || reason == title
+            ? (state == ListenState.listening ? 'What is said nearby appears below, with who said it.' : 'Ready')
+            : reason);
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
@@ -310,7 +317,9 @@ class _NowScreenState extends State<NowScreen> {
     return InkWell(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute<void>(builder: (_) => ConversationScreen(services: s, conversationId: seg.conversationId)),
+        MaterialPageRoute<void>(
+          builder: (_) => ConversationScreen(services: s, conversationId: seg.conversationId, highlightSegmentId: seg.id),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),

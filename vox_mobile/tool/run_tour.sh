@@ -12,7 +12,8 @@ mkdir -p "$OUT/screenshots"
 python3 -m http.server 8765 --directory build/tour_audio > "$OUT/http.txt" 2>&1 &
 
 adb logcat -c || true
-adb logcat -v time > "$OUT/logcat.txt" 2>&1 &
+# Warnings and errors from everything, plus the app's own log.
+adb logcat -v time '*:W' 'flutter:I' 'ActivityManager:I' > "$OUT/logcat.txt" 2>&1 &
 
 # Screenshots on request: the tour logs "TOUR_SHOT <name>" and waits.
 ( adb logcat -v raw -s flutter:I | while IFS= read -r line; do

@@ -81,7 +81,7 @@ class _Tour {
     await wait(const Duration(seconds: 10));
     await shot('setup-downloading');
     await until('the speech models', () => s.speechReady, timeout: const Duration(minutes: 30));
-    await scrollTo(find.text('Continue'), find.byKey(const ValueKey('models-list')));
+    await until('Continue', () => find.text('Continue').evaluate().isNotEmpty);
     await shot('setup-ready');
     await t.tap(find.text('Continue'));
     await wait(const Duration(seconds: 2));
@@ -163,7 +163,7 @@ class _Tour {
         await t.enterText(find.byType(TextField).first, name);
         await settle();
         await shot('who-is-this-typing');
-        await t.tap(find.byTooltip('Save name'));
+        await t.tap(find.text('Save'));
       }
       await settle();
       await shot('named-${name.toLowerCase()}-$i');
@@ -206,7 +206,8 @@ class _Tour {
     await shot('conversation-more');
     await scrollDown(find.byKey(const ValueKey('conversation-lines')));
     await shot('conversation-end');
-    await t.tap(find.textContaining('electric bill').first);
+    // Lines scrolled away are not built any more: a line on screen now.
+    await t.tap(find.textContaining('dinner').first);
     await settle();
     await shot('conversation-line-sheet');
     await back();
@@ -398,6 +399,20 @@ class _Tour {
       await wait(const Duration(milliseconds: 900));
     });
     await shot('people-archive');
+    // While listening, a new line arrives every few seconds and every tab
+    // refreshes; the frames after it should still be quick.
+    for (final name in ['Now', 'Timeline', 'Insights']) {
+      await tab(name);
+      await measure('new-line-on-${name.toLowerCase()}', () async {
+        for (var i = 0; i < 5; i++) {
+          final w = Stopwatch()..start();
+          s.dataChanged();
+          await t.pump();
+          note('new line on $name: refreshed in ${w.elapsedMilliseconds} ms');
+          await wait(const Duration(milliseconds: 800));
+        }
+      });
+    }
     final p = s.vectors.progress(s.searchModelId);
     note('meaning search prepared ${p.done} of ${p.total} lines meanwhile');
     await tab('Timeline');

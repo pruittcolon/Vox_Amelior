@@ -23,6 +23,22 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    _colors();
+    widget.services.dataVersion.addListener(_colors);
+  }
+
+  @override
+  void dispose() {
+    widget.services.dataVersion.removeListener(_colors);
+    super.dispose();
+  }
+
+  /// Everyone's colour, kept up to date as people are added or renamed.
+  void _colors() => setHouseholdColors(widget.services.speakers.profiles().map((p) => p.name));
+
   void _openModels() => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ModelsScreen(services: widget.services)));
 
   @override

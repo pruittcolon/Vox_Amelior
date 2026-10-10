@@ -13,6 +13,8 @@
 | Prompts | query: `task: search result \| query: `; document: `title: none \| text: ` | From the model card. Retrieval quality drops without them. |
 | Where it runs | A worker isolate in the app, started on first use and unloaded after 2 minutes idle | The UI never stutters, and the ~400 MB of memory is freed when search is not in use. The model's memory is native, so unloading asks the worker to release it and waits for the worker to end; killing the worker would leak the whole model. |
 
+**Sizes (added later):** besides the standard int8 model, the app offers `model_q4.onnx` (4-bit, 202 MB) and `model.onnx` (fp32, 1.24 GB), switched in Models. Each size keeps its own vectors. CI verifies all three against the reference. See `PLAN-naming-models-tour.md`.
+
 ## Storing vectors
 
 - **Matryoshka:** keep the first 256 of 768 dimensions and re-normalize. EmbeddingGemma is trained for this, and the quality loss is small.

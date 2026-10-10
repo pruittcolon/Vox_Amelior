@@ -121,12 +121,12 @@ class HybridSearch {
     final q = await _queryVector(e, text);
     // Read after the model ran: lines embedded meanwhile are included.
     final index = _currentIndex();
-    final allowed = _allowed(f);
+    final (:only, :except) = _allowed(f);
     const dims = EmbeddingCodec.dims;
     final scored = <(int, double)>[];
     for (var i = 0; i < index.length; i++) {
       final id = index.ids[i];
-      if (!allowed.contains(id)) continue;
+      if (only != null ? !only.contains(id) : except.contains(id)) continue;
       final s = EmbeddingCodec.score(q, index.data, i * dims, index.scales[i]);
       if (s >= min) scored.add((id, s));
     }
@@ -143,8 +143,17 @@ class HybridSearch {
     return v;
   }
 
-  /// Ids of lines the filters allow (not TV, chosen people, tones, period).
-  Set<int> _allowed(SearchFilters f) {
+  /// Which lines the filters allow (chosen people, tones, period; never
+  /// TV): exactly the lines in [only], or without filters (the usual
+  /// search) every line but the few in [except], which is much quicker
+  /// than listing every line of a large archive.
+  ({Set<int>? only, Set<int> except}) _allowed(SearchFilters f) {
+    if (f.speakerIds.isEmpty && f.emotions.isEmpty && f.from == null && f.to == null) {
+      final background = _db.raw.select(
+        'SELECT s.id FROM segments s JOIN unknown_clusters uc ON uc.id = s.cluster_id WHERE uc.background = 1',
+      );
+      return (only: null, except: {for (final r in background) r['id']! as int});
+    }
     final where = <String>['COALESCE(uc.background, 0) = 0'];
     final args = <Object?>[];
     if (f.speakerIds.isNotEmpty) {
@@ -166,13 +175,16 @@ class HybridSearch {
       where.add('s.started_at < ?');
       args.add(f.to!.millisecondsSinceEpoch);
     }
-    return {
-      for (final r in _db.raw.select(
-        'SELECT s.id FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id WHERE ${where.join(' AND ')}',
-        args,
-      ))
-        r['id']! as int,
-    };
+    return (
+      only: {
+        for (final r in _db.raw.select(
+          'SELECT s.id FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id WHERE ${where.join(' AND ')}',
+          args,
+        ))
+          r['id']! as int,
+      },
+      except: const <int>{},
+    );
   }
 
   /// Reciprocal Rank Fusion of several best-first id lists: each id scores
