@@ -29,7 +29,8 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         // The on-device runtimes (LiteRT-LM, sherpa-onnx) ship 64-bit ARM builds for phones.
-        ndk { abiFilters += listOf("arm64-v8a") }
+        // CI's emulator tour builds for x86_64 instead (VOX_ABIS=x86_64).
+        ndk { abiFilters += (System.getenv("VOX_ABIS") ?: "arm64-v8a").split(",") }
     }
 
     // Every release must be signed with the same key, or Android refuses to

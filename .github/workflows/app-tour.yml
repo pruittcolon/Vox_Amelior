@@ -1,0 +1,69 @@
+name: Vox app tour (Android emulator)
+# The whole app on an Android emulator, driven like a person would use it:
+# setup with the real model downloads, listening to a recorded conversation,
+# every screen, and frame timings while scrolling a large archive.
+# Screenshots, timings and the device log are kept as the run's artifact.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-cerf-zer2dj]
+    paths: ['vox_mobile/**', '.github/workflows/app-tour.yml']
+concurrency:
+  group: vox-tour-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tour:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        working-directory: vox_mobile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make room for the emulator and the models
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell || true
+      - name: Enable KVM (hardware-accelerated emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.47.5', channel: stable, cache: true }
+      - run: flutter pub get
+      - name: Record the conversation the tour listens to (Piper TTS)
+        run: |
+          pip install piper-tts==1.8.0 numpy scipy
+          mkdir -p build/voices
+          for v in ryan amy; do
+            for ext in onnx onnx.json; do
+              curl -sSfL -o "build/voices/en_US-$v-medium.$ext" \
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/$v/medium/en_US-$v-medium.$ext"
+            done
+          done
+          python tool/tour_audio.py build/voices build/tour_audio
+      - name: Tour
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          VOX_ABIS: x86_64
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 6144M
+          heap-size: 512M
+          disk-size: 14G
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          disable-animations: false
+          working-directory: vox_mobile
+          script: bash tool/run_tour.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vox-tour
+          path: vox_mobile/build/tour

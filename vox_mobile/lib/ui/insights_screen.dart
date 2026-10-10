@@ -168,6 +168,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       body: RefreshIndicator(
         onRefresh: () async => _load(),
         child: ListView(
+          key: const ValueKey('insights-list'),
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             if (_profiles.isNotEmpty)

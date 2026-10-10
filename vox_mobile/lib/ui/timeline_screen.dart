@@ -285,6 +285,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     return SizedBox(
       height: 48,
       child: ListView(
+        key: const ValueKey('timeline-filters'),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         scrollDirection: Axis.horizontal,
         children: [
@@ -369,6 +370,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
       items.add(_conversationCard(context, c, showDay: !byDay));
     }
     return ListView.separated(
+      key: const ValueKey('timeline-filtered'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       itemCount: items.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -381,6 +383,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     return SizedBox(
       height: 84,
       child: ListView.separated(
+        key: const ValueKey('timeline-days'),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         scrollDirection: Axis.horizontal,
         itemCount: _days.length,
@@ -430,6 +433,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
       );
     }
     return ListView.separated(
+      key: const ValueKey('timeline-list'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       itemCount: _conversations.length + 1,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -539,6 +543,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final query = _search.text.trim();
     final meaningOn = s.embedder != null;
     return ListView(
+      key: const ValueKey('timeline-results'),
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         Padding(
