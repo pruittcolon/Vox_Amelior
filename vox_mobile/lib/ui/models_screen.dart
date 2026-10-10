@@ -68,6 +68,26 @@ class _ModelsScreenState extends State<ModelsScreen> {
     if (result != null) await s.updateSettings(result.copyWith(llmId: ModelCatalog.customLlmId));
   }
 
+  /// Big downloads are confirmed first; small ones just start.
+  Future<bool> _okToDownload(ModelAsset m) async {
+    if (s.models.isInstalled(m) || m.approxDownloadBytes < 1000000000) return true;
+    return confirm(
+      context,
+      'Download ${formatBytes(m.approxDownloadBytes)}?',
+      '${m.title} is large. Wi-Fi recommended. What you use now keeps working until it is ready.',
+      action: 'Download',
+    );
+  }
+
+  Future<void> _deleteModel(ModelAsset m) async {
+    if (!await confirm(context, 'Delete ${m.title}?', 'Frees ${formatBytes(m.approxDownloadBytes)}. You can download it again later.')) return;
+    if (m.kind == ModelKind.speechToText) {
+      await s.removeSpeechModel(m);
+    } else {
+      s.downloads.remove(m);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
@@ -80,81 +100,116 @@ class _ModelsScreenState extends State<ModelsScreen> {
           final speechAll = [...ModelCatalog.speech, ...ModelCatalog.speechExtras];
           final speechBytes = speechAll.fold<int>(0, (a, m) => a + m.approxDownloadBytes);
           final speechBusy = speechAll.any((m) => s.downloads.stateOf(m).isBusy);
+          final installed = s.models.isInstalled;
+          // What runs now: the chosen model once it is installed, until then another installed one.
+          final asr = installed(st.asrAsset) ? st.asrAsset : ModelCatalog.recognizers.where(installed).firstOrNull;
+          final search = s.searchModel;
+          final custom = st.customLlmUrl.trim().isEmpty
+              ? null
+              : ModelCatalog.custom(
+                  url: st.customLlmUrl,
+                  name: st.customLlmName,
+                  llmType: st.customLlmType,
+                  supportsTools: st.customLlmTools,
+                  requiresToken: st.customLlmNeedsToken,
+                );
           return ListView(
+            key: const ValueKey('models-list'),
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
             children: [
               Text(
-                'Everything runs on this phone and nothing you say leaves it. Downloads continue in the background '
-                'and resume automatically if interrupted. Wi-Fi recommended.',
+                'Everything runs on this phone and nothing you say leaves it. Tap a choice to switch: a model that is '
+                'not here yet downloads first (in the background, resuming if interrupted) and takes over when it is ready.',
                 style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
               ),
-              const SectionHeader('Speech', padding: EdgeInsets.fromLTRB(4, 20, 4, 8)),
-              VoxCard(
-                padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
-                child: Column(
-                  children: [
-                    for (final m in speechAll) _ModelTile(asset: m, downloads: s.downloads),
-                    // Optional smaller recognizer; downloads only when tapped. Also chosen in
-                    // Settings → Microphone & hearing.
-                    _ModelTile(asset: ModelCatalog.parakeet, downloads: s.downloads),
-                    _ModelTile(asset: ModelCatalog.parakeetFp32, downloads: s.downloads),
-                    // Optional: tone of voice and sounds per line; downloads only when tapped.
-                    _ModelTile(asset: ModelCatalog.toneModel, downloads: s.downloads),
-                    if (!s.downloads.speechReady)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: speechBusy ? null : s.downloads.downloadSpeechModels,
-                            icon: const Icon(Icons.download_rounded),
-                            label: Text('Download speech models (${formatBytes(speechBytes)})'),
-                          ),
-                        ),
-                      ),
-                  ],
+              if (!s.downloads.speechReady) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: speechBusy ? null : s.downloads.downloadSpeechModels,
+                  icon: const Icon(Icons.download_rounded),
+                  label: Text('Download speech models (${formatBytes(speechBytes)})'),
                 ),
-              ),
-              const SectionHeader('Search', padding: EdgeInsets.fromLTRB(4, 24, 4, 8)),
-              VoxCard(
-                padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-                child: _ModelTile(asset: ModelCatalog.textEmbedder, downloads: s.downloads),
-              ),
-              const SectionHeader('Assistant', padding: EdgeInsets.fromLTRB(4, 24, 4, 8)),
-              VoxCard(
-                padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-                child: Column(
-                  children: [
-                    for (final m in ModelCatalog.assistants)
-                      _ModelTile(
-                        asset: m,
-                        downloads: s.downloads,
-                        selected: st.llmId == m.id,
-                        onSelect: () => s.updateSettings(st.copyWith(llmId: m.id)),
-                      ),
-                    if (st.customLlmUrl.trim().isNotEmpty)
-                      _ModelTile(
-                        asset: ModelCatalog.custom(
-                          url: st.customLlmUrl,
-                          name: st.customLlmName,
-                          llmType: st.customLlmType,
-                          supportsTools: st.customLlmTools,
-                          requiresToken: st.customLlmNeedsToken,
-                        ),
-                        downloads: s.downloads,
-                        selected: st.llmId == ModelCatalog.customLlmId,
-                        onSelect: () => s.updateSettings(st.copyWith(llmId: ModelCatalog.customLlmId)),
-                        onEdit: _editCustom,
-                      ),
-                    ListTile(
-                      leading: const Icon(Icons.add_link_rounded),
-                      title: Text(st.customLlmUrl.trim().isEmpty ? 'Use another model…' : 'Edit custom model…'),
-                      subtitle: const Text('Any LiteRT-LM (.litertlm) model URL'),
-                      onTap: _editCustom,
-                    ),
-                  ],
+              ],
+              _section(context, 'Hearing speech', Icons.hearing_rounded, 'Turns speech into text. Larger models are a little more accurate and slower.', [
+                for (final (m, label) in [
+                  (ModelCatalog.parakeetFp16, 'Standard · fp16'),
+                  (ModelCatalog.parakeet, 'Small · int8'),
+                  (ModelCatalog.parakeetFp32, 'Full precision · fp32'),
+                ])
+                  _ChoiceRow(
+                    asset: m,
+                    label: label,
+                    downloads: s.downloads,
+                    chosen: st.asrAsset.id == m.id,
+                    inUse: asr?.id == m.id,
+                    onChoose: () async {
+                      if (!await _okToDownload(m)) return;
+                      await s.selectSpeechModel(ModelCatalog.recognizerName(m));
+                      // At setup the detector and voiceprints come too.
+                      for (final support in ModelCatalog.speechSupport) {
+                        await s.downloads.download(support);
+                      }
+                    },
+                    onDelete: asr?.id == m.id ? null : () => _deleteModel(m),
+                  ),
+                const Divider(indent: 16, endIndent: 16),
+                for (final m in [ModelCatalog.voiceActivity, ModelCatalog.speakerVoiceprint, ModelCatalog.diarizer])
+                  _SupportRow(asset: m, downloads: s.downloads),
+              ]),
+              _section(context, 'Tone of voice', Icons.mood_rounded, 'Hears how each line was said (happy, angry…) and sounds like laughter.', [
+                _OffRow(label: 'Off', chosen: !st.hearTone, onChoose: () => s.updateSettings(st.copyWith(hearTone: false))),
+                _ChoiceRow(
+                  asset: ModelCatalog.toneModel,
+                  label: 'On · SenseVoice Small',
+                  downloads: s.downloads,
+                  chosen: st.hearTone,
+                  inUse: st.hearTone && installed(ModelCatalog.toneModel),
+                  onChoose: () async {
+                    await s.updateSettings(st.copyWith(hearTone: true));
+                    await s.downloads.download(ModelCatalog.toneModel);
+                  },
+                  onDelete: st.hearTone ? null : () => _deleteModel(ModelCatalog.toneModel),
                 ),
-              ),
+              ]),
+              _section(context, 'Search by meaning', Icons.manage_search_rounded,
+                  'Finds what was said in other words, and picks what Gemma reads to answer. Each size prepares every line once.', [
+                _OffRow(label: 'Off · words only', chosen: !st.meaningSearch, onChoose: () => s.updateSettings(st.copyWith(meaningSearch: false))),
+                for (final m in [ModelCatalog.textEmbedderSmall, ModelCatalog.textEmbedder, ModelCatalog.textEmbedderFull])
+                  _ChoiceRow(
+                    asset: m,
+                    label: ModelCatalog.embedderLabel(m),
+                    downloads: s.downloads,
+                    chosen: st.meaningSearch && st.searchAsset.id == m.id,
+                    inUse: st.meaningSearch && search?.id == m.id,
+                    onChoose: () async {
+                      if (await _okToDownload(m)) await s.selectSearchModel(ModelCatalog.embedderName(m));
+                    },
+                    onDelete: st.meaningSearch && search?.id == m.id ? null : () => _deleteModel(m),
+                  ),
+              ]),
+              _section(context, 'Assistant', Icons.auto_awesome_rounded, 'Gemma answers questions and writes reviews.', [
+                for (final m in [...ModelCatalog.assistants, ?custom])
+                  _ChoiceRow(
+                    asset: m,
+                    label: m.title,
+                    downloads: s.downloads,
+                    chosen: st.llmId == m.id,
+                    inUse: st.llmId == m.id && installed(m),
+                    onChoose: () async {
+                      if (!await _okToDownload(m)) return;
+                      await s.updateSettings(st.copyWith(llmId: m.id));
+                      await s.downloads.download(m);
+                    },
+                    onDelete: st.llmId == m.id ? null : () => _deleteModel(m),
+                    onEdit: m.id == ModelCatalog.customLlmId ? _editCustom : null,
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.add_link_rounded),
+                  title: Text(custom == null ? 'Use another model…' : 'Edit custom model…'),
+                  subtitle: const Text('Any LiteRT-LM (.litertlm) model URL'),
+                  onTap: _editCustom,
+                ),
+              ]),
               const SectionHeader('Hugging Face (optional)', padding: EdgeInsets.fromLTRB(4, 24, 4, 8)),
               VoxCard(
                 child: Column(
@@ -205,8 +260,7 @@ class _ModelsScreenState extends State<ModelsScreen> {
                   child: Text(s.downloads.speechReady ? 'Continue' : 'Waiting for speech models…'),
                 ),
                 const SizedBox(height: 8),
-                Text('You can leave this screen; downloads keep going.',
-                    textAlign: TextAlign.center, style: t.textTheme.bodySmall),
+                Text('You can leave this screen; downloads keep going.', textAlign: TextAlign.center, style: t.textTheme.bodySmall),
               ],
             ],
           );
@@ -214,101 +268,125 @@ class _ModelsScreenState extends State<ModelsScreen> {
       ),
     );
   }
+
+  /// One job (hearing, tone, search, assistant) and its choices.
+  Widget _section(BuildContext context, String title, IconData icon, String about, List<Widget> rows) {
+    final t = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: VoxCard(
+        padding: const EdgeInsets.fromLTRB(0, 14, 0, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Icon(icon, color: t.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(title, style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+              child: Text(about, style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+            ),
+            ...rows,
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _ModelTile extends StatelessWidget {
-  const _ModelTile({required this.asset, required this.downloads, this.selected, this.onSelect, this.onEdit});
+/// A radio-style choice without a model ("Off").
+class _OffRow extends StatelessWidget {
+  const _OffRow({required this.label, required this.chosen, required this.onChoose});
+
+  final String label;
+  final bool chosen;
+  final VoidCallback onChoose;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    return ListTile(
+      onTap: chosen ? null : onChoose,
+      leading: Icon(chosen ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: chosen ? t.colorScheme.primary : null),
+      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+/// One model to choose: tap to use it (downloading it first if needed).
+/// Shows whether it is in use, waiting, downloading or here, and its size.
+class _ChoiceRow extends StatelessWidget {
+  const _ChoiceRow({
+    required this.asset,
+    required this.label,
+    required this.downloads,
+    required this.chosen,
+    required this.inUse,
+    required this.onChoose,
+    this.onDelete,
+    this.onEdit,
+  });
 
   final ModelAsset asset;
+  final String label;
   final ModelDownloads downloads;
 
-  /// Non-null for choosable models (the assistant).
-  final bool? selected;
-  final VoidCallback? onSelect;
+  /// Picked in settings (it may still be downloading).
+  final bool chosen;
+
+  /// Running now.
+  final bool inUse;
+  final Future<void> Function() onChoose;
+  final VoidCallback? onDelete;
   final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final st = downloads.stateOf(asset);
-    Widget status;
-    List<Widget> actions = [];
-    switch (st.status) {
-      case DownloadStatus.installed:
-        status = const Pill('Installed', icon: Icons.check_circle_rounded, color: Color(0xFF0E9F6E));
-        actions = [
-          IconButton(
-            tooltip: 'Delete to free space',
-            icon: const Icon(Icons.delete_outline_rounded),
-            onPressed: () async {
-              if (await confirm(context, 'Delete ${asset.title}?', 'You can download it again later.')) downloads.remove(asset);
-            },
-          ),
-        ];
-      case DownloadStatus.queued:
-        status = const Pill('Waiting to download', icon: Icons.schedule_rounded);
-        actions = [IconButton(tooltip: 'Cancel', icon: const Icon(Icons.close_rounded), onPressed: () => downloads.cancel(asset))];
-      case DownloadStatus.downloading:
-      case DownloadStatus.unpacking:
-        final unpacking = st.status == DownloadStatus.unpacking;
-        status = Column(
+    final size = asset.approxDownloadBytes > 0 ? formatBytes(asset.approxDownloadBytes) : 'size unknown';
+    const green = Color(0xFF0E9F6E);
+    final Widget status = switch (st.status) {
+      DownloadStatus.installed => inUse
+          ? const Pill('In use', icon: Icons.check_circle_rounded, color: green)
+          : Pill(chosen ? 'Starting…' : 'Downloaded · $size', icon: Icons.download_done_rounded, color: t.colorScheme.onSurfaceVariant),
+      DownloadStatus.queued => const Pill('Waiting to download', icon: Icons.schedule_rounded),
+      DownloadStatus.downloading || DownloadStatus.unpacking => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(value: st.progress, minHeight: 8),
+            ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(value: st.progress, minHeight: 6)),
+            const SizedBox(height: 4),
+            Text(
+              '${describeDownload(st)}${chosen ? ' · switches when ready' : ''}',
+              style: t.textTheme.bodySmall,
             ),
-            const SizedBox(height: 6),
-            Text(describeDownload(st)),
-            if (unpacking)
-              Text(
-                'Downloaded. Getting it ready to use — this can take a few minutes on a phone.',
-                style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
-              ),
           ],
-        );
-        actions = [
-          if (!unpacking)
-            IconButton(tooltip: 'Pause', icon: const Icon(Icons.pause_rounded), onPressed: () => downloads.cancel(asset)),
-        ];
-      case DownloadStatus.failed:
-        status = Text(st.error ?? 'Failed', style: TextStyle(color: t.colorScheme.error));
-        actions = [IconButton(tooltip: 'Retry', icon: const Icon(Icons.refresh_rounded), onPressed: () => downloads.download(asset))];
-      case DownloadStatus.notInstalled:
-        final partial = st.received > 0;
-        final size = asset.approxDownloadBytes > 0 ? formatBytes(asset.approxDownloadBytes) : 'size unknown';
-        status = Text(partial ? 'Paused at ${formatBytes(st.received)} of $size' : size,
-            style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant));
-        actions = [
-          IconButton.filledTonal(
-            tooltip: partial ? 'Resume' : 'Download',
-            icon: Icon(partial ? Icons.play_arrow_rounded : Icons.download_rounded),
-            onPressed: () => downloads.download(asset),
-          ),
-        ];
-    }
+        ),
+      DownloadStatus.failed => Text(st.error ?? 'Download failed', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.colorScheme.error)),
+      DownloadStatus.notInstalled => Text(
+          st.received > 0 ? 'Paused at ${formatBytes(st.received)} of $size' : size,
+          style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
+        ),
+    };
+    final busy = st.status == DownloadStatus.downloading || st.status == DownloadStatus.queued;
     return ListTile(
-      onTap: onSelect,
-      leading: selected == null
-          ? Icon(switch (asset.kind) {
-              ModelKind.speechToText => Icons.hearing_rounded,
-              ModelKind.voiceActivity => Icons.graphic_eq_rounded,
-              ModelKind.speakerVoiceprint => Icons.fingerprint_rounded,
-              ModelKind.speakerTurns => Icons.forum_rounded,
-              ModelKind.toneOfVoice => Icons.mood_rounded,
-              ModelKind.textEmbedding => Icons.manage_search_rounded,
-              ModelKind.languageModel => Icons.auto_awesome_rounded,
-            })
-          : Icon(selected! ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-              color: selected! ? t.colorScheme.primary : null),
+      onTap: chosen && st.status != DownloadStatus.failed && st.status != DownloadStatus.notInstalled ? null : onChoose,
+      leading: Icon(chosen ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: chosen ? t.colorScheme.primary : null),
       title: Row(
         children: [
-          Flexible(child: Text(asset.title, style: const TextStyle(fontWeight: FontWeight.w600))),
+          Flexible(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
           if (asset.supportsTools) ...[const SizedBox(width: 6), const Pill('Agent', icon: Icons.bolt_rounded, color: Color(0xFF9C36B5))],
         ],
       ),
       subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.only(top: 2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -318,10 +396,58 @@ class _ModelTile extends StatelessWidget {
           ],
         ),
       ),
-      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (onEdit != null) IconButton(tooltip: 'Edit', icon: const Icon(Icons.edit_rounded), onPressed: onEdit),
-        ...actions,
-      ]),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (onEdit != null) IconButton(tooltip: 'Edit', icon: const Icon(Icons.edit_rounded), onPressed: onEdit),
+          if (busy)
+            IconButton(tooltip: 'Pause', icon: const Icon(Icons.pause_rounded), onPressed: () => downloads.cancel(asset))
+          else if (st.status == DownloadStatus.failed)
+            IconButton(tooltip: 'Retry', icon: const Icon(Icons.refresh_rounded), onPressed: () => downloads.download(asset))
+          else if (st.status == DownloadStatus.installed && onDelete != null)
+            IconButton(tooltip: 'Delete to free space', icon: const Icon(Icons.delete_outline_rounded), onPressed: onDelete),
+        ],
+      ),
+    );
+  }
+}
+
+/// A model that works alongside the speech recognizer (no choice to make).
+class _SupportRow extends StatelessWidget {
+  const _SupportRow({required this.asset, required this.downloads});
+
+  final ModelAsset asset;
+  final ModelDownloads downloads;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final st = downloads.stateOf(asset);
+    final (IconData icon, String text, Color? color) = switch (st.status) {
+      DownloadStatus.installed => (Icons.check_circle_rounded, 'Ready', const Color(0xFF0E9F6E)),
+      DownloadStatus.queued => (Icons.schedule_rounded, 'Waiting to download', null),
+      DownloadStatus.downloading || DownloadStatus.unpacking => (Icons.downloading_rounded, describeDownload(st), null),
+      DownloadStatus.failed => (Icons.error_outline_rounded, st.error ?? 'Download failed', t.colorScheme.error),
+      DownloadStatus.notInstalled => (Icons.download_rounded, formatBytes(asset.approxDownloadBytes), null),
+    };
+    return ListTile(
+      dense: true,
+      leading: Icon(switch (asset.kind) {
+        ModelKind.voiceActivity => Icons.graphic_eq_rounded,
+        ModelKind.speakerVoiceprint => Icons.fingerprint_rounded,
+        _ => Icons.forum_rounded,
+      }),
+      title: Text(asset.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Row(
+        children: [
+          Icon(icon, size: 14, color: color ?? t.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 4),
+          Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+      trailing: st.status == DownloadStatus.notInstalled || st.status == DownloadStatus.failed
+          ? IconButton(tooltip: 'Download', icon: const Icon(Icons.download_rounded), onPressed: () => downloads.download(asset))
+          : null,
     );
   }
 }

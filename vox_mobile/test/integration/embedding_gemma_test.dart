@@ -1,10 +1,12 @@
 // Runs the real EmbeddingGemma model through Vox's own ONNX Runtime bindings
 // and checks the Dart pipeline against Hugging Face's reference
 // (tool/embedding_reference.py): the same token ids and the same vectors.
-// Skipped unless VOX_EMBEDDER_DIR (model_quantized.onnx, its .onnx_data and
+// Skipped unless VOX_EMBEDDER_DIR (the graph, its .onnx_data and
 // tokenizer.model), VOX_EMBEDDER_REFERENCE (the reference JSON) and
-// SHERPA_LIB_DIR (the folder holding libonnxruntime.so) are set. CI runs it
-// in .github/workflows/verify-embeddings.yml.
+// SHERPA_LIB_DIR (the folder holding libonnxruntime.so) are set.
+// VOX_EMBEDDER_GRAPH picks the size (model_quantized.onnx by default,
+// model_q4.onnx or model.onnx). CI runs every size in
+// .github/workflows/verify-embeddings.yml.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -28,7 +30,7 @@ void main() {
   setUpAll(() {
     if (skip != null) return;
     embedder = EmbeddingGemmaOnnx(
-      modelPath: '$dir/model_quantized.onnx',
+      modelPath: '$dir/${env['VOX_EMBEDDER_GRAPH'] ?? 'model_quantized.onnx'}',
       tokenizerPath: '$dir/tokenizer.model',
       libraryDir: env['SHERPA_LIB_DIR'],
     );

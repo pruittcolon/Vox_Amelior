@@ -95,27 +95,48 @@ class AppServices {
     transcripts: transcripts,
     vectors: vectors,
     embedder: () => embedder,
-    modelId: ModelCatalog.textEmbedder.id,
+    modelId: () => searchModelId,
   );
 
   /// Embeds new lines in the background.
-  late final SearchIndexer indexer = SearchIndexer(store: vectors, embedder: () => embedder, modelId: ModelCatalog.textEmbedder.id);
+  late final SearchIndexer indexer = SearchIndexer(store: vectors, embedder: () => embedder, modelId: () => searchModelId);
 
   AsyncEmbedder? _embedder;
+
+  /// The model [_embedder] runs.
+  String? _embedderModel;
   AsyncEmbedder Function()? _embedderForTests;
 
-  /// The embedder while meaning search is on and its model installed, else null.
-  /// The worker isolate only starts on the first embedding.
+  /// The search model in use: the chosen one once it is installed, until
+  /// then another installed one; null when none is.
+  ModelAsset? get searchModel {
+    final chosen = settings.value.searchAsset;
+    if (models.isInstalled(chosen)) return chosen;
+    return ModelCatalog.embedders.where(models.isInstalled).firstOrNull;
+  }
+
+  /// Whose vectors search uses: [searchModel]'s (the chosen one's before
+  /// any is installed). Each model has its own.
+  String get searchModelId => (searchModel ?? settings.value.searchAsset).id;
+
+  /// The embedder while meaning search is on and a search model installed,
+  /// else null. The worker isolate only starts on the first embedding.
   AsyncEmbedder? get embedder {
     if (!settings.value.meaningSearch) return null;
     final test = _embedderForTests;
     if (test != null) return _embedder ??= test();
-    final m = ModelCatalog.textEmbedder;
-    if (!models.isInstalled(m)) return null;
-    return _embedder ??= IsolateEmbedder(
-      modelPath: models.file(m, 'model_quantized.onnx').path,
-      tokenizerPath: models.file(m, 'tokenizer.model').path,
-    );
+    final m = searchModel;
+    if (m == null) return null;
+    if (_embedderModel != m.id) {
+      // Another model now (the chosen one has arrived): the old worker goes.
+      _dropEmbedder();
+      _embedderModel = m.id;
+      _embedder = IsolateEmbedder(
+        modelPath: models.file(m, ModelCatalog.embedderGraph(m)).path,
+        tokenizerPath: models.file(m, 'tokenizer.model').path,
+      );
+    }
+    return _embedder;
   }
 
   /// Catches meaning search up with new lines (no-op when it is off). After
@@ -126,9 +147,30 @@ class AppServices {
 
   void _closeEmbedder() {
     indexer.stop();
+    _dropEmbedder();
+  }
+
+  void _dropEmbedder() {
     final e = _embedder;
     _embedder = null;
+    _embedderModel = null;
     if (e != null) unawaited(e.close());
+  }
+
+  /// Chooses the search-by-meaning model ('int8', 'q4' or 'fp32') and turns
+  /// search by meaning on. The chosen model is fetched if missing; one
+  /// already installed keeps working until it is ready, then every line is
+  /// prepared again for the new one.
+  Future<void> selectSearchModel(String name) async {
+    await updateSettings(settings.value.copyWith(searchModel: name, meaningSearch: true));
+    final chosen = settings.value.searchAsset;
+    if (!models.isInstalled(chosen)) await downloads.download(chosen);
+    // A model chosen earlier that never finished is not wanted any more.
+    for (final other in ModelCatalog.embedders) {
+      if (other.id == chosen.id || models.isInstalled(other)) continue;
+      if (downloads.stateOf(other).isBusy || models.partialBytes(other) > 0) downloads.remove(other);
+    }
+    indexForSearch(retry: true);
   }
 
   /// Bumped whenever a review makes progress, so review screens refresh.
@@ -213,7 +255,7 @@ class AppServices {
       writeServiceConfig();
       listening.reload();
       _fetchChosenSpeechModel();
-      if (asset.id == ModelCatalog.textEmbedder.id) indexForSearch(retry: true);
+      if (asset.kind == ModelKind.textEmbedding) indexForSearch(retry: true);
     },
     onRemoved: _onModelRemoved,
     onBusyChanged: listening.keepAliveForDownloads,
@@ -523,7 +565,7 @@ class AppServices {
   Future<void> updateSettings(AppSettings next) async {
     final modelChanged = next.llmAsset.id != settings.value.llmAsset.id ||
         next.llmAsset.files.first.url != settings.value.llmAsset.files.first.url;
-    final searchChanged = next.meaningSearch != settings.value.meaningSearch;
+    final searchChanged = next.meaningSearch != settings.value.meaningSearch || next.searchModel != settings.value.searchModel;
     settings.value = next;
     if (searchChanged) next.meaningSearch ? indexForSearch(retry: true) : _closeEmbedder();
     await settingsRepo.save(next);
@@ -572,7 +614,12 @@ class AppServices {
 
   /// A model was deleted: stop pointing the listening service at it.
   void _onModelRemoved(ModelAsset asset) {
-    if (asset.id == ModelCatalog.textEmbedder.id) _closeEmbedder();
+    if (asset.kind == ModelKind.textEmbedding) {
+      // Its vectors go too; another installed search model takes over.
+      if (asset.id == _embedderModel) _closeEmbedder();
+      vectors.deleteModel(asset.id);
+      indexForSearch(retry: true);
+    }
     final other = _otherInstalledRecognizer(asset);
     if (asset.id == settings.value.asrAsset.id && other != null) {
       unawaited(updateSettings(settings.value.copyWith(speechModel: _speechModelName(other))));

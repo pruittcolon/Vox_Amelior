@@ -65,6 +65,9 @@ ORDER BY s.id DESC LIMIT ?''',
     return text.trim();
   }
 
+  /// Forgets every vector from [model] (the model was deleted).
+  void deleteModel(String model) => _db.raw.execute('DELETE FROM segment_vectors WHERE model = ?', [model]);
+
   /// Saves vectors (null: nothing worth embedding) for [model].
   void put(String model, List<(int, Float32List?)> vectors) {
     _db.transaction(() {

@@ -238,6 +238,7 @@ class _NowScreenState extends State<NowScreen> {
   List<Widget> _notices(BuildContext context) {
     final t = Theme.of(context);
     final l = s.listening;
+    final voices = s.transcripts.voicesToNameCount();
     final cards = <Widget>[
       if (!s.downloads.speechReady)
         _notice(
@@ -256,6 +257,16 @@ class _NowScreenState extends State<NowScreen> {
           text: 'Otherwise Android may stop listening when the screen is off.',
           action: 'Allow',
           onTap: l.requestBatteryExemption,
+          color: t.colorScheme.tertiaryContainer,
+        ),
+      if (voices > 0)
+        _notice(
+          context,
+          icon: Icons.record_voice_over_rounded,
+          title: voices == 1 ? 'A voice without a name' : '$voices voices without a name',
+          text: 'See what each said and tap who it is, so transcripts show names.',
+          action: 'Name',
+          onTap: () => openNameVoices(context, s),
           color: t.colorScheme.tertiaryContainer,
         ),
     ];

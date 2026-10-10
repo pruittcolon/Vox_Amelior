@@ -15,6 +15,7 @@ import 'package:vox_amelior_mobile/ui/controls.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/listening_settings_screen.dart';
 import 'package:vox_amelior_mobile/ui/mic_tune.dart';
+import 'package:vox_amelior_mobile/ui/models_screen.dart';
 import 'package:vox_amelior_mobile/ui/prompt_editor.dart';
 import 'package:vox_amelior_mobile/ui/speakers_settings_screen.dart';
 import 'package:vox_amelior_mobile/ui/voice_clips_screen.dart';
@@ -365,11 +366,12 @@ class MeaningSearchSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final model = ModelCatalog.textEmbedder;
     return ListenableBuilder(
       listenable: Listenable.merge([services.settings, services.downloads]),
       builder: (context, _) {
         final st = services.settings.value;
+        final model = st.searchAsset;
+        final using = services.searchModel;
         final installed = services.models.isInstalled(model);
         final dl = services.downloads.stateOf(model);
         return SettingsGroup(
@@ -379,10 +381,22 @@ class MeaningSearchSettings extends StatelessWidget {
           children: [
             SettingSwitch(
               title: 'Search by meaning',
-              subtitle: installed ? 'EmbeddingGemma, on this phone' : 'Needs a ${formatBytes(model.approxDownloadBytes)} download',
+              subtitle: using != null ? 'EmbeddingGemma, on this phone' : 'Needs a ${formatBytes(model.approxDownloadBytes)} download',
               value: st.meaningSearch,
               onChanged: (v) => services.updateSettings(st.copyWith(meaningSearch: v)),
             ),
+            if (st.meaningSearch)
+              ListTile(
+                leading: const Icon(Icons.tune_rounded),
+                title: const Text('Model size'),
+                subtitle: Text(
+                  installed || using == null
+                      ? ModelCatalog.embedderLabel(model)
+                      : '${ModelCatalog.embedderLabel(model)} once downloaded; ${ModelCatalog.embedderLabel(using)} until then',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ModelsScreen(services: services))),
+              ),
             if (st.meaningSearch && !installed)
               ListTile(
                 leading: Icon(dl.status == DownloadStatus.failed ? Icons.error_outline_rounded : Icons.download_rounded),
@@ -394,11 +408,11 @@ class MeaningSearchSettings extends StatelessWidget {
                 subtitle: dl.isBusy ? Text(describeDownload(dl)) : (dl.error == null ? null : Text(dl.error!, maxLines: 2)),
                 onTap: dl.isBusy ? null : () => services.downloads.download(model),
               ),
-            if (st.meaningSearch && installed)
+            if (st.meaningSearch && using != null)
               StreamBuilder<({int done, int total})>(
                 stream: services.indexer.progress,
                 builder: (context, snap) {
-                  final p = snap.data ?? services.vectors.progress(model.id);
+                  final p = snap.data ?? services.vectors.progress(services.searchModelId);
                   final ready = p.total == 0 || p.done >= p.total;
                   final error = services.indexer.error;
                   if (!ready && error != null) {

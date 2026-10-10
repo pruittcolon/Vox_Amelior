@@ -62,7 +62,9 @@ class HybridSearch {
 
   /// The embedder, or null when meaning search is off or not installed.
   final AsyncEmbedder? Function() embedder;
-  final String modelId;
+
+  /// The model whose vectors are searched (it can change: each has its own).
+  final String Function() modelId;
 
   /// RRF's constant: the usual 60 keeps one list's top hit from drowning the other.
   static const int rrfK = 60;
@@ -87,9 +89,10 @@ class HybridSearch {
   bool get meaningReady => embedder() != null && _currentIndex().length > 0;
 
   VectorIndex _currentIndex() {
-    final sig = vectors.signature(modelId);
+    final model = modelId();
+    final sig = '$model ${vectors.signature(model)}';
     if (sig != _signature) {
-      _index = vectors.load(modelId);
+      _index = vectors.load(model);
       _signature = sig;
     }
     return _index;
@@ -243,7 +246,9 @@ class SearchIndexer {
 
   final VectorStore store;
   final AsyncEmbedder? Function() embedder;
-  final String modelId;
+
+  /// The model whose vectors are made (it can change: each has its own).
+  final String Function() modelId;
   final int batch;
 
   /// Shortest rest between batches. The rest is at least as long as the
@@ -306,7 +311,8 @@ class SearchIndexer {
     while (!_stopped) {
       final e = embedder();
       if (e == null) return;
-      final lines = store.pending(modelId, limit: batch);
+      final model = modelId();
+      final lines = store.pending(model, limit: batch);
       if (lines.isEmpty) return;
       final texts = [for (final l in lines) if (l.text != null) l.text!];
       final watch = Stopwatch()..start();
@@ -320,15 +326,17 @@ class SearchIndexer {
         rethrow;
       }
       final took = watch.elapsed;
+      // Another model since this batch began: its vectors would not fit.
+      if (!identical(embedder(), e) || modelId() != model) continue;
       var next = 0;
-      store.put(modelId, [for (final l in lines) (l.id, l.text == null ? null : vectors[next++])]);
+      store.put(model, [for (final l in lines) (l.id, l.text == null ? null : vectors[next++])]);
       _report();
       await Future<void>.delayed(took > pause ? took : pause);
     }
   }
 
   void _report() {
-    if (!_progress.isClosed) _progress.add(store.progress(modelId));
+    if (!_progress.isClosed) _progress.add(store.progress(modelId()));
   }
 
   void stop() => _stopped = true;

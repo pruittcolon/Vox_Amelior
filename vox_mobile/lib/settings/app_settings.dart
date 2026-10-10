@@ -38,6 +38,7 @@ class AppSettings {
     this.splitSpeakers = true,
     this.hearTone = true,
     this.meaningSearch = true,
+    this.searchModel = 'int8',
     this.clipMode = ClipMode.off,
     this.clipPeople = const [],
     this.clipLimitMb = 2048,
@@ -125,6 +126,10 @@ class AppSettings {
   /// EmbeddingGemma model; lines are embedded in the background).
   final bool meaningSearch;
 
+  /// Which search model: 'int8' (the standard size), 'q4' (smaller) or
+  /// 'fp32' (full precision); see [ModelCatalog.embedders].
+  final String searchModel;
+
   /// Saving audio clips of what was said (for training later).
   final ClipMode clipMode;
   final List<String> clipPeople;
@@ -166,6 +171,9 @@ class AppSettings {
 
   /// The speech-recognition model chosen in settings.
   ModelAsset get asrAsset => ModelCatalog.recognizerNamed(speechModel);
+
+  /// The chosen search-by-meaning model.
+  ModelAsset get searchAsset => ModelCatalog.embedderNamed(searchModel);
 
   ContextBudget get budget => ContextBudget(contextTokens, chunkTokens: reviewChunkTokens);
 
@@ -213,6 +221,7 @@ class AppSettings {
     bool? splitSpeakers,
     bool? hearTone,
     bool? meaningSearch,
+    String? searchModel,
     ClipMode? clipMode,
     List<String>? clipPeople,
     int? clipLimitMb,
@@ -254,6 +263,7 @@ class AppSettings {
         splitSpeakers: splitSpeakers ?? this.splitSpeakers,
         hearTone: hearTone ?? this.hearTone,
         meaningSearch: meaningSearch ?? this.meaningSearch,
+        searchModel: searchModel ?? this.searchModel,
         clipMode: clipMode ?? this.clipMode,
         clipPeople: clipPeople ?? this.clipPeople,
         clipLimitMb: clipLimitMb ?? this.clipLimitMb,
@@ -296,6 +306,7 @@ class AppSettings {
         'splitSpeakers': splitSpeakers,
         'hearTone': hearTone,
         'meaningSearch': meaningSearch,
+        'searchModel': searchModel,
         'clipMode': clipMode.name,
         'clipPeople': clipPeople,
         'clipLimitMb': clipLimitMb,
@@ -372,6 +383,7 @@ class AppSettings {
       splitSpeakers: typed('splitSpeakers', d.splitSpeakers),
       hearTone: typed('hearTone', d.hearTone),
       meaningSearch: typed('meaningSearch', d.meaningSearch),
+      searchModel: const ['int8', 'q4', 'fp32'].contains(j['searchModel']) ? j['searchModel']! as String : d.searchModel,
       clipMode: ClipMode.values.asNameMap()[j['clipMode']] ?? d.clipMode,
       clipPeople: clipPeople,
       clipLimitMb: intIn('clipLimitMb', d.clipLimitMb, 100, 64 * 1024),

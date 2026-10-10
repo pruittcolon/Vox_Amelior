@@ -156,6 +156,67 @@ GROUP BY who ORDER BY n DESC, MIN(s.id)''',
     return [for (final r in rows) r['who']! as String];
   }
 
+  /// Guest voices that still have lines (the voices to name), most lines
+  /// first. TV / background voices are left out. The first [detailed] come
+  /// with a few of their clearest lines and who they were heard with.
+  List<VoiceToName> voicesToName({int detailed = 50, int samples = 3}) {
+    final rows = _db.raw.select('''
+SELECT c.id, c.label, COUNT(s.id) AS n, MAX(s.started_at) AS last
+FROM unknown_clusters c JOIN segments s ON s.cluster_id = c.id
+WHERE COALESCE(c.background, 0) = 0
+GROUP BY c.id ORDER BY n DESC, last DESC''');
+    return [
+      for (var i = 0; i < rows.length; i++)
+        _voice(rows[i], details: i < detailed, samples: samples),
+    ];
+  }
+
+  /// How many guest voices still have lines to name (TV / background left out).
+  int voicesToNameCount() => _db.raw.select('''
+SELECT COUNT(*) AS n FROM unknown_clusters c
+WHERE COALESCE(c.background, 0) = 0 AND EXISTS (SELECT 1 FROM segments s WHERE s.cluster_id = c.id)''').first['n']! as int;
+
+  /// One guest voice to name (also a TV / background one), or null when it
+  /// has no lines left.
+  VoiceToName? voiceToName(String clusterId, {int samples = 3}) {
+    final rows = _db.raw.select('''
+SELECT c.id, c.label, COUNT(s.id) AS n, MAX(s.started_at) AS last
+FROM unknown_clusters c JOIN segments s ON s.cluster_id = c.id
+WHERE c.id = ? GROUP BY c.id''', [clusterId]);
+    return rows.isEmpty ? null : _voice(rows.first, details: true, samples: samples);
+  }
+
+  VoiceToName _voice(Map<String, Object?> r, {required bool details, required int samples}) {
+    final id = r['id']! as String;
+    return VoiceToName(
+      clusterId: id,
+      label: r['label']! as String,
+      lines: r['n']! as int,
+      lastHeard: DateTime.fromMillisecondsSinceEpoch(r['last']! as int),
+      samples: details ? voiceSamples(id, limit: samples) : const [],
+      heardWith: details ? heardWith(id) : const [],
+    );
+  }
+
+  /// A few of a guest voice's clearest lines: longer ones first, then the newest.
+  List<SegmentView> voiceSamples(String clusterId, {int limit = 3}) => [
+        for (final r in _db.raw.select(
+          '$_selectSegments WHERE s.cluster_id = ? ORDER BY LENGTH(s.text) >= 40 DESC, s.started_at DESC LIMIT ?',
+          [clusterId, limit],
+        ))
+          _view(r),
+      ];
+
+  /// Named people who talked in the conversations guest voice [clusterId]
+  /// was in, most lines first.
+  List<String> heardWith(String clusterId, {int limit = 3}) => [
+        for (final r in _db.raw.select('''
+SELECT sp.name, COUNT(*) AS n FROM segments s JOIN speakers sp ON sp.id = s.speaker_id
+WHERE s.conversation_id IN (SELECT DISTINCT conversation_id FROM segments WHERE cluster_id = ?)
+GROUP BY sp.id ORDER BY n DESC LIMIT ?''', [clusterId, limit]))
+          r['name']! as String,
+      ];
+
   /// Conversations in which every one of [speakerIds] said something, newest
   /// first ("me and my wife"). Pass the oldest start already shown as
   /// [before] for the next page.

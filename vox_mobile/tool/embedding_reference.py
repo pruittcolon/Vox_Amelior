@@ -3,8 +3,9 @@ Face's own tokenizer and ONNX Runtime. CI checks the app's Dart pipeline
 (test/integration/embedding_gemma_test.dart) against this file: a wrong
 BOS/EOS or prompt convention changes every vector without any error.
 
-usage: python3 embedding_reference.py <model dir> <out.json>
-The model dir holds model_quantized.onnx(+_data) and tokenizer.json.
+usage: python3 embedding_reference.py <model dir> <out.json> [graph]
+The model dir holds the graph (model_quantized.onnx by default; also
+model_q4.onnx or model.onnx), its .onnx_data and tokenizer.json.
 """
 import json
 import sys
@@ -34,9 +35,9 @@ CASES = [
 ]
 
 
-def main(model_dir: str, out: str) -> None:
+def main(model_dir: str, out: str, graph: str) -> None:
     tok = Tokenizer.from_file(f'{model_dir}/tokenizer.json')
-    sess = ort.InferenceSession(f'{model_dir}/model_quantized.onnx')
+    sess = ort.InferenceSession(f'{model_dir}/{graph}')
     cases = []
     for task, text in CASES:
         ids = tok.encode(PROMPTS[task] + text).ids  # with the file's own special tokens
@@ -53,4 +54,4 @@ def main(model_dir: str, out: str) -> None:
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else 'model_quantized.onnx')

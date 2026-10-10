@@ -5,7 +5,25 @@ import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
 import 'package:vox_amelior_mobile/ui/charts.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/name_voice.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
+
+/// Opens "Who's this?" for every voice without a name. Its sample lines
+/// open in their conversation.
+Future<void> openNameVoices(BuildContext context, AppServices s) => Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => NameVoicesScreen(
+          services: s,
+          openLine: (c, line) => Navigator.push(
+            c,
+            MaterialPageRoute<void>(
+              builder: (_) => ConversationScreen(services: s, conversationId: line.conversationId, highlightSegmentId: line.id),
+            ),
+          ),
+        ),
+      ),
+    );
 
 /// One conversation as a chat, with who said what.
 class ConversationScreen extends StatefulWidget {
@@ -30,7 +48,6 @@ class ConversationScreen extends StatefulWidget {
 
 class _ConversationScreenState extends State<ConversationScreen> {
   List<SegmentView> _lines = const [];
-  final _highlightKey = GlobalKey();
 
   /// Voices to show ([SegmentView.voiceKey]); null shows everyone.
   Set<String>? _only;
@@ -74,87 +91,158 @@ class _ConversationScreenState extends State<ConversationScreen> {
     super.initState();
     if (widget.focusSpeakerIds.isNotEmpty) _only = {for (final id in widget.focusSpeakerIds) 'person:$id'};
     _load();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final ctx = _highlightKey.currentContext;
-      if (ctx != null) Scrollable.ensureVisible(ctx, alignment: 0.3);
-    });
+    s.dataVersion.addListener(_load);
   }
 
-  void _load() => setState(() => _lines = s.transcripts.conversation(widget.conversationId));
+  @override
+  void dispose() {
+    s.dataVersion.removeListener(_load);
+    super.dispose();
+  }
 
-  Future<void> _relabel(SegmentView seg) async {
+  void _load() {
+    if (!mounted) return;
+    setState(() => _lines = s.transcripts.conversation(widget.conversationId));
+  }
+
+  /// Names a guest voice: every line it said, here and in other conversations.
+  Future<void> _nameVoice(String clusterId) async {
+    if (await nameVoice(context, s, clusterId)) _load();
+  }
+
+  /// One line: who said it (one tap on a person), TV / background, copy.
+  Future<void> _lineActions(SegmentView seg) async {
     final people = s.speakers.profiles();
     final current = seg.speakerId == null ? null : seg.speakerName;
+    final guest = seg.speakerId == null && !seg.background ? seg.clusterId : null;
+    final guestLines = guest == null ? 0 : s.transcripts.voiceToName(guest, samples: 0)?.lines ?? 0;
     final choice = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (c) {
         final t = Theme.of(c);
         return SafeArea(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(c).height * 0.8),
-            child: ListView(
-              shrinkWrap: true,
-              padding: const EdgeInsets.only(bottom: 8),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                  child: Text('Who said this?', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: Text('"${seg.text}"',
-                      maxLines: 3, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyMedium?.copyWith(fontStyle: FontStyle.italic)),
-                ),
-                for (final p in people)
-                  ListTile(
-                    leading: SpeakerAvatar(label: p.name),
-                    title: Text(p.name),
-                    trailing: p.id == seg.speakerId ? Icon(Icons.check_rounded, color: t.colorScheme.primary) : null,
-                    onTap: () => Navigator.pop(c, p.id),
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(c).height * 0.85),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Who said this?', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text('"${seg.text}"', maxLines: 3, overflow: TextOverflow.ellipsis, style: t.textTheme.bodyLarge?.copyWith(fontStyle: FontStyle.italic)),
+                  const SizedBox(height: 14),
+                  if (guest != null) ...[
+                    // The quick way: the whole voice at once.
+                    Material(
+                      color: t.colorScheme.tertiaryContainer,
+                      borderRadius: BorderRadius.circular(16),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                SpeakerAvatar(label: seg.speakerLabel, known: false),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    '${seg.speakerLabel} said ${guestLines == 1 ? 'only this line' : '$guestLines lines in all'}. '
+                                    'Name the voice to name every one.',
+                                    style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onTertiaryContainer),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: FilledButton.icon(
+                                onPressed: () => Navigator.pop(c, '#voice'),
+                                icon: const Icon(Icons.record_voice_over_rounded),
+                                label: const Text('Name this voice'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  Text(
+                    guest != null
+                        ? 'Or just this line is…'
+                        : current != null
+                            ? 'Said by $current. If not, it\'s…'
+                            : 'It\'s…',
+                    style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                   ),
-                if (people.isEmpty) const ListTile(title: Text('Add people on the People tab to label voices.')),
-                const Divider(indent: 16, endIndent: 16),
-                if (current != null)
-                  ListTile(
-                    leading: Icon(Icons.person_off_rounded, color: t.colorScheme.error),
-                    title: Text('Not $current'),
-                    subtitle: Text('Becomes a guest; similar voices won\'t get this name. $current\'s voiceprint stays the same.'),
-                    onTap: () => Navigator.pop(c, '#not'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final p in people)
+                        if (p.id != seg.speakerId)
+                          ActionChip(
+                            avatar: SpeakerAvatar(label: p.name, radius: 12),
+                            label: Text(p.name),
+                            onPressed: () => Navigator.pop(c, p.id),
+                          ),
+                      ActionChip(
+                        avatar: Icon(Icons.person_add_alt_1_rounded, size: 18, color: t.colorScheme.primary),
+                        label: const Text('New person…'),
+                        onPressed: () => Navigator.pop(c, '#new'),
+                      ),
+                      if (current != null)
+                        ActionChip(
+                          avatar: Icon(Icons.person_off_rounded, size: 18, color: t.colorScheme.error),
+                          label: Text('Not $current'),
+                          onPressed: () => Navigator.pop(c, '#not'),
+                        ),
+                      if (seg.background)
+                        ActionChip(
+                          avatar: const Icon(Icons.record_voice_over_rounded, size: 18),
+                          label: const Text('Not TV or background'),
+                          onPressed: () => Navigator.pop(c, '#unbackground'),
+                        )
+                      else
+                        ActionChip(
+                          avatar: const Icon(Icons.tv_rounded, size: 18),
+                          label: const Text('TV or background'),
+                          onPressed: () => Navigator.pop(c, '#background'),
+                        ),
+                    ],
                   ),
-                if (seg.background)
-                  ListTile(
-                    leading: const Icon(Icons.record_voice_over_rounded),
-                    title: const Text('Not TV or background'),
-                    subtitle: Text('Show ${seg.speakerLabel}\'s lines again everywhere.'),
-                    onTap: () => Navigator.pop(c, '#unbackground'),
-                  )
-                else
-                  ListTile(
-                    leading: const Icon(Icons.tv_rounded),
-                    title: const Text('TV or background voice'),
-                    subtitle: const Text('Hide this voice\'s lines, now and whenever it is heard again. You can show them any time.'),
-                    onTap: () => Navigator.pop(c, '#background'),
+                  if (current != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '"Not $current" makes the line a guest; $current\'s voiceprint stays the same.',
+                        style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
+                      ),
+                    ),
+                  const Divider(height: 28),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => Navigator.pop(c, '#copy'),
+                        icon: const Icon(Icons.copy_rounded),
+                        label: const Text('Copy line'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => Navigator.pop(c, '#copyFull'),
+                        icon: const Icon(Icons.content_copy_rounded),
+                        label: const Text('Copy with name and time'),
+                      ),
+                    ],
                   ),
-                ListTile(
-                  leading: const Icon(Icons.person_add_rounded),
-                  title: const Text('New person…'),
-                  subtitle: const Text('Name someone new from this line'),
-                  onTap: () => Navigator.pop(c, '#new'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.copy_rounded),
-                  title: const Text('Copy this line'),
-                  subtitle: const Text('Just the words'),
-                  onTap: () => Navigator.pop(c, '#copy'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.content_copy_rounded),
-                  title: const Text('Copy with name and time'),
-                  subtitle: Text(lineText(seg), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () => Navigator.pop(c, '#copyFull'),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -163,6 +251,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (choice == null || !mounted) return;
     try {
       switch (choice) {
+        case '#voice':
+          await _nameVoice(guest!);
+          return;
         case '#copy':
           await Clipboard.setData(ClipboardData(text: seg.text));
           if (mounted) showMessage(context, 'Copied');
@@ -171,8 +262,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
           await _copyLine(seg);
           return;
         case '#not':
-          final guest = s.speakers.markNotSpeaker(seg.id, clusterThreshold: s.settings.value.guestThreshold);
-          if (mounted) showMessage(context, guest == null ? 'Removed $current from this line.' : 'Not $current — now $guest.');
+          final g = s.speakers.markNotSpeaker(seg.id, clusterThreshold: s.settings.value.guestThreshold);
+          if (mounted) showMessage(context, g == null ? 'Removed $current from this line.' : 'Not $current — now $g.');
         case '#background':
           final label = s.speakers.markBackground(seg.id, clusterThreshold: s.settings.value.guestThreshold);
           if (mounted) {
@@ -229,6 +320,46 @@ class _ConversationScreenState extends State<ConversationScreen> {
       if (!l.background && l.emotion != null) mood[l.emotion!] = (mood[l.emotion!] ?? 0) + 1;
     }
     final hasMood = mood.keys.any((k) => k != 'neutral');
+    // Everything above the lines, then one row per line; only what is on
+    // screen is built, so long conversations open at once.
+    final header = <Widget>[
+      if (first != null)
+        Padding(
+          padding: EdgeInsets.only(bottom: hasMood ? 8 : 12),
+          child: Row(
+            children: [
+              AvatarStack(labels: people),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '${formatTime(first.startedAt)} – ${formatTime(last!.endedAt)} · ${people.join(', ')}',
+                  style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        ),
+      if (hasMood) Padding(padding: const EdgeInsets.only(bottom: 12), child: MoodStrip(counts: mood)),
+      _voicesToName(context),
+      _voiceFilter(context),
+      if (visible.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 32),
+          child: Center(child: Text('No lines from the chosen voices.')),
+        ),
+    ];
+    Widget row(int i) {
+      if (i < header.length) return header[i];
+      final j = i - header.length;
+      return _bubble(context, visible[j], showName: j == 0 || visible[j - 1].speakerLabel != visible[j].speakerLabel);
+    }
+
+    final count = header.length + visible.length;
+    // A line to show (from search or a review) starts a quarter down the
+    // screen: the lines before it are laid out upwards from there.
+    final h = visible.indexWhere((l) => l.id == widget.highlightSegmentId);
+    final center = h < 0 ? 0 : header.length + h;
+    const pad = EdgeInsets.symmetric(horizontal: 16);
     return Scaffold(
       appBar: AppBar(
         title: Text(first == null ? 'Conversation' : formatDayName(first.startedAt)),
@@ -245,35 +376,71 @@ class _ConversationScreenState extends State<ConversationScreen> {
       ),
       body: _lines.isEmpty
           ? const EmptyState(icon: Icons.chat_bubble_outline_rounded, title: 'This conversation is empty')
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-              children: [
+          : CustomScrollView(
+              key: const ValueKey('conversation-lines'),
+              center: const ValueKey('conversation-center'),
+              anchor: center == 0 ? 0.0 : 0.25,
+              slivers: [
+                SliverPadding(
+                  padding: pad,
+                  sliver: SliverList.builder(itemCount: center, itemBuilder: (context, i) => row(center - 1 - i)),
+                ),
+                SliverPadding(
+                  key: const ValueKey('conversation-center'),
+                  padding: pad.copyWith(bottom: 32),
+                  sliver: SliverList.builder(itemCount: count - center, itemBuilder: (context, i) => row(center + i)),
+                ),
+              ],
+            ),
+    );
+  }
+
+  /// Guest voices in this conversation, each a tap away from a name.
+  Widget _voicesToName(BuildContext context) {
+    final t = Theme.of(context);
+    final guests = <String, ({String label, int n})>{};
+    for (final l in _lines) {
+      if (l.speakerId != null || l.clusterId == null || l.background) continue;
+      final g = guests[l.clusterId!];
+      guests[l.clusterId!] = (label: l.speakerLabel, n: (g?.n ?? 0) + 1);
+    }
+    if (guests.isEmpty) return const SizedBox.shrink();
+    final sorted = guests.entries.toList()..sort((a, b) => b.value.n.compareTo(a.value.n));
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: t.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 10, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                sorted.length == 1 ? 'A voice without a name' : '${sorted.length} voices without a name',
+                style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800, color: t.colorScheme.onTertiaryContainer),
+              ),
+              for (final g in sorted)
                 Padding(
-                  padding: EdgeInsets.only(bottom: hasMood ? 8 : 12),
+                  padding: const EdgeInsets.only(top: 6),
                   child: Row(
                     children: [
-                      AvatarStack(labels: people),
+                      SpeakerAvatar(label: g.value.label, known: false, radius: 16),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          '${formatTime(first!.startedAt)} – ${formatTime(last!.endedAt)} · ${people.join(', ')}',
-                          style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
+                          '${g.value.label} · ${g.value.n == 1 ? '1 line' : '${g.value.n} lines'} here',
+                          style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onTertiaryContainer),
                         ),
                       ),
+                      FilledButton.tonal(onPressed: () => _nameVoice(g.key), child: const Text("Who's this?")),
                     ],
                   ),
                 ),
-                if (hasMood) Padding(padding: const EdgeInsets.only(bottom: 12), child: MoodStrip(counts: mood)),
-                _voiceFilter(context),
-                if (visible.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(child: Text('No lines from the chosen voices.')),
-                  ),
-                for (var i = 0; i < visible.length; i++)
-                  _bubble(context, visible[i], showName: i == 0 || visible[i - 1].speakerLabel != visible[i].speakerLabel),
-              ],
-            ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -375,8 +542,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final t = Theme.of(context);
     final color = speakerColor(seg.speakerLabel, known: seg.isKnownSpeaker);
     final highlighted = seg.id == widget.highlightSegmentId;
+    final guest = seg.speakerId == null && seg.clusterId != null && !seg.background;
     return Padding(
-      key: highlighted ? _highlightKey : null,
       padding: EdgeInsets.only(top: showName ? 12 : 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -387,13 +554,32 @@ class _ConversationScreenState extends State<ConversationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (showName)
+                if (showName && guest)
+                  // A guest's name is a button: naming it names all its lines.
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _nameVoice(seg.clusterId!),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(seg.speakerLabel, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+                          const SizedBox(width: 6),
+                          Icon(Icons.edit_rounded, size: 14, color: t.colorScheme.primary),
+                          const SizedBox(width: 2),
+                          Text("Who's this?", style: t.textTheme.labelMedium?.copyWith(color: t.colorScheme.primary, fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (showName)
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 4),
                     child: Text(seg.speakerLabel, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
                   ),
                 GestureDetector(
-                  onTap: () => _relabel(seg),
+                  onTap: () => _lineActions(seg),
                   onLongPress: () => _copyLine(seg),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

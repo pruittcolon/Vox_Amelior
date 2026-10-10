@@ -62,8 +62,8 @@ void main() {
       store = VectorStore(db);
       fake = FakeTextEmbedder();
       embedder = InlineEmbedder(fake);
-      indexer = SearchIndexer(store: store, embedder: () => embedder, modelId: model, batch: 3, pause: Duration.zero);
-      search = HybridSearch(db: db, transcripts: transcripts, vectors: store, embedder: () => embedder, modelId: model);
+      indexer = SearchIndexer(store: store, embedder: () => embedder, modelId: () => model, batch: 3, pause: Duration.zero);
+      search = HybridSearch(db: db, transcripts: transcripts, vectors: store, embedder: () => embedder, modelId: () => model);
       pruitt = speakers.create(name: 'Pruitt', embeddingModel: 'm', samples: [voiceprint(1)]).id;
       ericah = speakers.create(name: 'Ericah', embeddingModel: 'm', samples: [voiceprint(2)]).id;
     });
@@ -143,7 +143,7 @@ void main() {
 
       test('without an embedder it does nothing; an embedder failure stops it with the error kept', () async {
         archive();
-        final off = SearchIndexer(store: store, embedder: () => null, modelId: model, pause: Duration.zero);
+        final off = SearchIndexer(store: store, embedder: () => null, modelId: () => model, pause: Duration.zero);
         await off.run();
         expect(store.progress(model).done, 0);
         fake.fail = true;
@@ -156,7 +156,7 @@ void main() {
         archive();
         var now = DateTime(2026, 10, 1, 20);
         final idx = SearchIndexer(
-            store: store, embedder: () => embedder, modelId: model, batch: 3, pause: Duration.zero, clock: () => now);
+            store: store, embedder: () => embedder, modelId: () => model, batch: 3, pause: Duration.zero, clock: () => now);
         final seen = <({int done, int total})>[];
         final sub = idx.progress.listen(seen.add);
         fake.fail = true;
@@ -187,7 +187,7 @@ void main() {
         archive();
         final gate = Completer<void>();
         AsyncEmbedder current = _Held(embedder, gate.future);
-        final idx = SearchIndexer(store: store, embedder: () => current, modelId: model, batch: 3, pause: Duration.zero);
+        final idx = SearchIndexer(store: store, embedder: () => current, modelId: () => model, batch: 3, pause: Duration.zero);
         final first = idx.run(); // waiting on the first batch
         idx.stop(); // switched off: the old model is closed…
         current = embedder; // …and on again, with a new one
@@ -286,7 +286,7 @@ void main() {
         expect(transcripts.segmentsByIds(hints).map((s) => s.text), contains('We cannot pay the electric bill this month'));
         fake.fail = true;
         expect(await search.hintsFor('who walks the dog?'), isEmpty);
-        final off = HybridSearch(db: db, transcripts: transcripts, vectors: store, embedder: () => null, modelId: model);
+        final off = HybridSearch(db: db, transcripts: transcripts, vectors: store, embedder: () => null, modelId: () => model);
         expect(await off.hintsFor('money'), isEmpty);
         expect(off.meaningReady, isFalse);
         expect(search.meaningReady, isTrue);

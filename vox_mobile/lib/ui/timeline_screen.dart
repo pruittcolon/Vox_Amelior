@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
-import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/search/hybrid_search.dart';
 import 'package:vox_amelior_mobile/ui/charts.dart';
 import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
@@ -479,6 +478,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final t = Theme.of(context);
     final mood = _hasTones ? s.transcripts.mood(c.id) : null;
     final top = mood?.notable.take(3) ?? const <MapEntry<String, int>>[];
+    // Guest voices are named inside, from the card at the top of the conversation.
+    final unnamed = c.participants.where((p) => p.startsWith('Guest ')).length;
     return VoxCard(
           onTap: () => _open(c.id),
           child: Column(
@@ -516,6 +517,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
               if (mood != null && mood.notable.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 MoodStrip(counts: mood.counts, height: 4),
+              ],
+              if (unnamed > 0) ...[
+                const SizedBox(height: 8),
+                Pill(
+                  unnamed == 1 ? '1 voice to name' : '$unnamed voices to name',
+                  icon: Icons.record_voice_over_rounded,
+                  color: t.colorScheme.tertiary,
+                ),
               ],
             ],
           ),
@@ -586,19 +595,20 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final t = Theme.of(context);
     final style = t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant);
     if (s.embedder == null) {
-      if (!s.settings.value.meaningSearch || s.models.isInstalled(ModelCatalog.textEmbedder)) return const SizedBox.shrink();
-      final state = s.downloads.stateOf(ModelCatalog.textEmbedder);
+      final model = s.settings.value.searchAsset;
+      if (!s.settings.value.meaningSearch || s.searchModel != null) return const SizedBox.shrink();
+      final state = s.downloads.stateOf(model);
       return ListTile(
         dense: true,
         leading: const Icon(Icons.lightbulb_outline_rounded),
         title: Text(state.isBusy ? 'Downloading search by meaning…' : 'Also find what was said in other words'),
         subtitle: Text(state.isBusy
             ? describeDownload(state)
-            : 'Download search by meaning (${formatBytes(ModelCatalog.textEmbedder.approxDownloadBytes)})'),
-        onTap: state.isBusy ? null : () => s.downloads.download(ModelCatalog.textEmbedder),
+            : 'Download search by meaning (${formatBytes(model.approxDownloadBytes)})'),
+        onTap: state.isBusy ? null : () => s.downloads.download(model),
       );
     }
-    final p = s.vectors.progress(ModelCatalog.textEmbedder.id);
+    final p = s.vectors.progress(s.searchModelId);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 2, 20, 4),
       child: Row(

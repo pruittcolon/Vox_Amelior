@@ -53,6 +53,32 @@ class UnknownCluster {
   bool background;
 }
 
+/// A voice Vox heard but cannot name yet, with what you need to recognise
+/// it: a few of its clearest lines and the people it was heard with.
+class VoiceToName {
+  const VoiceToName({
+    required this.clusterId,
+    required this.label,
+    required this.lines,
+    required this.lastHeard,
+    this.samples = const [],
+    this.heardWith = const [],
+  });
+
+  final String clusterId;
+
+  /// "Guest 3".
+  final String label;
+
+  /// Lines it said that still carry no name.
+  final int lines;
+  final DateTime lastHeard;
+  final List<SegmentView> samples;
+
+  /// Named people in the same conversations, most lines first.
+  final List<String> heardWith;
+}
+
 /// A transcribed utterance with its resolved speaker, ready for display.
 /// Which pass produced a line event: [fast] right after the sentence (text
 /// and a first voice match), [finished] after the chunk pass (cut at speaker

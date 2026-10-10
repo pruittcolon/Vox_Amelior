@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -8,25 +9,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/main.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/pipeline/chunk_queue.dart';
+import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 
 /// The whole app on an Android emulator, as a person would use it (CI:
 /// .github/workflows/app-tour.yml, which also takes the screenshots):
 ///
-/// first-run setup with the real model downloads; listening to a recorded
+/// first-run setup with the real model downloads; switching on tone of
+/// voice and search by meaning in Models; listening to a recorded
 /// two-person conversation with the real speech, voice and tone models;
-/// the Timeline, a conversation, search by meaning, Insights, Ask, People
-/// and every settings page; then a large archive, scrolled quickly while
-/// frame times are measured.
+/// naming the two voices; the Timeline, a conversation, search by meaning
+/// (then with the small search model, switched in Models); Insights, Ask,
+/// People and every settings page, also in dark mode; then a year-long
+/// archive, scrolled quickly while frame times are measured.
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('tour of the app', (tester) async {
     final tour = _Tour(tester, binding);
     await tour.run();
-  }, timeout: const Timeout(Duration(minutes: 100)));
+  }, timeout: const Timeout(Duration(minutes: 130)));
 }
 
 class _Tour {
@@ -35,6 +40,12 @@ class _Tour {
   final WidgetTester t;
   final IntegrationTestWidgetsFlutterBinding binding;
   late final AppServices s;
+
+  /// The recorded conversation: who said each line ('ryan' or 'amy').
+  final List<({String voice, String text})> _script = [];
+
+  /// The names the tour gives the two voices.
+  static const Map<String, String> names = {'ryan': 'Pruitt', 'amy': 'Ericah'};
 
   /// This machine, as the emulator sees it (tool/run_tour.sh serves the speech there).
   static const String host = 'http://10.0.2.2:8765';
@@ -46,9 +57,12 @@ class _Tour {
     s = await AppServices.create();
     await t.pumpWidget(VoxApp(services: Future.value(s)));
     await step('first-run setup', _setup);
+    await step('tone and search switched on in Models', _optionalModels);
     await step('listening to a conversation', _listen);
+    await step('naming the voices', _nameVoices);
     await step('timeline and conversation', _timeline);
-    await step('search', _search);
+    await step('search by meaning', _search);
+    await step('switching the search model', _switchSearchModel);
     await step('insights', _insights);
     await step('ask', _ask);
     await step('people', _people);
@@ -63,24 +77,34 @@ class _Tour {
     final download = find.textContaining('Download speech models');
     await until('the setup screen', () => download.evaluate().isNotEmpty);
     await shot('setup');
-    await t.tap(download);
+    await t.tap(download.first);
     await wait(const Duration(seconds: 10));
     await shot('setup-downloading');
-    // Tone of voice and search by meaning, queued behind the speech models.
-    await s.updateSettings(s.settings.value.copyWith(hearTone: true));
-    await s.downloads.download(ModelCatalog.toneModel);
-    await s.downloads.download(ModelCatalog.textEmbedder);
     await until('the speech models', () => s.speechReady, timeout: const Duration(minutes: 30));
-    await until('Continue', () => find.text('Continue').evaluate().isNotEmpty);
+    await scrollTo(find.text('Continue'), find.byKey(const ValueKey('models-list')));
     await shot('setup-ready');
     await t.tap(find.text('Continue'));
     await wait(const Duration(seconds: 2));
     await shot('now-first');
+  }
+
+  Future<void> _optionalModels() async {
+    await openModels();
+    await shot('models');
+    await tapText('On · SenseVoice Small');
+    await tapText('Standard · 8-bit');
+    await wait(const Duration(seconds: 6));
+    await shot('models-downloading');
     await until(
       'tone and search models',
       () => s.models.isInstalled(ModelCatalog.toneModel) && s.models.isInstalled(ModelCatalog.textEmbedder),
       timeout: const Duration(minutes: 20),
     );
+    await shot('models-ready');
+    await scrollTo(find.text('Assistant'), find.byKey(const ValueKey('models-list')));
+    await shot('models-assistant');
+    await back();
+    await back();
   }
 
   Future<void> _listen() async {
@@ -93,26 +117,83 @@ class _Tour {
     for (final c in chunks) {
       final bytes = await fetch(c['file']! as String);
       queue.push(bytes.buffer.asFloat32List(0, bytes.length ~/ 4), start.add(Duration(milliseconds: c['offset_ms']! as int)));
+      for (final l in (c['lines']! as List).cast<Map<String, Object?>>()) {
+        _script.add((voice: l['voice']! as String, text: l['text']! as String));
+      }
     }
-    final lines = chunks.fold<int>(0, (a, c) => a + (c['lines']! as List).length);
+    await tab('Now');
     await tapText('Start listening');
-    await wait(const Duration(seconds: 6));
+    await wait(const Duration(seconds: 8));
     await shot('now-starting');
-    await until('the conversation transcribed', () => s.transcripts.count() >= lines - 2, timeout: const Duration(minutes: 20));
+    await until('the conversation transcribed', () => s.transcripts.count() >= _script.length - 3, timeout: const Duration(minutes: 20));
     // Second pass: speaker changes, final names, tone.
     await until('the speech queue to empty', () => queue.length == 0, timeout: const Duration(minutes: 5));
     await wait(const Duration(seconds: 25));
     await shot('now-heard');
-    await scrollDown(find.byType(CustomScrollView).first);
-    await shot('now-heard-more');
     await tapText('Turn off');
     await wait(const Duration(seconds: 3));
     final said = s.transcripts.recent(limit: 100).map((l) => l.text.toLowerCase()).join(' ');
-    note('transcribed ${s.transcripts.count()} lines; '
-        'voices: ${s.speakers.clusters().map((c) => '${c.label} (${c.count})').join(', ')}');
+    note('transcribed ${s.transcripts.count()} lines; voices: '
+        '${s.transcripts.voicesToName(detailed: 0).map((v) => '${v.label} (${v.lines} lines)').join(', ')}');
+    for (final l in s.transcripts.recent(limit: 100).reversed) {
+      note('line: [${l.speakerLabel}${l.emotion == null ? '' : ', ${l.emotion}'}] ${l.text}');
+    }
     for (final word in ['electric bill', 'landlord', 'dentist', 'vet']) {
       expect(said, contains(word), reason: 'the recording says "$word"');
     }
+  }
+
+  /// Names each voice from the People tab's "Who's this?", picking the
+  /// name by what the voice said (as a person would recognise them).
+  Future<void> _nameVoices() async {
+    await tab('People');
+    await shot('people-voices-to-name');
+    await tapText('need a name', contains: true);
+    await shot('who-is-this');
+    for (var i = 0; i < 8 && find.text("Who's this?").evaluate().isNotEmpty; i++) {
+      final voice = s.transcripts.voicesToName(detailed: 1, samples: 20).firstOrNull;
+      if (voice == null || find.text('Who is ${voice.label}?').evaluate().isEmpty) break;
+      final name = names[_voiceOf(voice.samples)]!;
+      note('${voice.label} (${voice.lines} lines) sounds like $name');
+      final chip = find.widgetWithText(ActionChip, name);
+      if (chip.evaluate().isNotEmpty) {
+        await t.tap(chip);
+      } else {
+        await tapText('Someone new');
+        await t.enterText(find.byType(TextField).first, name);
+        await settle();
+        await shot('who-is-this-typing');
+        await t.tap(find.byTooltip('Save name'));
+      }
+      await settle();
+      await shot('named-${name.toLowerCase()}-$i');
+    }
+    await back();
+    await shot('people-named');
+    final named = s.speakers.profiles().map((p) => p.name).toSet();
+    note('people: ${named.join(', ')}; still to name: ${s.transcripts.voicesToNameCount()}');
+    if (!named.containsAll(names.values)) note('WARNING: expected both ${names.values.join(' and ')} after naming');
+  }
+
+  /// The voice ('ryan' or 'amy') whose script lines best match [lines].
+  String _voiceOf(List<SegmentView> lines) {
+    Set<String> words(String text) => RegExp(r'[a-z]+').allMatches(text.toLowerCase()).map((m) => m.group(0)!).toSet();
+    final votes = <String, int>{};
+    for (final l in lines) {
+      final said = words(l.text);
+      var best = 0.0;
+      String? who;
+      for (final line in _script) {
+        final w = words(line.text);
+        final overlap = said.intersection(w).length / max(1, said.union(w).length);
+        if (overlap > best) {
+          best = overlap;
+          who = line.voice;
+        }
+      }
+      if (who != null) votes[who] = (votes[who] ?? 0) + 1;
+    }
+    return votes.entries.fold<MapEntry<String, int>?>(null, (a, e) => a == null || e.value > a.value ? e : a)?.key ?? 'ryan';
   }
 
   Future<void> _timeline() async {
@@ -121,9 +202,10 @@ class _Tour {
     await t.tap(find.byType(Card).first);
     await settle();
     await shot('conversation');
-    await scrollDown(find.byType(ListView).last);
+    await scrollDown(find.byKey(const ValueKey('conversation-lines')));
+    await shot('conversation-more');
+    await scrollDown(find.byKey(const ValueKey('conversation-lines')));
     await shot('conversation-end');
-    // Naming a voice from one of its lines.
     await t.tap(find.textContaining('electric bill').first);
     await settle();
     await shot('conversation-line-sheet');
@@ -132,12 +214,48 @@ class _Tour {
   }
 
   Future<void> _search() async {
+    await tab('Timeline');
     await t.enterText(find.byType(TextField).first, 'money worries');
-    await until('meaning search results', () => find.textContaining('meaning').evaluate().isNotEmpty, timeout: const Duration(minutes: 5));
-    await wait(const Duration(seconds: 2));
+    await until('meaning search results', () => find.textContaining('meaning').evaluate().length > 1, timeout: const Duration(minutes: 5));
+    await wait(const Duration(seconds: 3));
     await shot('search-meaning');
+    await t.enterText(find.byType(TextField).first, 'when is the vet');
+    await wait(const Duration(seconds: 5));
+    await shot('search-vet');
     await t.tap(find.byIcon(Icons.close_rounded).first);
     await settle();
+  }
+
+  /// Search by meaning with the small model: chosen in Models, downloaded,
+  /// every line prepared again, then searched. Then back to standard,
+  /// whose lines are still prepared.
+  Future<void> _switchSearchModel() async {
+    await openModels();
+    await scrollTo(find.text('Small · 4-bit'), find.byKey(const ValueKey('models-list')));
+    await tapText('Small · 4-bit');
+    await wait(const Duration(seconds: 5));
+    await shot('models-switching-search');
+    await until('the small search model', () => s.models.isInstalled(ModelCatalog.textEmbedderSmall), timeout: const Duration(minutes: 15));
+    await until('lines prepared for the small model', () {
+      final p = s.vectors.progress(s.searchModelId);
+      return s.searchModelId == ModelCatalog.textEmbedderSmall.id && p.total > 0 && p.done >= p.total;
+    }, timeout: const Duration(minutes: 10));
+    await shot('models-switched-search');
+    await back();
+    await back();
+    await tab('Timeline');
+    await t.enterText(find.byType(TextField).first, 'money worries');
+    await until('meaning search results', () => find.textContaining('meaning').evaluate().length > 1, timeout: const Duration(minutes: 5));
+    await wait(const Duration(seconds: 3));
+    await shot('search-meaning-small-model');
+    await t.tap(find.byIcon(Icons.close_rounded).first);
+    await settle();
+    await openModels();
+    await scrollTo(find.text('Standard · 8-bit'), find.byKey(const ValueKey('models-list')));
+    await tapText('Standard · 8-bit');
+    await until('back on the standard search model', () => s.searchModelId == ModelCatalog.textEmbedder.id);
+    await back();
+    await back();
   }
 
   Future<void> _insights() async {
@@ -157,18 +275,25 @@ class _Tour {
   Future<void> _people() async {
     await tab('People');
     await shot('people');
+    await t.tap(find.text(s.speakers.profiles().first.name).first);
+    await settle();
+    await shot('person-insights');
+    await back();
   }
 
   Future<void> _settings() async {
+    await tab('Now');
     await t.tap(find.byTooltip('Settings and more').first);
     await settle();
     await shot('more');
-    for (final page in ['Models', 'Places', 'Automations', 'Appearance', 'Voice clips', 'Settings']) {
+    for (final page in ['Places', 'Automations', 'Appearance', 'Voice clips', 'Settings']) {
       await tapText(page);
       await shot('more-${page.toLowerCase().replaceAll(' ', '-')}');
-      if (page == 'Models' || page == 'Settings') {
-        await scrollDown(find.byType(Scrollable).last);
-        await shot('more-${page.toLowerCase()}-more');
+      if (page == 'Settings') {
+        await scrollDown(find.byType(Scrollable).first);
+        await shot('more-settings-more');
+        await scrollDown(find.byType(Scrollable).first);
+        await shot('more-settings-end');
       }
       await back();
     }
@@ -178,31 +303,38 @@ class _Tour {
   Future<void> _dark() async {
     await s.updateSettings(s.settings.value.copyWith(themeMode: 'dark'));
     await settle();
-    for (final name in ['Timeline', 'Insights', 'People']) {
+    for (final name in ['Now', 'Timeline', 'Insights', 'People']) {
       await tab(name);
       await shot('dark-${name.toLowerCase()}');
     }
+    await tab('Timeline');
+    await t.tap(find.byType(Card).first);
+    await settle();
+    await shot('dark-conversation');
+    await back();
     await s.updateSettings(s.settings.value.copyWith(themeMode: 'system'));
     await settle();
   }
 
   /// A year of conversations, then the busiest screens scrolled hard while
-  /// frame times are recorded. Meaning search indexes the new lines in the
+  /// frame times are recorded. Meaning search prepares the new lines in the
   /// background meanwhile, as it would on a phone.
   Future<void> _performance() async {
+    final watch = Stopwatch()..start();
     final lines = _seedArchive();
-    note('archive: $lines lines');
+    note('archive: $lines lines added in ${watch.elapsed.inSeconds} s');
     s.dataChanged();
     await settle();
 
     await tab('Timeline');
+    await shot('timeline-archive');
     await measure('timeline-day-strip', () async {
       for (var i = 0; i < 4; i++) {
         await t.fling(find.byKey(const ValueKey('timeline-days')), const Offset(-600, 0), 3000);
         await wait(const Duration(milliseconds: 900));
       }
     });
-    await t.tap(find.text('Pruitt').first);
+    await t.tap(find.widgetWithText(FilterChip, 'Pruitt'));
     await settle();
     await shot('timeline-pruitt');
     await measure('timeline-conversations', () async {
@@ -211,13 +343,34 @@ class _Tour {
         await wait(const Duration(milliseconds: 900));
       }
     });
-    await t.tap(find.text('All').first);
+    await t.tap(find.widgetWithText(ChoiceChip, 'All'));
     await settle();
 
+    // The 400-line conversation three days ago.
+    final day = DateTime.now().subtract(const Duration(days: 3));
+    final long = s.transcripts.conversationsBetween(DateTime(day.year, day.month, day.day), DateTime(day.year, day.month, day.day + 1));
+    final biggest = long.fold<ConversationSummary?>(null, (a, c) => a == null || c.segmentCount > a.segmentCount ? c : a);
     await t.tap(find.byTooltip('Pick a date'));
     await settle();
     await shot('timeline-date-picker');
     await back();
+    if (biggest != null) {
+      // Opened as a tap on its card would; timed to its first frame.
+      final nav = t.state<NavigatorState>(find.byType(Navigator).first);
+      final open = Stopwatch()..start();
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ConversationScreen(services: s, conversationId: biggest.id))));
+      await t.pump();
+      note('opened a ${biggest.segmentCount}-line conversation: first frame after ${open.elapsedMilliseconds} ms');
+      await settle();
+      await shot('conversation-long');
+      await measure('conversation-long', () async {
+        for (var i = 0; i < 6; i++) {
+          await t.fling(find.byKey(const ValueKey('conversation-lines')), const Offset(0, -1200), 5000);
+          await wait(const Duration(milliseconds: 900));
+        }
+      });
+      await back();
+    }
 
     await t.enterText(find.byType(TextField).first, 'dinner');
     await wait(const Duration(seconds: 3));
@@ -240,7 +393,13 @@ class _Tour {
     });
     await shot('insights-archive');
     await tab('People');
+    await measure('people', () async {
+      await t.fling(find.byKey(const ValueKey('people-list')), const Offset(0, -600), 3000);
+      await wait(const Duration(milliseconds: 900));
+    });
     await shot('people-archive');
+    final p = s.vectors.progress(s.searchModelId);
+    note('meaning search prepared ${p.done} of ${p.total} lines meanwhile');
     await tab('Timeline');
   }
 
@@ -343,7 +502,10 @@ class _Tour {
     final watch = Stopwatch()..start();
     var lastNote = 0;
     while (!done()) {
-      if (watch.elapsed > timeout) fail('timed out after ${timeout.inMinutes} min waiting for $what');
+      if (watch.elapsed > timeout) {
+        await shot('timed-out');
+        fail('timed out after ${timeout.inMinutes} min waiting for $what');
+      }
       if (watch.elapsed.inSeconds ~/ 30 > lastNote) {
         lastNote = watch.elapsed.inSeconds ~/ 30;
         note('still waiting for $what (${watch.elapsed.inSeconds} s)${_downloadNote()}');
@@ -354,7 +516,7 @@ class _Tour {
 
   String _downloadNote() {
     final cur = s.downloads.current;
-    return cur == null ? '' : '; downloading ${cur.asset.title}: ${cur.state.status.name} ${(cur.state.progress ?? 0) * 100 ~/ 1}%';
+    return cur == null ? '' : '; downloading ${cur.asset.title}: ${cur.state.status.name} ${((cur.state.progress ?? 0) * 100).round()}%';
   }
 
   Future<void> tab(String label) async {
@@ -362,13 +524,20 @@ class _Tour {
     await settle();
   }
 
-  Future<void> tapText(String text) async {
-    final f = find.text(text);
+  Future<void> tapText(String text, {bool contains = false}) async {
+    final f = contains ? find.textContaining(text) : find.text(text);
     await until('"$text"', () => f.evaluate().isNotEmpty);
     await t.ensureVisible(f.first);
     await settle();
     await t.tap(f.first);
     await settle();
+  }
+
+  Future<void> openModels() async {
+    await tab('Now');
+    await t.tap(find.byTooltip('Settings and more').first);
+    await settle();
+    await tapText('Models');
   }
 
   Future<void> back() async {
@@ -379,6 +548,15 @@ class _Tour {
 
   Future<void> scrollDown(Finder scrollable) async {
     await t.fling(scrollable, const Offset(0, -700), 2500);
+    await settle();
+  }
+
+  Future<void> scrollTo(Finder target, Finder scrollable) async {
+    for (var i = 0; i < 20 && target.evaluate().isEmpty; i++) {
+      await t.drag(scrollable, const Offset(0, -300));
+      await settle();
+    }
+    await t.ensureVisible(target.first);
     await settle();
   }
 

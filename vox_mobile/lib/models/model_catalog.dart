@@ -230,14 +230,15 @@ class ModelCatalog {
     ],
   );
 
-  /// Google EmbeddingGemma 300M (int8), the ONNX export from onnx-community,
-  /// pinned to one commit. Turns lines and questions into vectors for search
-  /// by meaning and for picking what Gemma reads when it answers.
+  /// Google EmbeddingGemma 300M (int8, the standard size), the ONNX export
+  /// from onnx-community, pinned to one commit. Turns lines and questions
+  /// into vectors for search by meaning and for picking what Gemma reads
+  /// when it answers. Also in [textEmbedderSmall] and [textEmbedderFull].
   static const ModelAsset textEmbedder = ModelAsset(
     id: 'embeddinggemma-300m-q8',
     kind: ModelKind.textEmbedding,
     title: 'Search by meaning',
-    description: 'Google EmbeddingGemma 300M. Finds what was said even in other words ("money worries" finds '
+    description: 'Google EmbeddingGemma 300M (8-bit). Finds what was said even in other words ("money worries" finds '
         '"we can\'t pay the bill"), and helps Gemma pick what to read when it answers. Optional.',
     approxDownloadBytes: 567874 + 308890624 + 4689074,
     essential: false,
@@ -266,6 +267,95 @@ class ModelCatalog {
   );
   static const String _eg =
       'https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/5090578d9565bb06545b4552f76e6bc2c93e4a66';
+  static const RemoteFile _egTokenizer = RemoteFile(
+    url: '$_eg/tokenizer.model',
+    fileName: 'tokenizer.model',
+    sha256: '1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c',
+    sizeBytes: 4689074,
+  );
+
+  /// The same model with 4-bit weights: the smallest download and the least
+  /// memory, a little less precise.
+  static const ModelAsset textEmbedderSmall = ModelAsset(
+    id: 'embeddinggemma-300m-q4',
+    kind: ModelKind.textEmbedding,
+    title: 'Search by meaning (small)',
+    description: 'Google EmbeddingGemma 300M with 4-bit weights. The smallest and lightest; slightly less precise.',
+    approxDownloadBytes: 519322 + 196725760 + 4689074,
+    essential: false,
+    licenseUrl: 'https://ai.google.dev/gemma/terms',
+    files: [
+      RemoteFile(
+        url: '$_eg/onnx/model_q4.onnx',
+        fileName: 'model_q4.onnx',
+        sha256: 'ad1dfee81a70f7944b9b9d1cc6e48075b832881cf33fab2f2b248be78f3f0043',
+        sizeBytes: 519322,
+      ),
+      RemoteFile(
+        url: '$_eg/onnx/model_q4.onnx_data',
+        fileName: 'model_q4.onnx_data',
+        sha256: '599962c3143b040de2dd05e5975be3e9091dd067cacc6a8f7186e3203bab9e02',
+        sizeBytes: 196725760,
+      ),
+      _egTokenizer,
+    ],
+  );
+
+  /// The same model in full precision (fp32): the most precise, about four
+  /// times the download and memory of the standard size.
+  static const ModelAsset textEmbedderFull = ModelAsset(
+    id: 'embeddinggemma-300m-fp32',
+    kind: ModelKind.textEmbedding,
+    title: 'Search by meaning (full precision)',
+    description: 'Google EmbeddingGemma 300M in full precision (fp32). The most precise; needs about 1.3 GB of memory while it works.',
+    approxDownloadBytes: 479932 + 1234521088 + 4689074,
+    essential: false,
+    licenseUrl: 'https://ai.google.dev/gemma/terms',
+    files: [
+      RemoteFile(
+        url: '$_eg/onnx/model.onnx',
+        fileName: 'model.onnx',
+        sha256: 'ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4',
+        sizeBytes: 479932,
+      ),
+      RemoteFile(
+        url: '$_eg/onnx/model.onnx_data',
+        fileName: 'model.onnx_data',
+        sha256: 'ef835ae565d8695236652475903078e8ed794c7c35faf1164d78ec3238e8a88d',
+        sizeBytes: 1234521088,
+      ),
+      _egTokenizer,
+    ],
+  );
+
+  /// Search-by-meaning models to choose from (settings `searchModel`:
+  /// 'int8', 'q4' or 'fp32'), in order of preference when the chosen one is
+  /// not installed.
+  static const List<ModelAsset> embedders = [textEmbedder, textEmbedderSmall, textEmbedderFull];
+
+  /// The settings name of a search model ('int8', 'q4' or 'fp32').
+  static String embedderName(ModelAsset asset) => switch (asset.id) {
+        'embeddinggemma-300m-q4' => 'q4',
+        'embeddinggemma-300m-fp32' => 'fp32',
+        _ => 'int8',
+      };
+
+  /// The search model for a settings name; the standard one for anything unknown.
+  static ModelAsset embedderNamed(String name) => switch (name) {
+        'q4' => textEmbedderSmall,
+        'fp32' => textEmbedderFull,
+        _ => textEmbedder,
+      };
+
+  /// How a search model is offered: "Small · 4-bit", "Standard · 8-bit", "Full precision".
+  static String embedderLabel(ModelAsset asset) => switch (embedderName(asset)) {
+        'q4' => 'Small · 4-bit',
+        'fp32' => 'Full precision · fp32',
+        _ => 'Standard · 8-bit',
+      };
+
+  /// A search model's ONNX graph (its weights sit beside it).
+  static String embedderGraph(ModelAsset asset) => asset.files.first.fileName;
 
   static const String _lc = 'https://huggingface.co/litert-community';
 
@@ -336,7 +426,7 @@ class ModelCatalog {
         _ => parakeetFp16,
       };
   static const List<ModelAsset> assistants = [gemma4E4b, gemma4E2b];
-  static const List<ModelAsset> all = [...speech, parakeet, parakeetFp32, ...speechExtras, toneModel, textEmbedder, ...assistants];
+  static const List<ModelAsset> all = [...speech, parakeet, parakeetFp32, ...speechExtras, toneModel, ...embedders, ...assistants];
 
   /// Listening can start: the support models plus either recognizer are installed.
   static bool speechReady(bool Function(ModelAsset asset) isInstalled) =>
