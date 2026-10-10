@@ -1,0 +1,60 @@
+name: Republish speech models as plain files
+# sherpa-onnx publishes Parakeet as .tar.bz2 archives. On a phone, unpacking
+# one takes minutes (bzip2 in pure Dart) and needs room for the archive, the
+# tar and the files at once (about 3.5 GB for fp16). This puts the files the
+# app uses, unchanged, into this repository's releases, so the phone
+# downloads them directly: checksummed, resumable, nothing to unpack.
+# NVIDIA Parakeet TDT 0.6B v2 is CC-BY-4.0; the ONNX export is sherpa-onnx's.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-cerf-zer2dj]
+    paths: ['.github/workflows/republish-speech-models.yml']
+permissions:
+  contents: write
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: parakeet-tdt-0.6b-v2-fp16-files
+            name: fp16
+            url: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16.tar.bz2
+            sha: 37f67a1a6c942dae27d345ee395fbd19e25ee48996faf70fca25779026054cf0
+            files: encoder.fp16.onnx decoder.fp16.onnx joiner.fp16.onnx tokens.txt
+          - tag: parakeet-tdt-0.6b-v2-int8-files
+            name: int8
+            url: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+            sha: 157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad
+            files: encoder.int8.onnx decoder.int8.onnx joiner.int8.onnx tokens.txt
+    name: republish ${{ matrix.name }}
+    steps:
+      - name: Download and check the archive
+        run: |
+          curl -sSfL "${{ matrix.url }}" -o model.tar.bz2
+          echo "${{ matrix.sha }}  model.tar.bz2" | sha256sum -c
+      - name: Take out the files the app uses
+        run: |
+          mkdir -p unpacked out
+          tar -xjf model.tar.bz2 -C unpacked
+          for f in ${{ matrix.files }}; do
+            src=$(find unpacked -name "$f" -type f | head -n 1)
+            test -n "$src" || { echo "::error::$f not in the archive"; exit 1; }
+            cp "$src" out/
+          done
+          cd out
+          sha256sum * > SHA256SUMS.txt
+          for f in ${{ matrix.files }}; do echo "$(stat -c %s "$f") $f"; done > SIZES.txt
+          cat SHA256SUMS.txt SIZES.txt
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ matrix.tag }}" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 || \
+            gh release create "${{ matrix.tag }}" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Parakeet TDT 0.6B v2 (${{ matrix.name }}), unpacked" \
+              --notes "NVIDIA Parakeet TDT 0.6B v2 (CC-BY-4.0), sherpa-onnx's ONNX export, unchanged: the files Vox uses, taken out of ${{ matrix.url }} (sha256 ${{ matrix.sha }}) so phones need not unpack it. Checksums in SHA256SUMS.txt."
+          gh release upload "${{ matrix.tag }}" out/* -R "$GITHUB_REPOSITORY" --clobber

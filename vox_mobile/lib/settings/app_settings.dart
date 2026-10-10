@@ -19,7 +19,7 @@ class AppSettings {
     this.micGain = 1.15,
     this.pauseSeconds = 0.6,
     this.minSpeechSeconds = 0.3,
-    this.speechModel = 'int8',
+    this.speechModel = 'fp16',
     this.splitMinSeconds = 1.5,
     this.splitMinWords = 2,
     this.retentionDays = 90,
@@ -36,6 +36,9 @@ class AppSettings {
     this.places = const [],
     this.multiPatterns = true,
     this.splitSpeakers = true,
+    this.hearTone = true,
+    this.meaningSearch = true,
+    this.searchModel = 'int8',
     this.clipMode = ClipMode.off,
     this.clipPeople = const [],
     this.clipLimitMb = 2048,
@@ -75,7 +78,8 @@ class AppSettings {
   /// Shorter bursts of sound are ignored (coughs, clicks).
   final double minSpeechSeconds;
 
-  /// Which speech model: 'int8' (standard, small) or 'fp16' (half precision, bigger).
+  /// Which speech model: 'fp16' (half precision, the default), 'int8' (smaller) or
+  /// 'fp32' (full precision, largest); the last two are optional downloads.
   final String speechModel;
 
   /// A line is only split at a speaker change when every part lasts at least
@@ -114,6 +118,17 @@ class AppSettings {
   /// Split a line where the speaker changes and mark people talking at once
   /// (needs the speaker-change model).
   final bool splitSpeakers;
+
+  /// Note the tone of voice and sounds of each line (needs the tone model).
+  final bool hearTone;
+
+  /// Search by meaning and help Gemma pick what to read (needs the
+  /// EmbeddingGemma model; lines are embedded in the background).
+  final bool meaningSearch;
+
+  /// Which search model: 'int8' (the standard size), 'q4' (smaller) or
+  /// 'fp32' (full precision); see [ModelCatalog.embedders].
+  final String searchModel;
 
   /// Saving audio clips of what was said (for training later).
   final ClipMode clipMode;
@@ -155,7 +170,10 @@ class AppSettings {
       );
 
   /// The speech-recognition model chosen in settings.
-  ModelAsset get asrAsset => speechModel == 'fp16' ? ModelCatalog.parakeetFp16 : ModelCatalog.parakeet;
+  ModelAsset get asrAsset => ModelCatalog.recognizerNamed(speechModel);
+
+  /// The chosen search-by-meaning model.
+  ModelAsset get searchAsset => ModelCatalog.embedderNamed(searchModel);
 
   ContextBudget get budget => ContextBudget(contextTokens, chunkTokens: reviewChunkTokens);
 
@@ -201,6 +219,9 @@ class AppSettings {
     List<Place>? places,
     bool? multiPatterns,
     bool? splitSpeakers,
+    bool? hearTone,
+    bool? meaningSearch,
+    String? searchModel,
     ClipMode? clipMode,
     List<String>? clipPeople,
     int? clipLimitMb,
@@ -240,6 +261,9 @@ class AppSettings {
         places: places ?? this.places,
         multiPatterns: multiPatterns ?? this.multiPatterns,
         splitSpeakers: splitSpeakers ?? this.splitSpeakers,
+        hearTone: hearTone ?? this.hearTone,
+        meaningSearch: meaningSearch ?? this.meaningSearch,
+        searchModel: searchModel ?? this.searchModel,
         clipMode: clipMode ?? this.clipMode,
         clipPeople: clipPeople ?? this.clipPeople,
         clipLimitMb: clipLimitMb ?? this.clipLimitMb,
@@ -263,7 +287,7 @@ class AppSettings {
         'micGain': micGain,
         'pauseSeconds': pauseSeconds,
         'minSpeechSeconds': minSpeechSeconds,
-        'speechModel': speechModel,
+        'asrModel': speechModel,
         'splitMinSeconds': splitMinSeconds,
         'splitMinWords': splitMinWords,
         'retentionDays': retentionDays,
@@ -280,6 +304,9 @@ class AppSettings {
         'places': [for (final p in places) p.toJson()],
         'multiPatterns': multiPatterns,
         'splitSpeakers': splitSpeakers,
+        'hearTone': hearTone,
+        'meaningSearch': meaningSearch,
+        'searchModel': searchModel,
         'clipMode': clipMode.name,
         'clipPeople': clipPeople,
         'clipLimitMb': clipLimitMb,
@@ -335,7 +362,9 @@ class AppSettings {
       micGain: num01('micGain', d.micGain, min: 0.5, max: 4.0),
       pauseSeconds: num01('pauseSeconds', d.pauseSeconds, min: 0.3, max: 1.5),
       minSpeechSeconds: num01('minSpeechSeconds', d.minSpeechSeconds, min: 0.1, max: 1.0),
-      speechModel: const ['int8', 'fp16'].contains(j['speechModel']) ? j['speechModel']! as String : d.speechModel,
+      // Stored as 'asrModel': the old 'speechModel' key held int8 for everyone
+      // (the old default), so phones moving up start on fp16 too.
+      speechModel: const ['int8', 'fp16', 'fp32'].contains(j['asrModel']) ? j['asrModel']! as String : d.speechModel,
       splitMinSeconds: num01('splitMinSeconds', d.splitMinSeconds, min: 0.8, max: 3.0),
       splitMinWords: intIn('splitMinWords', d.splitMinWords, 1, 5),
       retentionDays: days is int && days >= 0 ? days : d.retentionDays,
@@ -352,6 +381,9 @@ class AppSettings {
       places: places,
       multiPatterns: typed('multiPatterns', d.multiPatterns),
       splitSpeakers: typed('splitSpeakers', d.splitSpeakers),
+      hearTone: typed('hearTone', d.hearTone),
+      meaningSearch: typed('meaningSearch', d.meaningSearch),
+      searchModel: const ['int8', 'q4', 'fp32'].contains(j['searchModel']) ? j['searchModel']! as String : d.searchModel,
       clipMode: ClipMode.values.asNameMap()[j['clipMode']] ?? d.clipMode,
       clipPeople: clipPeople,
       clipLimitMb: intIn('clipLimitMb', d.clipLimitMb, 100, 64 * 1024),

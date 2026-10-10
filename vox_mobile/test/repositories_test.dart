@@ -42,6 +42,18 @@ void main() {
       expect(repo.conversations().first.segmentCount, 1);
     });
 
+    test('a line from earlier on goes to its own time, not into the newest conversation', () {
+      final today = add('good morning', 600);
+      final yesterday = add('from the day before', -1440);
+      expect(yesterday.conversationId, isNot(today.conversationId));
+      expect(add('a minute later', 601).conversationId, today.conversationId);
+      // Heard just before, transcribed after: it opens the conversation.
+      final before = add('just before', 598);
+      expect(before.conversationId, today.conversationId);
+      expect(repo.conversation(today.conversationId).map((l) => l.text), ['just before', 'good morning', 'a minute later']);
+      expect(repo.conversationsBetween(base, base.add(const Duration(days: 1))).single.preview, 'just before');
+    });
+
     test('full-text search is stemmed, ranked and case-insensitive', () {
       add('The plumbers are coming Tuesday', 0);
       add('we need milk and eggs', 1);
@@ -225,7 +237,11 @@ void main() {
       ..execute('DROP INDEX speaker_samples_segment')
       ..execute('ALTER TABLE speaker_samples DROP COLUMN segment_id')
       ..execute('ALTER TABLE speakers DROP COLUMN patterns')
-      ..execute('ALTER TABLE segments DROP COLUMN overlap');
+      ..execute('ALTER TABLE segments DROP COLUMN overlap')
+      ..execute('ALTER TABLE segments DROP COLUMN emotion')
+      ..execute('ALTER TABLE segments DROP COLUMN sound')
+      ..execute('ALTER TABLE segments DROP COLUMN speaker_label')
+      ..execute('ALTER TABLE unknown_clusters DROP COLUMN background');
     for (final t in ['review_items', 'review_chunks', 'review_runs', 'voice_clips', 'speaker_negatives']) {
       old.execute('DROP TABLE $t');
     }

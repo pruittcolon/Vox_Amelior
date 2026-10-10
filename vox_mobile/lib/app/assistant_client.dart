@@ -13,26 +13,66 @@ import 'package:vox_amelior_mobile/service/service_controller.dart';
 /// share its work queue with transcription (the model is loaded once, and
 /// heavy jobs never overlap). Otherwise the app runs the model itself.
 class AssistantClient {
-  AssistantClient({required this.service, required this.requests, required this.transcripts, required this.local});
+  AssistantClient({
+    required this.service,
+    required this.requests,
+    required this.transcripts,
+    required this.local,
+    this.hints,
+  });
 
   final ServiceController service;
   final AssistantRequestRepository requests;
   final TranscriptRepository transcripts;
   final AssistantService local;
 
+  /// Finds lines by meaning for a question (RAG); empty when meaning search
+  /// is off. Runs here because the app owns the embedder.
+  final Future<List<int>> Function(String question)? hints;
+
   /// Longest silence from the service before giving up (model loading and a
   /// transcription backlog can take a while on a phone).
   static const Duration idleTimeout = Duration(minutes: 3);
 
-  Stream<AnswerEvent> ask(String question) {
+  Stream<AnswerEvent> ask(String question) async* {
     final q = question.trim();
-    if (q.isEmpty) return const Stream.empty();
-    if (service.isListening && service.state != ListenState.error) return _remote(q);
-    return local.ask(q);
+    if (q.isEmpty) return;
+    final found = await (hints?.call(q) ?? Future.value(const <int>[]));
+    if (service.isListening && service.state != ListenState.error) {
+      yield* _remote(q, found);
+    } else {
+      yield* _localSaved(q, found);
+    }
   }
 
-  Stream<AnswerEvent> _remote(String question) {
-    final id = requests.add(question, source: RequestSource.app);
+  /// Answers in the app, and keeps the finished answer in the saved list
+  /// (the service keeps the ones it answers). Stopped answers are not kept.
+  /// The question is only stored once answered, so a starting service never
+  /// mistakes it for one still waiting.
+  Stream<AnswerEvent> _localSaved(String question, List<int> hints) {
+    final answer = StringBuffer();
+    var sources = const <int>[];
+    var failed = false;
+    return local.ask(question, hints: hints).transform(StreamTransformer<AnswerEvent, AnswerEvent>.fromHandlers(
+      handleError: (e, st, sink) {
+        failed = true;
+        sink.addError(e, st);
+      },
+      handleData: (e, sink) {
+        if (e.token != null) answer.write(e.token);
+        if (e.sources != null) sources = [for (final s in e.sources!) s.id];
+        sink.add(e);
+      },
+      handleDone: (sink) {
+        final text = answer.toString().trim();
+        if (!failed && text.isNotEmpty) requests.answer(requests.add(question, source: RequestSource.app), text, sources: sources);
+        sink.close();
+      },
+    ));
+  }
+
+  Stream<AnswerEvent> _remote(String question, List<int> hints) {
+    final id = requests.add(question, source: RequestSource.app, hints: hints);
     final out = StreamController<AnswerEvent>();
     late StreamSubscription<Map<Object?, Object?>> sub;
     Timer? idle;

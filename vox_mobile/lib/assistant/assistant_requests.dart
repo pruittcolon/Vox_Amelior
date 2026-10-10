@@ -17,6 +17,7 @@ class AssistantRequest {
     required this.source,
     this.answer,
     this.sourceSegmentIds = const [],
+    this.hintIds = const [],
   });
 
   final int id;
@@ -28,6 +29,10 @@ class AssistantRequest {
 
   /// Transcript segments the answer was based on.
   final List<int> sourceSegmentIds;
+
+  /// Lines the app found by meaning for this question (EmbeddingGemma), for
+  /// the service to read too; it has no embedder of its own.
+  final List<int> hintIds;
 }
 
 /// Questions for the assistant, spoken ("Hey Vox, ...") or typed. The
@@ -38,10 +43,10 @@ class AssistantRequestRepository {
   final AppDatabase _db;
   final Clock _clock;
 
-  int add(String text, {RequestSource source = RequestSource.voice}) {
+  int add(String text, {RequestSource source = RequestSource.voice, List<int> hints = const []}) {
     _db.raw.execute(
-      'INSERT INTO assistant_requests(text, created_at, status, source) VALUES (?, ?, ?, ?)',
-      [text, _clock().millisecondsSinceEpoch, RequestStatus.pending.name, source.name],
+      'INSERT INTO assistant_requests(text, created_at, status, source, hint_ids) VALUES (?, ?, ?, ?, ?)',
+      [text, _clock().millisecondsSinceEpoch, RequestStatus.pending.name, source.name, hints.isEmpty ? null : jsonEncode(hints)],
     );
     return _db.raw.lastInsertRowId;
   }
@@ -89,6 +94,7 @@ class AssistantRequestRepository {
 
   AssistantRequest _fromRow(Map<String, Object?> r) {
     final src = r['sources_json'] as String?;
+    final hints = r['hint_ids'] as String?;
     return AssistantRequest(
       id: r['id']! as int,
       text: r['text']! as String,
@@ -97,6 +103,7 @@ class AssistantRequestRepository {
       source: RequestSource.values.asNameMap()[r['source']] ?? RequestSource.voice,
       answer: r['answer'] as String?,
       sourceSegmentIds: src == null ? const [] : (jsonDecode(src) as List<Object?>).whereType<int>().toList(),
+      hintIds: hints == null ? const [] : (jsonDecode(hints) as List<Object?>).whereType<int>().toList(),
     );
   }
 }

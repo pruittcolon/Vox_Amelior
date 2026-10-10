@@ -11,6 +11,13 @@ import 'package:vox_amelior_mobile/ui/models_screen.dart';
 import 'package:vox_amelior_mobile/ui/theme.dart';
 
 Future<void> main() async {
+  await prepareApp();
+  runApp(const VoxApp());
+}
+
+/// What the app needs before its first frame (also run by the on-device
+/// tour test before it starts the app).
+Future<void> prepareApp() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterForegroundTask.initCommunicationPort();
   try {
@@ -19,18 +26,21 @@ Future<void> main() async {
     // The assistant is optional; the rest of the app must still start.
     Log.e('app', 'assistant engine unavailable', e, st);
   }
-  runApp(const VoxApp());
 }
 
 class VoxApp extends StatefulWidget {
-  const VoxApp({super.key});
+  const VoxApp({super.key, this.services});
+
+  /// The app's services; created here when not given (the tour test
+  /// creates them itself, to reach into the app while it drives it).
+  final Future<AppServices>? services;
 
   @override
   State<VoxApp> createState() => _VoxAppState();
 }
 
 class _VoxAppState extends State<VoxApp> with WidgetsBindingObserver {
-  late final Future<AppServices> _services = AppServices.create();
+  late final Future<AppServices> _services = widget.services ?? AppServices.create();
   bool _setupDone = false;
 
   @override

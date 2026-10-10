@@ -18,19 +18,25 @@ class Retriever {
   final int maxChars;
 
   /// Returns chronologically ordered, de-duplicated segments.
-  List<SegmentView> retrieve(ParsedQuery q) {
+  ///
+  /// [hints] are lines found by meaning (EmbeddingGemma), best first. They
+  /// are held to the question's person and period, then merged with the
+  /// keyword matches by Reciprocal Rank Fusion, so a line both methods found
+  /// ranks highest and either method alone can still contribute.
+  List<SegmentView> retrieve(ParsedQuery q, {List<int> hints = const []}) {
     final window = q.window;
     if (q.intent == QueryIntent.overview && window != null) {
       return timeline(window.from, window.to, speakerId: q.speaker?.id);
     }
 
-    final hits = _transcripts.search(SegmentQuery(
+    final byWords = _transcripts.search(SegmentQuery(
       keywords: q.keywords,
       speakerId: q.speaker?.id,
       from: q.from,
       to: q.to,
       limit: maxHits,
     ));
+    final hits = _fuse(byWords, _hintSegments(hints, q));
 
     final byId = <int, SegmentView>{};
     for (final h in hits) {
@@ -111,6 +117,38 @@ class Retriever {
       total -= removed.text.length + 30;
     }
     return keep;
+  }
+
+  /// [hints] as lines, in order, keeping only the question's person and period
+  /// and leaving out TV / background voices.
+  List<SegmentView> _hintSegments(List<int> hints, ParsedQuery q) {
+    if (hints.isEmpty) return const [];
+    final byId = {for (final s in _transcripts.segmentsByIds(hints)) s.id: s};
+    final from = q.from, to = q.to, who = q.speaker?.id;
+    return [
+      for (final id in hints)
+        if (byId[id] case final s?)
+          if (!s.background &&
+              (who == null || s.speakerId == who) &&
+              (from == null || !s.startedAt.isBefore(from)) &&
+              (to == null || s.startedAt.isBefore(to)))
+            s,
+    ];
+  }
+
+  /// The best [maxHits] of two best-first lists, by Reciprocal Rank Fusion.
+  List<SegmentView> _fuse(List<SegmentView> words, List<SegmentView> meaning) {
+    if (meaning.isEmpty) return words;
+    final score = <int, double>{};
+    final byId = <int, SegmentView>{};
+    for (final list in [words, meaning]) {
+      for (var r = 0; r < list.length; r++) {
+        score[list[r].id] = (score[list[r].id] ?? 0) + 1 / (60 + r + 1);
+        byId[list[r].id] = list[r];
+      }
+    }
+    final ids = score.keys.toList()..sort((a, b) => score[b]!.compareTo(score[a]!));
+    return [for (final id in ids.take(maxHits)) byId[id]!];
   }
 
   static int _size(Iterable<SegmentView> s) => s.fold<int>(0, (a, x) => a + x.text.length + 30);

@@ -103,6 +103,8 @@ abstract final class VoxTheme {
       chipTheme: base.chipTheme.copyWith(
         shape: a.corners == 'square' ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)) : const StadiumBorder(),
         side: BorderSide.none,
+        // Borderless chips need a fill, or unselected ones read as plain text.
+        backgroundColor: scheme.surfaceContainerHigh,
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(

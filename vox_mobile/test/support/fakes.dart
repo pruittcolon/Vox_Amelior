@@ -10,8 +10,10 @@ import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/pipeline/engines.dart';
+import 'package:vox_amelior_mobile/search/embedding.dart';
 import 'package:vox_amelior_mobile/speakers/embedding_engine.dart';
 import 'package:vox_amelior_mobile/speakers/enrollment_service.dart';
+import 'package:vox_amelior_mobile/speakers/vector_math.dart';
 
 const int kDim = 32;
 
@@ -254,4 +256,42 @@ AgentToolbox toolboxFor(AppDatabase db, TranscriptRepository transcripts, Speake
 /// Builds VAD output starting [seconds] into the stream.
 abstract final class SpeechChunkFake {
   static SpeechChunk at(double seconds, {int speaker = 1}) => SpeechChunk(fakeAudio(speaker), seconds);
+}
+
+/// A stand-in for EmbeddingGemma: words become one-hot directions (in the
+/// first 256 dimensions, which is what is stored), and a few words share a
+/// "meaning", so a paraphrase scores high without sharing words.
+class FakeTextEmbedder implements TextEmbedder {
+  static const Map<String, String> meanings = {
+    'money': 'money', 'bill': 'money', 'bills': 'money', 'pay': 'money', 'cash': 'money', 'expensive': 'money',
+    'cost': 'money', 'rent': 'money', 'dog': 'dog', 'puppy': 'dog', 'walk': 'dog',
+    'doctor': 'health', 'dentist': 'health', 'sick': 'health', 'appointment': 'health',
+  };
+
+  final List<String> seen = [];
+  bool fail = false;
+  bool disposed = false;
+
+  @override
+  List<Float32List> embed(List<String> texts, {required EmbedTask task}) {
+    if (fail) throw StateError('embedder crashed');
+    seen.addAll(texts);
+    return [for (final t in texts) vector(t)];
+  }
+
+  static Float32List vector(String text) {
+    final v = Float32List(768);
+    for (final m in RegExp(r'[a-z]+').allMatches(text.toLowerCase())) {
+      final w = meanings[m.group(0)!] ?? m.group(0)!;
+      var h = 7;
+      for (final c in w.codeUnits) {
+        h = (h * 31 + c) & 0x7fffffff;
+      }
+      v[h % 256] += 1;
+    }
+    return l2Normalize(v);
+  }
+
+  @override
+  void dispose() => disposed = true;
 }

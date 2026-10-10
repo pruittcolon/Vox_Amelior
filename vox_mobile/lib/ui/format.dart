@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vox_amelior_mobile/app/model_downloads.dart';
 
 String formatBytes(int bytes) {
   if (bytes >= 1000000000) return '${(bytes / 1e9).toStringAsFixed(1)} GB';
@@ -21,6 +22,30 @@ String formatDayName(DateTime d, {DateTime? now}) {
   return formatDay(d, now: now);
 }
 
+/// 1,284 · 12.9K · 3.4M
+String formatCount(int n) {
+  if (n >= 1000000) return '${(n / 1e6).toStringAsFixed(1)}M';
+  if (n >= 10000) return '${(n / 1e3).toStringAsFixed(1)}K';
+  final s = n.toString();
+  return s.length > 3 ? '${s.substring(0, s.length - 3)},${s.substring(s.length - 3)}' : s;
+}
+
+/// Short talk time: "45 s", "12 min", "3 h 20 min", "41 h".
+String formatTalk(Duration d) {
+  if (d.inMinutes < 1) return '${d.inSeconds} s';
+  if (d.inHours < 1) return '${d.inMinutes} min';
+  if (d.inHours >= 10) return '${d.inHours} h';
+  final m = d.inMinutes % 60;
+  return m == 0 ? '${d.inHours} h' : '${d.inHours} h $m min';
+}
+
+/// For use mid-sentence: "today 20:31", "yesterday 08:02", "Monday 19:40",
+/// "3 Sep 2026 19:40".
+String formatWhen(DateTime d, {DateTime? now}) {
+  final day = formatDayName(d, now: now);
+  return '${day == 'Today' || day == 'Yesterday' ? day.toLowerCase() : day} ${formatTime(d)}';
+}
+
 String formatDuration(Duration d) {
   if (d.inMinutes < 1) return '<1 min';
   if (d.inHours < 1) return '${d.inMinutes} min';
@@ -39,15 +64,53 @@ String formatDay(DateTime d, {DateTime? now}) {
   return '${d.day} ${months[d.month - 1]} ${d.year}';
 }
 
-/// Stable colour per speaker label so people are easy to tell apart.
-Color speakerColor(String label, {bool known = true}) {
-  if (!known) return const Color(0xFF868E96);
-  const palette = [Color(0xFF0E9F6E), Color(0xFF4F46E5), Color(0xFFE8590C), Color(0xFF9C36B5), Color(0xFF1C7ED6), Color(0xFFD6336C), Color(0xFF087F5B), Color(0xFFB08800)];
+const List<Color> _speakerPalette = [
+  Color(0xFF0E9F6E), Color(0xFF4F46E5), Color(0xFFE8590C), Color(0xFF9C36B5),
+  Color(0xFF1C7ED6), Color(0xFFD6336C), Color(0xFF087F5B), Color(0xFFB08800),
+];
+
+int _paletteIndex(String label) {
   var h = 0;
   for (final c in label.codeUnits) {
     h = (h * 31 + c) & 0x7fffffff;
   }
-  return palette[h % palette.length];
+  return h % _speakerPalette.length;
+}
+
+/// Each household member's colour (see [setHouseholdColors]).
+final Map<String, Color> _household = {};
+
+/// Gives everyone in the household a colour of their own, so two people
+/// never look alike (up to eight). Sorted by name, so colours stay put
+/// until someone is added or renamed.
+void setHouseholdColors(Iterable<String> names) {
+  _household
+    ..clear()
+    ..addAll(distinctSpeakerColors(names.toList()..sort()));
+}
+
+/// A colour per label: the one its letters pick when free, else the next
+/// free one.
+Map<String, Color> distinctSpeakerColors(Iterable<String> labels) {
+  final out = <String, Color>{};
+  final used = <int>{};
+  for (final label in labels) {
+    if (out.containsKey(label)) continue;
+    var i = _paletteIndex(label);
+    for (var k = 0; k < _speakerPalette.length && used.contains(i); k++) {
+      i = (i + 1) % _speakerPalette.length;
+    }
+    used.add(i);
+    out[label] = _speakerPalette[i];
+  }
+  return out;
+}
+
+/// Stable colour per speaker label so people are easy to tell apart. Guests
+/// are grey.
+Color speakerColor(String label, {bool known = true}) {
+  if (!known) return const Color(0xFF868E96);
+  return _household[label] ?? _speakerPalette[_paletteIndex(label)];
 }
 
 void showMessage(BuildContext context, String text) {
@@ -90,4 +153,20 @@ Future<String?> askText(BuildContext context, String title, {String initial = ''
       ],
     ),
   );
+}
+
+/// One line describing a download in progress, e.g. "320 MB of 1.1 GB · 29% · about 4 min left"
+/// or "Step 3 of 4: Unpacking the model · 45% · about 2 min left".
+String describeDownload(DownloadState st) {
+  final parts = <String>[
+    if (st.status == DownloadStatus.queued)
+      'Waiting to download'
+    else if (st.status == DownloadStatus.unpacking)
+      st.step > 0 && st.steps > 0 ? 'Step ${st.step} of ${st.steps}: ${st.stage ?? 'Finishing'}' : '${st.stage ?? 'Finishing'}…'
+    else
+      '${formatBytes(st.received)} of ${formatBytes(st.total)}',
+    if (st.status != DownloadStatus.queued && st.progress != null) '${(st.progress! * 100).toStringAsFixed(0)}%',
+    if (st.remaining != null) 'about ${formatDuration(st.remaining!)} left',
+  ];
+  return parts.join(' · ');
 }

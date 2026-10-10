@@ -25,6 +25,7 @@ import 'package:vox_amelior_mobile/automation/webhook_dispatcher.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/core/log.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
+import 'package:vox_amelior_mobile/data/insights_repository.dart';
 import 'package:vox_amelior_mobile/data/speaker_repository.dart';
 import 'package:vox_amelior_mobile/data/transcript_repository.dart';
 import 'package:vox_amelior_mobile/models/model_catalog.dart';
@@ -33,6 +34,10 @@ import 'package:vox_amelior_mobile/models/model_store.dart';
 import 'package:vox_amelior_mobile/native/gemma_llm_engine.dart';
 import 'package:vox_amelior_mobile/native/local_notifier.dart';
 import 'package:vox_amelior_mobile/native/voiceprint_worker.dart';
+import 'package:vox_amelior_mobile/search/embedder_worker.dart';
+import 'package:vox_amelior_mobile/search/embedding.dart';
+import 'package:vox_amelior_mobile/search/hybrid_search.dart';
+import 'package:vox_amelior_mobile/search/vector_store.dart';
 import 'package:vox_amelior_mobile/service/protocol.dart';
 import 'package:vox_amelior_mobile/service/service_controller.dart';
 import 'package:vox_amelior_mobile/service/shared_files.dart';
@@ -75,6 +80,98 @@ class AppServices {
   final ReviewRepository reviews;
   final ClipStore clips;
   final ServiceController listening;
+
+  /// Statistics over the transcripts (Insights).
+  late final InsightsRepository insights = InsightsRepository(db, transcripts);
+
+  // ---- search by meaning (EmbeddingGemma) ---------------------------------------
+
+  /// One compact vector per line.
+  late final VectorStore vectors = VectorStore(db);
+
+  /// Words + meaning search, and the lines Gemma reads for a question.
+  late final HybridSearch search = HybridSearch(
+    db: db,
+    transcripts: transcripts,
+    vectors: vectors,
+    embedder: () => embedder,
+    modelId: () => searchModelId,
+  );
+
+  /// Embeds new lines in the background.
+  late final SearchIndexer indexer = SearchIndexer(store: vectors, embedder: () => embedder, modelId: () => searchModelId);
+
+  AsyncEmbedder? _embedder;
+
+  /// The model [_embedder] runs.
+  String? _embedderModel;
+  AsyncEmbedder Function()? _embedderForTests;
+
+  /// The search model in use: the chosen one once it is installed, until
+  /// then another installed one; null when none is.
+  ModelAsset? get searchModel {
+    final chosen = settings.value.searchAsset;
+    if (models.isInstalled(chosen)) return chosen;
+    return ModelCatalog.embedders.where(models.isInstalled).firstOrNull;
+  }
+
+  /// Whose vectors search uses: [searchModel]'s (the chosen one's before
+  /// any is installed). Each model has its own.
+  String get searchModelId => (searchModel ?? settings.value.searchAsset).id;
+
+  /// The embedder while meaning search is on and a search model installed,
+  /// else null. The worker isolate only starts on the first embedding.
+  AsyncEmbedder? get embedder {
+    if (!settings.value.meaningSearch) return null;
+    final test = _embedderForTests;
+    if (test != null) return _embedder ??= test();
+    final m = searchModel;
+    if (m == null) return null;
+    if (_embedderModel != m.id) {
+      // Another model now (the chosen one has arrived): the old worker goes.
+      _dropEmbedder();
+      _embedderModel = m.id;
+      _embedder = IsolateEmbedder(
+        modelPath: models.file(m, ModelCatalog.embedderGraph(m)).path,
+        tokenizerPath: models.file(m, 'tokenizer.model').path,
+      );
+    }
+    return _embedder;
+  }
+
+  /// Catches meaning search up with new lines (no-op when it is off). After
+  /// a failure it waits a while before trying again, unless [retry].
+  void indexForSearch({bool retry = false}) {
+    if (embedder != null) unawaited(indexer.run(retry: retry));
+  }
+
+  void _closeEmbedder() {
+    indexer.stop();
+    _dropEmbedder();
+  }
+
+  void _dropEmbedder() {
+    final e = _embedder;
+    _embedder = null;
+    _embedderModel = null;
+    if (e != null) unawaited(e.close());
+  }
+
+  /// Chooses the search-by-meaning model ('int8', 'q4' or 'fp32') and turns
+  /// search by meaning on. The chosen model is fetched if missing; one
+  /// already installed keeps working until it is ready, then every line is
+  /// prepared again for the new one.
+  Future<void> selectSearchModel(String name) async {
+    await updateSettings(settings.value.copyWith(searchModel: name, meaningSearch: true));
+    final chosen = settings.value.searchAsset;
+    if (!models.isInstalled(chosen)) await downloads.download(chosen);
+    // A model chosen earlier that never finished is not wanted any more.
+    for (final other in ModelCatalog.embedders) {
+      if (other.id == chosen.id || models.isInstalled(other)) continue;
+      if (downloads.stateOf(other).isBusy || models.partialBytes(other) > 0) downloads.remove(other);
+    }
+    indexForSearch(retry: true);
+  }
 
   /// Bumped whenever a review makes progress, so review screens refresh.
   final ValueNotifier<int> reviewVersion = ValueNotifier(0);
@@ -145,6 +242,8 @@ class AppServices {
         budget: () => budget,
       ),
     ),
+    // RAG: lines found by meaning are read alongside the keyword matches.
+    hints: (question) => search.hintsFor(question),
   );
 
   late final ModelDownloads downloads = ModelDownloads(
@@ -152,9 +251,11 @@ class AppServices {
     installer: ModelInstaller(store: models),
     tokenProvider: tokens.huggingFace,
     resolve: _assetById,
-    onInstalled: (_) async {
+    onInstalled: (asset) async {
       writeServiceConfig();
       listening.reload();
+      _fetchChosenSpeechModel();
+      if (asset.kind == ModelKind.textEmbedding) indexForSearch(retry: true);
     },
     onRemoved: _onModelRemoved,
     onBusyChanged: listening.keepAliveForDownloads,
@@ -166,7 +267,13 @@ class AppServices {
 
   /// Services over [db] and [dir] without starting anything (for tests).
   @visibleForTesting
-  factory AppServices.forTesting({required Directory dir, required AppDatabase db, AppSettings settings = const AppSettings()}) =>
+  /// [embedder] stands in for EmbeddingGemma (meaning search on).
+  factory AppServices.forTesting({
+    required Directory dir,
+    required AppDatabase db,
+    AppSettings settings = const AppSettings(),
+    AsyncEmbedder Function()? embedder,
+  }) =>
       AppServices._(
         supportDir: dir,
         db: db,
@@ -174,7 +281,7 @@ class AppServices {
         settings: ValueNotifier(settings),
         tokens: TokenStore(),
         models: ModelStore(Directory(p.join(dir.path, 'models'))),
-      );
+      ).._embedderForTests = embedder;
 
   static Future<AppServices> create() async {
     final support = await getApplicationSupportDirectory();
@@ -198,8 +305,12 @@ class AppServices {
     writeServiceConfig();
     unawaited(LocalNotifier.instance.initialize());
     unawaited(downloads.resumeInterrupted());
+    // Lines heard while the app was closed (or before the model arrived).
+    indexForSearch();
+    dataVersion.addListener(indexForSearch);
     // Phones set up before speaker changes existed get that model too.
     if (speechReady && !models.isInstalled(ModelCatalog.diarizer)) unawaited(downloads.download(ModelCatalog.diarizer));
+    _fetchChosenSpeechModel();
     // The service loads its own copy of the model; don't hold two. Reviews
     // move to whichever side runs the model.
     var wasListening = listening.isListening;
@@ -331,6 +442,34 @@ class AppServices {
     return id;
   }
 
+  /// Starts a review of the newest [count] lines said by [speakerIds]
+  /// (everyone when empty), optionally only in [emotions] and within [window].
+  int? startReviewOfLines({
+    required ReviewTemplate template,
+    required int count,
+    Set<String> speakerIds = const {},
+    Set<String> emotions = const {},
+    TimeWindow? window,
+    String? label,
+  }) {
+    final id = reviewEngine.startLast(
+      title: template.name,
+      prompt: template.prompt,
+      format: template.format,
+      kind: template.kind,
+      count: count,
+      speakerIds: speakerIds,
+      emotions: emotions,
+      from: window?.from,
+      to: window?.to,
+      label: label,
+      budget: budget,
+    );
+    if (id != null) kickReviews();
+    reviewVersion.value++;
+    return id;
+  }
+
   void pauseReview(int id) {
     reviews.setStatus(id, ReviewStatus.paused);
     reviewVersion.value++;
@@ -426,36 +565,64 @@ class AppServices {
   Future<void> updateSettings(AppSettings next) async {
     final modelChanged = next.llmAsset.id != settings.value.llmAsset.id ||
         next.llmAsset.files.first.url != settings.value.llmAsset.files.first.url;
+    final searchChanged = next.meaningSearch != settings.value.meaningSearch || next.searchModel != settings.value.searchModel;
     settings.value = next;
+    if (searchChanged) next.meaningSearch ? indexForSearch(retry: true) : _closeEmbedder();
     await settingsRepo.save(next);
     writeServiceConfig();
     listening.reload();
     if (modelChanged) await localLlm.unload();
   }
 
-  /// Chooses the speech model ('int8' or 'fp16'). The fp16 model is fetched
-  /// when chosen; the standard one keeps working until it is ready. Going
-  /// back to the standard model stops (and discards) an unfinished fp16 download.
+  /// Chooses the speech model ('fp16', 'int8' or 'fp32'). The chosen model is fetched
+  /// if it is missing; whichever one is installed keeps working until it is
+  /// ready. Switching away from a model that never finished downloading
+  /// stops (and discards) that download.
   Future<void> selectSpeechModel(String model) async {
     await updateSettings(settings.value.copyWith(speechModel: model));
-    final fp16 = ModelCatalog.parakeetFp16;
-    if (model == 'fp16') {
-      if (!models.isInstalled(fp16)) await downloads.download(fp16);
-    } else if (!models.isInstalled(fp16) && (downloads.stateOf(fp16).isBusy || models.partialBytes(fp16) > 0)) {
-      downloads.remove(fp16);
+    final chosen = settings.value.asrAsset;
+    if (!models.isInstalled(chosen)) await downloads.download(chosen);
+    for (final other in ModelCatalog.recognizers) {
+      if (other.id == chosen.id || models.isInstalled(other)) continue;
+      if (downloads.stateOf(other).isBusy || models.partialBytes(other) > 0) downloads.remove(other);
     }
   }
 
-  /// Deletes the fp16 speech model. If it is in use, the standard model takes over first.
-  Future<void> removeFp16() async {
-    if (settings.value.speechModel == 'fp16') await updateSettings(settings.value.copyWith(speechModel: 'int8'));
-    downloads.remove(ModelCatalog.parakeetFp16);
+  /// fp16 is the default speech model and is downloaded first at setup. A
+  /// phone that only has the int8 model (set up by an older version) gets
+  /// fp16 too, unless int8 was chosen.
+  void _fetchChosenSpeechModel() {
+    final fp16 = ModelCatalog.parakeetFp16;
+    if (settings.value.speechModel != 'fp16' || !speechReady || models.isInstalled(fp16)) return;
+    unawaited(downloads.download(fp16));
   }
+
+  /// Deletes a speech model. If it is in use and the other one is
+  /// installed, the other one takes over first.
+  Future<void> removeSpeechModel(ModelAsset asset) async {
+    final other = _otherInstalledRecognizer(asset);
+    if (settings.value.asrAsset.id == asset.id && other != null) {
+      await updateSettings(settings.value.copyWith(speechModel: _speechModelName(other)));
+    }
+    downloads.remove(asset);
+  }
+
+  ModelAsset? _otherInstalledRecognizer(ModelAsset asset) =>
+      ModelCatalog.recognizers.where((m) => m.id != asset.id && models.isInstalled(m)).firstOrNull;
+
+  static String _speechModelName(ModelAsset asset) => ModelCatalog.recognizerName(asset);
 
   /// A model was deleted: stop pointing the listening service at it.
   void _onModelRemoved(ModelAsset asset) {
-    if (asset.id == ModelCatalog.parakeetFp16.id && settings.value.speechModel == 'fp16') {
-      unawaited(updateSettings(settings.value.copyWith(speechModel: 'int8')));
+    if (asset.kind == ModelKind.textEmbedding) {
+      // Its vectors go too; another installed search model takes over.
+      if (asset.id == _embedderModel) _closeEmbedder();
+      vectors.deleteModel(asset.id);
+      indexForSearch(retry: true);
+    }
+    final other = _otherInstalledRecognizer(asset);
+    if (asset.id == settings.value.asrAsset.id && other != null) {
+      unawaited(updateSettings(settings.value.copyWith(speechModel: _speechModelName(other))));
       return;
     }
     writeServiceConfig();

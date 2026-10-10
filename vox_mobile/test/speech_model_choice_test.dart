@@ -35,44 +35,69 @@ void main() {
 
   String encoderInConfig() => p.basename(ServiceConfig.readFrom(s.serviceConfigFile)!.paths.encoder);
 
+  void installSpeechWith(List<ModelAsset> recognizers) {
+    for (final a in [...ModelCatalog.speechSupport, ...recognizers]) {
+      install(a);
+    }
+  }
+
   test('the service is never left a config pointing at models that are gone', () {
     for (final a in ModelCatalog.speech) {
       install(a);
     }
     expect(s.writeServiceConfig(), isTrue);
     expect(s.serviceConfigFile.existsSync(), isTrue);
-    s.models.remove(ModelCatalog.parakeet); // e.g. an upgrade replaced the speech model
+    s.models.remove(ModelCatalog.parakeetFp16); // e.g. an upgrade replaced the speech model
     expect(s.writeServiceConfig(), isFalse);
     expect(s.serviceConfigFile.existsSync(), isFalse);
   });
 
-  test('choosing fp16 once it is installed points the service at it; standard goes back', () async {
-    for (final a in [...ModelCatalog.speech, ModelCatalog.parakeetFp16]) {
-      install(a);
-    }
-    await s.selectSpeechModel('fp16');
-    expect(s.settings.value.speechModel, 'fp16');
+  test('fp16 alone is enough to continue past setup, and int8 is never fetched unasked', () async {
+    installSpeechWith([ModelCatalog.parakeetFp16]);
+    expect(s.downloads.speechReady, isTrue);
+    expect(s.speechReady, isTrue);
+    expect(s.writeServiceConfig(), isTrue);
     expect(encoderInConfig(), 'encoder.fp16.onnx');
-    await s.selectSpeechModel('int8');
-    expect(encoderInConfig(), 'encoder.int8.onnx');
-    expect(s.models.isInstalled(ModelCatalog.parakeetFp16), isTrue, reason: 'kept, so switching back is instant');
+    await s.updateSettings(s.settings.value.copyWith(micGain: 2));
+    expect(s.downloads.stateOf(ModelCatalog.parakeet).isBusy, isFalse);
+    expect(s.models.dir(ModelCatalog.parakeet).existsSync(), isFalse);
   });
 
-  test('deleting fp16 while it is in use switches to the standard model first', () async {
-    for (final a in [...ModelCatalog.speech, ModelCatalog.parakeetFp16]) {
-      install(a);
-    }
+  test('int8 alone (fp16 deleted) also counts as ready', () {
+    installSpeechWith([ModelCatalog.parakeet]);
+    expect(s.downloads.speechReady, isTrue);
+    expect(s.speechReady, isTrue, reason: 'falls back from the fp16 default');
+    expect(s.writeServiceConfig(), isTrue);
+    expect(encoderInConfig(), 'encoder.int8.onnx');
+  });
+
+  test('choosing int8 once it is installed points the service at it; fp16 goes back', () async {
+    installSpeechWith([ModelCatalog.parakeetFp16, ModelCatalog.parakeet]);
+    await s.selectSpeechModel('int8');
+    expect(s.settings.value.speechModel, 'int8');
+    expect(encoderInConfig(), 'encoder.int8.onnx');
     await s.selectSpeechModel('fp16');
-    await s.removeFp16();
+    expect(encoderInConfig(), 'encoder.fp16.onnx');
+    expect(s.models.isInstalled(ModelCatalog.parakeet), isTrue, reason: 'kept, so switching back is instant');
+  });
+
+  test('deleting the model in use switches to the other one first', () async {
+    installSpeechWith([ModelCatalog.parakeetFp16, ModelCatalog.parakeet]);
+    await s.selectSpeechModel('fp16');
+    await s.removeSpeechModel(ModelCatalog.parakeetFp16);
     expect(s.settings.value.speechModel, 'int8');
     expect(s.models.dir(ModelCatalog.parakeetFp16).existsSync(), isFalse);
     expect(encoderInConfig(), 'encoder.int8.onnx');
+
+    await s.selectSpeechModel('int8');
+    install(ModelCatalog.parakeetFp16);
+    await s.removeSpeechModel(ModelCatalog.parakeet);
+    expect(s.settings.value.speechModel, 'fp16');
+    expect(encoderInConfig(), 'encoder.fp16.onnx');
   });
 
   test('deleting fp16 from the Models screen also stops using it, and nothing re-downloads it', () async {
-    for (final a in [...ModelCatalog.speech, ModelCatalog.parakeetFp16]) {
-      install(a);
-    }
+    installSpeechWith([ModelCatalog.parakeetFp16, ModelCatalog.parakeet]);
     await s.selectSpeechModel('fp16');
     s.downloads.remove(ModelCatalog.parakeetFp16);
     await Future<void>.delayed(Duration.zero);
@@ -83,10 +108,57 @@ void main() {
     expect(s.downloads.stateOf(ModelCatalog.parakeetFp16).isBusy, isFalse);
   });
 
-  test('going back to standard throws away a half-finished fp16 download', () async {
-    for (final a in ModelCatalog.speech) {
-      install(a);
-    }
+  group('full precision (fp32)', () {
+    test('is optional, and its encoder (not the weight files beside it) is what the service loads', () async {
+      expect(ModelCatalog.parakeetFp32.essential, isFalse);
+      expect(ModelCatalog.speech, isNot(contains(ModelCatalog.parakeetFp32)), reason: 'never downloaded at setup');
+      expect(ModelCatalog.parakeetFp32.installedFileNames,
+          containsAll(['encoder.onnx', 'encoder.weights.0', 'encoder.weights.1', 'decoder.onnx', 'joiner.onnx', 'tokens.txt']));
+      for (final f in ModelCatalog.parakeetFp32.files) {
+        expect(f.sizeBytes, lessThan(2000000000), reason: '${f.fileName} fits a GitHub release file');
+        expect(f.sha256, hasLength(64), reason: f.fileName);
+      }
+      installSpeechWith([ModelCatalog.parakeetFp16, ModelCatalog.parakeetFp32]);
+      await s.selectSpeechModel('fp32');
+      expect(s.settings.value.speechModel, 'fp32');
+      final paths = ServiceConfig.readFrom(s.serviceConfigFile)!.paths;
+      expect(p.basename(paths.encoder), 'encoder.onnx');
+      expect(p.basename(paths.decoder), 'decoder.onnx');
+      expect(p.basename(paths.joiner), 'joiner.onnx');
+      expect(p.basename(paths.tokens), 'tokens.txt');
+    });
+
+    test('deleting it while in use switches back to fp16', () async {
+      installSpeechWith([ModelCatalog.parakeetFp16, ModelCatalog.parakeetFp32]);
+      await s.selectSpeechModel('fp32');
+      expect(encoderInConfig(), 'encoder.onnx');
+      await s.removeSpeechModel(ModelCatalog.parakeetFp32);
+      expect(s.settings.value.speechModel, 'fp16');
+      expect(encoderInConfig(), 'encoder.fp16.onnx');
+    });
+
+    test('the choice is remembered', () {
+      expect(AppSettings.fromJson(const AppSettings(speechModel: 'fp32').toJson()).speechModel, 'fp32');
+      expect(const AppSettings(speechModel: 'fp32').asrAsset.id, ModelCatalog.parakeetFp32.id);
+      expect(ModelCatalog.recognizerNamed('nonsense').id, ModelCatalog.parakeetFp16.id);
+      for (final m in ModelCatalog.recognizers) {
+        expect(ModelCatalog.recognizerNamed(ModelCatalog.recognizerName(m)).id, m.id);
+      }
+    });
+  });
+
+  test('deleting the only speech model leaves the choice alone and clears the service config', () async {
+    installSpeechWith([ModelCatalog.parakeetFp16]);
+    expect(s.writeServiceConfig(), isTrue);
+    await s.removeSpeechModel(ModelCatalog.parakeetFp16);
+    await Future<void>.delayed(Duration.zero);
+    expect(s.settings.value.speechModel, 'fp16');
+    expect(s.speechReady, isFalse);
+    expect(s.serviceConfigFile.existsSync(), isFalse);
+  });
+
+  test('going back to int8 throws away a half-finished fp16 download', () async {
+    installSpeechWith([ModelCatalog.parakeet]);
     final fp16 = ModelCatalog.parakeetFp16;
     s.models.dir(fp16).createSync(recursive: true);
     File(p.join(s.models.dir(fp16).path, 'parakeet-fp16.tar.bz2.part')).writeAsBytesSync(List.filled(1000, 1));

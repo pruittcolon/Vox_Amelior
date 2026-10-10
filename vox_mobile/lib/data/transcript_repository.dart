@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:vox_amelior_mobile/core/database.dart';
@@ -16,10 +17,16 @@ class TranscriptRepository {
   static const String _selectSegments = '''
 SELECT s.id, s.conversation_id, s.started_at, s.duration_ms, s.text,
        s.speaker_id, sp.name AS speaker_name,
-       s.cluster_id, c.label AS cluster_label, s.score, s.overlap
+       s.cluster_id, c.label AS cluster_label, s.score, s.overlap,
+       COALESCE(c.background, 0) AS background, s.speaker_label, s.emotion, s.sound
 FROM segments s
 LEFT JOIN speakers sp ON sp.id = s.speaker_id
 LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
+
+  /// First line of a conversation that is not TV / background.
+  static const String _previewColumn = '''
+(SELECT s.text FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+ WHERE s.conversation_id = c.id AND COALESCE(uc.background, 0) = 0 ORDER BY s.started_at, s.id LIMIT 1) AS preview''';
 
   /// Saves an utterance, attaching it to the current conversation or opening
   /// a new one when the gap since the last utterance is long enough.
@@ -37,15 +44,21 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
     final endMs = startMs + duration.inMilliseconds;
     late int id;
     _db.transaction(() {
-      final last = _db.raw.select(
-        'SELECT id, ended_at FROM conversations ORDER BY id DESC LIMIT 1',
+      // The conversation the line falls in, or starts or ends within the gap
+      // of. Usually the newest, but not for a line from earlier on (heard
+      // earlier and transcribed later, or imported): that must not join
+      // today's conversation.
+      final gap = conversationGap.inMilliseconds;
+      final near = _db.raw.select(
+        'SELECT id FROM conversations WHERE started_at - ? <= ? AND ? <= ended_at + ? ORDER BY started_at DESC LIMIT 1',
+        [gap, startMs, startMs, gap],
       );
       int conversationId;
-      if (last.isNotEmpty && startMs - (last.first['ended_at'] as int) <= conversationGap.inMilliseconds) {
-        conversationId = last.first['id'] as int;
+      if (near.isNotEmpty) {
+        conversationId = near.first['id'] as int;
         _db.raw.execute(
-          'UPDATE conversations SET ended_at = MAX(ended_at, ?) WHERE id = ?',
-          [endMs, conversationId],
+          'UPDATE conversations SET started_at = MIN(started_at, ?), ended_at = MAX(ended_at, ?) WHERE id = ?',
+          [startMs, endMs, conversationId],
         );
       } else {
         _db.raw.execute(
@@ -88,9 +101,11 @@ LEFT JOIN unknown_clusters c ON c.id = s.cluster_id''';
     return rows.map(_view).toList();
   }
 
+  /// A conversation's lines in the order they were said (a line split at a
+  /// speaker change is stored later than the lines around it).
   List<SegmentView> conversation(int conversationId) {
     final rows = _db.raw.select(
-      '$_selectSegments WHERE s.conversation_id = ? ORDER BY s.id',
+      '$_selectSegments WHERE s.conversation_id = ? ORDER BY s.started_at, s.id',
       [conversationId],
     );
     return rows.map(_view).toList();
@@ -124,7 +139,7 @@ FROM segments s GROUP BY d ORDER BY d DESC LIMIT ?''',
       '''
 SELECT c.id, c.started_at, c.ended_at,
        (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
-       (SELECT text FROM segments s WHERE s.conversation_id = c.id ORDER BY s.id LIMIT 1) AS preview
+       $_previewColumn
 FROM conversations c
 WHERE c.started_at >= ? AND c.started_at < ?
 ORDER BY c.started_at DESC''',
@@ -133,18 +148,119 @@ ORDER BY c.started_at DESC''',
     return rows.map(_summary).where((c) => c.segmentCount > 0).toList();
   }
 
+  /// Who spoke in a conversation, most lines first. TV / background voices
+  /// are left out.
   List<String> participants(int conversationId) {
     final rows = _db.raw.select(
       '''
-SELECT COALESCE(sp.name, uc.label, 'Unknown') AS who, COUNT(*) AS n
+SELECT COALESCE(sp.name, uc.label, s.speaker_label, 'Unknown') AS who, COUNT(*) AS n
 FROM segments s
 LEFT JOIN speakers sp ON sp.id = s.speaker_id
 LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
-WHERE s.conversation_id = ?
+WHERE s.conversation_id = ? AND COALESCE(uc.background, 0) = 0
 GROUP BY who ORDER BY n DESC, MIN(s.id)''',
       [conversationId],
     );
     return [for (final r in rows) r['who']! as String];
+  }
+
+  /// Guest voices that still have lines (the voices to name), most lines
+  /// first. TV / background voices are left out. The first [detailed] come
+  /// with a few of their clearest lines and who they were heard with.
+  List<VoiceToName> voicesToName({int detailed = 50, int samples = 3}) {
+    final rows = _db.raw.select('''
+SELECT c.id, c.label, COUNT(s.id) AS n, MAX(s.started_at) AS last
+FROM unknown_clusters c JOIN segments s ON s.cluster_id = c.id
+WHERE COALESCE(c.background, 0) = 0
+GROUP BY c.id ORDER BY n DESC, last DESC''');
+    return [
+      for (var i = 0; i < rows.length; i++)
+        _voice(rows[i], details: i < detailed, samples: samples),
+    ];
+  }
+
+  /// How many guest voices still have lines to name (TV / background left out).
+  int voicesToNameCount() => _db.raw.select('''
+SELECT COUNT(*) AS n FROM unknown_clusters c
+WHERE COALESCE(c.background, 0) = 0 AND EXISTS (SELECT 1 FROM segments s WHERE s.cluster_id = c.id)''').first['n']! as int;
+
+  /// One guest voice to name (also a TV / background one), or null when it
+  /// has no lines left.
+  VoiceToName? voiceToName(String clusterId, {int samples = 3}) {
+    final rows = _db.raw.select('''
+SELECT c.id, c.label, COUNT(s.id) AS n, MAX(s.started_at) AS last
+FROM unknown_clusters c JOIN segments s ON s.cluster_id = c.id
+WHERE c.id = ? GROUP BY c.id''', [clusterId]);
+    return rows.isEmpty ? null : _voice(rows.first, details: true, samples: samples);
+  }
+
+  VoiceToName _voice(Map<String, Object?> r, {required bool details, required int samples}) {
+    final id = r['id']! as String;
+    return VoiceToName(
+      clusterId: id,
+      label: r['label']! as String,
+      lines: r['n']! as int,
+      lastHeard: DateTime.fromMillisecondsSinceEpoch(r['last']! as int),
+      samples: details ? voiceSamples(id, limit: samples) : const [],
+      heardWith: details ? heardWith(id) : const [],
+    );
+  }
+
+  /// A few of a guest voice's clearest lines: longer ones first, then the newest.
+  List<SegmentView> voiceSamples(String clusterId, {int limit = 3}) => [
+        for (final r in _db.raw.select(
+          '$_selectSegments WHERE s.cluster_id = ? ORDER BY LENGTH(s.text) >= 40 DESC, s.started_at DESC LIMIT ?',
+          [clusterId, limit],
+        ))
+          _view(r),
+      ];
+
+  /// Named people who talked in the conversations guest voice [clusterId]
+  /// was in, most lines first.
+  List<String> heardWith(String clusterId, {int limit = 3}) => [
+        for (final r in _db.raw.select('''
+SELECT sp.name, COUNT(*) AS n FROM segments s JOIN speakers sp ON sp.id = s.speaker_id
+WHERE s.conversation_id IN (SELECT DISTINCT conversation_id FROM segments WHERE cluster_id = ?)
+GROUP BY sp.id ORDER BY n DESC LIMIT ?''', [clusterId, limit]))
+          r['name']! as String,
+      ];
+
+  /// Conversations in which every one of [speakerIds] said something, newest
+  /// first ("me and my wife"). Pass the oldest start already shown as
+  /// [before] for the next page.
+  List<ConversationSummary> conversationsWith(Set<String> speakerIds, {int limit = 100, DateTime? before}) {
+    if (speakerIds.isEmpty) return const [];
+    final marks = List.filled(speakerIds.length, '?').join(',');
+    final rows = _db.raw.select(
+      '''
+SELECT c.id, c.started_at, c.ended_at,
+       (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
+       $_previewColumn
+FROM conversations c
+WHERE c.id IN (
+  SELECT conversation_id FROM segments WHERE speaker_id IN ($marks)
+  GROUP BY conversation_id HAVING COUNT(DISTINCT speaker_id) = ?)
+${before == null ? '' : 'AND c.started_at < ?'}
+ORDER BY c.started_at DESC LIMIT ?''',
+      [...speakerIds, speakerIds.length, ?before?.millisecondsSinceEpoch, limit],
+    );
+    return rows.map(_summary).toList();
+  }
+
+  /// Summaries of conversations [ids], in the order given (missing ones left out).
+  List<ConversationSummary> summariesFor(List<int> ids) {
+    if (ids.isEmpty) return const [];
+    final rows = _db.raw.select(
+      '''
+SELECT c.id, c.started_at, c.ended_at,
+       (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
+       $_previewColumn
+FROM conversations c
+WHERE c.id IN (${List.filled(ids.length, '?').join(',')})''',
+      ids,
+    );
+    final byId = {for (final r in rows) r['id']! as int: _summary(r)};
+    return [for (final id in ids) ?byId[id]];
   }
 
   /// Rewrites a saved line in place (stage 2 cutting it at a speaker change).
@@ -167,6 +283,108 @@ GROUP BY who ORDER BY n DESC, MIN(s.id)''',
   }
 
   void setOverlap(int id) => _db.raw.execute('UPDATE segments SET overlap = 1 WHERE id = ?', [id]);
+
+  /// Saves the tone of voice and sound heard in line [id] (see [Tone]).
+  void setTone(int id, {String? emotion, String? sound}) =>
+      _db.raw.execute('UPDATE segments SET emotion = ?, sound = ? WHERE id = ?', [emotion, sound, id]);
+
+  /// How many lines of each tone conversation [conversationId] has (TV /
+  /// background voices left out). Empty when the tone model never ran.
+  MoodCount mood(int conversationId) {
+    final rows = _db.raw.select(
+      '''
+SELECT s.emotion AS e, COUNT(*) AS n FROM segments s
+LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+WHERE s.conversation_id = ? AND s.emotion IS NOT NULL AND COALESCE(uc.background, 0) = 0
+GROUP BY s.emotion''',
+      [conversationId],
+    );
+    return MoodCount({for (final r in rows) r['e']! as String: r['n']! as int});
+  }
+
+  /// Whether any line has a tone yet (the tone model has run at least once).
+  bool get hasTones =>
+      _db.raw.select('SELECT 1 FROM segments WHERE emotion IS NOT NULL OR sound IS NOT NULL LIMIT 1').isNotEmpty;
+
+  /// Matches lines whose emotion or sound is one of [n] values (bind them twice).
+  static String _toneClause(int n) {
+    final marks = List.filled(n, '?').join(',');
+    return '(s.emotion IN ($marks) OR s.sound IN ($marks))';
+  }
+
+  /// Conversations with at least one line (not TV / background) in any of
+  /// [emotions] or sounds, newest first. With [speakerIds], only conversations
+  /// where all of them talked, and only their lines count for the tone ("me
+  /// and my wife, when someone sounded angry").
+  List<ConversationSummary> conversationsWithTone(
+    Set<String> emotions, {
+    Set<String> speakerIds = const {},
+    int limit = 100,
+    DateTime? before,
+  }) {
+    if (emotions.isEmpty) return const [];
+    final people = List.filled(speakerIds.length, '?').join(',');
+    final rows = _db.raw.select(
+      '''
+SELECT c.id, c.started_at, c.ended_at,
+       (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
+       $_previewColumn
+FROM conversations c
+WHERE c.id IN (
+  SELECT s.conversation_id FROM segments s LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+  WHERE ${_toneClause(emotions.length)} AND COALESCE(uc.background, 0) = 0
+  ${speakerIds.isEmpty ? '' : 'AND s.speaker_id IN ($people)'})
+${speakerIds.length < 2 ? '' : 'AND c.id IN (SELECT conversation_id FROM segments WHERE speaker_id IN ($people) '
+        'GROUP BY conversation_id HAVING COUNT(DISTINCT speaker_id) = ?)'}
+${before == null ? '' : 'AND c.started_at < ?'}
+ORDER BY c.started_at DESC LIMIT ?''',
+      [
+        ...emotions,
+        ...emotions,
+        ...speakerIds,
+        if (speakerIds.length >= 2) ...[...speakerIds, speakerIds.length],
+        ?before?.millisecondsSinceEpoch,
+        limit,
+      ],
+    );
+    return rows.map(_summary).toList();
+  }
+
+  /// The newest [count] lines said by any of [speakerIds] (everyone when
+  /// empty), optionally only in [emotions], returned oldest first. TV /
+  /// background voices are always left out. Used to pick lines for a review
+  /// ("the last 100 things Pruitt and Ericah said").
+  List<SegmentView> lastLines({
+    required int count,
+    Set<String> speakerIds = const {},
+    Set<String> emotions = const {},
+    DateTime? from,
+    DateTime? to,
+  }) {
+    final where = <String>['COALESCE(c.background, 0) = 0'];
+    final args = <Object?>[];
+    if (speakerIds.isNotEmpty) {
+      where.add('s.speaker_id IN (${List.filled(speakerIds.length, '?').join(',')})');
+      args.addAll(speakerIds);
+    }
+    if (emotions.isNotEmpty) {
+      where.add(_toneClause(emotions.length));
+      args.addAll([...emotions, ...emotions]);
+    }
+    if (from != null) {
+      where.add('s.started_at >= ?');
+      args.add(from.millisecondsSinceEpoch);
+    }
+    if (to != null) {
+      where.add('s.started_at < ?');
+      args.add(to.millisecondsSinceEpoch);
+    }
+    final rows = _db.raw.select(
+      '$_selectSegments WHERE ${where.join(' AND ')} ORDER BY s.started_at DESC, s.id DESC LIMIT ?',
+      [...args, count],
+    );
+    return rows.map(_view).toList().reversed.toList();
+  }
 
   void deleteConversation(int conversationId) {
     _db.transaction(() {
@@ -191,7 +409,7 @@ GROUP BY who ORDER BY n DESC, MIN(s.id)''',
       '''
 SELECT c.id, c.started_at, c.ended_at,
        (SELECT COUNT(*) FROM segments s WHERE s.conversation_id = c.id) AS n,
-       (SELECT text FROM segments s WHERE s.conversation_id = c.id ORDER BY s.id LIMIT 1) AS preview
+       $_previewColumn
 FROM conversations c
 ${beforeId == null ? '' : 'WHERE c.id < ?'}
 ORDER BY c.id DESC LIMIT ?''',
@@ -206,9 +424,15 @@ ORDER BY c.id DESC LIMIT ?''',
     final tokens = q.keywords.map(_sanitizeToken).where((t) => t.isNotEmpty).toSet().toList();
     final where = <String>[];
     final args = <Object?>[];
-    if (q.speakerId != null) {
-      where.add('s.speaker_id = ?');
-      args.add(q.speakerId);
+    final people = {?q.speakerId, ...q.speakerIds};
+    if (people.isNotEmpty) {
+      where.add('s.speaker_id IN (${List.filled(people.length, '?').join(',')})');
+      args.addAll(people);
+    }
+    if (!q.includeBackground) where.add('COALESCE(c.background, 0) = 0');
+    if (q.emotions.isNotEmpty) {
+      where.add(_toneClause(q.emotions.length));
+      args.addAll([...q.emotions, ...q.emotions]);
     }
     if (q.from != null) {
       where.add('s.started_at >= ?');
@@ -223,7 +447,7 @@ ORDER BY c.id DESC LIMIT ?''',
     if (tokens.isEmpty) {
       final clause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
       final rows = _db.raw.select(
-        '$_selectSegments $clause ORDER BY s.id DESC LIMIT ?',
+        '$_selectSegments $clause ORDER BY s.started_at DESC, s.id DESC LIMIT ?',
         [...args, q.limit],
       );
       return rows.map(_view).toList();
@@ -237,23 +461,28 @@ ORDER BY c.id DESC LIMIT ?''',
     return rows.map(_view).toList();
   }
 
-  /// Up to [before]/[after] neighbouring segments of [seg] in its conversation.
+  /// Up to [before]/[after] segments said just before and after [seg] in its conversation.
   List<SegmentView> around(SegmentView seg, {int before = 2, int after = 2}) {
+    final t = seg.startedAt.millisecondsSinceEpoch;
     final prev = _db.raw.select(
-      '$_selectSegments WHERE s.conversation_id = ? AND s.id < ? ORDER BY s.id DESC LIMIT ?',
-      [seg.conversationId, seg.id, before],
+      '$_selectSegments WHERE s.conversation_id = ? AND (s.started_at < ? OR (s.started_at = ? AND s.id < ?)) '
+      'ORDER BY s.started_at DESC, s.id DESC LIMIT ?',
+      [seg.conversationId, t, t, seg.id, before],
     );
     final next = _db.raw.select(
-      '$_selectSegments WHERE s.conversation_id = ? AND s.id > ? ORDER BY s.id LIMIT ?',
-      [seg.conversationId, seg.id, after],
+      '$_selectSegments WHERE s.conversation_id = ? AND (s.started_at > ? OR (s.started_at = ? AND s.id > ?)) '
+      'ORDER BY s.started_at, s.id LIMIT ?',
+      [seg.conversationId, t, t, seg.id, after],
     );
     return [...prev.map(_view).toList().reversed, seg, ...next.map(_view)];
   }
 
-  /// Segments between [from] (inclusive) and [to] (exclusive), oldest first.
-  List<SegmentView> between(DateTime from, DateTime to, {int limit = 2000}) {
+  /// Segments between [from] (inclusive) and [to] (exclusive), oldest first
+  /// (or the newest [limit], newest first). A negative [limit] means all.
+  List<SegmentView> between(DateTime from, DateTime to, {int limit = 2000, bool newestFirst = false}) {
+    final order = newestFirst ? 'DESC' : '';
     final rows = _db.raw.select(
-      '$_selectSegments WHERE s.started_at >= ? AND s.started_at < ? ORDER BY s.id LIMIT ?',
+      '$_selectSegments WHERE s.started_at >= ? AND s.started_at < ? ORDER BY s.started_at $order, s.id $order LIMIT ?',
       [from.millisecondsSinceEpoch, to.millisecondsSinceEpoch, limit],
     );
     return rows.map(_view).toList();
@@ -298,7 +527,8 @@ ORDER BY c.id DESC LIMIT ?''',
 
   /// Plain-text export, oldest first.
   String exportText({DateTime? from, DateTime? to}) {
-    final rows = between(from ?? DateTime.fromMillisecondsSinceEpoch(0), to ?? DateTime(9999));
+    // Everything: not just the first 2000 lines.
+    final rows = between(from ?? DateTime.fromMillisecondsSinceEpoch(0), to ?? DateTime(9999), limit: -1);
     final b = StringBuffer();
     int? lastConversation;
     for (final s in rows) {
@@ -307,9 +537,91 @@ ORDER BY c.id DESC LIMIT ?''',
         b.writeln('--- ${s.startedAt.toIso8601String()} ---');
         lastConversation = s.conversationId;
       }
-      b.writeln('${s.speakerLabel}: ${s.text}');
+      final tone = [?s.emotion, ?s.sound].join(', ');
+      b.writeln('${s.speakerLabel}${tone.isEmpty ? '' : ' [$tone]'}: ${s.text}');
     }
     return b.toString();
+  }
+
+  /// Reads back text made by [exportText] (or the "Copy all transcripts"
+  /// button of any earlier version), so transcripts survive a reinstall.
+  ///
+  /// Each `--- <time> ---` block becomes a conversation. Names that match a
+  /// person on this phone are linked to them; other names are kept as text.
+  /// Exact times of lines were not exported, so they are spread out from the
+  /// conversation's start by their length. Conversations already here (same
+  /// start time) are skipped, so importing twice adds nothing.
+  ImportResult importText(String text) {
+    final blocks = <({DateTime start, List<({String who, String text, String? emotion, String? sound})> lines})>[];
+    final header = RegExp(r'^---\s*(.+?)\s*---$');
+    for (final raw in const LineSplitter().convert(text)) {
+      final line = raw.trimRight();
+      if (line.trim().isEmpty) continue;
+      final h = header.firstMatch(line.trim());
+      if (h != null) {
+        final start = DateTime.tryParse(h.group(1)!);
+        if (start != null) blocks.add((start: start, lines: []));
+        continue;
+      }
+      if (blocks.isEmpty) continue;
+      final colon = line.indexOf(': ');
+      final lines = blocks.last.lines;
+      if (colon > 0 && colon <= 80) {
+        final (who, emotion, sound) = _splitTone(line.substring(0, colon).trim());
+        lines.add((who: who, text: line.substring(colon + 2).trim(), emotion: emotion, sound: sound));
+      } else if (lines.isNotEmpty) {
+        final l = lines.last;
+        lines[lines.length - 1] = (who: l.who, text: '${l.text} ${line.trim()}', emotion: l.emotion, sound: l.sound);
+      }
+    }
+
+    final people = {
+      for (final r in _db.raw.select('SELECT id, name FROM speakers')) (r['name']! as String).toLowerCase(): r['id']! as String,
+    };
+    var conversations = 0, lines = 0, skipped = 0;
+    _db.transaction(() {
+      for (final b in blocks) {
+        if (b.lines.isEmpty) continue;
+        final startMs = b.start.millisecondsSinceEpoch;
+        if (_db.raw.select('SELECT 1 FROM conversations WHERE started_at = ? LIMIT 1', [startMs]).isNotEmpty) {
+          skipped++;
+          continue;
+        }
+        _db.raw.execute('INSERT INTO conversations(started_at, ended_at) VALUES (?, ?)', [startMs, startMs]);
+        final conversationId = _db.raw.lastInsertRowId;
+        var at = startMs;
+        for (final l in b.lines) {
+          final words = l.text.split(RegExp(r'\s+')).length;
+          final ms = (words * 400).clamp(1000, 30000);
+          final speakerId = people[l.who.toLowerCase()];
+          final label = speakerId != null || l.who == 'Unknown' ? null : l.who;
+          _db.raw.execute(
+            'INSERT INTO segments(conversation_id, started_at, duration_ms, text, speaker_id, speaker_label, emotion, sound) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [conversationId, at, ms, l.text, speakerId, label, l.emotion, l.sound],
+          );
+          at += ms;
+          lines++;
+        }
+        _db.raw.execute('UPDATE conversations SET ended_at = ? WHERE id = ?', [at, conversationId]);
+        conversations++;
+      }
+    });
+    return ImportResult(conversations: conversations, lines: lines, skipped: skipped);
+  }
+
+  /// "Ericah [angry, laughter]" → ('Ericah', 'angry', 'laughter'). Only known
+  /// tone words are taken; anything else stays part of the name.
+  static (String, String?, String?) _splitTone(String who) {
+    final m = RegExp(r'^(.*?)\s*\[([a-z ,]+)\]$').firstMatch(who);
+    if (m == null) return (who, null, null);
+    final words = m.group(2)!.split(',').map((w) => w.trim()).toList();
+    if (words.isEmpty || !words.every((w) => Tone.names.contains(w) || Tone.sounds.contains(w))) return (who, null, null);
+    return (
+      m.group(1)!.trim(),
+      words.where(Tone.names.contains).firstOrNull,
+      words.where(Tone.sounds.contains).firstOrNull,
+    );
   }
 
   void _pruneEmpty() {
@@ -332,5 +644,20 @@ ORDER BY c.id DESC LIMIT ?''',
         clusterLabel: r['cluster_label'] as String?,
         score: (r['score'] as num?)?.toDouble(),
         overlap: (r['overlap'] as int? ?? 0) != 0,
+        background: (r['background'] as int? ?? 0) != 0,
+        importedLabel: r['speaker_label'] as String?,
+        emotion: r['emotion'] as String?,
+        sound: r['sound'] as String?,
       );
+}
+
+/// What [TranscriptRepository.importText] added.
+class ImportResult {
+  const ImportResult({required this.conversations, required this.lines, required this.skipped});
+
+  final int conversations;
+  final int lines;
+
+  /// Conversations that were already on the phone.
+  final int skipped;
 }

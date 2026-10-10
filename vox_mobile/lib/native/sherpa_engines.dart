@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
+import 'package:vox_amelior_mobile/data/models.dart' show Tone;
 import 'package:vox_amelior_mobile/pipeline/engines.dart';
 import 'package:vox_amelior_mobile/settings/service_config.dart';
 import 'package:vox_amelior_mobile/speakers/embedding_engine.dart';
@@ -128,6 +129,43 @@ class SherpaParakeetAsr implements AsrEngine {
       _recognizer.decode(stream);
       final r = _recognizer.getResult(stream);
       return Transcript(r.text, wordsFromTokens(r.tokens, r.timestamps));
+    } finally {
+      stream.free();
+    }
+  }
+
+  @override
+  void dispose() => _recognizer.free();
+}
+
+/// SenseVoice Small: hears the tone of voice (happy, sad, angry, ...) and
+/// sounds such as laughter or music in a line. Its own transcript is not used
+/// (Parakeet's is better in English).
+class SherpaSenseVoiceTone implements ToneEngine {
+  SherpaSenseVoiceTone({required String model, required String tokens, int threads = 1}) {
+    ensureSherpaInitialized();
+    _recognizer = sherpa.OfflineRecognizer(
+      sherpa.OfflineRecognizerConfig(
+        model: sherpa.OfflineModelConfig(
+          senseVoice: sherpa.OfflineSenseVoiceModelConfig(model: model, language: 'auto'),
+          tokens: tokens,
+          numThreads: threads,
+          debug: false,
+        ),
+      ),
+    );
+  }
+
+  late final sherpa.OfflineRecognizer _recognizer;
+
+  @override
+  LineTone analyze(Float32List samples, int sampleRate) {
+    final stream = _recognizer.createStream();
+    try {
+      stream.acceptWaveform(samples: samples, sampleRate: sampleRate);
+      _recognizer.decode(stream);
+      final r = _recognizer.getResult(stream);
+      return LineTone(emotion: Tone.fromEmotionTag(r.emotion), sound: Tone.fromEventTag(r.event));
     } finally {
       stream.free();
     }

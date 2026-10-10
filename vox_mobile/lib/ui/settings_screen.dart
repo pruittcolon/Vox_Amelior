@@ -1,7 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/app/model_downloads.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
+import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/settings/app_settings.dart';
 import 'package:vox_amelior_mobile/ui/appearance_screen.dart';
 import 'package:vox_amelior_mobile/ui/capacity_screen.dart';
@@ -9,6 +15,7 @@ import 'package:vox_amelior_mobile/ui/controls.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/listening_settings_screen.dart';
 import 'package:vox_amelior_mobile/ui/mic_tune.dart';
+import 'package:vox_amelior_mobile/ui/models_screen.dart';
 import 'package:vox_amelior_mobile/ui/prompt_editor.dart';
 import 'package:vox_amelior_mobile/ui/speakers_settings_screen.dart';
 import 'package:vox_amelior_mobile/ui/voice_clips_screen.dart';
@@ -41,7 +48,7 @@ class SettingsScreen extends StatelessWidget {
 
   String _hearingSummary(AppSettings st) {
     final preset = MicPreset.of(st);
-    return 'Mic boost ${formatBoost(st.micGain)} · ${preset?.name ?? 'Custom'} · ${st.speechModel == 'fp16' ? 'fp16' : 'standard'} model';
+    return 'Mic boost ${formatBoost(st.micGain)} · ${preset?.name ?? 'Custom'} · ${st.speechModel} model';
   }
 
   String _speakersSummary(AppSettings st) =>
@@ -183,6 +190,7 @@ class _AssistantSettings extends StatelessWidget {
                   ),
                 ],
               ),
+              MeaningSearchSettings(services: services),
             ],
           );
         },
@@ -245,6 +253,18 @@ class _PrivacySettings extends StatelessWidget {
                     },
                   ),
                   ListTile(
+                    leading: const IconBadge(Icons.save_alt_rounded, size: 36),
+                    title: const Text('Save all transcripts to a file'),
+                    subtitle: const Text('A text file you can keep, and import again later'),
+                    onTap: () => _saveTranscripts(context, services),
+                  ),
+                  ListTile(
+                    leading: const IconBadge(Icons.upload_file_rounded, size: 36),
+                    title: const Text('Import transcripts'),
+                    subtitle: const Text('From a saved file or copied text (e.g. from before reinstalling)'),
+                    onTap: () => _importTranscripts(context, services),
+                  ),
+                  ListTile(
                     leading: IconBadge(Icons.delete_forever_rounded, size: 36, color: Theme.of(context).colorScheme.error),
                     title: const Text('Delete all transcripts'),
                     subtitle: const Text('People, their voices and saved voice clips are kept.'),
@@ -262,6 +282,158 @@ class _PrivacySettings extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+Future<void> _saveTranscripts(BuildContext context, AppServices services) async {
+  final now = DateTime.now();
+  final name = 'vox-transcripts-${now.year}-${two(now.month)}-${two(now.day)}.txt';
+  try {
+    final saved = await FilePicker.saveFile(
+      fileName: name,
+      bytes: utf8.encode(services.transcripts.exportText()),
+      mimeType: 'text/plain',
+    );
+    if (saved != null && context.mounted) showMessage(context, 'Saved $name');
+  } on Object catch (e) {
+    if (context.mounted) showMessage(context, 'Could not save: $e');
+  }
+}
+
+Future<void> _importTranscripts(BuildContext context, AppServices services) async {
+  final source = await showModalBottomSheet<String>(
+    context: context,
+    builder: (c) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const ListTile(
+            title: Text('Import transcripts'),
+            subtitle: Text('Use text from "Copy all transcripts" or a file from "Save all transcripts to a file". '
+                'Conversations already on this phone are skipped.'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.content_paste_rounded),
+            title: const Text('Paste copied text'),
+            onTap: () => Navigator.pop(c, 'paste'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.folder_open_rounded),
+            title: const Text('Choose a file'),
+            onTap: () => Navigator.pop(c, 'file'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (source == null) return;
+  String? text;
+  try {
+    if (source == 'paste') {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    } else {
+      final picked = await FilePicker.pickFile();
+      final path = picked?.path;
+      if (path != null) text = await File(path).readAsString();
+    }
+  } on Object catch (e) {
+    if (context.mounted) showMessage(context, 'Could not read it: $e');
+    return;
+  }
+  if (text == null || text.trim().isEmpty) {
+    if (context.mounted) showMessage(context, source == 'paste' ? 'The clipboard is empty.' : 'Nothing to import.');
+    return;
+  }
+  final r = services.transcripts.importText(text);
+  services.dataChanged();
+  if (!context.mounted) return;
+  if (r.conversations == 0 && r.skipped == 0) {
+    showMessage(context, 'No transcripts found in that text.');
+  } else {
+    showMessage(context,
+        'Imported ${r.conversations} conversation${r.conversations == 1 ? '' : 's'} (${r.lines} lines)'
+        '${r.skipped > 0 ? ', ${r.skipped} already here' : ''}.');
+  }
+}
+
+/// Search by meaning (EmbeddingGemma): on/off, download, and how many lines
+/// are ready.
+class MeaningSearchSettings extends StatelessWidget {
+  const MeaningSearchSettings({super.key, required this.services});
+
+  final AppServices services;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([services.settings, services.downloads]),
+      builder: (context, _) {
+        final st = services.settings.value;
+        final model = st.searchAsset;
+        final using = services.searchModel;
+        final installed = services.models.isInstalled(model);
+        final dl = services.downloads.stateOf(model);
+        return SettingsGroup(
+          title: 'Search',
+          footer: 'Search by meaning finds what was said in other words, and lets Gemma read the lines that '
+              'match a question best. Lines are prepared in the background while the app is open. Everything stays on this phone.',
+          children: [
+            SettingSwitch(
+              title: 'Search by meaning',
+              subtitle: using != null ? 'EmbeddingGemma, on this phone' : 'Needs a ${formatBytes(model.approxDownloadBytes)} download',
+              value: st.meaningSearch,
+              onChanged: (v) => services.updateSettings(st.copyWith(meaningSearch: v)),
+            ),
+            if (st.meaningSearch)
+              ListTile(
+                leading: const Icon(Icons.tune_rounded),
+                title: const Text('Model size'),
+                subtitle: Text(
+                  installed || using == null
+                      ? ModelCatalog.embedderLabel(model)
+                      : '${ModelCatalog.embedderLabel(model)} once downloaded; ${ModelCatalog.embedderLabel(using)} until then',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ModelsScreen(services: services))),
+              ),
+            if (st.meaningSearch && !installed)
+              ListTile(
+                leading: Icon(dl.status == DownloadStatus.failed ? Icons.error_outline_rounded : Icons.download_rounded),
+                title: Text(dl.isBusy
+                    ? 'Downloading…'
+                    : dl.status == DownloadStatus.failed
+                        ? 'Download failed — tap to try again'
+                        : 'Download search by meaning'),
+                subtitle: dl.isBusy ? Text(describeDownload(dl)) : (dl.error == null ? null : Text(dl.error!, maxLines: 2)),
+                onTap: dl.isBusy ? null : () => services.downloads.download(model),
+              ),
+            if (st.meaningSearch && using != null)
+              StreamBuilder<({int done, int total})>(
+                stream: services.indexer.progress,
+                builder: (context, snap) {
+                  final p = snap.data ?? services.vectors.progress(services.searchModelId);
+                  final ready = p.total == 0 || p.done >= p.total;
+                  final error = services.indexer.error;
+                  if (!ready && error != null) {
+                    return ListTile(
+                      leading: Icon(Icons.error_outline_rounded, color: Theme.of(context).colorScheme.error),
+                      title: Text('Preparing lines stopped at ${formatCount(p.done)} of ${formatCount(p.total)}'),
+                      subtitle: Text('Tap to try again. $error', maxLines: 3, overflow: TextOverflow.ellipsis),
+                      onTap: () => services.indexForSearch(retry: true),
+                    );
+                  }
+                  return ListTile(
+                    leading: Icon(ready ? Icons.check_circle_outline_rounded : Icons.hourglass_top_rounded),
+                    title: Text(ready ? 'All lines ready' : 'Preparing lines: ${formatCount(p.done)} of ${formatCount(p.total)}'),
+                    subtitle: ready ? null : LinearProgressIndicator(value: p.total == 0 ? null : p.done / p.total),
+                    onTap: ready ? null : () => services.indexForSearch(retry: true),
+                  );
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 }

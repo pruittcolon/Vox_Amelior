@@ -48,6 +48,32 @@ class _PeakVad implements VadEngine {
   void dispose() => disposed = true;
 }
 
+/// Hands back everything it heard as one chunk (like Silero after a pause).
+class _EchoVad implements VadEngine {
+  final List<double> heard = [];
+  int _start = 0;
+
+  @override
+  void accept(Float32List samples) => heard.addAll(samples);
+
+  @override
+  List<SpeechChunk> takeSegments() => const [];
+
+  @override
+  List<SpeechChunk> flush() {
+    final chunk = SpeechChunk(Float32List.fromList(heard), _start / 16000);
+    _start += heard.length;
+    heard.clear();
+    return [chunk];
+  }
+
+  @override
+  void reset() {}
+
+  @override
+  void dispose() {}
+}
+
 Float32List constant(double v, int n) => Float32List.fromList(List.filled(n, v));
 
 void main() {
@@ -56,7 +82,7 @@ void main() {
       expect(const AppSettings().micGain, 1.15);
     });
 
-    test('boosts what the detector and transcriber hear, and never past full scale', () {
+    test('boosts what the detector hears, and never past full scale', () {
       final vad = _PeakVad();
       final capture = SpeechCapture(vad, gain: 1.15)..measureLevel = true;
       capture.addSamples(constant(0.1, 1600));
@@ -64,6 +90,28 @@ void main() {
       capture.addSamples(constant(0.9, 1600));
       expect(vad.peak, 1.0, reason: 'clamped, not wrapped');
       expect(capture.takeLevel().clipping, isTrue);
+    });
+
+    test('transcription gets the audio as recorded: no boost, no clipping', () {
+      final vad = _EchoVad();
+      final capture = SpeechCapture(vad, gain: 1.5);
+      capture.addSamples(constant(0.8, 1600));
+      capture.addSamples(constant(-0.2, 1600));
+      final speech = capture.flush().single.samples;
+      expect(vad.heard, isEmpty);
+      expect(speech, hasLength(3200));
+      expect(speech.first, closeTo(0.8, 1e-6), reason: 'not clipped at 1.0');
+      expect(speech.last, closeTo(-0.2, 1e-6), reason: 'not boosted to -0.3');
+    });
+
+    test('a chunk spanning a boost change is still handed back as recorded', () {
+      final vad = _EchoVad();
+      final capture = SpeechCapture(vad);
+      capture.addSamples(constant(0.3, 800));
+      capture.gain = 4.0;
+      capture.addSamples(constant(0.3, 800));
+      final speech = capture.flush().single.samples;
+      expect(speech.every((v) => (v - 0.3).abs() < 1e-6), isTrue);
     });
 
     test('no boost leaves the audio untouched; a changed gain applies to the next audio', () {
@@ -153,25 +201,27 @@ void main() {
       expect(back.pauseSeconds, 0.9);
       expect(back.minSpeechSeconds, 0.5);
       expect(back.speechModel, 'fp16');
+      expect(AppSettings.fromJson(s.copyWith(speechModel: 'int8').toJson()).speechModel, 'int8', reason: 'choosing standard sticks');
       expect(back.asrAsset.id, 'parakeet-tdt-0.6b-v2-fp16');
       expect(back.splitMinSeconds, 2.0);
       expect(back.splitMinWords, 3);
     });
 
-    test('settings saved by an older version get the new defaults (including +15%)', () {
+    test('settings saved by an older version get the new defaults (including +15% and fp16)', () {
       final old = const AppSettings().toJson()
         ..remove('micGain')
         ..remove('pauseSeconds')
         ..remove('minSpeechSeconds')
-        ..remove('speechModel')
+        ..remove('asrModel')
+        ..['speechModel'] = 'int8' // what every phone stored before fp16 became the default
         ..remove('splitMinSeconds')
         ..remove('splitMinWords');
       final s = AppSettings.fromJson(old);
       expect(s.micGain, 1.15);
       expect(s.pauseSeconds, 0.6);
       expect(s.minSpeechSeconds, 0.3);
-      expect(s.speechModel, 'int8');
-      expect(s.asrAsset.id, 'parakeet-tdt-0.6b-v2-int8');
+      expect(s.speechModel, 'fp16');
+      expect(s.asrAsset.id, 'parakeet-tdt-0.6b-v2-fp16');
       expect(s.splitMinSeconds, 1.5);
       expect(s.splitMinWords, 2);
     });
@@ -181,14 +231,14 @@ void main() {
         'micGain': 99,
         'pauseSeconds': 0,
         'minSpeechSeconds': 'loud',
-        'speechModel': 'fp64',
+        'asrModel': 'fp64',
         'splitMinSeconds': -3,
         'splitMinWords': 40,
       });
       expect(s.micGain, 4.0);
       expect(s.pauseSeconds, 0.3);
       expect(s.minSpeechSeconds, 0.3);
-      expect(s.speechModel, 'int8');
+      expect(s.speechModel, 'fp16');
       expect(s.splitMinSeconds, 0.8);
       expect(s.splitMinWords, 2);
     });
@@ -211,26 +261,37 @@ void main() {
       store.markInstalled(a);
     }
 
-    test('fp16 is an optional download with its own pinned files', () {
+    test('fp16 is the default download with its own pinned files; int8 is optional', () {
       final a = ModelCatalog.parakeetFp16;
-      expect(a.essential, isFalse);
+      expect(a.essential, isTrue);
+      expect(ModelCatalog.speech.first, a, reason: 'downloaded first');
+      expect(ModelCatalog.parakeet.essential, isFalse);
+      expect(ModelCatalog.speech, isNot(contains(ModelCatalog.parakeet)), reason: 'int8 only downloads when chosen');
       expect(a.installedFileNames, {'encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt'});
       expect(a.files.single.sha256, hasLength(64));
       expect(a.files.single.sizeBytes, 1120982957);
       expect(ModelCatalog.all, contains(a), reason: 'kept on disk by the upgrade cleanup');
     });
 
-    test('the fp16 files are used once installed; until then the standard model keeps working', () {
-      for (final a in ModelCatalog.speech) {
+    test('either recognizer alone is enough to listen; the chosen one is used once installed', () {
+      for (final a in ModelCatalog.speechSupport) {
         install(a);
       }
-      final before = SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeetFp16)!;
-      expect(p.basename(before.encoder), 'encoder.int8.onnx', reason: 'fp16 not downloaded yet');
+      expect(SpeechModelPaths.fromStore(store), isNull, reason: 'no recognizer yet');
+
       install(ModelCatalog.parakeetFp16);
-      final after = SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeetFp16)!;
-      expect([after.encoder, after.decoder, after.joiner, after.tokens].map(p.basename),
+      final fp16Only = SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeet)!;
+      expect(p.basename(fp16Only.encoder), 'encoder.fp16.onnx', reason: 'int8 chosen but not downloaded');
+      expect([fp16Only.encoder, fp16Only.decoder, fp16Only.joiner, fp16Only.tokens].map(p.basename),
           ['encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt']);
-      expect(p.basename(SpeechModelPaths.fromStore(store)!.encoder), 'encoder.int8.onnx', reason: 'default stays int8');
+
+      install(ModelCatalog.parakeet);
+      expect(p.basename(SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeet)!.encoder), 'encoder.int8.onnx');
+      expect(p.basename(SpeechModelPaths.fromStore(store)!.encoder), 'encoder.fp16.onnx', reason: 'default is fp16');
+
+      // Only int8 (e.g. installed by an older version, fp16 deleted): still ready.
+      store.remove(ModelCatalog.parakeetFp16);
+      expect(p.basename(SpeechModelPaths.fromStore(store, asr: ModelCatalog.parakeetFp16)!.encoder), 'encoder.int8.onnx');
     });
 
     test('the fp16 folder survives the upgrade cleanup', () {

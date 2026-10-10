@@ -89,25 +89,33 @@ class ListeningSettingsScreen extends StatelessWidget {
               ),
               SettingsGroup(
                 title: 'Speech model',
-                footer: 'Both are the same NVIDIA Parakeet model and write punctuation and capitals. '
-                    'Standard is smaller and lighter on memory; fp16 keeps the full-precision weights and needs more memory. '
-                    'Standard stays installed as a fallback.',
+                footer: 'All three are the same NVIDIA Parakeet model and write punctuation and capitals. '
+                    'High precision (fp16) is downloaded first and used by default. The smaller int8 and the full '
+                    'precision fp32 models are only downloaded if you pick them; any one is enough to listen. '
+                    'fp32 is rarely more accurate than fp16 but needs about twice the space and memory.',
                 children: [
                   ChoiceCards<String>(
                     selected: st.speechModel,
                     onSelected: (v) => services.selectSpeechModel(v),
                     options: [
                       ChoiceOption(
+                        value: 'fp16',
+                        title: 'High precision (fp16)',
+                        subtitle: '${formatBytes(ModelCatalog.parakeetFp16.approxDownloadBytes)} download · most accurate · recommended',
+                        status: _status(context, ModelCatalog.parakeetFp16),
+                      ),
+                      ChoiceOption(
                         value: 'int8',
-                        title: 'Standard (int8)',
+                        title: 'Smaller (int8)',
                         subtitle: '${formatBytes(ModelCatalog.parakeet.approxDownloadBytes)} download · small and fast',
                         status: _status(context, ModelCatalog.parakeet),
                       ),
                       ChoiceOption(
-                        value: 'fp16',
-                        title: 'High precision (fp16)',
-                        subtitle: '${formatBytes(ModelCatalog.parakeetFp16.approxDownloadBytes)} download · more memory',
-                        status: _status(context, ModelCatalog.parakeetFp16),
+                        value: 'fp32',
+                        title: 'Full precision (fp32)',
+                        subtitle: '${formatBytes(ModelCatalog.parakeetFp32.approxDownloadBytes)} download · largest and slowest · '
+                            'needs that much free space',
+                        status: _status(context, ModelCatalog.parakeetFp32),
                       ),
                     ],
                   ),
@@ -125,7 +133,6 @@ class ListeningSettingsScreen extends StatelessWidget {
     switch (d.status) {
       case DownloadStatus.installed:
         const installed = Pill('Installed', icon: Icons.check_rounded, color: Color(0xFF0E9F6E));
-        if (asset.id != ModelCatalog.parakeetFp16.id) return installed;
         return Wrap(
           spacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,
@@ -136,8 +143,13 @@ class ListeningSettingsScreen extends StatelessWidget {
               icon: const Icon(Icons.delete_outline_rounded, size: 18),
               label: const Text('Delete'),
               onPressed: () async {
-                if (await confirm(context, 'Delete the fp16 model?', 'Frees about 1.3 GB. Vox switches to the standard model.')) {
-                  await services.removeFp16();
+                final other = ModelCatalog.recognizers.where((m) => m.id != asset.id && services.models.isInstalled(m)).firstOrNull;
+                final message = other != null
+                    ? 'Frees about ${formatBytes(asset.approxDownloadBytes)}. Vox switches to ${other.title}.'
+                    : 'Frees about ${formatBytes(asset.approxDownloadBytes)}. This is your only speech model, so '
+                        'listening stops until you download one again.';
+                if (await confirm(context, 'Delete ${asset.title}?', message)) {
+                  await services.removeSpeechModel(asset);
                 }
               },
             ),
@@ -150,11 +162,11 @@ class ListeningSettingsScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              d.status == DownloadStatus.unpacking ? 'Finishing…' : 'Downloading ${formatBytes(d.received)} of ${formatBytes(d.total)}',
+              d.status == DownloadStatus.downloading ? 'Downloading ${describeDownload(d)}' : describeDownload(d),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 4),
-            LinearProgressIndicator(value: d.status == DownloadStatus.unpacking ? null : d.progress, minHeight: 5),
+            LinearProgressIndicator(value: d.status == DownloadStatus.queued ? null : d.progress, minHeight: 5),
           ],
         );
       case DownloadStatus.failed:
