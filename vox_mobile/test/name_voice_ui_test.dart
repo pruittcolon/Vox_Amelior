@@ -114,8 +114,12 @@ void main() {
 
   testWidgets('someone new: typed once, and the voice gets the name', (tester) async {
     await show(tester, ConversationScreen(services: s, conversationId: conversation));
-    // The guest's name on its lines is a button too.
-    await tester.tap(find.text("Who's this?").last);
+    // The guest's name on its lines is a button too (the first one after
+    // the card at the top).
+    final label = find.text("Who's this?").at(1);
+    await tester.ensureVisible(label);
+    await tester.pumpAndSettle();
+    await tester.tap(label);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Someone new'));
     await tester.pumpAndSettle();
