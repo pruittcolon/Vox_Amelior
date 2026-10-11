@@ -62,6 +62,16 @@ class ChunkQueue {
     if (c.file.existsSync()) c.file.deleteSync();
   }
 
+  /// Puts a chunk back to be taken again (it keeps its place: oldest first).
+  void putBack(QueuedChunk c) {
+    if (c.file.existsSync()) c.file.renameSync(c.file.path.replaceFirst(RegExp(r'\.working$'), ''));
+  }
+
+  /// Sets a chunk aside as `.failed` (kept on disk, never taken again).
+  void setAside(QueuedChunk c) {
+    if (c.file.existsSync()) c.file.renameSync(c.file.path.replaceFirst(RegExp(r'\.working$'), '.failed'));
+  }
+
   List<File> _pending() {
     final files = dir.listSync().whereType<File>().where((f) => f.path.endsWith('.f32')).toList()
       ..sort((a, b) => a.path.compareTo(b.path));

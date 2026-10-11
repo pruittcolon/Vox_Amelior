@@ -100,8 +100,12 @@ class FakeAsr implements AsrEngine {
   final List<String> outputs;
   bool throwNext = false;
 
+  /// Fails every time (a chunk that cannot be transcribed).
+  bool alwaysThrow = false;
+
   @override
   String transcribe(Float32List samples, int sampleRate) {
+    if (alwaysThrow) throw StateError('asr keeps failing');
     if (throwNext) {
       throwNext = false;
       throw StateError('asr failed');
