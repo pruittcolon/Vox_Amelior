@@ -80,13 +80,19 @@ int _paletteIndex(String label) {
 /// Each household member's colour (see [setHouseholdColors]).
 final Map<String, Color> _household = {};
 
-/// Gives everyone in the household a colour of their own, so two people
-/// never look alike (up to eight). Sorted by name, so colours stay put
-/// until someone is added or renamed.
-void setHouseholdColors(Iterable<String> names) {
+/// Eight clearly different colours, the most different first.
+const List<Color> _householdPalette = [
+  Color(0xFF4F46E5), Color(0xFFE8590C), Color(0xFF0E9F6E), Color(0xFFD6336C),
+  Color(0xFF1C7ED6), Color(0xFFB08800), Color(0xFF9C36B5), Color(0xFF087F5B),
+];
+
+/// Gives everyone in the household a colour of their own: in the order
+/// they joined, so nobody's colour changes when someone new is added, and
+/// the first eight never look alike.
+void setHouseholdColors(Iterable<String> namesInOrderJoined) {
   _household
     ..clear()
-    ..addAll(distinctSpeakerColors(names.toList()..sort()));
+    ..addAll({for (final (i, n) in namesInOrderJoined.indexed) n: _householdPalette[i % _householdPalette.length]});
 }
 
 /// A colour per label: the one its letters pick when free, else the next

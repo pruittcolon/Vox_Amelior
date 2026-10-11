@@ -37,7 +37,10 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   /// Everyone's colour, kept up to date as people are added or renamed.
-  void _colors() => setHouseholdColors(widget.services.speakers.profiles().map((p) => p.name));
+  void _colors() {
+    final people = widget.services.speakers.profiles()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    setHouseholdColors(people.map((p) => p.name));
+  }
 
   void _openModels() => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ModelsScreen(services: widget.services)));
 
