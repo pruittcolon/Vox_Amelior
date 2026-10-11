@@ -104,6 +104,24 @@ void main() {
       expect(queue.length, 0);
     });
 
+    test('a chunk that fails once is tried again; one that keeps failing is set aside, not lost', () async {
+      asr.outputs.addAll(['first words', 'second words']);
+      queue.push(fakeAudio(1), DateTime(2026, 1, 1, 9));
+      queue.push(fakeAudio(1), DateTime(2026, 1, 1, 9, 1));
+      asr.throwNext = true; // a passing glitch on the first chunk
+      scheduler.kick();
+      await settle();
+      expect(log, ['saved first words', 'saved second words'], reason: 'nothing lost, still in order');
+
+      asr.outputs.clear();
+      queue.push(fakeAudio(1), DateTime(2026, 1, 1, 9, 2));
+      asr.alwaysThrow = true;
+      scheduler.kick();
+      await settle();
+      expect(queue.length, 0);
+      expect(queue.dir.listSync().where((f) => f.path.endsWith('.failed')), hasLength(1));
+    });
+
     test('an assistant job runs alone; speech waits and is transcribed afterwards', () async {
       final gate = Completer<void>();
       final job = scheduler.runExclusive(() async {

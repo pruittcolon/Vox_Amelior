@@ -1,0 +1,135 @@
+name: Export Parakeet TDT 0.6B v2 fp32 for sherpa-onnx
+# sherpa-onnx only publishes Parakeet TDT 0.6B v2 in int8 and fp16. This
+# exports the full-precision (fp32) model the same way sherpa-onnx's own
+# script does (same metadata), checks it on a real speech sample and
+# publishes it as a release the app downloads.
+#
+# The fp32 encoder is ~2.4 GB, over GitHub's 2 GB per-file limit, so its
+# weights are stored as two external-data files (encoder.weights.0/.1).
+# ONNX Runtime reads each tensor from the file named in the model, so the
+# app needs nothing special: it downloads the files side by side.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-cerf-zer2dj]
+    paths: ['.github/workflows/export-parakeet-tdt-fp32.yml']
+permissions:
+  contents: write
+env:
+  TAG: parakeet-tdt-0.6b-v2-fp32
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make room (disk and swap)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          sudo fallocate -l 16G /mnt/extra.swap && sudo chmod 600 /mnt/extra.swap
+          sudo mkswap /mnt/extra.swap && sudo swapon /mnt/extra.swap
+          sudo mkdir -p /mnt/work && sudo chown "$USER" /mnt/work
+          df -h / /mnt; free -g
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install NeMo
+        run: |
+          pip install --upgrade pip
+          pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install "nemo_toolkit[asr]>=2.2,<2.5" "torch==2.6.0" onnx onnxruntime sherpa-onnx soundfile
+          pip list 2>/dev/null | grep -i -E "^(torch|nemo|onnx|onnxruntime|sherpa|numpy) "
+      - name: Export fp32
+        working-directory: /mnt/work
+        env:
+          HF_HOME: /mnt/work/hf
+        run: |
+          python3 - <<'PY'
+          import os
+          import onnx
+          import torch
+          import nemo.collections.asr as nemo_asr
+          from onnx.external_data_helper import set_external_data
+
+          os.makedirs('raw', exist_ok=True)
+          os.makedirs('out', exist_ok=True)
+          with torch.no_grad():
+              m = nemo_asr.models.ASRModel.from_pretrained('nvidia/parakeet-tdt-0.6b-v2', map_location='cpu')
+              m.eval()
+              with open('out/tokens.txt', 'w', encoding='utf-8') as f:
+                  for i, s in enumerate(m.joint.vocabulary):
+                      f.write(f'{s} {i}\n')
+                  f.write(f'<blk> {i + 1}\n')
+              m.encoder.export('raw/encoder.onnx')
+              m.decoder.export('out/decoder.onnx')
+              m.joint.export('out/joiner.onnx')
+
+          pre = m.cfg.preprocessor
+          normalize = pre.normalize if pre.normalize != 'NA' else ''
+          # Same metadata as sherpa-onnx's scripts/nemo/parakeet-tdt-0.6b-v2/export_onnx.py.
+          meta = {
+              'vocab_size': m.decoder.vocab_size,
+              'normalize_type': normalize,
+              'pred_rnn_layers': m.decoder.pred_rnn_layers,
+              'pred_hidden': m.decoder.pred_hidden,
+              'subsampling_factor': 8,
+              'model_type': 'EncDecRNNTBPEModel',
+              'version': '2',
+              'model_author': 'NeMo',
+              'url': 'https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2',
+              'comment': 'Only the transducer branch is exported. fp32 by Vox Amelior CI.',
+              'feat_dim': 128,
+          }
+          print('meta', meta)
+          del m
+
+          enc = onnx.load('raw/encoder.onnx')  # also reads its external data into memory
+          del enc.metadata_props[:]
+          for k, v in meta.items():
+              p = enc.metadata_props.add()
+              p.key, p.value = k, str(v)
+          # Split the weights over two files, each under GitHub's 2 GB limit.
+          big = [t for t in enc.graph.initializer if t.raw_data and len(t.raw_data) >= 1024]
+          total = sum(len(t.raw_data) for t in big)
+          done = 0
+          for t in big:
+              part = 0 if done < total / 2 else 1
+              set_external_data(t, location=f'encoder.weights.{part}')
+              done += len(t.raw_data)
+          onnx.save_model(enc, 'out/encoder.onnx')
+          PY
+          ls -l out
+          for f in out/encoder.weights.*; do
+            test "$(stat -c %s "$f")" -lt 2000000000 || { echo "$f is too big for a release"; exit 1; }
+          done
+      - name: Transcribe a real speech sample with sherpa-onnx
+        run: |
+          python3 - <<'PY'
+          import time, wave
+          import numpy as np
+          import sherpa_onnx
+          d = '/mnt/work/out'
+          with wave.open('vox_mobile/test/fixtures/speech.wav') as w:
+              audio = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
+              sr = w.getframerate()
+          rec = sherpa_onnx.OfflineRecognizer.from_transducer(
+              encoder=f'{d}/encoder.onnx', decoder=f'{d}/decoder.onnx', joiner=f'{d}/joiner.onnx',
+              tokens=f'{d}/tokens.txt', num_threads=2, model_type='nemo_transducer')
+          s = rec.create_stream()
+          s.accept_waveform(sr, audio)
+          t = time.time()
+          rec.decode_stream(s)
+          dt, secs = time.time() - t, len(audio) / sr
+          print(f'TDT 0.6B v2 fp32: {dt:.2f}s for {secs:.1f}s audio (RTF {dt / secs:.3f}): {s.result.text}')
+          assert len(s.result.text.split()) >= 3, 'transcript is empty or garbage'
+          PY
+      - name: Publish release
+        working-directory: /mnt/work/out
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in *; do echo "$f $(stat -c %s "$f") $(sha256sum "$f" | cut -d' ' -f1)"; done | tee SHA256SUMS.txt
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "NVIDIA Parakeet TDT 0.6B v2 (fp32, sherpa-onnx)" \
+            --notes "nvidia/parakeet-tdt-0.6b-v2 (CC-BY-4.0) exported to sherpa-onnx in full precision by CI. Downloaded by the Vox app." \
+            encoder.onnx encoder.weights.0 encoder.weights.1 decoder.onnx joiner.onnx tokens.txt SHA256SUMS.txt

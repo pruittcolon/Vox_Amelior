@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:vox_amelior_mobile/assistant/assistant_service.dart';
 import 'package:vox_amelior_mobile/assistant/context_budget.dart';
 import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
+import 'package:vox_amelior_mobile/core/clock.dart';
 import 'package:vox_amelior_mobile/core/database.dart';
 import 'package:vox_amelior_mobile/data/clip_store.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
@@ -39,8 +40,9 @@ void main() {
   });
   tearDown(() => db.close());
 
-  AssistantService service({int context = 4096}) => AssistantService(
+  AssistantService service({int context = 4096, Clock clock = systemClock}) => AssistantService(
         llm: llm,
+        clock: clock,
         transcripts: transcripts,
         speakers: speakers,
         toolbox: toolboxFor(db, transcripts, speakers),
@@ -97,18 +99,22 @@ void main() {
     });
 
     test('the context size limits excerpts and replies', () async {
+      // A fixed noon, so "today" holds all 300 lines whenever the test runs
+      // (just after midnight, most of the last 300 minutes were yesterday).
+      final now = DateTime.now();
+      final noon = DateTime(now.year, now.month, now.day, 12);
       for (var i = 0; i < 300; i++) {
         transcripts.addSegment(
           text: 'plumber note number $i with a fairly long sentence about pipes and appointments',
-          startedAt: DateTime.now().subtract(Duration(minutes: 300 - i)),
+          startedAt: noon.subtract(Duration(minutes: 300 - i)),
           duration: const Duration(seconds: 3),
         );
       }
       llm.tools = false;
-      await service(context: 2048).answer('Summarise today');
+      await service(context: 2048, clock: () => noon).answer('Summarise today');
       final small = llm.lastPrompt!.length;
       final smallReply = llm.lastMaxReply;
-      await service(context: 16384).answer('Summarise today');
+      await service(context: 16384, clock: () => noon).answer('Summarise today');
       expect(llm.lastPrompt!.length, greaterThan(small));
       expect(llm.lastMaxReply, greaterThan(smallReply!));
       expect(small, lessThanOrEqualTo(ContextBudget.charsFor(const ContextBudget(2048).excerptTokens(agent: false)) + 400));

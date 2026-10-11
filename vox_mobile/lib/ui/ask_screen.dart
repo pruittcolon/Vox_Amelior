@@ -6,6 +6,7 @@ import 'package:vox_amelior_mobile/assistant/assistant_service.dart';
 import 'package:vox_amelior_mobile/assistant/llm_engine.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/saved_answers_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 class _Turn {
@@ -146,35 +147,8 @@ class _AskScreenState extends State<AskScreen> {
     });
   }
 
-  void _showVoiceHistory() {
-    final items = widget.requests.recent(source: RequestSource.voice);
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (c) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        builder: (context, controller) => items.isEmpty
-            ? const EmptyState(
-                icon: Icons.record_voice_over_rounded,
-                title: 'No spoken questions yet',
-                message: 'Add a wake word in Settings to ask out loud.',
-              )
-            : ListView(
-                controller: controller,
-                children: [
-                  const SectionHeader('Asked out loud', padding: EdgeInsets.fromLTRB(20, 0, 16, 8)),
-                  for (final r in items)
-                    ListTile(
-                      title: Text(r.text, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text(r.answer ?? (r.status == RequestStatus.pending ? 'Waiting…' : '')),
-                      trailing: Text('${formatDayName(r.createdAt)}\n${formatTime(r.createdAt)}', textAlign: TextAlign.end),
-                    ),
-                ],
-              ),
-      ),
-    );
-  }
+  void _showSaved() =>
+      Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SavedAnswersScreen(requests: widget.requests)));
 
   @override
   Widget build(BuildContext context) {
@@ -186,7 +160,7 @@ class _AskScreenState extends State<AskScreen> {
         actions: [
           if (widget.onEditPrompt != null)
             IconButton(tooltip: 'How Gemma answers', icon: const Icon(Icons.tune_rounded), onPressed: widget.onEditPrompt),
-          IconButton(tooltip: 'Spoken questions', icon: const Icon(Icons.history_rounded), onPressed: _showVoiceHistory),
+          IconButton(tooltip: 'Saved answers', icon: const Icon(Icons.bookmarks_rounded), onPressed: _showSaved),
           if (_turns.isNotEmpty && _tab == 0)
             IconButton(tooltip: 'New chat', icon: const Icon(Icons.add_comment_rounded), onPressed: _busy ? null : () => setState(_turns.clear)),
         ],

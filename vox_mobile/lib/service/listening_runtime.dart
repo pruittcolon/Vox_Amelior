@@ -156,9 +156,12 @@ class ListeningRuntime {
       onSaved: (segment, samples) => clips.maybeSave(_config.settings.clipPolicy, segment, samples),
       onReplaced: clips.deleteForSegment,
       diarizer: _loadDiarizer(c.paths.diarizer),
+      tone: c.settings.hearTone ? _loadTone(c.paths) : null,
       config: ProcessorConfig(minPartWords: c.settings.splitMinWords),
       turns: SpeakerTurns(minTurnSeconds: c.settings.splitMinSeconds),
-    )..splitSpeakers = c.settings.splitSpeakers;
+    )
+      ..splitSpeakers = c.settings.splitSpeakers
+      ..hearTone = c.settings.hearTone;
     queue = ChunkQueue(Directory(c.queueDir));
     scheduler = ComputeScheduler(
       queue: queue,
@@ -237,6 +240,19 @@ class ListeningRuntime {
       return SortformerDiarizer(path);
     } on Object catch (e, st) {
       Log.e('listen', 'speaker-change model could not start', e, st);
+      return null;
+    }
+  }
+
+  /// The tone-of-voice model, or null (then lines simply get no tone).
+  static ToneEngine? _loadTone(SpeechModelPaths paths) {
+    final model = paths.toneModel;
+    final tokens = paths.toneTokens;
+    if (model == null || tokens == null || !File(model).existsSync() || !File(tokens).existsSync()) return null;
+    try {
+      return SherpaSenseVoiceTone(model: model, tokens: tokens);
+    } on Object catch (e, st) {
+      Log.e('listen', 'tone-of-voice model could not start', e, st);
       return null;
     }
   }
@@ -375,7 +391,7 @@ class ListeningRuntime {
         final buffer = StringBuffer();
         var sources = const <SegmentView>[];
         final finished = Completer<void>();
-        final sub = assistant.ask(request.text).listen(
+        final sub = assistant.ask(request.text, hints: request.hintIds).listen(
           (e) {
             if (e.sources != null) {
               sources = e.sources!;
@@ -533,6 +549,15 @@ class ListeningRuntime {
       if (processor.diarizer == null && fresh.paths.diarizer != null) {
         processor.diarizer = _loadDiarizer(fresh.paths.diarizer);
       }
+      // Likewise the tone model. It is only kept in memory while switched on
+      // (it takes about 250 MB), and swapped if a new copy was installed.
+      processor.hearTone = fresh.settings.hearTone;
+      final toneWanted = fresh.settings.hearTone && fresh.paths.toneModel != null;
+      if (!toneWanted || fresh.paths.toneModel != old.paths.toneModel) {
+        processor.tone?.dispose();
+        processor.tone = null;
+      }
+      if (toneWanted && processor.tone == null) processor.tone = _loadTone(fresh.paths);
       handler.wakeParser = WakeCommandParser(fresh.settings.wakePhrases);
       if (llmChanged) await llm.unload();
     }

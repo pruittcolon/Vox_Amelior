@@ -33,6 +33,9 @@ class ReviewTemplate {
         'decisions' || 'disagreements' => 'Topic',
         'facts' => 'Kind',
         'fallacies' => 'Fallacy',
+        'fights' => 'Stage',
+        'positions' => 'Who',
+        'kindness' => 'Kind',
         _ => 'Type',
       };
 
@@ -77,6 +80,30 @@ class ReviewTemplate {
           'slippery slope, hasty generalisation, appeal to emotion, whataboutism, moving the goalposts, '
           'appeal to authority, circular reasoning). Only real fallacies, not jokes or casual remarks.',
       format: listFormat('Fallacy name', 'why it is that fallacy, in one sentence'),
+      builtIn: true,
+    ),
+    ReviewTemplate(
+      id: 'fights',
+      name: 'Fights & tension',
+      prompt: 'Find every argument, fight or moment of tension. Lines marked (angry), (sad) or similar tell you how '
+          'something was said. For each, quote the line where it started, where it got worse, and where it calmed '
+          'down or ended. Say who did what, fairly, without taking sides.',
+      format: listFormat('Stage (started, escalated, calmed down or unresolved)', 'what happened at that moment, in one sentence'),
+      builtIn: true,
+    ),
+    ReviewTemplate(
+      id: 'positions',
+      name: 'Who wanted what',
+      prompt: 'For each disagreement, state what each person wanted or believed and the reason they gave. '
+          'Be fair to both sides and use their own words where you can.',
+      format: listFormat('Who', 'their position and their reason, in one sentence'),
+      builtIn: true,
+    ),
+    ReviewTemplate(
+      id: 'kindness',
+      name: 'Kind words',
+      prompt: 'Find moments of appreciation, support, affection, apology or humour between the people talking.',
+      format: listFormat('Kind (thanks, support, affection, apology or humour)', 'who said it to whom and why it mattered'),
       builtIn: true,
     ),
     ReviewTemplate(

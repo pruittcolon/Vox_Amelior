@@ -16,6 +16,7 @@ import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/models/model_installer.dart';
 import 'package:vox_amelior_mobile/models/model_store.dart';
 import 'package:vox_amelior_mobile/models/resumable_downloader.dart';
+import 'package:vox_amelior_mobile/ui/format.dart';
 
 /// A tiny file server with the behaviours real hosts have: Range support,
 /// redirects, gated access, dropped connections.
@@ -371,7 +372,26 @@ void main() {
       expect(store.isInstalled(asset), isTrue);
       expect(store.file(asset, 'encoder.onnx').lengthSync(), 3000);
       expect(File(p.join(store.dir(asset).path, 'model.tar.bz2')).existsSync(), isFalse, reason: 'archive is deleted after unpacking');
-      expect(phases, containsAll([InstallPhase.downloading, InstallPhase.unpacking, InstallPhase.finishing]));
+      expect(phases, containsAll([
+        InstallPhase.downloading,
+        InstallPhase.verifying,
+        InstallPhase.unpacking,
+        InstallPhase.copying,
+        InstallPhase.finishing,
+      ]));
+    });
+
+    test('files left from an earlier layout of the model are cleared first', () async {
+      final archive = tarBz2({'m/encoder.onnx': bytes(300, seed: 21), 'm/tokens.txt': bytes(20, seed: 22)});
+      server.files['/model.tar.bz2'] = archive;
+      final asset = assetFor(archive);
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      final old = File(p.join(store.dir(asset).path, 'older-layout.tar.bz2.part'))
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(bytes(1000, seed: 23));
+      await ModelInstaller(store: store, retryDelay: Duration.zero).install(asset);
+      expect(old.existsSync(), isFalse);
+      expect(store.isInstalled(asset), isTrue);
     });
 
     test('is a no-op when already installed; detects a damaged install', () async {
@@ -422,6 +442,37 @@ void main() {
       expect(store.isInstalled(asset), isFalse);
       await installer.install(asset, token: 'hf_x');
       expect(store.isInstalled(asset), isTrue);
+    });
+
+    test('every step after the download reports how far along it is', () async {
+      final archive = tarBz2({'m/encoder.onnx': bytes(3000, seed: 21), 'm/tokens.txt': bytes(50, seed: 22), 'm/x.wav': bytes(99, seed: 23)});
+      server.files['/model.tar.bz2'] = archive;
+      final asset = assetFor(archive);
+      final store = ModelStore(Directory(p.join(tmp.path, 'models')));
+      final seen = <InstallProgress>[];
+      await ModelInstaller(store: store, retryDelay: Duration.zero).install(asset, onProgress: seen.add);
+
+      expect(seen.map((e) => e.phase).toSet().toList(), [
+        InstallPhase.downloading,
+        InstallPhase.verifying,
+        InstallPhase.unpacking,
+        InstallPhase.copying,
+        InstallPhase.finishing,
+      ]);
+      for (final phase in [InstallPhase.verifying, InstallPhase.unpacking, InstallPhase.copying]) {
+        expect(seen.lastWhere((e) => e.phase == phase).fraction, 1.0, reason: '$phase reaches 100%');
+      }
+      expect(seen.where((e) => e.phase == InstallPhase.copying).map((e) => e.fileName).whereType<String>().toSet(),
+          containsAll(['encoder.onnx', 'tokens.txt']));
+      expect(seen.last.fraction, isNull, reason: 'saving is instant');
+    });
+
+    test('download progress reads as a numbered step with a percentage', () {
+      const st = DownloadState(DownloadStatus.unpacking,
+          progress: 0.45, stage: 'Unpacking the model', step: 3, steps: 4, remaining: Duration(minutes: 2));
+      expect(describeDownload(st), 'Step 3 of 4: Unpacking the model · 45% · about 2 min left');
+      const dl = DownloadState(DownloadStatus.downloading, progress: 0.5, received: 500000000, total: 1000000000);
+      expect(describeDownload(dl), '500 MB of 1.0 GB · 50%');
     });
   });
 
@@ -530,7 +581,11 @@ void main() {
       expect(ModelCatalog.parakeet.id, 'parakeet-tdt-0.6b-v2-int8');
       expect(ModelCatalog.parakeet.installedFileNames,
           {'encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'});
-      expect(ModelCatalog.parakeet.files.single.sizeBytes, 482468385);
+      expect(ModelCatalog.parakeet.approxDownloadBytes, ModelCatalog.parakeet.files.fold<int>(0, (a, f) => a + f.sizeBytes!));
+      // Published unpacked (nothing to unpack on the phone), same files as the archives.
+      expect(ModelCatalog.parakeetFp16.files.where((f) => f.isArchive), isEmpty);
+      expect(ModelCatalog.parakeetFp16.installedFileNames,
+          {'encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt'});
       // Every fixed download is pinned to an exact size and checksum.
       for (final m in ModelCatalog.all) {
         for (final f in m.files) {

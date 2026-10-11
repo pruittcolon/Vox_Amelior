@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
@@ -10,6 +8,7 @@ import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
 import 'package:vox_amelior_mobile/ui/mic_tune.dart';
 import 'package:vox_amelior_mobile/ui/models_screen.dart';
+import 'package:vox_amelior_mobile/ui/more_screen.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Home: turn Vox on/off, see its state and what was just said.
@@ -22,8 +21,7 @@ class NowScreen extends StatefulWidget {
   State<NowScreen> createState() => _NowScreenState();
 }
 
-class _NowScreenState extends State<NowScreen> {
-  StreamSubscription<Map<Object?, Object?>>? _events;
+class _NowScreenState extends State<NowScreen> with RefreshWhenShown {
   List<SegmentView> _recent = const [];
 
   AppServices get s => widget.services;
@@ -31,25 +29,25 @@ class _NowScreenState extends State<NowScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
-    s.dataVersion.addListener(_load);
-    _events = s.listening.events.listen((e) {
-      if (e['type'] == ServiceEvents.segment) _load();
-    });
+    // New lines from the listening service arrive as data changes.
+    s.dataVersion.addListener(onDataChanged);
   }
 
   @override
   void dispose() {
-    s.dataVersion.removeListener(_load);
-    unawaited(_events?.cancel());
+    s.dataVersion.removeListener(onDataChanged);
     super.dispose();
   }
+
+  @override
+  void reload() => _load();
 
   void _load() {
     if (!mounted) return;
     final today = DateTime.now();
     final start = DateTime(today.year, today.month, today.day);
-    setState(() => _recent = s.transcripts.between(start, start.add(const Duration(days: 1))).reversed.take(40).toList());
+    // The newest 40 (a busy day has thousands of lines).
+    setState(() => _recent = s.transcripts.between(start, start.add(const Duration(days: 1)), limit: 40, newestFirst: true));
   }
 
   Future<void> _toggle() async {
@@ -113,7 +111,12 @@ class _NowScreenState extends State<NowScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(formatDayName(now), style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary)),
+          Row(
+            children: [
+              Expanded(child: Text(formatDayName(now), style: t.textTheme.labelLarge?.copyWith(color: t.colorScheme.primary))),
+              SettingsButton(builder: (_) => MoreScreen(services: s)),
+            ],
+          ),
           Text(greeting, style: t.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
         ],
       ),
@@ -133,9 +136,13 @@ class _NowScreenState extends State<NowScreen> {
       (true, ListenState.autoPaused) => (const Color(0xFFE8590C), Icons.location_off_rounded, 'Paused here'),
       (true, ListenState.error) => (t.colorScheme.error, Icons.error_rounded, 'Needs attention'),
     };
+    final reason = l.lastError ?? l.reason;
     final detail = !on
         ? 'Tap to start. Vox keeps listening in the background.'
-        : (l.lastError ?? (l.reason.isEmpty ? 'Ready' : l.reason));
+        // Not "Listening" twice: the title already says it.
+        : (reason.isEmpty || reason == title
+            ? (state == ListenState.listening ? 'What is said nearby appears below, with who said it.' : 'Ready')
+            : reason);
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
@@ -232,6 +239,7 @@ class _NowScreenState extends State<NowScreen> {
   List<Widget> _notices(BuildContext context) {
     final t = Theme.of(context);
     final l = s.listening;
+    final voices = s.transcripts.voicesToNameCount();
     final cards = <Widget>[
       if (!s.downloads.speechReady)
         _notice(
@@ -250,6 +258,16 @@ class _NowScreenState extends State<NowScreen> {
           text: 'Otherwise Android may stop listening when the screen is off.',
           action: 'Allow',
           onTap: l.requestBatteryExemption,
+          color: t.colorScheme.tertiaryContainer,
+        ),
+      if (voices > 0)
+        _notice(
+          context,
+          icon: Icons.record_voice_over_rounded,
+          title: voices == 1 ? 'A voice without a name' : '$voices voices without a name',
+          text: 'See what each said and tap who it is, so transcripts show names.',
+          action: 'Name',
+          onTap: () => openNameVoices(context, s),
           color: t.colorScheme.tertiaryContainer,
         ),
     ];
@@ -293,7 +311,9 @@ class _NowScreenState extends State<NowScreen> {
     return InkWell(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute<void>(builder: (_) => ConversationScreen(services: s, conversationId: seg.conversationId)),
+        MaterialPageRoute<void>(
+          builder: (_) => ConversationScreen(services: s, conversationId: seg.conversationId, highlightSegmentId: seg.id),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),

@@ -64,3 +64,21 @@ abstract interface class DiarizationEngine {
 
   void dispose();
 }
+
+/// What the tone model heard in one line: an emotion and a sound besides
+/// speech (both [Tone] terms, null when none or unsure).
+class LineTone {
+  const LineTone({this.emotion, this.sound});
+
+  final String? emotion;
+  final String? sound;
+
+  bool get isEmpty => emotion == null && sound == null;
+}
+
+/// Tone of voice per line (implemented with SenseVoice via sherpa-onnx).
+abstract interface class ToneEngine {
+  LineTone analyze(Float32List samples, int sampleRate);
+
+  void dispose();
+}

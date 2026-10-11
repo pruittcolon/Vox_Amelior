@@ -344,7 +344,7 @@ class _MicTuneCardState extends State<MicTuneCard> {
                 SettingSlider(
                   padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
                   title: 'Mic boost',
-                  subtitle: 'How much louder everything is made before Vox listens.',
+                  subtitle: 'Helps Vox notice quiet or faraway speech. Transcripts always use the clean recording.',
                   value: st.micGain,
                   min: 0.5,
                   max: 4.0,

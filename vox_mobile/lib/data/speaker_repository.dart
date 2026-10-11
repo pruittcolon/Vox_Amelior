@@ -179,6 +179,53 @@ class SpeakerRepository {
     });
   }
 
+  /// Names guest voice [clusterId] as [speakerId]: everything it said, as
+  /// [assignClusterToSpeaker]. The result can be given to [undoNaming].
+  VoiceNaming nameVoice(String clusterId, String speakerId) {
+    final (cluster, lines) = _voiceSnapshot(clusterId);
+    assignClusterToSpeaker(clusterId, speakerId);
+    return VoiceNaming._(cluster, lines, speakerId, newPerson: false);
+  }
+
+  /// Names guest voice [clusterId] as a new person called [name], as
+  /// [promoteCluster]. The result can be given to [undoNaming].
+  VoiceNaming nameVoiceAsNew(String clusterId, String name, {required String embeddingModel}) {
+    final (cluster, lines) = _voiceSnapshot(clusterId);
+    final person = promoteCluster(clusterId, name, embeddingModel: embeddingModel);
+    return VoiceNaming._(cluster, lines, person.id, newPerson: true);
+  }
+
+  /// Takes a naming back: the voice is a guest again with its lines (those
+  /// not corrected since), and the person forgets what the naming taught
+  /// them. A person the naming created is removed.
+  void undoNaming(VoiceNaming n) {
+    _db.transaction(() {
+      final c = n._cluster;
+      _db.raw.execute(
+        'INSERT OR REPLACE INTO unknown_clusters(id, label, centroid, count, updated_at, background) VALUES (?, ?, ?, ?, ?, ?)',
+        [c['id'], c['label'], c['centroid'], c['count'], c['updated_at'], c['background'] ?? 0],
+      );
+      for (final id in n.segmentIds) {
+        _db.raw
+          ..execute('UPDATE segments SET speaker_id = NULL, cluster_id = ? WHERE id = ? AND speaker_id = ?', [c['id'], id, n.speakerId])
+          ..execute('UPDATE voice_clips SET speaker_id = NULL WHERE segment_id = ? AND speaker_id = ?', [id, n.speakerId])
+          ..execute('DELETE FROM speaker_samples WHERE speaker_id = ? AND segment_id = ?', [n.speakerId, id]);
+      }
+      if (n.newPerson) {
+        _db.raw.execute('DELETE FROM speakers WHERE id = ?', [n.speakerId]);
+      } else {
+        _rebuild(n.speakerId);
+      }
+    });
+  }
+
+  (Map<String, Object?>, List<int>) _voiceSnapshot(String clusterId) {
+    final rows = _db.raw.select('SELECT * FROM unknown_clusters WHERE id = ?', [clusterId]);
+    if (rows.isEmpty) throw StateError('That voice no longer exists');
+    final lines = _db.raw.select('SELECT id FROM segments WHERE cluster_id = ?', [clusterId]);
+    return (Map<String, Object?>.of(rows.first), [for (final r in lines) r['id']! as int]);
+  }
+
   /// Corrects a single segment's speaker and learns from it.
   ///
   /// Fixing the same line again moves its sample to the new person instead
@@ -239,6 +286,39 @@ class SpeakerRepository {
         ..execute('UPDATE segments SET speaker_id = NULL, cluster_id = ? WHERE id = ?', [clusterId, segmentId])
         ..execute('UPDATE voice_clips SET speaker_id = NULL WHERE segment_id = ?', [segmentId]);
       _rebuild(speakerId);
+    });
+    return label;
+  }
+
+  /// Marks or unmarks a guest voice as TV / background. Its lines, past and
+  /// future (new lines that match this voice join it), are hidden when
+  /// reading conversations back.
+  void setClusterBackground(String clusterId, bool background) =>
+      _db.raw.execute('UPDATE unknown_clusters SET background = ? WHERE id = ?', [background ? 1 : 0, clusterId]);
+
+  /// "This is TV / background": the voice of line [segmentId] becomes a
+  /// background voice. A line wrongly given to a person is taken off them
+  /// first (as with [markNotSpeaker]). Returns the voice's label, or null
+  /// when the line is too short to have a voice to remember.
+  String? markBackground(int segmentId, {double clusterThreshold = 0.6, int maxClusterWeight = 50}) {
+    final row = _db.raw.select('SELECT speaker_id FROM segments WHERE id = ?', [segmentId]);
+    if (row.isEmpty) return null;
+    if (row.first['speaker_id'] != null) {
+      markNotSpeaker(segmentId, clusterThreshold: clusterThreshold, maxClusterWeight: maxClusterWeight);
+    }
+    String? label;
+    _db.transaction(() {
+      final r = _db.raw.select('SELECT cluster_id, embedding FROM segments WHERE id = ?', [segmentId]).first;
+      var clusterId = r['cluster_id'] as String?;
+      final blob = r['embedding'] as Uint8List?;
+      if (clusterId == null) {
+        if (blob == null) return;
+        final cluster = _guestFor(blobToFloats(blob), clusterThreshold, maxClusterWeight, clock());
+        clusterId = cluster.id;
+        _db.raw.execute('UPDATE segments SET cluster_id = ? WHERE id = ?', [clusterId, segmentId]);
+      }
+      setClusterBackground(clusterId, true);
+      label = _db.raw.select('SELECT label FROM unknown_clusters WHERE id = ?', [clusterId]).first['label'] as String?;
     });
     return label;
   }
@@ -418,10 +498,30 @@ class SpeakerRepository {
         centroid: blobToFloats(r['centroid']! as Uint8List),
         count: r['count']! as int,
         updatedAt: DateTime.fromMillisecondsSinceEpoch(r['updated_at']! as int),
+        background: (r['background'] as int? ?? 0) != 0,
       );
 
   static final Random _rng = Random.secure();
 
   /// Random 128-bit hex id.
   static String newId() => List.generate(16, (_) => _rng.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+}
+
+/// What naming a guest voice changed, so it can be taken back
+/// ([SpeakerRepository.undoNaming]).
+class VoiceNaming {
+  VoiceNaming._(this._cluster, this.segmentIds, this.speakerId, {required this.newPerson});
+
+  /// The guest as it was.
+  final Map<String, Object?> _cluster;
+
+  /// The lines that were named.
+  final List<int> segmentIds;
+  final String speakerId;
+
+  /// The naming created [speakerId].
+  final bool newPerson;
+
+  /// The guest's label ("Guest 3").
+  String get voiceLabel => _cluster['label']! as String;
 }

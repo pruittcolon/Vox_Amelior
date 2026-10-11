@@ -1,32 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
+import 'package:vox_amelior_mobile/data/insights_repository.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
-import 'package:vox_amelior_mobile/native/sherpa_engines.dart';
+import 'package:vox_amelior_mobile/ui/charts.dart';
+import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/enroll_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
+import 'package:vox_amelior_mobile/ui/insights_screen.dart';
+import 'package:vox_amelior_mobile/ui/more_screen.dart';
+import 'package:vox_amelior_mobile/ui/name_voice.dart';
 import 'package:vox_amelior_mobile/ui/widgets.dart';
 
 /// Enrolled people and voices Vox has heard but cannot name yet.
-class PeopleScreen extends StatelessWidget {
+class PeopleScreen extends StatefulWidget {
   const PeopleScreen({super.key, required this.services});
 
   final AppServices services;
 
   @override
+  State<PeopleScreen> createState() => _PeopleScreenState();
+}
+
+class _PeopleScreenState extends State<PeopleScreen> with RefreshWhenShown {
+  List<SpeakerProfile> _people = const [];
+  List<VoiceToName> _voices = const [];
+  List<UnknownCluster> _background = const [];
+  Map<String, PersonStats> _month = const {};
+  Map<String, DateTime> _heard = const {};
+
+  AppServices get services => widget.services;
+
+  @override
+  void initState() {
+    super.initState();
+    services.dataVersion.addListener(onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    services.dataVersion.removeListener(onDataChanged);
+    super.dispose();
+  }
+
+  @override
+  void reload() {
+    final now = DateTime.now();
+    setState(() {
+      _people = services.speakers.profiles();
+      _voices = services.transcripts.voicesToName(detailed: 30, samples: 1);
+      _background = services.speakers.clusters().where((g) => g.background).toList();
+      _month = {
+        for (final p in services.insights.people(InsightsScope(from: DateTime(now.year, now.month, now.day - 29)))) p.id: p,
+      };
+      _heard = services.insights.lastHeard();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('People')),
+      appBar: AppBar(title: const Text('People'), actions: [SettingsButton(builder: (_) => MoreScreen(services: services))]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEnroll(context),
         icon: const Icon(Icons.person_add_rounded),
         label: const Text('Add person'),
       ),
-      body: ValueListenableBuilder<int>(
-        valueListenable: services.dataVersion,
-        builder: (context, _, _) {
-          final people = services.speakers.profiles();
-          final guests = services.speakers.clusters();
-          if (people.isEmpty && guests.isEmpty) {
+      body: Builder(
+        builder: (context) {
+          final people = _people;
+          final voices = _voices;
+          final background = _background;
+          final month = _month;
+          final heard = _heard;
+          if (people.isEmpty && voices.isEmpty && background.isEmpty) {
             return const EmptyState(
               icon: Icons.people_alt_rounded,
               title: 'Teach Vox who is who',
@@ -34,19 +80,30 @@ class PeopleScreen extends StatelessWidget {
             );
           }
           return ListView(
+            key: const ValueKey('people-list'),
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
             children: [
+              VoicesToNameCard(
+                count: voices.length,
+                onOpen: () => openNameVoices(context, services),
+                margin: const EdgeInsets.only(top: 8, bottom: 4),
+              ),
               if (people.isNotEmpty) const SectionHeader('Household', padding: EdgeInsets.fromLTRB(4, 8, 4, 8)),
               for (final p in people)
-                Padding(padding: const EdgeInsets.only(bottom: 8), child: _personCard(context, p)),
-              if (guests.isNotEmpty) ...[
-                const SectionHeader('Voices Vox has heard', padding: EdgeInsets.fromLTRB(4, 16, 4, 4)),
+                Padding(padding: const EdgeInsets.only(bottom: 8), child: _personCard(context, p, month[p.id], heard[p.id])),
+              if (voices.isNotEmpty) ...[
+                const SectionHeader('Voices without a name', padding: EdgeInsets.fromLTRB(4, 16, 4, 4)),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
                   child: Text('Name a voice to label everything it has said.', style: Theme.of(context).textTheme.bodyMedium),
                 ),
-                for (final g in guests)
-                  Padding(padding: const EdgeInsets.only(bottom: 8), child: _guestCard(context, g)),
+                for (final v in voices)
+                  Padding(padding: const EdgeInsets.only(bottom: 8), child: _voiceCard(context, v)),
+              ],
+              if (background.isNotEmpty) ...[
+                const SectionHeader('TV and background voices', padding: EdgeInsets.fromLTRB(4, 16, 4, 4)),
+                for (final g in background)
+                  Padding(padding: const EdgeInsets.only(bottom: 8), child: _backgroundCard(context, g)),
               ],
             ],
           );
@@ -55,7 +112,9 @@ class PeopleScreen extends StatelessWidget {
     );
   }
 
-  Widget _personCard(BuildContext context, SpeakerProfile p) => VoxCard(
+  /// One person: tap for their statistics and conversations.
+  Widget _personCard(BuildContext context, SpeakerProfile p, PersonStats? month, DateTime? lastHeard) => VoxCard(
+        onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => InsightsScreen(services: services, personId: p.id))),
         padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
         child: Row(
           children: [
@@ -66,7 +125,18 @@ class PeopleScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(p.name, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  Text('${p.sampleCount} voice samples · since ${formatDay(p.createdAt)}'),
+                  Text(
+                    lastHeard == null
+                        ? 'Not heard yet · ${p.sampleCount} voice samples'
+                        : 'Last heard ${formatWhen(lastHeard)}'
+                            '${month == null ? '' : ' · ${formatTalk(month.talk)} this month'}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (month != null && month.moods.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    MoodStrip(counts: month.moods),
+                  ],
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 6,
@@ -125,72 +195,99 @@ class PeopleScreen extends StatelessWidget {
         ),
       );
 
-  Widget _guestCard(BuildContext context, UnknownCluster g) => VoxCard(
-        padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
+  /// A voice without a name: what it said, and a button to say who it is.
+  Widget _voiceCard(BuildContext context, VoiceToName v) {
+    final t = Theme.of(context);
+    final sample = v.samples.firstOrNull;
+    return VoxCard(
+      onTap: () => nameVoice(context, services, v.clusterId),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SpeakerAvatar(label: v.label, known: false, radius: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(v.label, style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(
+                      '${v.lines == 1 ? '1 line' : '${v.lines} lines'} · last heard ${formatWhen(v.lastHeard)}'
+                      '${v.heardWith.isEmpty ? '' : ' · with ${v.heardWith.join(', ')}'}',
+                    ),
+                    if (sample != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          '"${sample.text}"',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: t.textTheme.bodyMedium?.copyWith(fontStyle: FontStyle.italic, color: t.colorScheme.onSurfaceVariant),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // Wraps onto two lines rather than overflowing with large text.
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              TextButton(
+                onPressed: () async {
+                  if (await confirm(
+                    context,
+                    'Forget ${v.label}?',
+                    'Vox stops grouping lines under this voice. Its lines stay, without a name.',
+                    action: 'Forget',
+                  )) {
+                    services.speakers.deleteCluster(v.clusterId);
+                    services.dataChanged();
+                  }
+                },
+                child: const Text('Forget'),
+              ),
+              FilledButton.tonal(onPressed: () => nameVoice(context, services, v.clusterId), child: const Text("Who's this?")),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A voice hidden as TV / background, with the way back.
+  Widget _backgroundCard(BuildContext context, UnknownCluster g) => VoxCard(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
         child: Row(
           children: [
-            SpeakerAvatar(label: g.label, known: false, radius: 22),
+            SpeakerAvatar(label: g.label, known: false, radius: 18),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(g.label, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  Text('Heard ${g.count} times · last ${formatDayName(g.updatedAt)} ${formatTime(g.updatedAt)}'),
+                  Text(g.label, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                  Text('Hidden · last heard ${formatWhen(g.updatedAt)}'),
                 ],
               ),
             ),
-            FilledButton.tonal(onPressed: () => _nameGuest(context, g), child: const Text('Name')),
-            IconButton(
-              tooltip: 'Forget',
-              icon: const Icon(Icons.close_rounded),
+            TextButton(
               onPressed: () {
-                services.speakers.deleteCluster(g.id);
+                services.speakers.setClusterBackground(g.id, false);
                 services.dataChanged();
               },
+              child: const Text('Show again'),
             ),
           ],
         ),
       );
-
-  Future<void> _nameGuest(BuildContext context, UnknownCluster g) async {
-    final people = services.speakers.profiles();
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (c) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: Text('Who is ${g.label}?', style: Theme.of(c).textTheme.titleMedium),
-            ),
-            for (final p in people)
-              ListTile(leading: SpeakerAvatar(label: p.name), title: Text(p.name), onTap: () => Navigator.pop(c, p.id)),
-            ListTile(
-              leading: const Icon(Icons.person_add_rounded),
-              title: const Text('Someone new…'),
-              onTap: () => Navigator.pop(c, '#new'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (choice == null || !context.mounted) return;
-    try {
-      if (choice == '#new') {
-        final name = await askText(context, 'Name this voice', hint: 'e.g. Grandma');
-        if (name == null || name.isEmpty) return;
-        services.speakers.promoteCluster(g.id, name, embeddingModel: SherpaSpeakerEmbedder.modelIdConst);
-      } else {
-        services.speakers.assignClusterToSpeaker(g.id, choice);
-      }
-      services.dataChanged();
-    } on StateError catch (e) {
-      if (context.mounted) showMessage(context, e.message);
-    }
-  }
 
   Future<void> _openEnroll(BuildContext context, {SpeakerProfile? person}) async {
     if (!services.speechReady) {

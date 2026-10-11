@@ -137,6 +137,18 @@ void main() {
       expect(system, contains('Wednesday 2026-06-10 15:30'));
     });
 
+    test('lines carry how they sounded, and Gemma is told what that means', () {
+      final seg = say('you are late again', DateTime(2026, 6, 10, 9, 5), speaker: sam.id);
+      transcripts.setTone(seg.id, emotion: 'angry', sound: 'laughter');
+      const b = PromptBuilder();
+      final prompt = b.question(question: 'Was Sam upset?', excerpts: [transcripts.segment(seg.id)!], now: now);
+      expect(prompt, contains('[09:05] Sam (angry, laughing): you are late again'));
+      expect(b.system(now: now, people: const []), contains('how the line sounded'));
+      transcripts.setTone(seg.id, emotion: 'neutral');
+      final calm = b.question(question: 'x?', excerpts: [transcripts.segment(seg.id)!], now: now);
+      expect(calm, contains('[09:05] Sam: you are late again'), reason: 'neutral adds nothing');
+    });
+
     test('says so when there are no excerpts', () {
       expect(const PromptBuilder().question(question: 'x?', excerpts: const [], now: now), contains('(none found)'));
     });

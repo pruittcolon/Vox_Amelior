@@ -12,13 +12,35 @@ import 'package:vox_amelior_mobile/models/resumable_downloader.dart';
 enum DownloadStatus { notInstalled, queued, downloading, unpacking, installed, failed }
 
 class DownloadState {
-  const DownloadState(this.status, {this.progress, this.received = 0, this.total = 0, this.error, this.needsToken = false});
+  const DownloadState(
+    this.status, {
+    this.progress,
+    this.received = 0,
+    this.total = 0,
+    this.error,
+    this.needsToken = false,
+    this.stage,
+    this.step = 0,
+    this.steps = 0,
+    this.remaining,
+  });
 
   final DownloadStatus status;
+
+  /// 0..1 for the current step ([status] downloading: the download itself).
   final double? progress;
   final int received;
   final int total;
   final String? error;
+
+  /// After the download ([DownloadStatus.unpacking]): what is happening now,
+  /// e.g. "Checking the download", with [step] of [steps] (1-based).
+  final String? stage;
+  final int step;
+  final int steps;
+
+  /// Rough time left in the current step, once it can be estimated.
+  final Duration? remaining;
 
   /// The failure was an access problem the user can fix with a token.
   final bool needsToken;
@@ -86,7 +108,7 @@ class ModelDownloads extends ChangeNotifier {
     return asset == null ? null : (asset: asset, state: stateOf(asset));
   }
 
-  bool get speechReady => ModelCatalog.speech.every(store.isInstalled);
+  bool get speechReady => ModelCatalog.speechReady(store.isInstalled);
 
   /// Queues [asset] for download (no-op if installed or already queued).
   Future<void> download(ModelAsset asset) async {
@@ -168,23 +190,38 @@ class ModelDownloads extends ChangeNotifier {
       final onHf = asset.files.every((f) => Uri.tryParse(f.url)?.host.endsWith('huggingface.co') ?? false);
       final token = asset.requiresToken || onHf ? await tokenProvider() : null;
       var lastText = DateTime.fromMillisecondsSinceEpoch(0);
+      final archived = asset.files.any((f) => f.isArchive);
+      final steps = archived ? 4 : 2;
+      InstallPhase? phase;
+      var phaseStart = DateTime.now();
       await installer.install(
         asset,
         token: token,
         cancelToken: _cancel,
         onProgress: (p) {
+          final now = DateTime.now();
+          if (p.phase != phase) {
+            phase = p.phase;
+            phaseStart = now;
+          }
+          final (step, stage) = _describe(p);
           final unpacking = p.phase != InstallPhase.downloading;
-          _set(asset, DownloadState(
+          final state = DownloadState(
             unpacking ? DownloadStatus.unpacking : DownloadStatus.downloading,
             progress: p.fraction,
             received: p.receivedBytes,
             total: p.totalBytes,
-          ));
-          final now = DateTime.now();
-          if (now.difference(lastText).inSeconds >= 5) {
+            stage: stage,
+            step: step,
+            steps: steps,
+            remaining: _remaining(p.fraction, now.difference(phaseStart)),
+          );
+          _set(asset, state);
+          if (now.difference(lastText).inSeconds >= 5 || (unpacking && lastText.isBefore(phaseStart))) {
             lastText = now;
             final pct = p.fraction == null ? '' : ' ${(p.fraction! * 100).toStringAsFixed(0)}%';
-            onProgressText?.call('${asset.title}$pct');
+            final of = step > 0 ? ' (step $step of $steps)' : '';
+            onProgressText?.call(unpacking ? '${asset.title}: $stage$pct$of' : '${asset.title}$pct');
           }
         },
       );
@@ -205,6 +242,21 @@ class ModelDownloads extends ChangeNotifier {
       notifyListeners();
       unawaited(_pump());
     }
+  }
+
+  /// Step number and a short description of what [p] is doing.
+  static (int, String) _describe(InstallProgress p) => switch (p.phase) {
+        InstallPhase.downloading => (1, 'Downloading'),
+        InstallPhase.verifying => (2, 'Checking the download for errors'),
+        InstallPhase.unpacking => (3, 'Unpacking the model'),
+        InstallPhase.copying => (4, p.fileName == null ? 'Copying model files' : 'Copying ${p.fileName}'),
+        InstallPhase.finishing => (0, 'Saving'),
+      };
+
+  /// Time left in a step from how long the part done so far took.
+  static Duration? _remaining(double? fraction, Duration elapsed) {
+    if (fraction == null || fraction < 0.02 || fraction >= 1 || elapsed.inSeconds < 3) return null;
+    return elapsed * ((1 - fraction) / fraction);
   }
 
   Future<void> _setBusy(bool busy) async {

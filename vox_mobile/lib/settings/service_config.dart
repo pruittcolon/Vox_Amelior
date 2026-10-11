@@ -15,6 +15,8 @@ class SpeechModelPaths {
     required this.vad,
     required this.speaker,
     this.diarizer,
+    this.toneModel,
+    this.toneTokens,
   });
 
   final String encoder;
@@ -27,14 +29,21 @@ class SpeechModelPaths {
   /// Speaker-change model (optional: lines are simply not split without it).
   final String? diarizer;
 
-  /// Null unless every speech model is fully installed. [asr] is the
-  /// recognizer the user chose; when it is not installed (yet) the standard
-  /// int8 one is used.
+  /// Tone-of-voice model and its tokens (optional: lines get no tone without it).
+  final String? toneModel;
+  final String? toneTokens;
+
+  /// Null unless the speech models and at least one recognizer are fully
+  /// installed. [asr] is the recognizer the user chose; when it is not
+  /// installed the other one (fp16 first) is used.
   static SpeechModelPaths? fromStore(ModelStore store, {ModelAsset? asr}) {
-    if (!ModelCatalog.speech.every(store.isInstalled)) return null;
+    if (!ModelCatalog.speechReady(store.isInstalled)) return null;
     String path(ModelAsset a, String name) => store.file(a, name).path;
-    final model = asr != null && store.isInstalled(asr) ? asr : ModelCatalog.parakeet;
-    String named(String prefix) => path(model, model.installedFileNames.firstWhere((n) => n.startsWith(prefix)));
+    final model = asr != null && store.isInstalled(asr) ? asr : ModelCatalog.recognizers.firstWhere(store.isInstalled);
+    // The model file itself, never the fp32 encoder's weight files beside it.
+    String named(String prefix) =>
+        path(model, model.installedFileNames.firstWhere((n) => n.startsWith(prefix) && !n.contains('.weights')));
+    final tone = store.isInstalled(ModelCatalog.toneModel);
     return SpeechModelPaths(
       encoder: named('encoder'),
       decoder: named('decoder'),
@@ -43,6 +52,8 @@ class SpeechModelPaths {
       vad: path(ModelCatalog.voiceActivity, 'silero_vad.onnx'),
       speaker: path(ModelCatalog.speakerVoiceprint, 'nemo_en_titanet_small.onnx'),
       diarizer: store.isInstalled(ModelCatalog.diarizer) ? path(ModelCatalog.diarizer, 'diarizer.int8.onnx') : null,
+      toneModel: tone ? path(ModelCatalog.toneModel, 'model.int8.onnx') : null,
+      toneTokens: tone ? path(ModelCatalog.toneModel, 'tokens.txt') : null,
     );
   }
 
@@ -61,6 +72,8 @@ class SpeechModelPaths {
         'vad': vad,
         'speaker': speaker,
         'diarizer': diarizer,
+        'toneModel': toneModel,
+        'toneTokens': toneTokens,
       };
 
   factory SpeechModelPaths.fromJson(Map<String, Object?> j) => SpeechModelPaths(
@@ -71,6 +84,8 @@ class SpeechModelPaths {
         vad: j['vad']! as String,
         speaker: j['speaker']! as String,
         diarizer: j['diarizer'] as String?,
+        toneModel: j['toneModel'] as String?,
+        toneTokens: j['toneTokens'] as String?,
       );
 }
 

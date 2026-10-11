@@ -81,7 +81,9 @@ class AssistantService {
   final Duration idleTimeout;
 
   /// Streams the answer. The first event carries the excerpts used.
-  Stream<AnswerEvent> ask(String question) async* {
+  /// [hints] are lines found by meaning for this question (see
+  /// [Retriever.retrieve]); they are read alongside the keyword matches.
+  Stream<AnswerEvent> ask(String question, {List<int> hints = const []}) async* {
     final trimmed = question.trim();
     if (trimmed.isEmpty) return;
     final now = clock();
@@ -89,7 +91,8 @@ class AssistantService {
     final people = speakers.profiles();
     final parsed = QueryParser(people: people).parse(trimmed, now: now);
     var useTools = toolbox != null && (agentEnabled?.call() ?? true) && llm.supportsTools;
-    final excerpts = Retriever(transcripts, maxChars: ContextBudget.charsFor(b.excerptTokens(agent: useTools))).retrieve(parsed);
+    final excerpts =
+        Retriever(transcripts, maxChars: ContextBudget.charsFor(b.excerptTokens(agent: useTools))).retrieve(parsed, hints: hints);
     yield AnswerEvent.sources(excerpts);
 
     await llm.ensureLoaded();

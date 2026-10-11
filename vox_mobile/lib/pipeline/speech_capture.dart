@@ -12,7 +12,7 @@ class CapturedSpeech {
   final DateTime startedAt;
 }
 
-/// How loud a stretch of audio is (0–1 samples, after any boost).
+/// How loud a stretch of audio is (0–1 samples, as the speech detector hears it).
 class AudioLevel {
   const AudioLevel(this.rms, this.peak);
 
@@ -65,9 +65,21 @@ class SpeechCapture {
   /// more than this (e.g. after the microphone dropped audio).
   final Duration maxDrift;
 
-  /// Boost applied to every sample before detection, transcription and
-  /// voice matching (1.0 = as recorded). Changes apply to the next audio.
+  /// Boost applied to what the speech detector (and level meter) hears
+  /// (1.0 = as recorded). Changes apply to the next audio.
+  ///
+  /// Transcription and voice matching always get the audio as recorded: both
+  /// models normalise loudness themselves, so a boost only adds clipping
+  /// distortion there (which made transcripts noticeably worse).
   double gain;
+
+  /// How much recorded audio is kept to hand out unboosted speech. A chunk
+  /// ends at most maxSpeech (20 s) plus the closing pause after it began.
+  static const double keepSeconds = 40;
+  late final Float32List _raw = Float32List((keepSeconds * sampleRate).round());
+
+  /// Stream position just after the last boosted sample (0 = none boosted).
+  int _boostedEnd = 0;
 
   /// Measure loudness (for a level meter). Off by default: costs a pass over every sample.
   bool measureLevel = false;
@@ -107,7 +119,9 @@ class SpeechCapture {
     final expectedNow = _origin!.add(_seconds(_received / sampleRate));
     final drift = now.difference(expectedNow);
     if (drift.abs() > maxDrift) _origin = _origin!.add(drift);
+    _keep(samples);
     final heard = gain == 1.0 ? samples : _boost(samples, gain);
+    if (gain != 1.0) _boostedEnd = _received;
     if (measureLevel) {
       final l = AudioLevel.of(heard);
       final m = _loudest;
@@ -115,6 +129,34 @@ class SpeechCapture {
     }
     _vad.accept(heard);
     return _stamp(_vad.takeSegments());
+  }
+
+  /// Remembers the recorded audio; position p lives at p % _raw.length.
+  void _keep(Float32List samples) {
+    final n = _raw.length;
+    final from = samples.length > n ? samples.length - n : 0;
+    var at = (_received - samples.length + from) % n;
+    for (var i = from; i < samples.length; i++) {
+      _raw[at] = samples[i];
+      if (++at == n) at = 0;
+    }
+  }
+
+  /// [c]'s audio as recorded, without the boost. Falls back to what the
+  /// detector returned if that audio is no longer (or was never) kept.
+  Float32List _unboosted(SpeechChunk c) {
+    final start = (c.startSeconds * sampleRate).round();
+    final end = start + c.samples.length;
+    if (start >= _boostedEnd) return c.samples; // none of it was boosted
+    if (start < 0 || end > _received || _received - start > _raw.length) return c.samples;
+    final out = Float32List(c.samples.length);
+    final n = _raw.length;
+    var at = start % n;
+    for (var i = 0; i < out.length; i++) {
+      out[i] = _raw[at];
+      if (++at == n) at = 0;
+    }
+    return out;
   }
 
   static Float32List _boost(Float32List samples, double gain) {
@@ -144,6 +186,7 @@ class SpeechCapture {
     // or every later sample would be misaligned.
     _origin = null;
     _received = 0;
+    _boostedEnd = 0;
     return result;
   }
 
@@ -158,13 +201,14 @@ class SpeechCapture {
     _vad.reset();
     _origin = null;
     _received = 0;
+    _boostedEnd = 0;
     _pendingByte = -1;
   }
 
   void dispose() => _vad.dispose();
 
   List<CapturedSpeech> _stamp(List<SpeechChunk> chunks) => [
-        for (final c in chunks) CapturedSpeech(c.samples, (_origin ?? clock()).add(_seconds(c.startSeconds))),
+        for (final c in chunks) CapturedSpeech(_unboosted(c), (_origin ?? clock()).add(_seconds(c.startSeconds))),
       ];
 
   static Duration _seconds(double s) => Duration(microseconds: (s * 1e6).round());

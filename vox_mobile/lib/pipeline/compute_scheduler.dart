@@ -29,6 +29,9 @@ class ComputeScheduler {
   Timer? _wake;
   final void Function(SchedulerActivity activity, int backlog)? onActivity;
 
+  /// Chunks that failed once (by file), to be tried once more.
+  final Set<String> _failedOnce = {};
+
   final Queue<Future<void> Function()> _jobs = Queue();
   final Queue<Future<void> Function()> _background = Queue();
   bool _running = false;
@@ -100,14 +103,30 @@ class ComputeScheduler {
           continue;
         }
         _set(SchedulerActivity.transcribing);
+        var saved = 0;
+        var failed = false;
         try {
           for (final segment in processor.transcribe(chunk.read(), chunk.startedAt)) {
+            saved++;
             onSegment?.call(segment, LineStage.fast);
           }
         } on Object catch (e, st) {
+          failed = true;
           processor.stats.errors++;
           Log.e('scheduler', 'transcription failed', e, st);
-        } finally {
+        }
+        // A failure can be a passing glitch in the native engine (once, the
+        // speech engine's result came back as broken JSON): a chunk that
+        // failed before saving anything is tried once more, then set aside
+        // instead of lost.
+        final key = chunk.file.path;
+        if (failed && saved == 0 && _failedOnce.add(key)) {
+          queue.putBack(chunk);
+        } else if (failed && saved == 0) {
+          _failedOnce.remove(key);
+          queue.setAside(chunk);
+        } else {
+          _failedOnce.remove(key);
           queue.done(chunk);
         }
         // A complete chunk is finished right away, even with speech waiting.

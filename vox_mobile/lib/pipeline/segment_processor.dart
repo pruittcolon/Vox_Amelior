@@ -19,6 +19,7 @@ class ProcessorConfig {
     this.chunkSeconds = 30,
     this.chunkPause = const Duration(seconds: 3),
     this.minPartWords = 2,
+    this.maxToneSeconds = 15,
   });
 
   final int sampleRate;
@@ -40,6 +41,9 @@ class ProcessorConfig {
   /// A line is only cut when every part has at least this many words (and
   /// lasts at least [SpeakerTurns.minTurnSeconds]); otherwise it stays whole.
   final int minPartWords;
+
+  /// Only the first seconds of long lines are used to hear the tone of voice.
+  final double maxToneSeconds;
 }
 
 class ProcessorStats {
@@ -60,7 +64,8 @@ class ProcessorStats {
 /// 2. [refine]: per chunk of recent lines (up to [ProcessorConfig.chunkSeconds]
 ///    of speech, or until a pause), the [diarizer] finds who spoke when; a line
 ///    where the speaker changes is cut into one line per person, and people
-///    talking at the same time are marked.
+///    talking at the same time are marked. Each finished line then gets its
+///    tone of voice from the [tone] model, when loaded.
 class SegmentProcessor {
   SegmentProcessor({
     required this._asr,
@@ -70,6 +75,7 @@ class SegmentProcessor {
     required this._speakers,
     this.config = const ProcessorConfig(),
     this.diarizer,
+    this.tone,
     this.turns = const SpeakerTurns(),
     this.onSaved,
     this.onReplaced,
@@ -89,6 +95,12 @@ class SegmentProcessor {
 
   /// Settings switch for splitting.
   bool splitSpeakers = true;
+
+  /// Hears the tone of voice of each finished line when set (the model may arrive later).
+  ToneEngine? tone;
+
+  /// Settings switch for [tone].
+  bool hearTone = true;
   SpeakerTurns turns;
 
   /// Called with each saved utterance and its audio (e.g. to keep a clip).
@@ -203,7 +215,7 @@ class SegmentProcessor {
     final lines = [for (final l in chunk) if (_current([l]).isNotEmpty) l];
     final total = lines.fold<int>(0, (a, l) => a + l.samples.length);
     final d = splitSpeakers ? diarizer : null;
-    if (d == null || total < config.minDiarizeSeconds * _sr) return _current(lines);
+    if (d == null || total < config.minDiarizeSeconds * _sr) return _finished(lines);
     final audio = Float32List(total);
     final offsets = <int>[];
     var at = 0;
@@ -217,7 +229,7 @@ class SegmentProcessor {
       activity = d.analyze(audio, _sr);
     } on Object catch (e) {
       Log.w('processor', 'diarizer failed; keeping lines as they are', e);
-      return _current(lines);
+      return _finished(lines);
     }
     final all = turns.turns(activity, totalSeconds: total / _sr);
 
@@ -256,7 +268,7 @@ class SegmentProcessor {
       } else if (parts.length == 1 && parts.single.overlap && !l.fast.overlap) {
         _transcripts.setOverlap(l.fast.id);
       }
-      out.addAll(_current([l]));
+      out.addAll(_finished([l]));
     }
     return out;
   }
@@ -333,17 +345,18 @@ class SegmentProcessor {
           embedding: m?.$2,
           overlap: t.overlap,
         );
-        saved.add(v);
         _afterSave(v, slice);
+        saved.add(_hearTone(v, slice));
       } else {
-        saved.add(_save(
+        final part = _save(
           text: texts[i],
           startedAt: l.fast.startedAt.add(Duration(microseconds: (t.start * 1e6).round())),
           samples: slice,
           match: match,
           embedding: m?.$2,
           overlap: t.overlap,
-        ));
+        );
+        saved.add(_hearTone(part, slice));
       }
     }
     stats.split++;
@@ -368,13 +381,48 @@ class SegmentProcessor {
               .trim(),
       ];
     }
-    final buckets = [for (final _ in parts) <String>[]];
+    final buckets = [for (final _ in parts) <TimedWord>[]];
     for (final w in l.words) {
       var i = parts.indexWhere((t) => w.start < t.end);
       if (i < 0) i = parts.length - 1;
-      buckets[i].add(w.text);
+      buckets[i].add(w);
     }
-    return [for (final b in buckets) b.join(' ')];
+    for (var i = 0; i + 1 < parts.length; i++) {
+      _snapToSentence(buckets[i], buckets[i + 1], parts[i].end);
+    }
+    return [for (final b in buckets) b.map((w) => w.text).join(' ')];
+  }
+
+  /// How far from a speaker change a sentence end may be and still be
+  /// taken as the real change.
+  static const double sentenceSnapSeconds = 0.8;
+
+  /// The speaker-change model notices a new voice a moment late (or early),
+  /// so a word or two can land with the wrong person: "…by the lake.
+  /// Perfect." / "I will pack…". A sentence of at most two words that began
+  /// just before the change goes to the next person; the end of a sentence
+  /// cut just after the change goes back to the person who said it.
+  static void _snapToSentence(List<TimedWord> left, List<TimedWord> right, double change) {
+    bool ends(String w) => RegExp(r'[.?!]["”’)]*$').hasMatch(w);
+    if (left.length > 1 && ends(left.last.text)) {
+      var i = left.length - 1;
+      while (i > 0 && !ends(left[i - 1].text)) {
+        i--;
+      }
+      final tail = left.length - i;
+      if (i > 0 && tail <= 2 && change - left[i].start <= sentenceSnapSeconds) {
+        right.insertAll(0, left.sublist(i));
+        left.removeRange(i, left.length);
+        return;
+      }
+    }
+    if (left.isNotEmpty && !ends(left.last.text)) {
+      final end = right.indexWhere((w) => ends(w.text));
+      if (end >= 0 && end < 2 && end + 1 < right.length && right[end].start - change <= sentenceSnapSeconds) {
+        left.addAll(right.sublist(0, end + 1));
+        right.removeRange(0, end + 1);
+      }
+    }
   }
 
   SegmentView _save({
@@ -408,6 +456,33 @@ class SegmentProcessor {
     }
   }
 
+  /// [lines] as they are now (see [_current]), each with its tone of voice.
+  List<SegmentView> _finished(List<_Line> lines) {
+    for (final l in lines) {
+      // Lines re-labelled by hand meanwhile still get their tone.
+      if (_transcripts.segment(l.fast.id) case final v?) _hearTone(v, l.samples);
+    }
+    return _current(lines);
+  }
+
+  /// Notes the tone of voice of [line] from its [samples]. Done in stage 2,
+  /// so lines show without waiting for it and a line cut at a speaker change
+  /// is heard once per part. Returns the line as stored now; a failure here
+  /// never loses the line.
+  SegmentView _hearTone(SegmentView line, Float32List samples) {
+    final t = hearTone ? tone : null;
+    if (t == null) return line;
+    try {
+      final cap = math.min(samples.length, (config.maxToneSeconds * _sr).round());
+      final heard = t.analyze(Float32List.sublistView(samples, 0, cap), _sr);
+      _transcripts.setTone(line.id, emotion: heard.emotion, sound: heard.sound);
+      return _transcripts.segment(line.id) ?? line;
+    } on Object catch (e) {
+      Log.w('processor', 'tone of voice failed; line kept without it', e);
+      return line;
+    }
+  }
+
   /// Audio where only [slot] talks, joined, up to [ProcessorConfig.maxEmbedSeconds].
   Float32List _soloAudio(Float32List samples, SpeakerActivity activity, int slot) {
     final cap = (config.maxEmbedSeconds * _sr).round();
@@ -434,6 +509,7 @@ class SegmentProcessor {
     _asr.dispose();
     _embedder.dispose();
     diarizer?.dispose();
+    tone?.dispose();
   }
 
   bool _isUsable(String text) {

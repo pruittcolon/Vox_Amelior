@@ -25,7 +25,22 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --release --target-platform android-arm64
+      - name: Release signing key
+        # The same key every time, so each new APK installs over the old one and keeps the phone's data.
+        env:
+          VOX_KEYSTORE_B64: ${{ secrets.VOX_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$VOX_KEYSTORE_B64" ]; then
+            echo "::error::Secret VOX_KEYSTORE_B64 is missing. Without it the APK could not update the installed app."
+            exit 1
+          fi
+          echo "$VOX_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/vox-release.p12"
+          echo "VOX_KEYSTORE_PATH=$RUNNER_TEMP/vox-release.p12" >> "$GITHUB_ENV"
+      - name: Build APK
+        env:
+          VOX_KEYSTORE_PASSWORD: ${{ secrets.VOX_KEYSTORE_PASSWORD }}
+        # The build number rises with every run, so Android always sees a newer version.
+        run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
       - name: Rename APK
         run: cp build/app/outputs/flutter-apk/app-release.apk ../vox-amelior.apk
       - uses: actions/upload-artifact@v4
