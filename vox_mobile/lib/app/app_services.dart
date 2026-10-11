@@ -185,7 +185,8 @@ class AppServices {
 
   /// Used only while the always-on service is off.
   late final GemmaLlmEngine localLlm = GemmaLlmEngine(spec: () {
-    final c = LlmConfig.fromStore(models, settings.value.llmAsset);
+    final m = assistantModel;
+    final c = m == null ? null : LlmConfig.fromStore(models, m);
     return c == null
         ? null
         : LlmModelSpec(
@@ -256,6 +257,8 @@ class AppServices {
       listening.reload();
       _fetchChosenSpeechModel();
       if (asset.kind == ModelKind.textEmbedding) indexForSearch(retry: true);
+      // The chosen assistant has arrived: it answers from now on.
+      if (asset.kind == ModelKind.languageModel && asset.id == settings.value.llmAsset.id) await localLlm.unload();
     },
     onRemoved: _onModelRemoved,
     onBusyChanged: listening.keepAliveForDownloads,
@@ -308,6 +311,9 @@ class AppServices {
     // Lines heard while the app was closed (or before the model arrived).
     indexForSearch();
     dataVersion.addListener(indexForSearch);
+    // Lines the listening service adds while the app is open: every screen
+    // (and search by meaning) catches up, not just Now.
+    listening.events.listen(_onServiceEvent);
     // Phones set up before speaker changes existed get that model too.
     if (speechReady && !models.isInstalled(ModelCatalog.diarizer)) unawaited(downloads.download(ModelCatalog.diarizer));
     _fetchChosenSpeechModel();
@@ -525,7 +531,27 @@ class AppServices {
 
   bool get speechReady => SpeechModelPaths.fromStore(models, asr: settings.value.asrAsset) != null;
 
-  bool get assistantReady => models.isInstalled(settings.value.llmAsset);
+  /// The assistant that answers now: the chosen model once it is
+  /// installed, until then another installed one, so switching never
+  /// leaves Ask without Gemma while the new model downloads. Null when none
+  /// is installed.
+  ModelAsset? get assistantModel {
+    final chosen = settings.value.llmAsset;
+    if (models.isInstalled(chosen)) return chosen;
+    final st = settings.value;
+    final custom = st.customLlmUrl.trim().isEmpty
+        ? null
+        : ModelCatalog.custom(
+            url: st.customLlmUrl.trim(),
+            name: st.customLlmName,
+            llmType: st.customLlmType,
+            supportsTools: st.customLlmTools,
+            requiresToken: st.customLlmNeedsToken,
+          );
+    return [...ModelCatalog.assistants, ?custom].where(models.isInstalled).firstOrNull;
+  }
+
+  bool get assistantReady => assistantModel != null;
 
   VoiceprintWorker? get voiceprints {
     final paths = SpeechModelPaths.fromStore(models);
@@ -557,16 +583,20 @@ class AppServices {
       paths: paths,
       settings: settings.value,
       queueDir: p.join(supportDir.path, 'speech_queue'),
-      llm: LlmConfig.fromStore(models, settings.value.llmAsset),
+      llm: switch (assistantModel) {
+        final m? => LlmConfig.fromStore(models, m),
+        null => null,
+      },
     ).writeTo(serviceConfigFile);
     return true;
   }
 
   Future<void> updateSettings(AppSettings next) async {
-    final modelChanged = next.llmAsset.id != settings.value.llmAsset.id ||
-        next.llmAsset.files.first.url != settings.value.llmAsset.files.first.url;
+    final llmBefore = assistantModel;
     final searchChanged = next.meaningSearch != settings.value.meaningSearch || next.searchModel != settings.value.searchModel;
     settings.value = next;
+    final llmAfter = assistantModel;
+    final modelChanged = llmBefore?.id != llmAfter?.id || llmBefore?.files.first.url != llmAfter?.files.first.url;
     if (searchChanged) next.meaningSearch ? indexForSearch(retry: true) : _closeEmbedder();
     await settingsRepo.save(next);
     writeServiceConfig();
@@ -630,6 +660,18 @@ class AppServices {
   }
 
   /// Call after people, rules or transcripts change.
+  Timer? _linesHeard;
+
+  /// A line is announced when heard and again when finished, often several
+  /// at once: one refresh for each burst.
+  void _onServiceEvent(Map<Object?, Object?> e) {
+    if (e['type'] != ServiceEvents.segment) return;
+    _linesHeard ??= Timer(const Duration(milliseconds: 400), () {
+      _linesHeard = null;
+      dataVersion.value++;
+    });
+  }
+
   void dataChanged() {
     dataVersion.value++;
     listening.reload();

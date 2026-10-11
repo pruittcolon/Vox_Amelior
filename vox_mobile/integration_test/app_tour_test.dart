@@ -324,6 +324,14 @@ class _Tour {
     note('archive: $lines lines added in ${watch.elapsed.inSeconds} s');
     s.dataChanged();
     await settle();
+    // Tabs catch up when shown: how long the busiest ones take with a year.
+    for (final name in ['Insights', 'People', 'Timeline']) {
+      final w = Stopwatch()..start();
+      await t.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text(name)));
+      await t.pump();
+      note('$name with a year of lines: first frame after ${w.elapsedMilliseconds} ms');
+      await settle();
+    }
 
     await tab('Timeline');
     await shot('timeline-archive');

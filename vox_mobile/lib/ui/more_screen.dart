@@ -33,7 +33,7 @@ class MoreScreen extends StatelessWidget {
               services.downloads.isBusy
                   ? 'Downloading…'
                   : '${services.speechReady ? 'Speech ready' : 'Speech not downloaded'} · '
-                      '${services.assistantReady ? assistant.title : '${assistant.title} not downloaded'}',
+                      '${services.assistantModel?.title ?? '${assistant.title} not downloaded'}',
               ModelsScreen(services: services),
             ),
             (

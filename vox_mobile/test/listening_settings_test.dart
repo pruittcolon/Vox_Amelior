@@ -268,8 +268,10 @@ void main() {
       expect(ModelCatalog.parakeet.essential, isFalse);
       expect(ModelCatalog.speech, isNot(contains(ModelCatalog.parakeet)), reason: 'int8 only downloads when chosen');
       expect(a.installedFileNames, {'encoder.fp16.onnx', 'decoder.fp16.onnx', 'joiner.fp16.onnx', 'tokens.txt'});
-      expect(a.files.single.sha256, hasLength(64));
-      expect(a.files.single.sizeBytes, 1120982957);
+      // The files themselves (nothing to unpack), each pinned.
+      expect(a.files.map((f) => f.fileName).toSet(), a.installedFileNames);
+      expect(a.files.every((f) => f.sha256?.length == 64 && f.sizeBytes != null && !f.isArchive), isTrue);
+      expect(a.approxDownloadBytes, 1257157987);
       expect(ModelCatalog.all, contains(a), reason: 'kept on disk by the upgrade cleanup');
     });
 

@@ -244,13 +244,14 @@ class _ModelsScreenState extends State<ModelsScreen> {
                     },
                     downloads: s.downloads,
                     chosen: st.llmId == m.id,
-                    inUse: st.llmId == m.id && installed(m),
+                    inUse: s.assistantModel?.id == m.id,
+                    replacing: s.assistantModel != null && s.assistantModel!.id != m.id,
                     onChoose: () async {
                       if (!await _okToDownload(m)) return;
                       await s.updateSettings(st.copyWith(llmId: m.id));
                       await s.downloads.download(m);
                     },
-                    onDelete: st.llmId == m.id ? null : () => _deleteModel(m),
+                    onDelete: st.llmId == m.id || s.assistantModel?.id == m.id ? null : () => _deleteModel(m),
                     onEdit: m.id == ModelCatalog.customLlmId ? _editCustom : null,
                   ),
                 ListTile(

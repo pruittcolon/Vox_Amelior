@@ -52,9 +52,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Scrolls [f] into view, up or down (every row of the list is built).
+  /// Scrolls [f] into view: from the top down, since rows are only built
+  /// near the screen.
   Future<void> reveal(WidgetTester tester, Finder f) async {
-    await tester.ensureVisible(f);
+    final list = find.descendant(of: find.byKey(const ValueKey('models-list')), matching: find.byType(Scrollable)).first;
+    tester.state<ScrollableState>(list).position.jumpTo(0);
+    await tester.pump();
+    await tester.scrollUntilVisible(f, 200, scrollable: list);
     await tester.pumpAndSettle();
   }
 
@@ -110,5 +114,15 @@ void main() {
     await tester.tap(row('off-tone'));
     await tester.pumpAndSettle();
     expect(s.settings.value.hearTone, isFalse);
+  });
+
+  testWidgets('a new assistant downloads while the one already here keeps answering', (tester) async {
+    install(ModelCatalog.gemma4E2b);
+    expect(s.settings.value.llmId, ModelCatalog.gemma4E4b.id, reason: 'the default choice, not downloaded');
+    expect(s.assistantModel?.id, ModelCatalog.gemma4E2b.id);
+    expect(s.assistantReady, isTrue);
+    await show(tester);
+    await reveal(tester, row(ModelCatalog.gemma4E2b.id));
+    expect(find.descendant(of: row(ModelCatalog.gemma4E2b.id), matching: find.text('In use')), findsOneWidget);
   });
 }

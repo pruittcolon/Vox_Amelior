@@ -206,7 +206,7 @@ void main() {
       await show(tester, ListeningSettingsScreen(services: s));
       await scrollTo(tester, find.text('Smaller (int8)'));
       expect(find.text('High precision (fp16)'), findsOneWidget);
-      expect(find.textContaining('1.1 GB download'), findsOneWidget);
+      expect(find.textContaining('1.3 GB download'), findsOneWidget);
       expect(s.settings.value.speechModel, 'fp16');
     });
 

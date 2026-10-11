@@ -569,19 +569,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
               children: [
                 if (showName && guest)
                   // A guest's name is a button: naming it names all its lines.
+                  // Wraps onto two lines on a narrow screen with large text.
                   InkWell(
                     borderRadius: BorderRadius.circular(8),
                     onTap: () => _nameVoice(seg.clusterId!),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Wrap(
+                        spacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text(seg.speakerLabel, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
-                          const SizedBox(width: 6),
-                          Icon(Icons.edit_rounded, size: 14, color: t.colorScheme.primary),
-                          const SizedBox(width: 2),
-                          Text("Who's this?", style: t.textTheme.labelMedium?.copyWith(color: t.colorScheme.primary, fontWeight: FontWeight.w700)),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_rounded, size: 14, color: t.colorScheme.primary),
+                              const SizedBox(width: 2),
+                              Text(
+                                "Who's this?",
+                                style: t.textTheme.labelMedium?.copyWith(color: t.colorScheme.primary, fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),

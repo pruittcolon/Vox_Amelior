@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
@@ -24,7 +22,6 @@ class NowScreen extends StatefulWidget {
 }
 
 class _NowScreenState extends State<NowScreen> with RefreshWhenShown {
-  StreamSubscription<Map<Object?, Object?>>? _events;
   List<SegmentView> _recent = const [];
 
   AppServices get s => widget.services;
@@ -32,16 +29,13 @@ class _NowScreenState extends State<NowScreen> with RefreshWhenShown {
   @override
   void initState() {
     super.initState();
+    // New lines from the listening service arrive as data changes.
     s.dataVersion.addListener(onDataChanged);
-    _events = s.listening.events.listen((e) {
-      if (e['type'] == ServiceEvents.segment) onDataChanged();
-    });
   }
 
   @override
   void dispose() {
     s.dataVersion.removeListener(onDataChanged);
-    unawaited(_events?.cancel());
     super.dispose();
   }
 
