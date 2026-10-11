@@ -417,7 +417,10 @@ class _InsightsScreenState extends State<InsightsScreen> with RefreshWhenShown {
     return _section(
       context,
       'Talks most with',
-      subtitle: me == null ? null : '${me.conversations} conversations · ${formatCount(me.lines)} lines · ${formatCount(me.words)} words',
+      subtitle: me == null
+          ? null
+          : '${me.conversations} conversation${me.conversations == 1 ? '' : 's'} · '
+              '${formatCount(me.lines)} line${me.lines == 1 ? '' : 's'} · ${formatCount(me.words)} word${me.words == 1 ? '' : 's'}',
       children: [
         if (pairs.isEmpty)
           Text('No conversations with other people you added in this period.',
