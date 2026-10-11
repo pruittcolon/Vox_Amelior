@@ -3,11 +3,17 @@ name: Vox app tour (Android emulator)
 # setup with the real model downloads, listening to a recorded conversation,
 # every screen, and frame timings while scrolling a large archive.
 # Screenshots, timings and the device log are kept as the run's artifact.
+# Started by hand (gh workflow run app-tour.yml), or when the tour itself
+# changes: it takes 40 minutes, and test-only pushes should not cancel it.
 on:
   workflow_dispatch:
   push:
     branches: [claude/laughing-cerf-zer2dj]
-    paths: ['vox_mobile/**', '.github/workflows/app-tour.yml']
+    paths:
+      - 'vox_mobile/integration_test/**'
+      - 'vox_mobile/tool/run_tour.sh'
+      - 'vox_mobile/tool/tour_audio.py'
+      - '.github/workflows/app-tour.yml'
 concurrency:
   group: vox-tour-${{ github.ref }}
   cancel-in-progress: true
