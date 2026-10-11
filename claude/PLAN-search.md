@@ -25,7 +25,7 @@
 ## Search
 
 - **Words:** SQLite FTS5 with Porter stemming, ranked by BM25 (already in the app).
-- **Meaning:** cosine similarity between the query and every stored vector, which is fast enough at phone scale (no ANN index needed). Lines below 0.30 are never matches. Lines more than 0.12 below the best match are dropped too. EmbeddingGemma's scores are compressed (in CI, related lines scored 0.44–0.62 and unrelated ones up to 0.43), so a cut relative to the best match separates them better than any fixed threshold.
+- **Meaning:** cosine similarity between the query and every stored vector, which is fast enough at phone scale (no ANN index needed). Lines below 0.30 are never matches. Lines more than 0.12 below the best match are dropped too, except that the best three above 0.30 are always kept: on the phone, one very close line ("I hate worrying about money", 0.60) otherwise hid a clearly related one (not being able to cover the bill). EmbeddingGemma's scores are compressed (in CI, related lines scored 0.44–0.62 and unrelated ones up to 0.43), so a cut relative to the best match separates them better than any fixed threshold.
 - **Query vector:** the last query's vector is kept. Results refresh as new lines arrive, and switching mode re-ranks, without running the model again. While a refresh runs, the current results stay on screen.
 - **Fusion:** Reciprocal Rank Fusion with k = 60. It uses only ranks, so BM25 and cosine scores never have to share a scale. It is the standard method in Elastic, Azure AI Search and Weaviate.
 - **Filters:** people, tone and period apply to both halves. TV and background voices are always left out.

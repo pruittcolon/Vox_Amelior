@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
+import 'package:vox_amelior_mobile/core/log.dart';
 import 'package:vox_amelior_mobile/data/models.dart' show Tone;
 import 'package:vox_amelior_mobile/pipeline/engines.dart';
 import 'package:vox_amelior_mobile/settings/service_config.dart';
@@ -157,6 +158,7 @@ class SherpaSenseVoiceTone implements ToneEngine {
   }
 
   late final sherpa.OfflineRecognizer _recognizer;
+  int _logged = 0;
 
   @override
   LineTone analyze(Float32List samples, int sampleRate) {
@@ -165,6 +167,9 @@ class SherpaSenseVoiceTone implements ToneEngine {
       stream.acceptWaveform(samples: samples, sampleRate: sampleRate);
       _recognizer.decode(stream);
       final r = _recognizer.getResult(stream);
+      // The first few raw tags go to the log (tags only, never the words),
+      // to tell "heard nothing notable" from "not working".
+      if (_logged++ < 3) Log.i('tone', 'heard emotion "${r.emotion}", event "${r.event}"');
       return LineTone(emotion: Tone.fromEmotionTag(r.emotion), sound: Tone.fromEventTag(r.event));
     } finally {
       stream.free();

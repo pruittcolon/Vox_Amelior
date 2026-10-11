@@ -78,6 +78,12 @@ class HybridSearch {
   /// any fixed threshold.
   static const double relativeMargin = 0.12;
 
+  /// The best few matches above [minSimilarity] are kept whatever the
+  /// margin says: one very close line must not hide others that are clearly
+  /// related ("money worries" found "I hate worrying about money" at 0.60
+  /// but dropped the line about not covering the bill).
+  static const int minKeep = 3;
+
   VectorIndex _index = VectorIndex.empty;
   String _signature = '';
 
@@ -154,7 +160,10 @@ class HybridSearch {
     scored.sort((a, b) => b.$2.compareTo(a.$2));
     if (scored.isEmpty) return const [];
     final cut = scored.first.$2 - relativeMargin;
-    return scored.where((e) => e.$2 >= cut).take(limit).toList();
+    return [
+      for (var i = 0; i < scored.length && i < limit; i++)
+        if (i < minKeep || scored[i].$2 >= cut) scored[i],
+    ];
   }
 
   Future<Float32List> _queryVector(AsyncEmbedder e, String text) async {

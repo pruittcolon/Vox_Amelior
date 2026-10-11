@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -141,6 +142,8 @@ class _Tour {
     for (final word in ['electric bill', 'landlord', 'dentist', 'vet']) {
       expect(said, contains(word), reason: 'the recording says "$word"');
     }
+    final toned = s.transcripts.recent(limit: 100).where((l) => l.emotion != null || l.sound != null).length;
+    note('tone of voice heard on $toned of ${s.transcripts.count()} lines');
   }
 
   /// Names each voice from the People tab's "Who's this?", picking the
@@ -586,10 +589,41 @@ class _Tour {
     await settle();
   }
 
-  /// Runs [action] while recording how long each frame took.
+  /// Runs [action] while recording how long each frame took: building it
+  /// (the app's own work) and drawing it. (The binding's watchPerformance
+  /// needs the VM service, which the driver already holds.)
   Future<void> measure(String key, Future<void> Function() action) async {
-    await binding.watchPerformance(action, reportKey: key);
-    note('frames $key: ${jsonEncode(binding.reportData?[key])}');
+    final timings = <ui.FrameTiming>[];
+    void collect(List<ui.FrameTiming> t) => timings.addAll(t);
+    // The engine reports frame times about once a second: let old ones pass.
+    await wait(const Duration(milliseconds: 1500));
+    binding.addTimingsCallback(collect);
+    try {
+      await action();
+      await wait(const Duration(milliseconds: 1500));
+    } finally {
+      binding.removeTimingsCallback(collect);
+    }
+    double ms(Duration d) => d.inMicroseconds / 1000;
+    Map<String, Object> summary(List<double> v) {
+      v.sort();
+      double at(double q) => v.isEmpty ? 0 : v[min(v.length - 1, (v.length * q).floor())];
+      return {
+        'avg': v.isEmpty ? 0 : double.parse((v.reduce((a, b) => a + b) / v.length).toStringAsFixed(1)),
+        'p90': at(0.9),
+        'p99': at(0.99),
+        'worst': v.isEmpty ? 0 : v.last,
+        'over16ms': v.where((x) => x > 16.7).length,
+      };
+    }
+
+    final report = {
+      'frames': timings.length,
+      'build_ms': summary([for (final f in timings) ms(f.buildDuration)]),
+      'raster_ms': summary([for (final f in timings) ms(f.rasterDuration)]),
+    };
+    (binding.reportData ??= <String, dynamic>{})[key] = report;
+    note('frames $key: ${jsonEncode(report)}');
   }
 
   Future<Uint8List> fetch(String path) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vox_amelior_mobile/app/app_services.dart';
 import 'package:vox_amelior_mobile/data/insights_repository.dart';
 import 'package:vox_amelior_mobile/data/models.dart';
+import 'package:vox_amelior_mobile/models/model_catalog.dart';
 import 'package:vox_amelior_mobile/ui/charts.dart';
 import 'package:vox_amelior_mobile/ui/conversation_screen.dart';
 import 'package:vox_amelior_mobile/ui/format.dart';
@@ -312,18 +313,26 @@ class _InsightsScreenState extends State<InsightsScreen> with RefreshWhenShown {
     final o = _overview;
     final unit = switch (_granularity) { Granularity.day => 'day', Granularity.week => 'week', Granularity.month => 'month' };
     if (o.moods.isEmpty) {
+      // On already: nothing notable heard in this period yet.
+      final listening = s.settings.value.hearTone && s.models.isInstalled(ModelCatalog.toneModel);
       return _section(
         context,
         'Mood over time',
         children: [
-          Text('Turn on tone of voice to see how conversations felt — angry, sad, happy and more — over time.',
-              style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant)),
-          const SizedBox(height: 10),
-          FilledButton.tonalIcon(
-            onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SpeakersSettingsScreen(services: s))),
-            icon: const Icon(Icons.mood_rounded),
-            label: const Text('Set up tone of voice'),
+          Text(
+            listening
+                ? 'No tone of voice heard in this period yet. As Vox hears more, how conversations felt shows here.'
+                : 'Turn on tone of voice to see how conversations felt — angry, sad, happy and more — over time.',
+            style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
           ),
+          if (!listening) ...[
+            const SizedBox(height: 10),
+            FilledButton.tonalIcon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SpeakersSettingsScreen(services: s))),
+              icon: const Icon(Icons.mood_rounded),
+              label: const Text('Set up tone of voice'),
+            ),
+          ],
         ],
       );
     }
