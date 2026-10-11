@@ -54,6 +54,18 @@ void main() {
       expect(repo.conversationsBetween(base, base.add(const Duration(days: 1))).single.preview, 'just before');
     });
 
+    test('moods of several conversations at once match them one by one', () {
+      final a = add('we argued about the bills', 0);
+      repo.setTone(a.id, emotion: 'angry');
+      final b = add('so happy today', 60);
+      repo.setTone(b.id, emotion: 'happy');
+      final quiet = add('no tone here', 120);
+      final all = repo.moods([a.conversationId, b.conversationId, quiet.conversationId]);
+      expect(all[a.conversationId]!.counts, repo.mood(a.conversationId).counts);
+      expect(all[b.conversationId]!.counts, {'happy': 1});
+      expect(all[quiet.conversationId]!.counts, isEmpty);
+    });
+
     test('full-text search is stemmed, ranked and case-insensitive', () {
       add('The plumbers are coming Tuesday', 0);
       add('we need milk and eggs', 1);

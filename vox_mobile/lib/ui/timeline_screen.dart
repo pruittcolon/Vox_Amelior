@@ -454,6 +454,21 @@ class _TimelineScreenState extends State<TimelineScreen> with RefreshWhenShown {
     );
   }
 
+  /// Each listed conversation's mood, read for the whole list at once (not
+  /// one query per card as cards scroll into view).
+  Map<int, MoodCount> _moodCache = const {};
+  List<ConversationSummary>? _moodsFor;
+  List<ConversationSummary>? _moodsAlso;
+
+  MoodCount _moodOf(int id) {
+    if (!identical(_moodsFor, _conversations) || !identical(_moodsAlso, _withPeople)) {
+      _moodsFor = _conversations;
+      _moodsAlso = _withPeople;
+      _moodCache = s.transcripts.moods([for (final c in _conversations) c.id, for (final c in _withPeople) c.id]);
+    }
+    return _moodCache[id] ?? s.transcripts.mood(id);
+  }
+
   /// [list] in the chosen order (it arrives newest first).
   List<ConversationSummary> _sorted(List<ConversationSummary> list) {
     final out = List.of(list);
@@ -467,7 +482,7 @@ class _TimelineScreenState extends State<TimelineScreen> with RefreshWhenShown {
       case _Sort.lines:
         out.sort((a, b) => b.segmentCount.compareTo(a.segmentCount));
       case _Sort.heated:
-        int heat(ConversationSummary c) => s.transcripts.mood(c.id).counts.entries
+        int heat(ConversationSummary c) => _moodOf(c.id).counts.entries
             .where((e) => e.key == 'angry' || e.key == 'disgusted')
             .fold(0, (a, e) => a + e.value);
         final scores = {for (final c in out) c.id: heat(c)};
@@ -478,7 +493,7 @@ class _TimelineScreenState extends State<TimelineScreen> with RefreshWhenShown {
 
   Widget _conversationCard(BuildContext context, ConversationSummary c, {bool showDay = false}) {
     final t = Theme.of(context);
-    final mood = _hasTones ? s.transcripts.mood(c.id) : null;
+    final mood = _hasTones ? _moodOf(c.id) : null;
     final top = mood?.notable.take(3) ?? const <MapEntry<String, int>>[];
     // Guest voices are named inside, from the card at the top of the conversation.
     final unnamed = c.participants.where((p) => p.startsWith('Guest ')).length;

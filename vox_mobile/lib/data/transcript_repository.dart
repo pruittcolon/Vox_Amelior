@@ -302,6 +302,32 @@ GROUP BY s.emotion''',
     return MoodCount({for (final r in rows) r['e']! as String: r['n']! as int});
   }
 
+  /// [mood] of several conversations in one query (for a list of them).
+  Map<int, MoodCount> moods(Iterable<int> conversationIds) {
+    final ids = conversationIds.toSet().toList();
+    final out = {for (final id in ids) id: const MoodCount({})};
+    // In slices: SQLite limits how many values one query may take.
+    for (var i = 0; i < ids.length; i += 500) {
+      final slice = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+      final rows = _db.raw.select(
+        '''
+SELECT s.conversation_id AS c, s.emotion AS e, COUNT(*) AS n FROM segments s
+LEFT JOIN unknown_clusters uc ON uc.id = s.cluster_id
+WHERE s.conversation_id IN (${List.filled(slice.length, '?').join(',')}) AND s.emotion IS NOT NULL AND COALESCE(uc.background, 0) = 0
+GROUP BY s.conversation_id, s.emotion''',
+        slice,
+      );
+      final counts = <int, Map<String, int>>{};
+      for (final r in rows) {
+        (counts[r['c']! as int] ??= {})[r['e']! as String] = r['n']! as int;
+      }
+      for (final e in counts.entries) {
+        out[e.key] = MoodCount(e.value);
+      }
+    }
+    return out;
+  }
+
   /// Whether any line has a tone yet (the tone model has run at least once).
   bool get hasTones =>
       _db.raw.select('SELECT 1 FROM segments WHERE emotion IS NOT NULL OR sound IS NOT NULL LIMIT 1').isNotEmpty;
