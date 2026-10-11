@@ -311,9 +311,6 @@ class AppServices {
     // Lines heard while the app was closed (or before the model arrived).
     indexForSearch();
     dataVersion.addListener(indexForSearch);
-    // Lines the listening service adds while the app is open: every screen
-    // (and search by meaning) catches up, not just Now.
-    listening.events.listen(_onServiceEvent);
     // Phones set up before speaker changes existed get that model too.
     if (speechReady && !models.isInstalled(ModelCatalog.diarizer)) unawaited(downloads.download(ModelCatalog.diarizer));
     _fetchChosenSpeechModel();
@@ -347,8 +344,19 @@ class AppServices {
         reviewVersion.value++;
       case ServiceEvents.probe:
         if (e['kind'] == 'done') _collectProbeResults();
+      case ServiceEvents.segment:
+        // Lines the listening service adds while the app is open: every
+        // screen (and search by meaning) catches up, not just Now. A line
+        // is announced when heard and again when finished, often several
+        // at once: one refresh for each burst.
+        _linesHeard ??= Timer(const Duration(milliseconds: 400), () {
+          _linesHeard = null;
+          dataVersion.value++;
+        });
     }
   }
+
+  Timer? _linesHeard;
 
   /// Applies a phone test that finished (or crashed the app) while no
   /// screen was waiting for it.
@@ -660,18 +668,6 @@ class AppServices {
   }
 
   /// Call after people, rules or transcripts change.
-  Timer? _linesHeard;
-
-  /// A line is announced when heard and again when finished, often several
-  /// at once: one refresh for each burst.
-  void _onServiceEvent(Map<Object?, Object?> e) {
-    if (e['type'] != ServiceEvents.segment) return;
-    _linesHeard ??= Timer(const Duration(milliseconds: 400), () {
-      _linesHeard = null;
-      dataVersion.value++;
-    });
-  }
-
   void dataChanged() {
     dataVersion.value++;
     listening.reload();
