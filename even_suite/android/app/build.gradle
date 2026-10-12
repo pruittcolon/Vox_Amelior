@@ -1,0 +1,55 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+// CI passes the same release key every build (VOX_KEYSTORE_PATH / VOX_KEYSTORE_PASSWORD),
+// so each new APK installs over the last one. Local builds fall back to the debug key.
+def releaseKeystore = System.getenv("VOX_KEYSTORE_PATH")
+
+android {
+    namespace = "com.vox.evensuite"
+    compileSdk = flutter.compileSdkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        applicationId = "com.vox.evensuite"
+        // 26: notification channels and foreground services without compat shims.
+        minSdk = 26
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            release {
+                storeFile = file(releaseKeystore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("VOX_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VOX_KEY_ALIAS") ?: "vox"
+                keyPassword = System.getenv("VOX_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = releaseKeystore != null ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
