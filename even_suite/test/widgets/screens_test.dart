@@ -162,14 +162,21 @@ void main() {
       await _shot(tester, '5d_flicker$tag');
       expect(suite.flicker.running, isTrue);
       final flickerList = find.descendant(of: find.byType(FlickerPage), matching: find.byType(Scrollable)).first;
-      await tester.scrollUntilVisible(find.text('Bottom text'), 200, scrollable: flickerList);
+      String? boxIn(String card) {
+        final f = find.descendant(
+            of: find.byKey(ValueKey(card), skipOffstage: false),
+            matching: find.byType(EditableText),
+            skipOffstage: false);
+        return f.evaluate().isEmpty ? null : tester.widget<EditableText>(f.first).controller.text.split('\n').first;
+      }
+
+      // Each text box keeps its own text when rows above it appear (running).
+      await tester.scrollUntilVisible(find.text('Top text'), 150, scrollable: flickerList);
       await tester.pump();
-      final boxes = tester
-          .widgetList<EditableText>(find.descendant(
-              of: find.byType(FlickerPage), matching: find.byType(EditableText), skipOffstage: false))
-          .map((e) => e.controller.text.split('\n').first)
-          .toList();
-      expect(boxes, ['TOP', 'BOTTOM'], reason: 'each text box keeps its own text when the list shifts');
+      expect(boxIn('flick-top'), 'TOP');
+      await tester.scrollUntilVisible(find.text('Bottom text'), 150, scrollable: flickerList);
+      await tester.pump();
+      expect(boxIn('flick-bottom'), 'BOTTOM');
       await tester.drag(flickerList, const Offset(0, 3000));
       await tester.pump();
       expect(suite.flicker.steps, greaterThan(2));
