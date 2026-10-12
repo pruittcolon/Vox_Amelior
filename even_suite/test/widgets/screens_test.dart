@@ -164,7 +164,7 @@ void main() {
       expect(suite.flicker.steps, greaterThan(2));
       expect(w.glasses.sent['L']!.where((p) => p[0] == 0x26).map((p) => p[6]).take(2), [8, 0],
           reason: 'display moved high, then low');
-      await tester.tap(find.descendant(of: find.byType(FlickerPage), matching: find.widgetWithText(FilledButton, 'Stop')));
+      await tester.tap(find.descendant(of: find.byType(FlickerPage), matching: find.byIcon(Icons.stop_rounded)));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(suite.flicker.running, isFalse);
