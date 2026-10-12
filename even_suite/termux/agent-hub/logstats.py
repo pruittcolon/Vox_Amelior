@@ -123,6 +123,11 @@ def main(argv):
         for (chunk, gap), es in sorted(by_cfg.items(), key=lambda kv: str(kv[0])):
             oks = [e["ms"] for e in es if e.get("ok")]
             print(f"  chunk={chunk} gap={gap}ms: ok {len(oks)}/{len(es)}  {fmt_ms(oks)}")
+        crc = Counter(e.get("crc") for e in frames if e.get("crc"))
+        if crc:
+            print("  CRC answers (L/R, c9 = match, ca = mismatch):", dict(crc.most_common(6)))
+        sizes = Counter(e.get("bytes") for e in frames)
+        print("  picture sizes:", dict(sizes))
         fails = Counter(e.get("stage") for e in frames if not e.get("ok"))
         if fails:
             print("  failed at:", dict(fails))
