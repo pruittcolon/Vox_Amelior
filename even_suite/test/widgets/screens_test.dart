@@ -161,6 +161,8 @@ void main() {
       await tester.pump();
       await _shot(tester, '5d_flicker$tag');
       expect(suite.flicker.running, isTrue);
+      expect(find.widgetWithText(TextField, 'TOP\nThis text sits high in your view'), findsOneWidget,
+          reason: 'each text box keeps its own text when the list shifts');
       expect(suite.flicker.steps, greaterThan(2));
       expect(w.glasses.sent['L']!.where((p) => p[0] == 0x26).map((p) => p[6]).take(2), [8, 0],
           reason: 'display moved high, then low');

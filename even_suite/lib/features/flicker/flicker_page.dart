@@ -97,7 +97,10 @@ class FlickerPage extends StatelessWidget {
               style: TextStyle(color: AppColors.muted, fontSize: 12.5),
             ),
             const SizedBox(height: 18),
+            // Keyed: rows above appear while running, and the text boxes must
+            // keep their own state when the list shifts.
             SectionCard(
+              key: const ValueKey('flick-top'),
               title: 'Top text',
               icon: Icons.vertical_align_top_rounded,
               iconColor: AppColors.hud,
@@ -110,6 +113,7 @@ class FlickerPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             SectionCard(
+              key: const ValueKey('flick-bottom'),
               title: 'Bottom text',
               icon: Icons.vertical_align_bottom_rounded,
               iconColor: AppColors.glasses,
@@ -122,6 +126,7 @@ class FlickerPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             SectionCard(
+              key: const ValueKey('flick-timing'),
               title: 'Timing',
               icon: Icons.timer_outlined,
               iconColor: AppColors.warn,
@@ -162,6 +167,7 @@ class FlickerPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             SectionCard(
+              key: const ValueKey('flick-tuning'),
               title: 'Fine tuning',
               icon: Icons.tune_rounded,
               iconColor: AppColors.claude,
@@ -322,6 +328,12 @@ class _TextBox extends StatefulWidget {
 
 class _TextBoxState extends State<_TextBox> {
   late final _ctl = TextEditingController(text: widget.initial);
+
+  @override
+  void didUpdateWidget(_TextBox old) {
+    super.didUpdateWidget(old);
+    if (old.settingKey != widget.settingKey) _ctl.text = widget.initial;
+  }
 
   @override
   void dispose() {
