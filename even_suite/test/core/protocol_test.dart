@@ -148,6 +148,17 @@ void main() {
       }
     });
 
+    test('image: a late end reply is asked for again, not abandoned', () async {
+      final bmp = File('assets/images/image_2.bmp').readAsBytesSync();
+      glasses.ignoreFirst[0x20] = 2; // first end command to each arm gets no answer
+      proto.bmpGapMs = 5;
+      expect(await proto.sendBmp(bmp, endTimeoutMs: 100), isTrue);
+      final ends = glasses.sent['L']!.where((p) => p[0] == 0x20).length +
+          glasses.sent['R']!.where((p) => p[0] == 0x20).length;
+      expect(ends, 4, reason: 'one retry per arm');
+      expect(glasses.batchGaps, [5, 5], reason: 'packets paced like the demo');
+    });
+
     test('TouchBar packets become events, not replies', () async {
       final events = <GlassesEvent>[];
       final sub = ble.events.listen(events.add);

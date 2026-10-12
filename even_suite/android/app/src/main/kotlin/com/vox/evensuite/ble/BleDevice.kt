@@ -74,11 +74,15 @@ class BleDevice(
         return true
     }
 
-    /** Queue [packets] in order; [done] gets how many were written. */
-    fun enqueue(packets: List<ByteArray>, done: ((Int) -> Unit)? = null) {
+    /**
+     * Queue [packets] in order, [gapMs] apart (the demo spaces image packets
+     * ~5 ms so the glasses can keep up); [done] gets how many were written.
+     */
+    fun enqueue(packets: List<ByteArray>, gapMs: Long = 0, done: ((Int) -> Unit)? = null) {
         writer.execute {
             var sent = 0
-            for (packet in packets) {
+            for ((i, packet) in packets.withIndex()) {
+                if (i > 0 && gapMs > 0) Thread.sleep(gapMs)
                 if (!writeNow(packet)) break
                 sent++
             }

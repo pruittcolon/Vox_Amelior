@@ -20,6 +20,9 @@ class FakeGlasses implements BleTransport {
   /// Commands to ignore (e.g. {0x4E}).
   final Set<int> ignoreCmds = {};
 
+  /// Ignore the first N packets of a command (e.g. {0x20: 2}), then answer.
+  final Map<int, int> ignoreFirst = {};
+
   /// Simulated Bluetooth round trip (0 = reply at once).
   Duration replyDelay = Duration.zero;
 
@@ -31,6 +34,11 @@ class FakeGlasses implements BleTransport {
     for (final arm in lr == null ? ['L', 'R'] : [lr]) {
       sent[arm]!.add(data);
       if (deaf.contains(arm) || ignoreCmds.contains(data[0])) continue;
+      final skip = ignoreFirst[data[0]] ?? 0;
+      if (skip > 0) {
+        ignoreFirst[data[0]] = skip - 1;
+        continue;
+      }
       final reply = _reply(data);
       if (reply != null) {
         void deliver() => _rx.add(BleReceive()
@@ -46,8 +54,11 @@ class FakeGlasses implements BleTransport {
     }
   }
 
+  final batchGaps = <int>[];
+
   @override
-  Future<int> sendBatch(List<Uint8List> packets, String lr) async {
+  Future<int> sendBatch(List<Uint8List> packets, String lr, {int gapMs = 0}) async {
+    batchGaps.add(gapMs);
     if (deaf.contains(lr)) return 0;
     sent[lr]!.addAll(packets);
     return packets.length;

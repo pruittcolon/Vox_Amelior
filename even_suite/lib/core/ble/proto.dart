@@ -182,37 +182,55 @@ class Proto {
         [0x16, val >> 24 & 0xff, val >> 16 & 0xff, val >> 8 & 0xff, val & 0xff]);
   }
 
-  /// Show a 576x136 1-bit BMP on both arms. All packets for an arm go down
-  /// in one flow-controlled batch, both arms in parallel, then end + CRC.
-  Future<bool> sendBmp(Uint8List bmp, {int timeoutMs = 3000}) async {
+  /// Gap between image packets per arm (the demo sleeps ~5 ms on Android).
+  int bmpGapMs = 5;
+
+  /// Show a 576x136 1-bit BMP on both arms: packets (paced, both arms in
+  /// parallel), then the end command, then the CRC - like the demo.
+  ///
+  /// The end reply only comes once the glasses have received the whole
+  /// picture (~0.8 s over Bluetooth), so it is waited for patiently and asked
+  /// again on a timeout; a new picture never starts while one is still
+  /// arriving, or the two get mixed up and fail their CRC.
+  Future<bool> sendBmp(Uint8List bmp,
+      {int endTimeoutMs = 3000, int endRetries = 2, int crcTimeoutMs = 2000}) async {
     final sw = Stopwatch()..start();
     var stage = 'packets';
     var ok = false;
     int? packetsMs, endMs;
+    var endTries = 0;
     try {
       final packs = bmpPackets(bmp);
-      final sent = await Future.wait([ble.sendBatch(packs, 'L'), ble.sendBatch(packs, 'R')]);
+      final sent = await Future.wait([
+        ble.sendBatch(packs, 'L', gapMs: bmpGapMs),
+        ble.sendBatch(packs, 'R', gapMs: bmpGapMs),
+      ]);
       packetsMs = sw.elapsedMilliseconds;
       if (sent[0] != packs.length || sent[1] != packs.length) return false;
 
       stage = 'end';
       final end = Uint8List.fromList([0x20, 0x0d, 0x0e]);
-      final ends = await Future.wait([
-        ble.request(end, lr: 'L', timeoutMs: timeoutMs),
-        ble.request(end, lr: 'R', timeoutMs: timeoutMs),
-      ]);
-      endMs = sw.elapsedMilliseconds - packetsMs;
-      if (ends.any((r) => r.isTimeout || r.data.length < 2 || r.data[1] != 0xc9)) {
+      Future<bool> endArm(String lr) async {
+        for (var i = 0; i <= endRetries; i++) {
+          endTries++;
+          final r = await ble.request(end, lr: lr, timeoutMs: endTimeoutMs);
+          if (!r.isTimeout) return r.data.length > 1 && r.data[1] == 0xc9;
+        }
         return false;
       }
+
+      final ends = await Future.wait([endArm('L'), endArm('R')]);
+      endMs = sw.elapsedMilliseconds - packetsMs;
+      if (!ends[0] || !ends[1]) return false;
+
       stage = 'crc';
       final crc = bmpCrcCommand(bmp);
       final crcs = await Future.wait([
-        ble.request(crc, lr: 'L', timeoutMs: timeoutMs),
-        ble.request(crc, lr: 'R', timeoutMs: timeoutMs),
+        ble.request(crc, lr: 'L', timeoutMs: crcTimeoutMs),
+        ble.request(crc, lr: 'R', timeoutMs: crcTimeoutMs),
       ]);
-      // Same check as the demo: byte 5 of the reply is the status.
-      ok = crcs.every((r) => !r.isTimeout && r.data.length > 5 && r.data[5] == 0xc9);
+      // The demo's check: only an explicit non-0xC9 status in byte 5 is a failure.
+      ok = crcs.every((r) => !r.isTimeout && !(r.data.length > 5 && r.data[5] != 0xc9));
       if (ok) stage = 'done';
       return ok;
     } finally {
@@ -222,6 +240,8 @@ class Proto {
         'ms': sw.elapsedMilliseconds,
         'packetsMs': packetsMs,
         'endMs': endMs,
+        'endTries': endTries,
+        'gapMs': bmpGapMs,
         'bytes': bmp.length,
       });
     }

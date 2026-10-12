@@ -133,6 +133,7 @@ class Suite extends ChangeNotifier {
       ..engineName = settings.recognizer;
     if (display.wpm != settings.readingWpm) display.setWpm(settings.readingWpm);
     EventLog.instance.enabled = settings.diagnostics;
+    proto.bmpGapMs = settings.bmpGapMs;
     final mirrorChanged = mirror.region != settings.mirrorRegion ||
         mirror.strip != settings.mirrorStrip ||
         mirror.fpsTenths != settings.mirrorFpsTenths ||

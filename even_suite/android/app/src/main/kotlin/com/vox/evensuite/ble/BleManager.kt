@@ -138,13 +138,13 @@ object BleManager {
     }
 
     /** Queue many packets to one arm in a single call; [done] gets how many were written. */
-    fun sendBatch(packets: List<ByteArray>, lr: String?, done: (Int) -> Unit) {
+    fun sendBatch(packets: List<ByteArray>, lr: String?, gapMs: Long, done: (Int) -> Unit) {
         val arm = (if (lr == "R") pair?.rightDevice else pair?.leftDevice)
         if (arm == null || !arm.isConnected) {
             done(0)
             return
         }
-        arm.enqueue(packets) { sent -> main.post { done(sent) } }
+        arm.enqueue(packets, gapMs) { sent -> main.post { done(sent) } }
     }
 
     /** Per-arm write statistics since the last call (diagnostics log). */

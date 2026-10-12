@@ -99,7 +99,10 @@ void main() {
       control = FakeControl();
       ble = BleManager(glasses, control: control);
       screen = FakeScreen();
-      mirror = ScreenMirror(screen, Proto(ble));
+      mirror = ScreenMirror(screen, Proto(ble))
+        ..endTimeoutMs = 200
+        ..crcTimeoutMs = 300
+        ..coolDown = Duration.zero;
       await control.connectNow();
     });
 

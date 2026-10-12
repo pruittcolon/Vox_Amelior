@@ -55,8 +55,8 @@ abstract class BleTransport {
   /// Write [data] to one arm ('L'/'R'), or both when [lr] is null.
   Future<void> send(Uint8List data, String? lr);
 
-  /// Write many packets back to back to one arm; returns how many were written.
-  Future<int> sendBatch(List<Uint8List> packets, String lr);
+  /// Write many packets to one arm, [gapMs] apart; returns how many were written.
+  Future<int> sendBatch(List<Uint8List> packets, String lr, {int gapMs = 0});
 }
 
 /// Scanning and connecting (Android side of the demo's BleManager).
@@ -82,8 +82,8 @@ class PlatformBle implements BleTransport, BleControl {
       _channel.invokeMethod('send', {'data': data, 'lr': lr});
 
   @override
-  Future<int> sendBatch(List<Uint8List> packets, String lr) async =>
-      await _channel.invokeMethod<int>('sendBatch', {'lr': lr, 'packets': packets}) ?? 0;
+  Future<int> sendBatch(List<Uint8List> packets, String lr, {int gapMs = 0}) async =>
+      await _channel.invokeMethod<int>('sendBatch', {'lr': lr, 'packets': packets, 'gapMs': gapMs}) ?? 0;
 
   @override
   Future<String?> startScan() => _call('startScan');
@@ -266,13 +266,14 @@ class BleManager extends ChangeNotifier {
   Future<void> sendData(Uint8List data, {String? lr}) =>
       transport.send(data, lr);
 
-  Future<int> sendBatch(List<Uint8List> packets, String lr) async {
+  Future<int> sendBatch(List<Uint8List> packets, String lr, {int gapMs = 0}) async {
     final sw = Stopwatch()..start();
-    final sent = await transport.sendBatch(packets, lr);
+    final sent = await transport.sendBatch(packets, lr, gapMs: gapMs);
     EventLog.add('ble', 'batch', {
       'lr': lr,
       'n': packets.length,
       'sent': sent,
+      'gapMs': gapMs,
       'bytes': packets.fold<int>(0, (a, p) => a + p.length),
       'ms': sw.elapsedMilliseconds,
     });
@@ -319,6 +320,9 @@ class BleManager extends ChangeNotifier {
       'bytes': data.length,
       'ms': sw.elapsedMilliseconds,
       'ok': !r.isTimeout,
+      // Raw reply (not for the 8 s heartbeat), to learn what the glasses answer.
+      if (!r.isTimeout && data[0] != 0x25)
+        'reply': r.data.take(12).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' '),
     });
     return r;
   }

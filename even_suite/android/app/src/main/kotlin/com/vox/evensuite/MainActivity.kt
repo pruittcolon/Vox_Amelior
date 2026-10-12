@@ -141,7 +141,10 @@ class MainActivity : FlutterActivity() {
             }
             "sendBatch" -> {
                 val packets = (args?.get("packets") as? List<*>)?.filterIsInstance<ByteArray>() ?: emptyList()
-                BleManager.sendBatch(packets, args?.get("lr") as? String) { sent -> result.success(sent) }
+                val gap = (args?.get("gapMs") as? Number)?.toLong() ?: 0L
+                BleManager.sendBatch(packets, args?.get("lr") as? String, gap.coerceIn(0L, 50L)) { sent ->
+                    result.success(sent)
+                }
             }
             "status" -> result.success(BleManager.status())
             // Kept for compatibility with the demo's Dart code; the app listens with the phone mic.

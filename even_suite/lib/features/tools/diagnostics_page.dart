@@ -83,6 +83,17 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                   'Claude reply: ${_ms(events, 'chat', 'reply')}',
                   style: const TextStyle(fontSize: 13, height: 1.5)),
               const SizedBox(height: 10),
+              const Text('Picture packet spacing (tuning)', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final ms in const [0, 3, 5, 8, 12])
+                  ChoiceChip(
+                    label: Text('$ms ms'),
+                    selected: suite.settings.bmpGapMs == ms,
+                    onSelected: (_) => setState(() => suite.settings.set('bmpGapMs', ms)),
+                  ),
+              ]),
+              const SizedBox(height: 10),
               Row(children: [
                 Expanded(
                   child: FilledButton.tonalIcon(

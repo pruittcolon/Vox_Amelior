@@ -72,6 +72,13 @@ class ScreenMirror extends ChangeNotifier {
   /// Clock for the frame-rate figure (tests use fake time).
   DateTime Function() now = DateTime.now;
 
+  /// Waits for the glasses (see [Proto.sendBmp]); shorter in tests.
+  int endTimeoutMs = 3000;
+  int crcTimeoutMs = 2000;
+
+  /// Pause after a missed frame so the glasses can settle before the next.
+  Duration coolDown = const Duration(seconds: 1);
+
   // State
   bool running = false;
   bool starting = false;
@@ -227,7 +234,7 @@ class ScreenMirror extends ChangeNotifier {
           continue;
         }
         final t0 = now().millisecondsSinceEpoch;
-        final ok = await proto.sendBmp(frame, timeoutMs: 800);
+        final ok = await proto.sendBmp(frame, endTimeoutMs: endTimeoutMs, crcTimeoutMs: crcTimeoutMs);
         final t1 = now().millisecondsSinceEpoch;
         lastSendMs = t1 - t0;
         EventLog.add('screen', 'sent', {'ok': ok, 'ms': lastSendMs, 'sent': sent + (ok ? 1 : 0)});
@@ -242,6 +249,8 @@ class ScreenMirror extends ChangeNotifier {
           failed++;
           _shown = null;
           _lastFailed = frame;
+          notifyListeners();
+          await Future.delayed(coolDown);
         }
         notifyListeners();
       }
