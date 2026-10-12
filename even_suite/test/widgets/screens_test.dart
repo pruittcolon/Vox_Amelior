@@ -164,6 +164,8 @@ void main() {
         final tile = find.text(label);
         await tester.scrollUntilVisible(tile, 150,
             scrollable: find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first);
+        await tester.ensureVisible(tile);
+        await tester.pump();
         await tester.tap(tile);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
