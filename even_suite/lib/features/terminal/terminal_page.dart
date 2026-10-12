@@ -231,10 +231,10 @@ class _KeyBar extends StatelessWidget {
   static const keys = [
     ('Esc', 'Escape'),
     ('Enter', 'Enter'),
-    ('↑', 'Up'),
-    ('↓', 'Down'),
+    ('Up', 'Up'),
+    ('Down', 'Down'),
     ('Tab', 'Tab'),
-    ('⇧Tab', 'BTab'),
+    ('Shift-Tab', 'BTab'),
     ('Ctrl-C', 'C-c'),
     ('1', '1'),
     ('2', '2'),

@@ -66,7 +66,9 @@ class GlassesPreview extends StatelessWidget {
         final lines = display.previewLines;
         final idle = display.mode == DisplayMode.idle;
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Container(
+          // Fixed size like the real display, whatever the phone's text size.
+          MediaQuery.withNoTextScaling(
+           child: Container(
             height: 150,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: BoxDecoration(
@@ -81,18 +83,22 @@ class GlassesPreview extends StatelessWidget {
                       style: TextStyle(color: AppColors.hud.withOpacity(0.45), fontSize: 14),
                     ),
                   )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (final l in lines)
-                        Text(l,
-                            maxLines: 1,
-                            overflow: TextOverflow.clip,
-                            style: const TextStyle(
-                                color: AppColors.hud, fontSize: 14, height: 1.45, fontFamily: 'monospace')),
-                    ],
+                // Lines exactly as the glasses break them, shrunk to fit.
+                : FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final l in lines)
+                          Text(l,
+                              softWrap: false,
+                              style: const TextStyle(color: AppColors.hud, fontSize: 14, height: 1.45)),
+                      ],
+                    ),
                   ),
+           ),
           ),
           const SizedBox(height: 12),
           Row(children: [

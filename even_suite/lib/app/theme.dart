@@ -37,6 +37,8 @@ ThemeData buildTheme() {
   );
   final base = ThemeData(useMaterial3: true, colorScheme: scheme, brightness: Brightness.dark);
   final text = base.textTheme.apply(bodyColor: AppColors.text, displayColor: AppColors.text);
+  // Button labels keep the theme's font family (a bare TextStyle would drop it).
+  final buttonText = text.labelLarge!.copyWith(fontSize: 15, fontWeight: FontWeight.w600);
   return base.copyWith(
     scaffoldBackgroundColor: AppColors.bg,
     textTheme: text.copyWith(
@@ -83,7 +85,7 @@ ThemeData buildTheme() {
         minimumSize: const Size(48, 48),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        textStyle: buttonText,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -93,13 +95,13 @@ ThemeData buildTheme() {
         side: const BorderSide(color: AppColors.outline),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        textStyle: buttonText,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         minimumSize: const Size(48, 44),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        textStyle: buttonText,
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(

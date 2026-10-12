@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:even_suite/core/suite.dart';
+import 'package:even_suite/features/tools/tools_page.dart';
 import 'package:even_suite/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -144,7 +145,10 @@ void main() {
         ('Settings', '10_settings'),
         ('Images', '11_images'),
       ]) {
-        await tester.tap(find.text(label).last);
+        final tile = find.text(label);
+        await tester.scrollUntilVisible(tile, 150,
+            scrollable: find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first);
+        await tester.tap(tile);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
         await _shot(tester, '$file$tag');
