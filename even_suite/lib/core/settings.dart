@@ -33,7 +33,7 @@ class Settings extends ChangeNotifier {
   // Phone screen on the glasses
   String mirrorRegion = 'strip'; // strip (readable band), top (top half), full
   int mirrorStrip = 0; // strip position, 0 (top) .. 100 (bottom)
-  int mirrorFpsTenths = 10; // 10 = 1 frame a second
+  int mirrorFpsTenths = 20; // capture rate (20 = 2 a second; sending paces itself to the glasses)
   String mirrorInvert = 'auto'; // auto, on, off
   String mirrorStyle = 'text'; // text (sharp) or photo (dithered)
   int mirrorX = 0, mirrorY = 20, mirrorW = 100, mirrorH = 30; // custom area, % of screen
