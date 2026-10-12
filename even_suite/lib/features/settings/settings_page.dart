@@ -21,7 +21,7 @@ class SettingsPage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
           children: [
             _Section('Voice', Icons.record_voice_over_rounded, AppColors.claude, [
-              _Label('Hands-free turns itself off after'),
+              const _Label('Hands-free turns itself off after'),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final m in Settings.autoOffChoices)
                   ChoiceChip(
@@ -53,7 +53,7 @@ class SettingsPage extends StatelessWidget {
                 (v) => s.set('holdToTalk', v),
               ),
               const SizedBox(height: 8),
-              _Label('Speech recognizer'),
+              const _Label('Speech recognizer'),
               SegmentedButton<String>(
                 showSelectedIcon: false,
                 segments: const [
@@ -78,7 +78,7 @@ class SettingsPage extends StatelessWidget {
               _Switch('Volume keys page the glasses', 'While the app is open: volume up = up, down = down.',
                   s.volumeKeysScroll, (v) => s.set('volumeKeysScroll', v)),
               const SizedBox(height: 8),
-              _Label('Turn pages automatically'),
+              const _Label('Turn pages automatically'),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final sec in const [0, 5, 8, 12])
                   ChoiceChip(

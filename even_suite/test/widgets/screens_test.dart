@@ -2,7 +2,6 @@
 // large (1.3x) text. Any overflow fails the test. PNGs land in
 // test/screenshots/out/ (CI uploads them).
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:even_suite/core/suite.dart';

@@ -31,8 +31,8 @@ class Suite extends ChangeNotifier {
     proto = Proto(ble);
     display = GlassesDisplay(proto);
     this.client = client ?? BridgeClient(settings.bridgeUrl);
-    chat = ChatController(client);
-    terminal = TerminalController(client, display);
+    chat = ChatController(this.client);
+    terminal = TerminalController(this.client, display);
     voice = VoiceController(
       speech,
       onSubmit: submit,
