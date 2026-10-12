@@ -79,6 +79,10 @@ class ScreenMirror extends ChangeNotifier {
   /// Pause after a missed frame so the glasses can settle before the next.
   Duration coolDown = const Duration(seconds: 1);
 
+  /// Treat a CRC mismatch as a miss (the older behaviour; the glasses show
+  /// the picture anyway, so this is off).
+  bool requireCrc = false;
+
   // State
   bool running = false;
   bool starting = false;
@@ -235,7 +239,7 @@ class ScreenMirror extends ChangeNotifier {
         }
         final t0 = now().millisecondsSinceEpoch;
         final ok = await proto.sendBmp(frame,
-            endTimeoutMs: endTimeoutMs, crcTimeoutMs: crcTimeoutMs, requireCrc: false);
+            endTimeoutMs: endTimeoutMs, crcTimeoutMs: crcTimeoutMs, requireCrc: requireCrc);
         final t1 = now().millisecondsSinceEpoch;
         lastSendMs = t1 - t0;
         EventLog.add('screen', 'sent', {'ok': ok, 'ms': lastSendMs, 'sent': sent + (ok ? 1 : 0)});
