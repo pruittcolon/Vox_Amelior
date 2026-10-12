@@ -1,0 +1,25 @@
+name: even_suite
+description: "Even Suite: the Even Realities G1 demo app, made friendlier, with Claude and Termux."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.3
+
+# Only packages from the open-source EvenDemoApp. Everything else (speech,
+# settings, HTTP) uses Android or the Dart/Flutter SDK directly.
+dependencies:
+  flutter:
+    sdk: flutter
+  crclib: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
