@@ -134,6 +134,9 @@ class Suite extends ChangeNotifier {
     if (display.wpm != settings.readingWpm) display.setWpm(settings.readingWpm);
     EventLog.instance.enabled = settings.diagnostics;
     proto.bmpGapMs = settings.bmpGapMs;
+    proto.bmpChunk = settings.bmpChunk;
+    final ctl = ble.control;
+    if (ctl is PlatformBle) ctl.phy2m = settings.ble2m;
     final mirrorChanged = mirror.region != settings.mirrorRegion ||
         mirror.strip != settings.mirrorStrip ||
         mirror.fpsTenths != settings.mirrorFpsTenths ||

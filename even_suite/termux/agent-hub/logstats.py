@@ -117,6 +117,12 @@ def main(argv):
         print("  total   ", fmt_ms([e["ms"] for e in good]))
         print("  packets ", fmt_ms([e["packetsMs"] for e in good if e.get("packetsMs") is not None]))
         print("  end ack ", fmt_ms([e["endMs"] for e in good if e.get("endMs") is not None]))
+        by_cfg = defaultdict(list)
+        for e in frames:
+            by_cfg[(e.get("chunk", 194), e.get("gapMs"))].append(e)
+        for (chunk, gap), es in sorted(by_cfg.items(), key=lambda kv: str(kv[0])):
+            oks = [e["ms"] for e in es if e.get("ok")]
+            print(f"  chunk={chunk} gap={gap}ms: ok {len(oks)}/{len(es)}  {fmt_ms(oks)}")
         fails = Counter(e.get("stage") for e in frames if not e.get("ok"))
         if fails:
             print("  failed at:", dict(fails))
@@ -167,6 +173,7 @@ def main(argv):
     nat = [e for e in ev if e.get("c") == "native"]
     if nat:
         arms = defaultdict(lambda: Counter())
+        radio = {}
         waits = defaultdict(list)
         mic = Counter()
         for e in nat:
@@ -175,6 +182,8 @@ def main(argv):
                     arms[arm][k] += st.get(k, 0)
                 if st.get("writes"):
                     waits[arm].append(st.get("waitMaxMs", 0))
+                if st.get("phy"):
+                    radio[arm] = f"{st.get('phy')} PHY, MTU {st.get('mtu')}"
             for k, v in (e.get("mic") or {}).items():
                 if isinstance(v, (int, float)) and k != "decodeAvgMs":
                     mic[k] += v
@@ -183,7 +192,8 @@ def main(argv):
             for arm in sorted(arms):
                 a = arms[arm]
                 print(f"  {arm}: writes={a['writes']} bytes={a['bytes']} busy-retries={a['busy']} "
-                      f"dropped={a['dropped']} worst wait={max(waits[arm], default=0):.1f} ms")
+                      f"dropped={a['dropped']} worst wait={max(waits[arm], default=0):.1f} ms  "
+                      f"{radio.get(arm, '')}")
         if mic.get("packets"):
             print(f"Glasses mic: packets={mic['packets']} pcm bytes={mic['bytesOut']} "
                   f"pipe errors={mic['writeErrors']}")

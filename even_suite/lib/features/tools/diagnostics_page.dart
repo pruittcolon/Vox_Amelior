@@ -94,6 +94,25 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                   ),
               ]),
               const SizedBox(height: 10),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Fast radio (Bluetooth 5 2M)', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Up to twice as fast if the glasses accept it. Applies on the next connect.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                value: suite.settings.ble2m,
+                onChanged: (v) => setState(() => suite.settings.set('ble2m', v)),
+              ),
+              const Text('Picture packet size (tuning)', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final (size, label) in const [(194, '194 B (demo)'), (236, '236 B (fewer packets)')])
+                  ChoiceChip(
+                    label: Text(label),
+                    selected: suite.settings.bmpChunk == size,
+                    onSelected: (_) => setState(() => suite.settings.set('bmpChunk', size)),
+                  ),
+              ]),
+              const SizedBox(height: 10),
               Row(children: [
                 Expanded(
                   child: FilledButton.tonalIcon(

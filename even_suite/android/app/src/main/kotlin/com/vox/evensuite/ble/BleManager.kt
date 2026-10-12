@@ -57,6 +57,7 @@ object BleManager {
     private val found = mutableListOf<BleDevice>()
     @Volatile private var pair: BlePairDevice? = null
     @Volatile private var wanted = false // the user wants this pair connected
+    @Volatile var prefer2M = true // ask for Bluetooth 5's 2M radio mode
     private val retries = mutableMapOf<String, Int>()
 
     private val scanSettings = ScanSettings.Builder()
@@ -306,14 +307,31 @@ object BleManager {
             val p = pair ?: return
             val arm = p.armFor(gatt.device.address) ?: return
             Log.i(TAG, "${arm.name}: mtu=$mtu status=$status")
+            arm.mtu = mtu
             // Shortest connection interval: the main limit on packets per second.
             gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+            // Bluetooth 5 "2M" radio mode doubles the over-the-air rate if the
+            // glasses accept it; otherwise the link simply stays at 1M.
+            try {
+                if (prefer2M) {
+                    gatt.setPreferredPhy(BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK,
+                        BluetoothDevice.PHY_OPTION_NO_PREFERRED)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "${arm.name}: setPreferredPhy: $e")
+            }
             if (gatt.device.bondState == BluetoothDevice.BOND_NONE) gatt.device.createBond()
             arm.isConnected = true
             arm.sendData(byteArrayOf(0xf4.toByte(), 0x01.toByte()))
             if (p.isBothConnected()) {
                 emitStatus("glassesConnected", p.toInfoJson() + ("status" to "connected"))
             }
+        }
+
+        override fun onPhyUpdate(gatt: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
+            val arm = pair?.armFor(gatt.device.address) ?: return
+            arm.phy = if (txPhy == BluetoothDevice.PHY_LE_2M) "2M" else if (txPhy == BluetoothDevice.PHY_LE_CODED) "coded" else "1M"
+            Log.i(TAG, "${arm.name}: phy tx=$txPhy rx=$rxPhy status=$status")
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {

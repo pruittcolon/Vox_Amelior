@@ -165,11 +165,15 @@ class Proto {
   static const int bmpPackLen = 194;
   static const List<int> bmpAddress = [0x00, 0x1c, 0x00, 0x00];
 
-  /// Same packets as the demo's BmpUpdateManager.
-  static List<Uint8List> bmpPackets(Uint8List bmp) {
+  /// Picture bytes per packet: the demo's 194, or up to 236 (fits the 247
+  /// byte MTU with the header) for ~20% fewer packets if the glasses accept it.
+  int bmpChunk = bmpPackLen;
+
+  /// Same packets as the demo's BmpUpdateManager (with [chunk] = 194).
+  static List<Uint8List> bmpPackets(Uint8List bmp, {int chunk = bmpPackLen}) {
     final packs = <Uint8List>[];
-    for (int i = 0, index = 0; i < bmp.length; i += bmpPackLen, index++) {
-      final end = i + bmpPackLen < bmp.length ? i + bmpPackLen : bmp.length;
+    for (int i = 0, index = 0; i < bmp.length; i += chunk, index++) {
+      final end = i + chunk < bmp.length ? i + chunk : bmp.length;
       final head = index == 0 ? [0x15, index & 0xff, ...bmpAddress] : [0x15, index & 0xff];
       packs.add(Uint8List.fromList([...head, ...bmp.sublist(i, end)]));
     }
@@ -200,7 +204,7 @@ class Proto {
     int? packetsMs, endMs;
     var endTries = 0;
     try {
-      final packs = bmpPackets(bmp);
+      final packs = bmpPackets(bmp, chunk: bmpChunk);
       final sent = await Future.wait([
         ble.sendBatch(packs, 'L', gapMs: bmpGapMs),
         ble.sendBatch(packs, 'R', gapMs: bmpGapMs),
@@ -242,6 +246,7 @@ class Proto {
         'endMs': endMs,
         'endTries': endTries,
         'gapMs': bmpGapMs,
+        'chunk': bmpChunk,
         'bytes': bmp.length,
       });
     }

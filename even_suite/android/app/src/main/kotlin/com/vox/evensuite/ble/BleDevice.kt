@@ -20,6 +20,8 @@ class BleDevice(
     @Volatile var gatt: BluetoothGatt? = null
     @Volatile var writeCharacteristic: BluetoothGattCharacteristic? = null
     @Volatile var isConnected: Boolean = false
+    @Volatile var mtu: Int = 23
+    @Volatile var phy: String = "1M"
 
     fun isLeft() = name.contains("_L_")
     fun isRight() = name.contains("_R_")
@@ -44,6 +46,7 @@ class BleDevice(
     fun takeStats(): Map<String, Any> {
         val m = mapOf(
             "writes" to statWrites, "bytes" to statBytes, "busy" to statBusy, "dropped" to statDropped,
+            "mtu" to mtu, "phy" to phy,
             "waitAvgMs" to (if (statWrites == 0) 0.0 else statWaitUs / 1000.0 / statWrites),
             "waitMaxMs" to statWaitMaxUs / 1000.0,
         )

@@ -91,10 +91,14 @@ class PlatformBle implements BleTransport, BleControl {
   @override
   Future<void> stopScan() => _call('stopScan');
 
+  /// Ask for the faster Bluetooth 5 radio mode on the next connect.
+  bool phy2m = true;
+
   @override
   Future<String?> connect(GlassesPair pair) => _call('connectToGlasses', {
         'channel': pair.channel,
         'saved': pair.toMap(),
+        'phy2m': phy2m,
       });
 
   @override

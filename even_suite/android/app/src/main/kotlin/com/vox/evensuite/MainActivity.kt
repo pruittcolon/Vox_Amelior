@@ -127,6 +127,7 @@ class MainActivity : FlutterActivity() {
                     result.error("InvalidArguments", "No glasses channel given", null)
                     return
                 }
+                BleManager.prefer2M = args?.get("phy2m") as? Boolean ?: true
                 val error = BleManager.connect(channel, args?.get("saved") as? Map<*, *>)
                 if (error == null) result.success("Connecting") else result.error("Bluetooth", error, null)
             }

@@ -27,6 +27,8 @@ class Settings extends ChangeNotifier {
   bool glassesMic = true; // TouchBar hold listens through the glasses' mic
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
   int bmpGapMs = 5; // gap between picture packets per arm (tuning)
+  int bmpChunk = 194; // picture bytes per packet: 194 (demo) or 236 (tuning)
+  bool ble2m = true; // Bluetooth 5 2M radio mode (applies on the next connect)
   // Phone screen on the glasses
   String mirrorRegion = 'strip'; // strip (readable band), top (top half), full
   int mirrorStrip = 0; // strip position, 0 (top) .. 100 (bottom)
@@ -57,6 +59,8 @@ class Settings extends ChangeNotifier {
     glassesMic = _b(m['glassesMic'], glassesMic);
     diagnostics = _b(m['diagnostics'], diagnostics);
     bmpGapMs = _i(m['bmpGapMs'], bmpGapMs).clamp(0, 30);
+    bmpChunk = _i(m['bmpChunk'], bmpChunk).clamp(100, 236);
+    ble2m = _b(m['ble2m'], ble2m);
     mirrorRegion = _s(m['mirrorRegion'], mirrorRegion);
     mirrorStrip = _i(m['mirrorStrip'], mirrorStrip).clamp(0, 100);
     mirrorFpsTenths = _i(m['mirrorFpsTenths'], mirrorFpsTenths).clamp(2, 50);
@@ -109,6 +113,10 @@ class Settings extends ChangeNotifier {
         diagnostics = value as bool;
       case 'bmpGapMs':
         bmpGapMs = value as int;
+      case 'bmpChunk':
+        bmpChunk = value as int;
+      case 'ble2m':
+        ble2m = value as bool;
       case 'mirrorRegion':
         mirrorRegion = value as String;
       case 'mirrorStrip':
