@@ -9,7 +9,11 @@ class MonoEncoder {
   static const int width = 576;
   static const int height = 136;
   static const int stride = width ~/ 8;
-  static const int bmpSize = 62 + stride * height;
+  static const int dataSize = stride * height;
+
+  /// Like the demo's images: pixel data plus 2 padding bytes, counted in the
+  /// header. The glasses' CRC appears to cover those 2 bytes too.
+  static const int bmpSize = 62 + dataSize + 2;
 
   /// [gray]: width*height luminance bytes. Pixels outside the content box
   /// (x0,y0)-(x1,y1) are letterbox and stay off.
@@ -128,8 +132,9 @@ class MonoEncoder {
     bd.setInt32(22, height, Endian.little);
     bd.setUint16(26, 1, Endian.little);
     bd.setUint16(28, 1, Endian.little);
-    bd.setUint32(34, stride * height, Endian.little);
-    bd.setUint32(46, 2, Endian.little);
+    bd.setUint32(34, dataSize + 2, Endian.little);
+    bd.setInt32(38, 2834, Endian.little); // 72 dpi, as in the demo files
+    bd.setInt32(42, 2834, Endian.little);
     out.setRange(54, 62, const [0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00]);
     var o = 62;
     for (var y = height - 1; y >= 0; y--) {

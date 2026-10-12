@@ -174,8 +174,13 @@ class Suite extends ChangeNotifier {
     _lastConnected = connected;
     _heartbeat?.cancel();
     if (connected) {
-      // Same 8 s heartbeat as the demo keeps the link from idling out.
-      _heartbeat = Timer.periodic(const Duration(seconds: 8), (_) => proto.sendHeartBeat());
+      // Same 8 s heartbeat as the demo keeps the link from idling out - but
+      // not while other traffic (pictures, screens) already does, so it never
+      // cuts into a transfer.
+      _heartbeat = Timer.periodic(const Duration(seconds: 8), (_) {
+        if (DateTime.now().difference(ble.lastReply) < const Duration(seconds: 6)) return;
+        proto.sendHeartBeat();
+      });
     }
     _updateService();
   }

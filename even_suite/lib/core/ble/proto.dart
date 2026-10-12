@@ -196,13 +196,18 @@ class Proto {
   /// picture (~0.8 s over Bluetooth), so it is waited for patiently and asked
   /// again on a timeout; a new picture never starts while one is still
   /// arriving, or the two get mixed up and fail their CRC.
+  ///
+  /// With [requireCrc] false, a picture counts as delivered once the glasses
+  /// confirm the end - they show it even when they report a CRC mismatch
+  /// (0xCA); the CRC result is still logged.
   Future<bool> sendBmp(Uint8List bmp,
-      {int endTimeoutMs = 3000, int endRetries = 2, int crcTimeoutMs = 2000}) async {
+      {int endTimeoutMs = 3000, int endRetries = 2, int crcTimeoutMs = 2000, bool requireCrc = true}) async {
     final sw = Stopwatch()..start();
     var stage = 'packets';
     var ok = false;
     int? packetsMs, endMs;
     var endTries = 0;
+    String? crcStatus;
     try {
       final packs = bmpPackets(bmp, chunk: bmpChunk);
       final sent = await Future.wait([
@@ -233,9 +238,14 @@ class Proto {
         ble.request(crc, lr: 'L', timeoutMs: crcTimeoutMs),
         ble.request(crc, lr: 'R', timeoutMs: crcTimeoutMs),
       ]);
-      // The demo's check: only an explicit non-0xC9 status in byte 5 is a failure.
-      ok = crcs.every((r) => !r.isTimeout && !(r.data.length > 5 && r.data[5] != 0xc9));
-      if (ok) stage = 'done';
+      // Reply: 16 <crc echoed> <status>, status 0xC9 = match, 0xCA = mismatch.
+      crcStatus = crcs
+          .map((r) => r.isTimeout ? 'timeout' : (r.data.length > 5 ? r.data[5].toRadixString(16) : 'short'))
+          .join('/');
+      final crcOk = crcs.every((r) => !r.isTimeout && !(r.data.length > 5 && r.data[5] != 0xc9));
+      final crcAnswered = crcs.every((r) => !r.isTimeout);
+      ok = crcOk || (!requireCrc && crcAnswered);
+      if (ok) stage = crcOk ? 'done' : 'shown-crc-mismatch';
       return ok;
     } finally {
       EventLog.add('bmp', 'frame', {
@@ -247,6 +257,7 @@ class Proto {
         'endTries': endTries,
         'gapMs': bmpGapMs,
         'chunk': bmpChunk,
+        'crc': crcStatus,
         'bytes': bmp.length,
       });
     }

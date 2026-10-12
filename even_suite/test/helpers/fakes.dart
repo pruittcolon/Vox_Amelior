@@ -77,6 +77,12 @@ class FakeGlasses implements BleTransport {
     }
   }
 
+  /// Deliver a raw reply from one arm (for custom fakes).
+  void injectReply(String lr, Uint8List data) => _rx.add(BleReceive()
+    ..lr = lr
+    ..data = data
+    ..type = 'Receive');
+
   /// Simulate a TouchBar event.
   void touch(int code, String lr) => _rx.add(BleReceive()
     ..lr = lr

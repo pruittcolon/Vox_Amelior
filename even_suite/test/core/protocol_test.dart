@@ -159,6 +159,16 @@ void main() {
       expect(glasses.batchGaps, [5, 5], reason: 'packets paced like the demo');
     });
 
+    test('image: a CRC mismatch (0xCA) still counts as shown when the CRC is not required', () async {
+      final bmp = File('assets/images/image_2.bmp').readAsBytesSync();
+      final mismatch = _MismatchGlasses();
+      final b = BleManager(mismatch);
+      final p = Proto(b);
+      expect(await p.sendBmp(bmp), isFalse, reason: 'strict: mismatch is a failure');
+      expect(await p.sendBmp(bmp, requireCrc: false), isTrue, reason: 'the glasses show it anyway');
+      b.dispose();
+    });
+
     test('TouchBar packets become events, not replies', () async {
       final events = <GlassesEvent>[];
       final sub = ble.events.listen(events.add);
@@ -180,4 +190,16 @@ void main() {
       expect(r.isTimeout, isTrue);
     });
   });
+}
+
+/// Glasses that answer the CRC with 0xCA (mismatch), as seen in the logs.
+class _MismatchGlasses extends FakeGlasses {
+  @override
+  Future<void> send(Uint8List data, String? lr) async {
+    if (data[0] != 0x16) return super.send(data, lr);
+    for (final arm in lr == null ? ['L', 'R'] : [lr]) {
+      sent[arm]!.add(data);
+      Future.microtask(() => injectReply(arm, Uint8List.fromList([0x16, data[1], data[2], data[3], data[4], 0xCA])));
+    }
+  }
 }

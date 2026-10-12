@@ -234,7 +234,8 @@ class ScreenMirror extends ChangeNotifier {
           continue;
         }
         final t0 = now().millisecondsSinceEpoch;
-        final ok = await proto.sendBmp(frame, endTimeoutMs: endTimeoutMs, crcTimeoutMs: crcTimeoutMs);
+        final ok = await proto.sendBmp(frame,
+            endTimeoutMs: endTimeoutMs, crcTimeoutMs: crcTimeoutMs, requireCrc: false);
         final t1 = now().millisecondsSinceEpoch;
         lastSendMs = t1 - t0;
         EventLog.add('screen', 'sent', {'ok': ok, 'ms': lastSendMs, 'sent': sent + (ok ? 1 : 0)});
@@ -260,13 +261,19 @@ class ScreenMirror extends ChangeNotifier {
   }
 
   int _capturedInterval = 0;
+  final _recentSends = <int>[];
 
-  /// Do not capture faster than the glasses can take frames: if a send takes
-  /// longer than the chosen interval, slow the capture down to match (and
-  /// speed back up when sends get quick again).
+  /// Do not capture much faster than the glasses take frames: pace capture to
+  /// the median of the last few send times (one slow frame does not slow
+  /// everything down), never more than twice the chosen interval.
   void _adapt() {
     final want = (10000 / fpsTenths).round();
-    final need = lastSendMs > want ? ((lastSendMs * 1.15) ~/ 100 + 1) * 100 : want;
+    _recentSends.add(lastSendMs);
+    if (_recentSends.length > 5) _recentSends.removeAt(0);
+    final sorted = [..._recentSends]..sort();
+    final median = sorted[sorted.length ~/ 2];
+    var need = median > want ? ((median * 1.1) ~/ 100 + 1) * 100 : want;
+    if (need > want * 2) need = want * 2;
     if (need != _capturedInterval) {
       _capturedInterval = need;
       EventLog.add('screen', 'interval', {'ms': need, 'sendMs': lastSendMs});

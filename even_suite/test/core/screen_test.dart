@@ -31,10 +31,11 @@ void main() {
     test('BMP header matches the demo images', () {
       final demo = File('assets/images/image_2.bmp').readAsBytesSync();
       final mine = MonoEncoder.encode(grayOf((x, y) => 0)).bmp;
-      expect(mine.length, 62 + 72 * 136);
-      expect(mine.sublist(0, 2), demo.sublist(0, 2)); // BM
-      expect(mine.sublist(10, 30), demo.sublist(10, 30)); // offset, header size, w, h, planes, bpp
+      expect(mine.length, demo.length, reason: '9856 bytes like the demo (2 padding bytes)');
+      expect(mine.sublist(0, 30), demo.sublist(0, 30)); // BM, file size, offset, header, w, h, planes, bpp
+      expect(mine.sublist(34, 54), demo.sublist(34, 54)); // image size, 72 dpi, colours
       expect(mine.sublist(54, 62), demo.sublist(54, 62)); // palette: white, black
+      expect(mine.sublist(mine.length - 2), [0, 0]);
     });
 
     test('bright pixels are lit, rows are stored bottom-up', () {

@@ -243,6 +243,10 @@ class BleManager extends ChangeNotifier {
 
   // ------------------------------------------------------- request/response
 
+  /// When the glasses last answered anything (heartbeats are skipped while
+  /// other traffic keeps the link busy, e.g. screen sharing).
+  DateTime lastReply = DateTime.fromMillisecondsSinceEpoch(0);
+
   final _reqListen = <String, Completer<BleReceive>>{};
   final _reqTimeout = <String, Timer>{};
   Completer<BleReceive>? _nextReceive;
@@ -255,6 +259,7 @@ class BleManager extends ChangeNotifier {
       return;
     }
     final cmd = _key(res.lr, res.data[0]);
+    if (res.data[0] != 0x25) lastReply = DateTime.now();
     _reqListen.remove(cmd)?.complete(res);
     _reqTimeout.remove(cmd)?.cancel();
     final next = _nextReceive;
