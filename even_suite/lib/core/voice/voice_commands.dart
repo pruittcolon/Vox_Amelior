@@ -19,6 +19,10 @@ enum VoiceCommand {
   choice1,
   choice2,
   choice3,
+  pause,
+  resume,
+  faster,
+  slower,
 }
 
 /// The end of a message: [body] is what to send, [command] is send/cancel.
@@ -91,6 +95,10 @@ class VoiceCommands {
     VoiceCommand.choice2: [
       'two', 'option two', 'press two', 'number two', '2', 'option 2', 'press 2',
     ],
+    VoiceCommand.pause: ['pause', 'hold on', 'wait', 'stop scrolling', 'hold it'],
+    VoiceCommand.resume: ['resume', 'play', 'keep going', 'go on', 'start scrolling', 'keep scrolling'],
+    VoiceCommand.faster: ['faster', 'speed up', 'go faster', 'scroll faster'],
+    VoiceCommand.slower: ['slower', 'slow down', 'go slower', 'scroll slower'],
     VoiceCommand.choice3: [
       'three', 'option three', 'press three', 'number three', '3', 'option 3', 'press 3',
     ],

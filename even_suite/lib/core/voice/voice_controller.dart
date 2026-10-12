@@ -69,6 +69,12 @@ class VoiceController extends ChangeNotifier {
   String? error;
   String? hint;
   DateTime? autoOffAt;
+
+  /// Where the audio comes from: 'phone', or 'glasses' while the TouchBar is held.
+  String source = 'phone';
+
+  /// The recognizer confirmed it is hearing the glasses' microphone.
+  bool glassesMic = false;
   final level = ValueNotifier<double>(0);
 
   // Per recognition session
@@ -111,7 +117,9 @@ class VoiceController extends ChangeNotifier {
   /// Talk button: start a message, or stop taking it down (keeping the text).
   Future<void> toggleTalk() => dictating ? stopDictation() : startDictation();
 
-  Future<void> startDictation({bool hold = false}) async {
+  Future<void> startDictation({bool hold = false, String source = 'phone'}) async {
+    if (listening && this.source != source) await _stopListening();
+    this.source = source;
     error = null;
     hint = null;
     holding = hold;
@@ -134,7 +142,7 @@ class VoiceController extends ChangeNotifier {
     holding = false;
     _idleTimer?.cancel();
     mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
-    if (!handsFree) await _stopListening();
+    await _afterMessage();
     notifyListeners();
   }
 
@@ -164,7 +172,7 @@ class VoiceController extends ChangeNotifier {
     _idleTimer?.cancel();
     if (dictating) {
       mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
-      if (!handsFree) await _stopListening();
+      await _afterMessage();
     }
     notifyListeners();
   }
@@ -188,6 +196,9 @@ class VoiceController extends ChangeNotifier {
       case 'ready':
         if (error != null && !handsFree && !dictating) break;
         error = null;
+      case 'source':
+        glassesMic = e.glassesMic;
+        notifyListeners();
       case 'level':
         // Recognizer RMS is roughly -2..10 dB.
         level.value = ((e.level + 2) / 12).clamp(0.0, 1.0);
@@ -356,7 +367,7 @@ class VoiceController extends ChangeNotifier {
     mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
     hint = t.isEmpty ? 'Nothing to send' : null;
     notifyListeners();
-    if (!handsFree) await _stopListening();
+    await _afterMessage();
     if (t.isNotEmpty) await onSubmit(t);
   }
 
@@ -380,19 +391,37 @@ class VoiceController extends ChangeNotifier {
       if (!dictating || holding) return;
       mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
       hint = draft.isEmpty ? null : 'Paused. Tap Send, or say “Claude, send”.';
-      if (!handsFree) _stopListening();
+      _afterMessage();
       notifyListeners();
     });
   }
 
   // --------------------------------------------------------------- engine
 
+  /// A message is done: the mic goes off, or back to the phone for hands-free.
+  Future<void> _afterMessage() async {
+    if (!handsFree) {
+      await _stopListening();
+      source = 'phone';
+      return;
+    }
+    if (source != 'phone') {
+      await _stopListening();
+      source = 'phone';
+      await _ensureListening();
+    }
+  }
+
   Future<void> _ensureListening() async {
     if (listening) return;
     listening = true;
     try {
       await engine.start(
-          continuous: true, language: language, quiet: quiet, engine: engineName);
+          continuous: true,
+          language: language,
+          quiet: quiet && source == 'phone',
+          engine: engineName,
+          audioSource: source);
     } catch (e) {
       listening = false;
       error = 'Could not start the microphone: $e';
@@ -405,6 +434,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> _stopListening() async {
     if (!listening) return;
     listening = false;
+    glassesMic = false;
     level.value = 0;
     try {
       await engine.stop();

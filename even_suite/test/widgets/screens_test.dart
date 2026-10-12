@@ -61,12 +61,14 @@ class _World {
   final control = FakeControl();
   final speech = FakeSpeech();
   final bridge = FakeBridgeClient();
+  final screen = FakeScreen();
   late final Suite suite = Suite(
     system: system,
     transport: glasses,
     control: control,
     speech: speech,
     client: bridge,
+    screen: screen,
   );
 }
 
@@ -117,6 +119,7 @@ void main() {
       w.speech.say('Claude remind me about the dentist at noon send');
       await tester.pump();
       expect(w.bridge.sentTexts.last, 'remind me about the dentist at noon');
+      expect(w.bridge.lastSystem, contains('characters'), reason: 'glasses formatting goes with every message');
       w.bridge.addReply('Done. I will remind you at 12:00.');
       await tester.pump();
       await _shot(tester, '4_claude_chat$tag');
@@ -133,6 +136,18 @@ void main() {
       await tester.tap(find.byIcon(Icons.terminal_outlined));
       await tester.pump();
       await _shot(tester, '5_terminal$tag');
+
+      // Screen tab, sharing, with a frame on the glasses.
+      await tester.tap(find.byIcon(Icons.cast_outlined));
+      await tester.pump();
+      await suite.mirror.start();
+      w.screen.frame((x, y) => (y ~/ 12).isOdd && (x ~/ 6) % 7 != 0 && x > 40 && x < 536);
+      await tester.pump();
+      await tester.runAsync(() => precacheImage(
+          MemoryImage(suite.mirror.preview!), tester.element(find.byType(EvenSuiteApp))));
+      await _shot(tester, '5b_screen$tag');
+      await suite.mirror.stop();
+      await tester.pump();
 
       // Tools, then each tool page.
       await tester.tap(find.byIcon(Icons.widgets_outlined));
@@ -179,20 +194,34 @@ void main() {
     await tester.pump();
     expect(suite.display.pager!.page, 0);
 
-    // Long press left: talk; release: send.
+    // Long press left (Even AI gesture): listen through the glasses' mic.
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
     expect(suite.voice.dictating, isTrue);
     expect(suite.voice.holding, isTrue);
+    expect(w.speech.lastSource, 'glasses');
+    bool micPacket(int on) => w.glasses.sent['R']!.any((p) => p.length == 2 && p[0] == 0x0E && p[1] == on);
+    expect(micPacket(1), isTrue, reason: 'glasses microphone on');
     w.speech.partial('what is the weather');
     await tester.pump(const Duration(milliseconds: 500));
-    expect(w.glasses.screens().last, contains('what is the weather'));
+    expect(w.glasses.screens().join(), isNot(contains('what is the weather')),
+        reason: 'the glasses show their own listening screen while held');
     w.glasses.touch(24, 'L');
     await tester.pump();
+    expect(micPacket(0), isTrue, reason: 'microphone off on release');
     w.speech.say('what is the weather', finishing: true);
     await tester.pump();
     expect(w.bridge.sentTexts, ['what is the weather']);
+    expect(w.bridge.lastSystem, contains('G1'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x31,
+        reason: 'thinking screen uses the Even AI state');
+    w.bridge.addReply('Sunny and 22 degrees.');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('Sunny'));
+    expect(w.speech.running, isFalse, reason: 'mic off again (hands-free is off)');
 
     // Double tap: the glasses left our screen.
     w.glasses.touch(0, 'L');

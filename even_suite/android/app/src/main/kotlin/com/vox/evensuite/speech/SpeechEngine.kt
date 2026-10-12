@@ -2,6 +2,7 @@ package com.vox.evensuite.speech
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioFormat
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -36,10 +37,12 @@ class SpeechEngine(
     private var preferOffline = true
     private var quiet = true
     private var engine = "auto"
+    private var audioSource = "phone" // or "glasses" (Android 13+)
     private var failures = 0
     private var muted = false
     private var lastLevelAt = 0L
     private var finishing = false
+    private var usingGlasses = false
 
     fun isAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(context) ||
         (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context))
@@ -49,6 +52,7 @@ class SpeechEngine(
         language = (args?.get("language") as? String)?.takeIf { it.isNotBlank() }
         preferOffline = args?.get("preferOffline") as? Boolean ?: true
         quiet = args?.get("quiet") as? Boolean ?: true
+        audioSource = args?.get("audioSource") as? String ?: "phone"
         val newEngine = args?.get("engine") as? String ?: "auto"
         if (newEngine != engine) {
             destroyRecognizer()
@@ -71,6 +75,7 @@ class SpeechEngine(
             recognizer?.cancel()
         } catch (_: Exception) {
         }
+        GlassesMic.closeStreamNow()
         unmute()
         emit(mapOf("type" to "state", "listening" to false))
     }
@@ -79,6 +84,7 @@ class SpeechEngine(
     fun finish() {
         if (!active) return
         finishing = true
+        if (usingGlasses) GlassesMic.endStream()
         try {
             recognizer?.stopListening()
         } catch (_: Exception) {
@@ -111,6 +117,20 @@ class SpeechEngine(
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
         }
+        // Glasses microphone: decoded G1 audio through a pipe. A recognizer that
+        // does not support this simply uses the phone's microphone instead.
+        usingGlasses = false
+        if (audioSource == "glasses" && Build.VERSION.SDK_INT >= 33) {
+            val pipe = GlassesMic.openStream()
+            if (pipe != null) {
+                usingGlasses = true
+                intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, pipe)
+                intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                intent.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
+            }
+        }
+        emit(mapOf("type" to "source", "glasses" to usingGlasses))
         // The Google recognizer plays a chime at every start. While waiting for
         // the wake word that would chime every few seconds, so mute briefly.
         if (quiet && continuous) mute()
@@ -224,6 +244,7 @@ class SpeechEngine(
 
     override fun onError(error: Int) {
         unmute()
+        if (usingGlasses) GlassesMic.closeStreamNow()
         val wasFinishing = finishing
         finishing = false
         when (error) {
@@ -257,6 +278,7 @@ class SpeechEngine(
 
     override fun onResults(results: Bundle?) {
         unmute()
+        if (usingGlasses) GlassesMic.closeStreamNow()
         failures = 0
         val wasFinishing = finishing
         finishing = false

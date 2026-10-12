@@ -10,6 +10,9 @@ class SpeechEvent {
   final bool listening;
   final String message;
 
+  /// For 'source' events: audio is coming from the glasses' microphone.
+  final bool glassesMic;
+
   const SpeechEvent(
     this.type, {
     this.text = '',
@@ -18,6 +21,7 @@ class SpeechEvent {
     this.fatal = false,
     this.listening = false,
     this.message = '',
+    this.glassesMic = false,
   });
 
   factory SpeechEvent.fromMap(Map map) => SpeechEvent(
@@ -28,6 +32,7 @@ class SpeechEvent {
         fatal: map['fatal'] as bool? ?? false,
         listening: map['listening'] as bool? ?? false,
         message: map['message'] as String? ?? '',
+        glassesMic: map['glasses'] as bool? ?? false,
       );
 
   @override
@@ -39,12 +44,15 @@ abstract class SpeechEngine {
   Future<bool> available();
 
   /// Start listening. Continuous mode restarts after every utterance.
+  /// [audioSource] 'glasses' streams the G1 microphone (Android 13+; other
+  /// phones fall back to their own microphone).
   Future<void> start({
     bool continuous = true,
     String language = '',
     bool preferOffline = true,
     bool quiet = true,
     String engine = 'auto',
+    String audioSource = 'phone',
   });
 
   Future<void> stop();
@@ -79,6 +87,7 @@ class PlatformSpeech implements SpeechEngine {
     bool preferOffline = true,
     bool quiet = true,
     String engine = 'auto',
+    String audioSource = 'phone',
   }) =>
       _methods.invokeMethod('start', {
         'continuous': continuous,
@@ -86,6 +95,7 @@ class PlatformSpeech implements SpeechEngine {
         'preferOffline': preferOffline,
         'quiet': quiet,
         'engine': engine,
+        'audioSource': audioSource,
       });
 
   @override

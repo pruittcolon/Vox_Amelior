@@ -22,6 +22,9 @@ class ChatController extends ChangeNotifier {
   bool busy = false;
   String? error;
 
+  /// Sent with every message as Claude's system prompt (glasses formatting).
+  String? system;
+
   /// A finished reply to something sent from this app.
   void Function(BridgeMessage reply)? onReply;
 
@@ -89,7 +92,7 @@ class ChatController extends ChangeNotifier {
     busy = true;
     notifyListeners();
     try {
-      await client.send(t, to: 'claude');
+      await client.send(t, to: 'claude', system: system);
       state = BridgeState.online;
       error = null;
     } catch (e) {

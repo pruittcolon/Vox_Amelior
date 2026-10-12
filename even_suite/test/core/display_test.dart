@@ -51,6 +51,23 @@ void main() {
       expect(p.page, 1, reason: 'scrolled back: stays');
     });
 
+    test('chunks stay together on a screen; a long chunk starts on a fresh one', () {
+      final p = GlassesPager.fromText('Short one.\n\nAnother short one.\n\n${'word ' * 60}\n\nThe end.');
+      expect(p.pageLines.join(' '), 'Short one. Another short one.',
+          reason: 'two small chunks share the first screen');
+      p.down();
+      expect(p.pageLines.first, startsWith('word'), reason: 'the long chunk starts on its own screen');
+      p.bottom();
+      expect(p.pageLines.join(' '), contains('The end.'));
+    });
+
+    test('screen size is measured with the glasses layout', () {
+      final size = GlassesText.screenSize();
+      expect(size.lines, 5);
+      expect(size.charsPerLine, greaterThan(10));
+      expect(size.chars, size.charsPerLine * 5);
+    });
+
     test('terminal screens become glasses lines without box drawing', () {
       final lines = TerminalController.glassesLines('╭────╮\n│ > hi │\n╰────╯\n● Done → ok\n\n───\n');
       expect(lines.join('\n'), isNot(contains('─')));
@@ -129,6 +146,55 @@ void main() {
       expect(screens.length, lessThanOrEqualTo(3));
       d.dispose();
       b.dispose();
+    });
+
+    testWidgets('teleprompter: pages turn at reading speed; left tap pauses, right tap resumes',
+        (tester) async {
+      final g = FakeGlasses();
+      final c = FakeControl();
+      final b = BleManager(g, control: c);
+      final d = GlassesDisplay(Proto(b))..wpm = 180;
+      await c.connectNow();
+      d.showText(longText, title: 'Claude');
+      await tester.pump();
+      expect(d.pager!.page, 0);
+      expect(d.scrolling, isTrue);
+      final first = d.pageTime(first: true);
+      await tester.pump(first + const Duration(milliseconds: 50));
+      expect(d.pager!.page, 1, reason: 'turned by itself');
+      d.tapLeft();
+      await tester.pump();
+      expect(d.pager!.page, 0);
+      expect(d.paused, isTrue);
+      await tester.pump(const Duration(seconds: 20));
+      expect(d.pager!.page, 0, reason: 'paused: stays put');
+      d.tapRight();
+      await tester.pump();
+      expect(d.pager!.page, 1);
+      expect(d.paused, isFalse);
+      expect(d.scrolling, isTrue);
+      d.faster();
+      expect(d.wpm, 230);
+      d.slower();
+      d.slower();
+      expect(d.wpm, 140);
+      d.setWpm(0);
+      expect(d.scrolling, isFalse);
+      d.dispose();
+      b.dispose();
+    });
+
+    test('a TouchBar question uses the Even AI screen states', () async {
+      display.showText(longText, ai: true);
+      await settle();
+      final firstStatus = glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4];
+      expect(firstStatus, 0x31, reason: 'Even AI showing');
+      display.down();
+      await settle();
+      expect(glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x51, reason: 'manual paging');
+      display.showText('plain note');
+      await settle();
+      expect(glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x71, reason: 'text page');
     });
 
     test('clear exits on the glasses; nothing is sent while disconnected', () async {

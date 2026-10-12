@@ -110,6 +110,13 @@ class GlassesPreview extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (display.canScroll)
+              IconButton(
+                tooltip: display.scrolling ? 'Pause scrolling' : 'Scroll at reading speed',
+                onPressed: display.togglePause,
+                icon: Icon(display.scrolling ? Icons.pause_circle_rounded : Icons.play_circle_rounded,
+                    color: AppColors.hud),
+              ),
             PageButtons(
               compact: true,
               label: display.pageLabel,

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -22,6 +23,9 @@ class MainActivity : FlutterActivity() {
     private lateinit var systemChannel: MethodChannel
     private val bleEvents = Sink()
     private val speechEvents = Sink()
+    private val screenEvents = Sink()
+    private var pendingScreen: MethodChannel.Result? = null
+    private var pendingScreenConfig: Map<*, *>? = null
     private var speech: SpeechEngine? = null
 
     private var pendingPermissions: MethodChannel.Result? = null
@@ -72,6 +76,13 @@ class MainActivity : FlutterActivity() {
         }
         EventChannel(messenger, "suite/speechEvents").setStreamHandler(speechEvents)
 
+        MethodChannel(messenger, "suite/screen").setMethodCallHandler(::onScreenCall)
+        EventChannel(messenger, "suite/screenFrames").setStreamHandler(screenEvents)
+        SuiteService.onMirrorFrame = { frame -> runOnUiThread { screenEvents.send(frame) } }
+        SuiteService.onMirrorStopped = { reason ->
+            runOnUiThread { screenEvents.send(mapOf("stopped" to true, "reason" to (reason ?: ""))) }
+        }
+
         systemChannel = MethodChannel(messenger, "suite/system")
         systemChannel.setMethodCallHandler(::onSystemCall)
         SuiteService.onStopListening = {
@@ -87,6 +98,9 @@ class MainActivity : FlutterActivity() {
             BleManager.disconnect()
             SuiteService.update(this, listening = false, glasses = false, text = "")
             SuiteService.onStopListening = null
+            SuiteService.stopMirror(this)
+            SuiteService.onMirrorFrame = null
+            SuiteService.onMirrorStopped = null
         }
         super.onDestroy()
     }
@@ -133,6 +147,49 @@ class MainActivity : FlutterActivity() {
             "startEvenAI", "stopEvenAI" -> result.success(null)
             else -> result.notImplemented()
         }
+    }
+
+    // ---------------------------------------------------------------- screen
+
+    private fun onScreenCall(call: MethodCall, result: MethodChannel.Result) {
+        val args = call.arguments as? Map<*, *>
+        when (call.method) {
+            "start" -> {
+                // Android shows its own "start recording or casting?" prompt.
+                pendingScreen?.success("busy")
+                pendingScreen = result
+                pendingScreenConfig = args
+                val mpm = getSystemService(MediaProjectionManager::class.java)
+                try {
+                    startActivityForResult(mpm.createScreenCaptureIntent(), SCREEN_REQUEST)
+                } catch (e: Exception) {
+                    pendingScreen = null
+                    result.success("error: ${e.message}")
+                }
+            }
+            "stop" -> {
+                SuiteService.stopMirror(this)
+                result.success(null)
+            }
+            "configure" -> {
+                SuiteService.configureMirror(args)
+                result.success(null)
+            }
+            else -> result.notImplemented()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != SCREEN_REQUEST) return
+        val result = pendingScreen ?: return
+        pendingScreen = null
+        if (resultCode != RESULT_OK || data == null) {
+            result.success("denied")
+            return
+        }
+        val error = SuiteService.startMirror(this, resultCode, data, pendingScreenConfig)
+        result.success(error?.let { "error: $it" } ?: "ok")
     }
 
     // --------------------------------------------------------------- system
@@ -291,6 +348,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val PERMISSION_REQUEST = 41
+        private const val SCREEN_REQUEST = 42
         private const val TERMUX = "com.termux"
         private const val TERMUX_PERMISSION = "com.termux.permission.RUN_COMMAND"
     }

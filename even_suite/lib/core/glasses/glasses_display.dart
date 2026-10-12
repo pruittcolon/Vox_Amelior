@@ -14,6 +14,9 @@ enum DisplayMode { idle, reply, live, mirror }
 ///   any older one that has not been sent yet;
 /// - an identical screen is never resent;
 /// - live text (dictation, terminal) is throttled so BLE is not flooded;
+/// - replies scroll like a teleprompter: each page stays up as long as it
+///   takes to read at [wpm] words per minute. Right tap = next (and keep
+///   going), left tap = back and pause;
 /// - the phone shows the same screen as a preview, glasses connected or not.
 class GlassesDisplay extends ChangeNotifier {
   GlassesDisplay(this.proto, {this.liveGap = const Duration(milliseconds: 400)}) {
@@ -29,9 +32,17 @@ class GlassesDisplay extends ChangeNotifier {
   String title = '';
   String? error;
 
-  /// Seconds between automatic page turns for replies (0 = only by hand).
-  int autoScrollSeconds = 0;
+  /// Reading speed for automatic page turns; 0 = only by hand.
+  int wpm = 0;
 
+  /// Teleprompter paused (by a left tap, "pause", or the phone).
+  bool paused = false;
+
+  /// The reply answers a TouchBar question: use the Even AI screen states
+  /// (0x30 scrolling, 0x40 last page, 0x50 manual) like the demo.
+  bool ai = false;
+
+  bool _manual = false;
   bool _sending = false;
   bool _dirty = false;
   String _shownKey = '';
@@ -40,13 +51,15 @@ class GlassesDisplay extends ChangeNotifier {
   Timer? _auto;
   bool _wasConnected = false;
 
+  static const wpmChoices = [0, 140, 180, 230];
+
   BleManager get _ble => proto.ble;
 
   /// Lines of the screen currently on (or meant for) the glasses.
   List<String> get previewLines {
     final p = pager;
     if (p == null || mode == DisplayMode.idle) return const [];
-    return p.screen().split('\n').where((l) => l.isNotEmpty).toList();
+    return p.pageLines;
   }
 
   String get pageLabel {
@@ -58,24 +71,26 @@ class GlassesDisplay extends ChangeNotifier {
   bool get canUp => pager != null && mode != DisplayMode.idle && !pager!.atStart;
   bool get canDown => pager != null && mode != DisplayMode.idle && !pager!.atEnd;
 
+  /// A reply is turning its own pages right now.
+  bool get scrolling => _auto != null;
+
+  /// Teleprompter is available for what is shown (a multi-page reply).
+  bool get canScroll => mode == DisplayMode.reply && wpm > 0 && (pager?.pageCount ?? 0) > 1;
+
   // ------------------------------------------------------------------ show
 
-  /// A finished text (a Claude reply, a note): starts on the first screen.
-  void showText(String text, {String title = 'Text'}) {
+  /// A finished text (a Claude reply, a note): starts on the first screen and
+  /// scrolls at reading speed when [wpm] is set.
+  void showText(String text, {String title = 'Text', bool ai = false}) {
     _stopAuto();
     mode = DisplayMode.reply;
     this.title = title;
+    this.ai = ai;
+    _manual = false;
+    paused = false;
     pager = GlassesPager.fromText(text);
     _schedule(immediate: true);
-    if (autoScrollSeconds > 0 && pager!.pageCount > 1) {
-      _auto = Timer.periodic(Duration(seconds: autoScrollSeconds), (t) {
-        if (!(pager?.down() ?? false)) {
-          t.cancel();
-        } else {
-          _schedule(immediate: true);
-        }
-      });
-    }
+    _armAuto(first: true);
   }
 
   /// Text that keeps changing (what you are saying): newest lines shown.
@@ -89,6 +104,7 @@ class GlassesDisplay extends ChangeNotifier {
       pager!.update(lines);
     }
     this.title = title;
+    ai = false;
     _schedule();
   }
 
@@ -103,6 +119,7 @@ class GlassesDisplay extends ChangeNotifier {
       pager!.update(lines);
     }
     this.title = title;
+    ai = false;
     _schedule();
   }
 
@@ -113,12 +130,103 @@ class GlassesDisplay extends ChangeNotifier {
   bool top() => _page(() => pager?.top() ?? false);
   bool bottom() => _page(() => pager?.bottom() ?? false);
 
+  /// Right TouchBar: next page, and keep scrolling from there.
+  void tapRight() {
+    if (mode == DisplayMode.idle) return;
+    final moved = down();
+    if (canScroll && (paused || moved)) {
+      paused = false;
+      _armAuto();
+      notifyListeners();
+    }
+  }
+
+  /// Left TouchBar: back a page and hold it there.
+  void tapLeft() {
+    if (mode == DisplayMode.idle) return;
+    up();
+    if (canScroll) pause();
+  }
+
+  void pause() {
+    if (paused && _auto == null) return;
+    paused = true;
+    _stopAuto();
+    notifyListeners();
+  }
+
+  void resume() {
+    if (!canScroll) return;
+    paused = false;
+    _armAuto();
+    notifyListeners();
+  }
+
+  void togglePause() {
+    if (paused || !scrolling) {
+      resume();
+    } else {
+      pause();
+    }
+  }
+
+  /// Change reading speed (from the phone or "faster" / "slower").
+  void setWpm(int value) {
+    wpm = value;
+    if (value == 0) {
+      _stopAuto();
+    } else if (canScroll && !paused) {
+      _armAuto();
+    }
+    notifyListeners();
+  }
+
+  void faster() => setWpm(_nextWpm(1));
+  void slower() => setWpm(_nextWpm(-1));
+
+  int _nextWpm(int dir) {
+    final speeds = wpmChoices.where((w) => w > 0).toList();
+    if (wpm == 0) return dir > 0 ? speeds.first : 0;
+    var i = speeds.indexWhere((w) => w >= wpm);
+    if (i < 0) i = speeds.length - 1;
+    final next = i + dir;
+    if (next < 0) return 0;
+    return speeds[next.clamp(0, speeds.length - 1)];
+  }
+
   bool _page(bool Function() move) {
     if (mode == DisplayMode.idle) return false;
-    _stopAuto();
+    _manual = true;
     final moved = move();
-    if (moved) _schedule(immediate: true);
+    if (moved) {
+      if (_auto != null) _armAuto(); // keep scrolling, from the new page
+      _schedule(immediate: true);
+    }
     return moved;
+  }
+
+  /// How long the current page stays up when scrolling.
+  @visibleForTesting
+  Duration pageTime({bool first = false}) {
+    final words = pager?.pageWords ?? 0;
+    final ms = (words * 60000 / (wpm == 0 ? 180 : wpm)).round() + (first ? 1200 : 600);
+    return Duration(milliseconds: ms.clamp(2500, 15000));
+  }
+
+  void _armAuto({bool first = false}) {
+    _stopAuto();
+    if (!canScroll || paused) return;
+    final p = pager!;
+    if (p.atEnd) return;
+    _auto = Timer(pageTime(first: first), () {
+      _auto = null;
+      if (mode != DisplayMode.reply || paused) return;
+      if (p.down()) {
+        _schedule(immediate: true);
+        _armAuto();
+      }
+      notifyListeners();
+    });
   }
 
   /// Clear the glasses (back to their dashboard).
@@ -141,6 +249,8 @@ class GlassesDisplay extends ChangeNotifier {
     mode = DisplayMode.idle;
     pager = null;
     title = '';
+    ai = false;
+    paused = false;
     _shownKey = '';
   }
 
@@ -192,11 +302,21 @@ class GlassesDisplay extends ChangeNotifier {
     }
   }
 
+  /// 0x4E screen status for what is shown.
+  int get _status {
+    if (!ai || mode != DisplayMode.reply) return Proto.textShow;
+    final p = pager!;
+    if (_manual || paused) return Proto.aiManual;
+    if (p.atEnd && p.pageCount > 1) return Proto.aiComplete;
+    return Proto.aiShowing;
+  }
+
   Future<void> _sendCurrent() async {
     final p = pager;
     if (p == null || mode == DisplayMode.idle || !_ble.isConnected) return;
     final screen = p.screen();
-    final key = '${p.page}/${p.pageCount}|$screen';
+    final status = _status;
+    final key = '${p.page}/${p.pageCount}|$status|$screen';
     if (key == _shownKey) return;
     _lastSend = DateTime.now();
     // Live screens are replaced soon anyway; a finished reply gets retries.
@@ -205,7 +325,7 @@ class GlassesDisplay extends ChangeNotifier {
     for (var i = 0; i < tries && !ok; i++) {
       if (_dirty) return; // something newer is waiting
       ok = await proto.sendEvenAIData(screen,
-          newScreen: Proto.newScreen(Proto.textShow),
+          newScreen: Proto.newScreen(status),
           currentPage: p.page + 1,
           maxPage: p.pageCount);
     }

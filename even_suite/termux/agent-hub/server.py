@@ -205,6 +205,9 @@ class Bridge:
         self.convo = {"claude": None, "agy": None}  # conversation ids
         self.busy = {}                              # agent -> Popen
         self.relay_token = 0
+        # Extra system prompt for Claude (the Even Suite app sends the glasses'
+        # screen size so answers come in screen-sized chunks).
+        self.system = ""
         self.load()
 
     # ---- persistence & change notification
@@ -214,6 +217,7 @@ class Bridge:
                 data = json.load(f)
             self.messages = data.get("messages", [])
             self.convo.update(data.get("convo", {}))
+            self.system = data.get("system", "")
             for m in self.messages:  # anything mid-flight died with the old server
                 if m.get("status") == "pending":
                     m["status"], m["text"] = "error", "Interrupted (server restarted)."
@@ -226,7 +230,8 @@ class Bridge:
             os.makedirs(DATA_DIR, exist_ok=True)
             tmp = STATE_FILE + ".tmp"
             with open(tmp, "w") as f:
-                json.dump({"messages": self.messages[-500:], "convo": self.convo}, f)
+                json.dump({"messages": self.messages[-500:], "convo": self.convo,
+                           "system": self.system}, f)
             os.replace(tmp, STATE_FILE)
             self.cond.notify_all()
 
@@ -258,6 +263,8 @@ class Bridge:
                 args += ["--session-id", self.convo["claude"]]
             else:
                 args += ["--resume", self.convo["claude"]]
+            if self.system:
+                args += ["--append-system-prompt", self.system]
             proc = subprocess.Popen(args, cwd=WORKDIR, stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             stdin = prompt
@@ -305,7 +312,9 @@ class Bridge:
         self.changed()
         return msg
 
-    def send(self, text, to, turns):
+    def send(self, text, to, turns, system=None):
+        if system is not None:
+            self.system = system[:4000]
         with self.cond:
             self.relay_token += 1
             token = self.relay_token
@@ -430,8 +439,16 @@ class Handler(BaseHTTPRequestHandler):
             text, to = (d.get("text") or "").strip(), d.get("to")
             if not text or to not in ("claude", "agy", "both"):
                 return self.send_json({"error": "bad request"}, 400)
-            bridge.send(text, to, max(0, min(int(d.get("turns", 0)), 10)))
+            system = d.get("system")
+            bridge.send(text, to, max(0, min(int(d.get("turns", 0)), 10)),
+                        system if isinstance(system, str) else None)
             return self.send_json({"ok": True})
+        if parts == ["api", "quit"]:
+            # `all stop` in Termux. Claude's tmux session keeps running.
+            self.send_json({"ok": True})
+            threading.Thread(target=lambda: (time.sleep(0.3), os.kill(os.getpid(), signal.SIGTERM)),
+                             daemon=True).start()
+            return
         if parts == ["api", "bridge", "stop"]:
             bridge.stop()
             return self.send_json({"ok": True})
@@ -506,6 +523,7 @@ def open_browser(url):
 
 def main():
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     # Antigravity is big; it starts the first time someone opens it.
     for agent in ("claude", "shell"):
         ensure_session(agent)

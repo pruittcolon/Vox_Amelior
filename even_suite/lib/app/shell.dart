@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/suite.dart';
 import '../features/claude/claude_page.dart';
 import '../features/home/home_page.dart';
+import '../features/screen/screen_page.dart';
 import '../features/terminal/terminal_page.dart';
 import '../features/tools/tools_page.dart';
 import '../widgets/common.dart';
@@ -30,7 +31,7 @@ class Shell extends StatefulWidget {
   static void goTo(BuildContext context, int tab) =>
       context.findAncestorStateOfType<_ShellState>()?.select(tab);
 
-  static const home = 0, claude = 1, terminal = 2, tools = 3;
+  static const home = 0, claude = 1, terminal = 2, screen = 3, tools = 4;
 
   @override
   State<Shell> createState() => _ShellState();
@@ -91,6 +92,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               const HomePage(),
               ClaudePage(active: _foreground && _tab == Shell.claude),
               TerminalPage(active: _foreground && _tab == Shell.terminal),
+              const ScreenPage(),
               const ToolsPage(),
             ]),
           ),
@@ -103,6 +105,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           NavigationDestination(icon: Icon(Icons.visibility_outlined), selectedIcon: Icon(Icons.visibility), label: 'Glasses'),
           NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Claude'),
           NavigationDestination(icon: Icon(Icons.terminal_outlined), selectedIcon: Icon(Icons.terminal), label: 'Terminal'),
+          NavigationDestination(icon: Icon(Icons.cast_outlined), selectedIcon: Icon(Icons.cast), label: 'Screen'),
           NavigationDestination(icon: Icon(Icons.widgets_outlined), selectedIcon: Icon(Icons.widgets), label: 'Tools'),
         ],
       ),

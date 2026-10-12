@@ -20,7 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_CLAUDE = """#!/usr/bin/env python3
 import json, sys
 prompt = sys.stdin.read().strip().splitlines()
-print(json.dumps({"result": "echo: " + (prompt[-1] if prompt else ""), "is_error": False}))
+mark = " [glasses]" if "--append-system-prompt" in sys.argv else ""
+print(json.dumps({"result": "echo: " + (prompt[-1] if prompt else "") + mark, "is_error": False}))
 """
 
 
@@ -101,6 +102,31 @@ class AgentHubTest(unittest.TestCase):
         self.assertEqual(reply["text"], "echo: hello there")
         tail = self.get("/api/bridge?tail=1")
         self.assertEqual(len(tail["messages"]), 1)
+
+    def wait_reply(self, after_id=None, timeout=20):
+        version, deadline = -1, time.time() + timeout
+        while time.time() < deadline:
+            snap = self.get(f"/api/bridge?v={version}&wait=5", timeout=15)
+            version = snap["version"]
+            done = [m for m in snap["messages"] if m["who"] == "claude" and m["status"] == "done"]
+            if done and done[-1]["id"] != after_id:
+                return done[-1]
+        return None
+
+    def test_bridge_system_prompt(self):
+        before = self.get("/api/bridge")["messages"]
+        last = [m["id"] for m in before if m["who"] == "claude"]
+        self.post("/api/bridge/send", {"text": "fit the glasses", "to": "claude",
+                                       "system": "Answer in 200-character chunks."})
+        reply = self.wait_reply(last[-1] if last else None)
+        self.assertIsNotNone(reply)
+        self.assertEqual(reply["text"], "echo: fit the glasses [glasses]")
+
+    def test_zz_quit(self):
+        # Last test: `all stop` shuts the server down cleanly.
+        self.assertTrue(self.post("/api/quit", {})["ok"])
+        self.proc.wait(timeout=10)
+        self.assertIsNotNone(self.proc.returncode)
 
     def test_capture_long_poll_and_paste(self):
         first = self.get("/api/term/shell/capture?lines=50")

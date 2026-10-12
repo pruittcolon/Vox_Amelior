@@ -12,6 +12,7 @@ def releaseKeystore = System.getenv("VOX_KEYSTORE_PATH")
 android {
     namespace = "com.vox.evensuite"
     compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -22,6 +23,14 @@ android {
         jvmTarget = JavaVersion.VERSION_1_8
     }
 
+    // LC3 decoder for the glasses microphone (liblc3 from the Even Realities demo).
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.vox.evensuite"
         // 26: notification channels and foreground services without compat shims.
@@ -29,6 +38,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
 
     signingConfigs {

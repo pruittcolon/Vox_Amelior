@@ -23,7 +23,14 @@ class Settings extends ChangeNotifier {
   String recognizer = 'auto'; // auto, ondevice, default
   String language = ''; // '' = phone default, else e.g. en-US
   bool repliesOnGlasses = true;
-  int autoScrollSeconds = 0; // 0 = page by hand
+  int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
+  bool glassesMic = true; // TouchBar hold listens through the glasses' mic
+  // Phone screen on the glasses
+  String mirrorRegion = 'strip'; // strip (readable band), top (top half), full
+  int mirrorStrip = 0; // strip position, 0 (top) .. 100 (bottom)
+  int mirrorFpsTenths = 10; // 10 = 1 frame a second
+  String mirrorInvert = 'auto'; // auto, on, off
+  String mirrorStyle = 'text'; // text (sharp) or photo (dithered)
   Target target = Target.claude;
   String terminalAgent = 'claude';
   bool volumeKeysScroll = false;
@@ -44,7 +51,13 @@ class Settings extends ChangeNotifier {
     recognizer = _s(m['recognizer'], recognizer);
     language = _s(m['language'], language);
     repliesOnGlasses = _b(m['repliesOnGlasses'], repliesOnGlasses);
-    autoScrollSeconds = _i(m['autoScrollSeconds'], autoScrollSeconds).clamp(0, 60);
+    readingWpm = _i(m['readingWpm'], readingWpm).clamp(0, 400);
+    glassesMic = _b(m['glassesMic'], glassesMic);
+    mirrorRegion = _s(m['mirrorRegion'], mirrorRegion);
+    mirrorStrip = _i(m['mirrorStrip'], mirrorStrip).clamp(0, 100);
+    mirrorFpsTenths = _i(m['mirrorFpsTenths'], mirrorFpsTenths).clamp(2, 50);
+    mirrorInvert = _s(m['mirrorInvert'], mirrorInvert);
+    mirrorStyle = _s(m['mirrorStyle'], mirrorStyle);
     target = _s(m['target'], target.name) == 'terminal' ? Target.terminal : Target.claude;
     terminalAgent = _s(m['terminalAgent'], terminalAgent);
     volumeKeysScroll = _b(m['volumeKeysScroll'], volumeKeysScroll);
@@ -84,8 +97,20 @@ class Settings extends ChangeNotifier {
         language = value as String;
       case 'repliesOnGlasses':
         repliesOnGlasses = value as bool;
-      case 'autoScrollSeconds':
-        autoScrollSeconds = value as int;
+      case 'readingWpm':
+        readingWpm = value as int;
+      case 'glassesMic':
+        glassesMic = value as bool;
+      case 'mirrorRegion':
+        mirrorRegion = value as String;
+      case 'mirrorStrip':
+        mirrorStrip = value as int;
+      case 'mirrorFpsTenths':
+        mirrorFpsTenths = value as int;
+      case 'mirrorInvert':
+        mirrorInvert = value as String;
+      case 'mirrorStyle':
+        mirrorStyle = value as String;
       case 'target':
         target = value as Target;
         value = target.name;

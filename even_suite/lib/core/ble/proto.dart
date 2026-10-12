@@ -75,6 +75,15 @@ class Proto {
     return send;
   }
 
+  // ------------------------------------------------------- microphone (0x0E)
+
+  /// Glasses microphone on/off (the demo turns it on at the right arm when the
+  /// left TouchBar is held). Audio then streams as 0xF1 packets.
+  Future<bool> micOn(bool on) async {
+    final r = await ble.request(Uint8List.fromList([0x0E, on ? 0x01 : 0x00]), lr: 'R', timeoutMs: 1000);
+    return !r.isTimeout && r.data.length > 1 && r.data[1] == 0xc9;
+  }
+
   // -------------------------------------------------------- heartbeat (0x25)
 
   int _beatSeq = 0;

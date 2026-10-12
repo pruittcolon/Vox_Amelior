@@ -198,6 +198,28 @@ void main() {
       expect(sent, ['turn on the lights in the kitchen']);
     });
 
+    test('TouchBar hold during hands-free uses the glasses mic, then goes back to the phone', () async {
+      await voice.setHandsFree(true);
+      expect(speech.lastSource, 'phone');
+      await voice.startDictation(hold: true, source: 'glasses');
+      expect(speech.lastSource, 'glasses');
+      expect(speech.stops, 1, reason: 'the phone session was swapped out');
+      voice.releaseHold();
+      speech.say('turn off the lights', finishing: true);
+      await flush();
+      expect(sent, ['turn off the lights']);
+      expect(voice.mode, VoiceMode.waiting);
+      expect(speech.lastSource, 'phone', reason: 'hands-free listens with the phone again');
+      expect(speech.running, isTrue);
+    });
+
+    test('teleprompter commands', () {
+      expect(VoiceCommands.parse('pause'), VoiceCommand.pause);
+      expect(VoiceCommands.parse('keep going'), VoiceCommand.resume);
+      expect(VoiceCommands.parse('faster'), VoiceCommand.faster);
+      expect(VoiceCommands.parse('slow down'), VoiceCommand.slower);
+    });
+
     test('a fatal error turns everything off', () async {
       await voice.setHandsFree(true);
       speech.error('Microphone permission is off', fatal: true);

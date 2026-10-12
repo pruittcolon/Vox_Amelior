@@ -10,6 +10,8 @@ import 'bridge/bridge_client.dart';
 import 'bridge/chat_controller.dart';
 import 'bridge/terminal_controller.dart';
 import 'glasses/glasses_display.dart';
+import 'glasses/glasses_text.dart';
+import 'screen/screen_mirror.dart';
 import 'settings.dart';
 import 'system.dart';
 import 'voice/speech.dart';
@@ -25,6 +27,7 @@ class Suite extends ChangeNotifier {
     BleControl? control,
     required SpeechEngine speech,
     BridgeClient? client,
+    ScreenSource? screen,
   }) {
     settings = Settings(system.setPref);
     ble = BleManager(transport, control: control);
@@ -33,6 +36,7 @@ class Suite extends ChangeNotifier {
     this.client = client ?? BridgeClient(settings.bridgeUrl);
     chat = ChatController(this.client);
     terminal = TerminalController(this.client, display);
+    mirror = ScreenMirror(screen ?? PlatformScreen(), proto);
     voice = VoiceController(
       speech,
       onSubmit: submit,
@@ -74,10 +78,14 @@ class Suite extends ChangeNotifier {
   late final ChatController chat;
   late final TerminalController terminal;
   late final VoiceController voice;
+  late final ScreenMirror mirror;
 
   StreamSubscription<GlassesEvent>? _events;
   Timer? _heartbeat;
   Timer? _liveCleanup;
+  Timer? _holdLimit;
+  bool _aiSession = false; // the current question came from the TouchBar
+  bool _micOpen = false;
   bool _lastConnected = false;
   bool _lastHandsFree = false;
   DateTime? _lastAutoOffAt;
@@ -110,7 +118,21 @@ class Suite extends ChangeNotifier {
       ..quiet = settings.quietChime
       ..language = settings.language
       ..engineName = settings.recognizer;
-    display.autoScrollSeconds = settings.autoScrollSeconds;
+    if (display.wpm != settings.readingWpm) display.setWpm(settings.readingWpm);
+    final mirrorChanged = mirror.region != settings.mirrorRegion ||
+        mirror.strip != settings.mirrorStrip ||
+        mirror.fpsTenths != settings.mirrorFpsTenths ||
+        mirror.style != settings.mirrorStyle ||
+        mirror.invert != settings.mirrorInvert;
+    mirror
+      ..region = settings.mirrorRegion
+      ..strip = settings.mirrorStrip
+      ..fpsTenths = settings.mirrorFpsTenths
+      ..style = settings.mirrorStyle
+      ..invert = settings.mirrorInvert
+      ..autoOff = Duration(minutes: settings.autoOffMinutes);
+    if (mirrorChanged) mirror.reconfigure();
+    chat.system = glassesPrimer();
     terminal.mirrorIdle = Duration(minutes: settings.autoOffMinutes);
     if (terminal.agent != settings.terminalAgent) terminal.setAgent(settings.terminalAgent);
     system.volumeKeys(settings.volumeKeysScroll);
@@ -146,18 +168,63 @@ class Suite extends ChangeNotifier {
         if (display.mode == DisplayMode.idle) {
           _showLastReply();
         } else if (e.lr == 'L') {
-          display.up();
+          display.tapLeft();
         } else {
-          display.down();
+          display.tapRight();
         }
       case GlassesEvent.exit:
         display.onGlassesExit();
         terminal.onGlassesExit();
       case GlassesEvent.evenAiStart:
-        if (settings.holdToTalk) startTalking(hold: true);
+        if (settings.holdToTalk) _glassesTalk();
       case GlassesEvent.evenAiEnd:
-        if (voice.holding) voice.releaseHold();
+        _glassesRelease();
     }
+  }
+
+  /// Left TouchBar held (the glasses' Even AI gesture): talk to Claude.
+  /// Uses the glasses' own microphone when the phone supports it.
+  Future<void> _glassesTalk() async {
+    if (!await _micAllowed()) return;
+    _aiSession = true;
+    final useGlassesMic = settings.glassesMic;
+    if (useGlassesMic) {
+      _micOpen = true;
+      unawaited(proto.micOn(true));
+    }
+    await voice.startDictation(hold: true, source: useGlassesMic ? 'glasses' : 'phone');
+    // Same 30 s cap as the demo, in case the release never arrives.
+    _holdLimit?.cancel();
+    _holdLimit = Timer(const Duration(seconds: 30), _glassesRelease);
+  }
+
+  void _glassesRelease() {
+    _holdLimit?.cancel();
+    _holdLimit = null;
+    if (voice.holding) voice.releaseHold();
+    if (_micOpen) {
+      _micOpen = false;
+      unawaited(proto.micOn(false));
+    }
+  }
+
+  /// Instructions sent with every message (as Claude's system prompt) so
+  /// answers come in chunks that fit the glasses screen.
+  String glassesPrimer() {
+    final size = GlassesText.screenSize();
+    final chars = size.chars;
+    return 'You are talking to the user through Even Realities G1 smart glasses '
+        '(the Even Suite app, built on Even\'s open-source demo). The user speaks; the '
+        'speech-to-text may contain mistakes, so read generously.\n'
+        'The glasses show ${size.lines} lines of about ${size.charsPerLine} characters: one '
+        'screen holds about $chars characters. The app shows your answer one screen at a '
+        'time, like a teleprompter.\n'
+        'For every reply:\n'
+        '- Plain text only: no Markdown, headings, tables, code blocks or emoji. Use "-" for lists.\n'
+        '- Put the answer first. Fit it in one screen (under $chars characters) when you can.\n'
+        '- If it needs more, write chunks of at most $chars characters separated by a blank '
+        'line; each chunk becomes one screen. At most 3 chunks unless asked for more.\n'
+        '- Short sentences, no filler, no preamble.';
   }
 
   void _showLastReply() {
@@ -195,6 +262,9 @@ class Suite extends ChangeNotifier {
 
   void _showDraft(String draft) {
     if (!ble.isConnected && display.mode == DisplayMode.idle) return;
+    // While the TouchBar is held the glasses show their own listening screen;
+    // writing to the display then could interrupt the microphone.
+    if (voice.source == 'glasses') return;
     final target = settings.target == Target.terminal ? 'Terminal' : 'Claude';
     display.showLive(draft.isEmpty ? 'Listening...\nSay your message, then "send".' : draft,
         title: 'To $target');
@@ -241,8 +311,8 @@ class Suite extends ChangeNotifier {
         await terminal.sendLine(t);
         if (settings.repliesOnGlasses && ble.isConnected) terminal.setMirror(true);
       } else {
-        if (ble.isConnected && settings.repliesOnGlasses) {
-          display.showText('You: $t\n\nClaude is thinking...', title: 'Claude');
+        if (ble.isConnected && settings.repliesOnGlasses && !mirror.running) {
+          display.showText('You: $t\n\nClaude is thinking...', title: 'Claude', ai: _aiSession);
         }
         await chat.send(t);
       }
@@ -256,9 +326,11 @@ class Suite extends ChangeNotifier {
 
   void _onReply(BridgeMessage m) {
     HapticFeedback.mediumImpact();
-    if (settings.repliesOnGlasses && ble.isConnected) {
-      display.showText(m.isError ? 'Error: ${m.text}' : m.text, title: 'Claude');
+    // While the phone screen is on the glasses, replies stay on the phone.
+    if (settings.repliesOnGlasses && ble.isConnected && !mirror.running) {
+      display.showText(m.isError ? 'Error: ${m.text}' : m.text, title: 'Claude', ai: _aiSession);
     }
+    _aiSession = false;
   }
 
   /// Spoken commands ("Claude, scroll down").
@@ -309,6 +381,16 @@ class Suite extends ChangeNotifier {
         terminal.key('2');
       case VoiceCommand.choice3:
         terminal.key('3');
+      case VoiceCommand.pause:
+        display.pause();
+      case VoiceCommand.resume:
+        display.resume();
+      case VoiceCommand.faster:
+        display.faster();
+        settings.set('readingWpm', display.wpm);
+      case VoiceCommand.slower:
+        display.slower();
+        settings.set('readingWpm', display.wpm);
       case VoiceCommand.send:
       case VoiceCommand.cancel:
       case VoiceCommand.stopListening:
@@ -346,8 +428,10 @@ class Suite extends ChangeNotifier {
     _events?.cancel();
     _heartbeat?.cancel();
     _liveCleanup?.cancel();
+    _holdLimit?.cancel();
     settings.removeListener(applySettings);
     voice.dispose();
+    mirror.dispose();
     chat.dispose();
     terminal.dispose();
     display.dispose();

@@ -35,6 +35,29 @@ class GlassesText {
     return out;
   }
 
+  /// Split [text] at blank lines into chunks (one thought each) and wrap each.
+  static List<List<String>> wrapChunks(String text) => text
+      .split(RegExp(r'\n\s*\n'))
+      .map(wrap)
+      .where((lines) => lines.isNotEmpty)
+      .toList();
+
+  static ScreenSize? _size;
+
+  /// How much text fits: measured once with the same layout the glasses use,
+  /// so Claude can be told how long its chunks may be.
+  static ScreenSize screenSize() => _size ??= _measure();
+
+  static ScreenSize _measure() {
+    const sample = 'The quick brown fox jumps over the lazy dog while the five boxing wizards '
+        'jump quickly. Pack my box with five dozen liquor jugs, then sphinx of black quartz, '
+        'judge my vow. How vexingly quick daft zebras jump when the night is still young. ';
+    final lines = wrap(sample * 3);
+    final chars = lines.fold<int>(0, (n, l) => n + l.length + 1);
+    final perLine = lines.isEmpty ? 40 : (chars / lines.length).floor();
+    return ScreenSize(perLine, linesPerScreen);
+  }
+
   static final _fence = RegExp(r'^\s*```.*$', multiLine: true);
   static final _heading = RegExp(r'^\s{0,3}#{1,6}\s+', multiLine: true);
   static final _bullet = RegExp(r'^(\s*)[*+•]\s+', multiLine: true);
@@ -80,37 +103,85 @@ class GlassesText {
   }
 }
 
-/// Splits wrapped lines into 5-line screens and remembers which one is shown.
+class ScreenSize {
+  final int charsPerLine;
+  final int lines;
+  const ScreenSize(this.charsPerLine, this.lines);
+  int get chars => charsPerLine * lines;
+}
+
+/// Splits text into 5-line screens and remembers which one is shown.
+///
+/// Finished text is paged by chunk (blank-line separated): a chunk that fits
+/// on the current screen stays together, so a thought is never cut in half.
+/// Live text (terminal, dictation) is paged every 5 lines and can follow the
+/// newest screen.
 class GlassesPager {
-  GlassesPager(List<String> lines, {this.followTail = false})
-      : _lines = List.of(lines) {
+  GlassesPager(List<String> lines, {this.followTail = false}) {
+    _setPages(_fixed(lines));
     if (followTail) _page = lastPage;
   }
 
-  factory GlassesPager.fromText(String text, {bool followTail = false}) =>
-      GlassesPager(GlassesText.wrap(GlassesText.clean(text)), followTail: followTail);
+  GlassesPager._chunked(List<List<String>> chunks) : followTail = false {
+    _setPages(_byChunk(chunks));
+  }
 
-  List<String> _lines;
-  int _page = 0;
+  /// Model or note text: cleaned, wrapped and paged by chunk.
+  factory GlassesPager.fromText(String text) =>
+      GlassesPager._chunked(GlassesText.wrapChunks(GlassesText.clean(text)));
 
-  /// Live text (terminal, dictation): stay on the newest screen while the
+  /// Live text (dictation, terminal): stay on the newest screen while the
   /// user has not scrolled back.
   final bool followTail;
 
   static const int per = GlassesText.linesPerScreen;
 
-  List<String> get lines => _lines;
+  List<List<String>> _pages = const [[]];
+  int _page = 0;
+
+  List<String> get lines => [for (final p in _pages) ...p];
   int get page => _page;
-  int get pageCount => _lines.isEmpty ? 1 : (_lines.length + per - 1) ~/ per;
+  int get pageCount => _pages.length;
   int get lastPage => pageCount - 1;
   bool get atStart => _page == 0;
   bool get atEnd => _page >= lastPage;
+
+  /// Lines on the current screen.
+  List<String> get pageLines => _pages[_page];
+
+  void _setPages(List<List<String>> pages) => _pages = pages.isEmpty ? const [[]] : pages;
+
+  static List<List<String>> _fixed(List<String> lines) => [
+        for (var i = 0; i < lines.length; i += per)
+          lines.sublist(i, (i + per).clamp(0, lines.length)),
+      ];
+
+  static List<List<String>> _byChunk(List<List<String>> chunks) {
+    final pages = <List<String>>[];
+    var current = <String>[];
+    for (final chunk in chunks) {
+      if (chunk.length > per) {
+        // Too long for one screen: start it on a fresh one and spill over.
+        if (current.isNotEmpty) pages.add(current);
+        final split = _fixed(chunk);
+        pages.addAll(split.take(split.length - 1));
+        current = List.of(split.last);
+      } else if (current.length + chunk.length <= per) {
+        current.addAll(chunk);
+      } else {
+        pages.add(current);
+        current = List.of(chunk);
+      }
+    }
+    if (current.isNotEmpty) pages.add(current);
+    return pages;
+  }
 
   /// Replace the lines (live content). Keeps the position, or follows the
   /// end if the user was already looking at it.
   void update(List<String> lines) {
     final wasAtEnd = atEnd;
-    _lines = List.of(lines);
+    _setPages(_fixed(lines));
     if (followTail && wasAtEnd) {
       _page = lastPage;
     } else {
@@ -130,16 +201,17 @@ class GlassesPager {
     return true;
   }
 
+  /// Words on the current screen (for reading-speed paging).
+  int get pageWords => pageLines.fold(0, (n, l) => n + l.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length);
+
   /// The text for the current screen. A short single screen is pushed down a
   /// little like the demo does, so it sits in the middle of the view.
   String screen() {
-    if (_lines.isEmpty) return '';
-    final start = _page * per;
-    final end = (start + per).clamp(0, _lines.length);
-    final body = _lines.sublist(start, end).map((s) => '$s\n').join();
+    final body = pageLines.map((s) => '$s\n').join();
+    if (body.isEmpty) return '';
     if (pageCount == 1) {
-      if (_lines.length < 4) return '\n\n$body';
-      if (_lines.length == 4) return '\n$body';
+      if (pageLines.length < 4) return '\n\n$body';
+      if (pageLines.length == 4) return '\n$body';
     }
     return body;
   }

@@ -145,8 +145,14 @@ class BridgeClient {
     return BridgeSnapshot.fromMap(m);
   }
 
-  Future<void> send(String text, {String to = 'claude', int turns = 0}) =>
-      _send('POST', '/api/bridge/send', body: {'text': text, 'to': to, 'turns': turns});
+  /// [system] becomes Claude's system prompt (an older bridge ignores it).
+  Future<void> send(String text, {String to = 'claude', int turns = 0, String? system}) =>
+      _send('POST', '/api/bridge/send', body: {
+        'text': text,
+        'to': to,
+        'turns': turns,
+        if (system != null) 'system': system,
+      });
 
   Future<void> stop() => _send('POST', '/api/bridge/stop', body: const {});
 

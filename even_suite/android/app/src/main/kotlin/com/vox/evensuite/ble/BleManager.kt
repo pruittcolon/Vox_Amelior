@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.vox.evensuite.speech.GlassesMic
 import java.util.UUID
 
 /**
@@ -330,8 +331,12 @@ object BleManager {
 
     private fun deliver(gatt: BluetoothGatt, value: ByteArray) {
         if (value.isEmpty()) return
-        // 0xF1 is microphone audio; this app listens with the phone instead.
-        if (value[0] == 0xF1.toByte()) return
+        // 0xF1 = glasses microphone: [0xF1, seq, 200 bytes LC3]. Straight to the
+        // speech recognizer, never through Flutter.
+        if (value[0] == 0xF1.toByte()) {
+            if (value.size == 202) GlassesMic.onPacket(value.copyOfRange(2, 202))
+            return
+        }
         val arm = pair?.armFor(gatt.device.address) ?: return
         val lr = armLabel(arm)
         main.post { listener?.onReceive(lr, value) }

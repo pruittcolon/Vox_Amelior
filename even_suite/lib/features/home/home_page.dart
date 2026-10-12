@@ -94,6 +94,13 @@ class HomePage extends StatelessWidget {
               onTap: () => _push(context, const ImagesPage()),
             ),
             ActionTile(
+              icon: Icons.cast_rounded,
+              label: 'Phone screen',
+              caption: 'Mirror your screen to the glasses',
+              color: AppColors.hud,
+              onTap: () => Shell.goTo(context, Shell.screen),
+            ),
+            ActionTile(
               icon: Icons.layers_clear_rounded,
               label: 'Clear glasses',
               caption: 'Back to the glasses dashboard',

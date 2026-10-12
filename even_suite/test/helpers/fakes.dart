@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:even_suite/core/ble/ble_manager.dart';
 import 'package:even_suite/core/ble/ble_receive.dart';
 import 'package:even_suite/core/bridge/bridge_client.dart';
+import 'package:even_suite/core/screen/screen_mirror.dart';
 import 'package:even_suite/core/system.dart';
 import 'package:even_suite/core/voice/speech.dart';
 
@@ -121,6 +122,7 @@ class FakeSpeech implements SpeechEngine {
   int stops = 0;
   int finishes = 0;
   bool running = false;
+  String lastSource = '';
 
   @override
   Stream<SpeechEvent> get events => _events.stream;
@@ -135,9 +137,11 @@ class FakeSpeech implements SpeechEngine {
     bool preferOffline = true,
     bool quiet = true,
     String engine = 'auto',
+    String audioSource = 'phone',
   }) async {
     starts++;
     running = true;
+    lastSource = audioSource;
     _events.add(const SpeechEvent('state', listening: true));
   }
 
@@ -205,9 +209,12 @@ class FakeBridgeClient extends BridgeClient {
     return BridgeSnapshot(this.version, List.of(messages), const []);
   }
 
+  String? lastSystem;
+
   @override
-  Future<void> send(String text, {String to = 'claude', int turns = 0}) async {
+  Future<void> send(String text, {String to = 'claude', int turns = 0, String? system}) async {
     sentTexts.add(text);
+    lastSystem = system;
     messages.add(BridgeMessage(id: 'u$version', who: 'you', text: text, status: 'done'));
     _bump();
   }
@@ -282,4 +289,41 @@ class FakeSystem extends SystemBridge {
 
   @override
   Future<void> volumeKeys(bool enabled) async => volumeKeysOn = enabled;
+}
+
+/// Screen capture stand-in: tests push grayscale frames.
+class FakeScreen implements ScreenSource {
+  final _frames = StreamController<Map>.broadcast();
+  String answer = 'ok';
+  final configs = <Map<String, Object>>[];
+  int stops = 0;
+
+  @override
+  Stream<Map> get frames => _frames.stream;
+
+  @override
+  Future<String> start(Map<String, Object> config) async {
+    configs.add(config);
+    return answer;
+  }
+
+  @override
+  Future<void> stop() async => stops++;
+
+  @override
+  Future<void> configure(Map<String, Object> config) async => configs.add(config);
+
+  /// A frame: [lit] decides which pixels are bright (255) or dark (0).
+  void frame(bool Function(int x, int y) lit) {
+    final gray = Uint8List(576 * 136);
+    for (var y = 0; y < 136; y++) {
+      for (var x = 0; x < 576; x++) {
+        gray[y * 576 + x] = lit(x, y) ? 255 : 0;
+      }
+    }
+    _frames.add({'gray': gray, 'x0': 0, 'y0': 0, 'x1': 576, 'y1': 136, 'ms': 5});
+  }
+
+  void same() => _frames.add({'same': true});
+  void stopped([String reason = '']) => _frames.add({'stopped': true, 'reason': reason});
 }

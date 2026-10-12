@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/shell.dart';
 import '../../app/theme.dart';
+import '../../core/glasses/glasses_text.dart';
 import '../../core/settings.dart';
 import '../../core/voice/wake_word.dart';
 import '../../widgets/common.dart';
@@ -52,6 +53,12 @@ class SettingsPage extends StatelessWidget {
                 s.holdToTalk,
                 (v) => s.set('holdToTalk', v),
               ),
+              _Switch(
+                'Use the glasses microphone',
+                'When holding the TouchBar, listen through the glasses (Android 13+; otherwise the phone mic).',
+                s.glassesMic,
+                (v) => s.set('glassesMic', v),
+              ),
               const SizedBox(height: 8),
               const _Label('Speech recognizer'),
               SegmentedButton<String>(
@@ -78,15 +85,27 @@ class SettingsPage extends StatelessWidget {
               _Switch('Volume keys page the glasses', 'While the app is open: volume up = up, down = down.',
                   s.volumeKeysScroll, (v) => s.set('volumeKeysScroll', v)),
               const SizedBox(height: 8),
-              const _Label('Turn pages automatically'),
+              const _Label('Teleprompter: replies turn their own pages'),
               Wrap(spacing: 8, runSpacing: 8, children: [
-                for (final sec in const [0, 5, 8, 12])
+                for (final (wpm, label) in const [(0, 'Off (tap to page)'), (140, 'Slow'), (180, 'Normal'), (230, 'Fast')])
                   ChoiceChip(
-                    label: Text(sec == 0 ? 'Off (tap to page)' : 'Every $sec s'),
-                    selected: s.autoScrollSeconds == sec,
-                    onSelected: (_) => s.set('autoScrollSeconds', sec),
+                    label: Text(label),
+                    selected: s.readingWpm == wpm,
+                    onSelected: (_) => s.set('readingWpm', wpm),
                   ),
               ]),
+              const SizedBox(height: 6),
+              const Text('Right tap = next page and keep going. Left tap = back and pause.',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+              const SizedBox(height: 10),
+              Builder(builder: (context) {
+                final size = GlassesText.screenSize();
+                return Text(
+                    'Claude is told your screen fits ${size.lines} lines × ~${size.charsPerLine} characters '
+                    '(~${size.chars} per screen) and answers in chunks that size.',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12.5));
+              }),
+            ]),
             ]),
             _Section('Termux bridge', Icons.terminal_rounded, AppColors.ok, [
               _TextSetting(
