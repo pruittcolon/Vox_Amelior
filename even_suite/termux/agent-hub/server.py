@@ -506,7 +506,8 @@ def open_browser(url):
 
 def main():
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-    for agent in SESSIONS:
+    # Antigravity is big; it starts the first time someone opens it.
+    for agent in ("claude", "shell"):
         ensure_session(agent)
     srv = Server((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}/"
