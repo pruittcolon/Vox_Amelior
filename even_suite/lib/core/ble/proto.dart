@@ -258,14 +258,16 @@ class Proto {
     final before = armGap[lr]!;
     if (_accepted(a.crc!)) {
       _strikes[lr] = 0;
-      if (++_streak[lr]! >= 8 && armGap[lr]! > minGap) {
+      _streak[lr] = _streak[lr]! + 1;
+      if (_streak[lr]! >= 8 && armGap[lr]! > minGap) {
         armGap[lr] = armGap[lr]! - 1;
         _streak[lr] = 0;
       }
     } else {
       _streak[lr] = 0;
       armGap[lr] = (armGap[lr]! + 3).clamp(minGap, maxGap);
-      if (armGap[lr]! >= 14 && ++_strikes[lr]! >= 3 && !sequentialArms) {
+      if (armGap[lr]! >= 14) _strikes[lr] = _strikes[lr]! + 1;
+      if (_strikes[lr]! >= 3 && !sequentialArms) {
         sequentialArms = true;
         EventLog.add('bmp', 'mode', {'sequential': true, 'arm': lr, 'gap': armGap[lr]});
       }
