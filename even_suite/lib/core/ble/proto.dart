@@ -76,6 +76,17 @@ class Proto {
     return send;
   }
 
+  // ------------------------------------------------ display position (0x26)
+
+  /// Where the glasses' picture sits in your view, the "display height and
+  /// depth" setting of the Even app: [height] 0 (low) .. 8 (high), [depth]
+  /// 1 (near) .. 9 (far). The Even app sends [preview] 1 while you drag its
+  /// sliders and 0 to keep the value. `26 08 00 <seq> 02 <preview> <height>
+  /// <depth>` (0x26 = hardware settings, sub-command 0x02 = display; seen in
+  /// the Even app's own traffic as `26 08 00 00 02 00 07 03`).
+  static Uint8List positionPacket(int seq, {required int height, required int depth, bool preview = false}) =>
+      Uint8List.fromList([0x26, 0x08, 0x00, seq & 0xff, 0x02, preview ? 1 : 0, height.clamp(0, 8), depth.clamp(0, 9)]);
+
   // ------------------------------------------------------- microphone (0x0E)
 
   /// Glasses microphone on/off (the demo turns it on at the right arm when the

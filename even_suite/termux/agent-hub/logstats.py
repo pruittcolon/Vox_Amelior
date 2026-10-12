@@ -8,7 +8,8 @@
 
 Prints what matters for tuning when and how the app sends: Bluetooth round
 trips per command, text-screen and picture-frame times (with phases), screen
-mirroring rate, recognizer errors and what it heard, and Claude reply times.
+mirroring rate, flicker runs, recognizer errors and what it heard, and Claude
+reply times.
 """
 import glob
 import json
@@ -257,6 +258,55 @@ def main(argv):
             line[-1] += f" {e['arm']}={e['crc']}"
         if line:
             print("  " + " | ".join(line))
+
+    # Flicker (top/bottom spots): latest run, then the one-off tests
+    fl = [e for e in ev if e.get("c") == "flicker"]
+    fstarts = [i for i, e in enumerate(fl) if e.get("e") == "start"]
+    if fl:
+        print("\nFlicker:")
+        if fstarts:
+            run = fl[fstarts[-1]:]
+            cfg = run[0]
+            print(f"  latest run: top {cfg.get('topMs')} ms at height {cfg.get('topH')}, bottom {cfg.get('bottomMs')} ms "
+                  f"at height {cfg.get('bottomH')}, depth {cfg.get('depth')}, switch={cfg.get('what')} "
+                  f"order={cfg.get('order')} wait={cfg.get('wait')} moves to={cfg.get('arms')} preview={cfg.get('preview')}")
+            steps = [e for e in run if e.get("e") == "step"]
+            if steps:
+                late = sum(1 for e in steps if e.get("late"))
+                bad = sum(1 for e in steps if not e.get("ok", True))
+                print(f"  steps={len(steps)} slow={late} failed={bad} "
+                      f"move timeouts={sum(1 for e in steps if e.get('moveTimeout'))} "
+                      f"text timeouts={sum(1 for e in steps if e.get('textTimeout'))}")
+                for side in ("top", "bottom"):
+                    ss = [e for e in steps if e.get("side") == side]
+                    if ss:
+                        print(f"  {side:6} step {fmt_ms([e['ms'] for e in ss])} (asked {ss[-1].get('target')} ms)")
+                print(f"  move   {fmt_ms([e['moveMs'] for e in steps if e.get('moveMs')])}")
+                print(f"  text   {fmt_ms([e['textMs'] for e in steps if e.get('textMs')])}")
+                replies = Counter(e["moveReply"] for e in steps if e.get("moveReply"))
+                if replies:
+                    print("  move answers:", ", ".join(f"{k} x{n}" for k, n in replies.most_common(5)))
+            stats = [e for e in run if e.get("e") == "stats"]
+            if stats:
+                print("  switches/s by second:", " ".join(f"{e.get('rate')}" for e in stats[-30:]),
+                      f"(asked {stats[-1].get('asked')})")
+            for e in run:
+                if e.get("e") == "silent":
+                    print(f"  note: {e.get('note')} ({e.get('what')})")
+                if e.get("e") == "change":
+                    print(f"  changed while running: top {e.get('topMs')} ms h{e.get('topH')}, "
+                          f"bottom {e.get('bottomMs')} ms h{e.get('bottomH')}, wait={e.get('wait')}, "
+                          f"order={e.get('order')}, switch={e.get('what')}")
+            stop = next((e for e in run if e.get("e") == "stop"), None)
+            if stop:
+                print(f"  stopped ({stop.get('reason')}): {stop.get('steps')} switches in {stop.get('secs')} s "
+                      f"= {stop.get('rate')}/s of {stop.get('asked')}/s asked")
+        tests = [e for e in fl if e.get("e") == "test"]
+        for e in tests[-6:]:
+            print(f"  by hand: {e.get('side')} h{e.get('h')} {e.get('ms')} ms (move {e.get('moveMs')} ms "
+                  f"{e.get('moveReply') or 'no answer'}, text {e.get('textMs')} ms {e.get('textReply') or 'no answer'})")
+        for e in [e for e in fl if e.get("e") == "reset"][-3:]:
+            print(f"  reset to height {e.get('homeH')} depth {e.get('homeD')}: ok={e.get('ok')} {e.get('ms')} ms")
 
     # Unsolicited packets from the glasses
     rx = [e for e in ev if e.get("c") == "ble" and e.get("e") == "rx"]

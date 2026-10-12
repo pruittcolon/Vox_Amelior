@@ -9,6 +9,7 @@ import 'ble/proto.dart';
 import 'bridge/bridge_client.dart';
 import 'bridge/chat_controller.dart';
 import 'bridge/terminal_controller.dart';
+import 'glasses/flicker.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
 import 'log.dart';
@@ -82,6 +83,19 @@ class Suite extends ChangeNotifier {
   late final VoiceController voice;
   late final ScreenMirror mirror;
   late final PictureLab lab = PictureLab(proto);
+  late final Flicker flicker = Flicker(proto);
+
+  /// Flicker owns the glasses while it runs: screen sharing stops and the
+  /// reply screen steps aside.
+  Future<void> startFlicker() async {
+    if (!ble.isConnected) {
+      _toast('Connect your glasses first');
+      return;
+    }
+    if (mirror.running) await mirror.stop(clearGlasses: false);
+    display.onGlassesExit();
+    await flicker.start();
+  }
 
   /// Picture test (stops screen sharing first so nothing else is sending).
   Future<void> runPictureTest() async {
@@ -183,6 +197,23 @@ class Suite extends ChangeNotifier {
       _mirrorTimer = Timer(const Duration(milliseconds: 400), mirror.reconfigure);
     }
     chat.system = glassesPrimer();
+    flicker
+      ..topText = settings.flickTop
+      ..bottomText = settings.flickBottom
+      ..topMs = settings.flickTopMs
+      ..bottomMs = settings.flickBottomMs
+      ..topHeight = settings.flickTopPos
+      ..bottomHeight = settings.flickBottomPos
+      ..depth = settings.flickDepth
+      ..homeHeight = settings.flickHomePos
+      ..homeDepth = settings.flickHomeDepth
+      ..preview = settings.flickPreview
+      ..waitForReplies = settings.flickWait
+      ..what = settings.flickWhat
+      ..order = settings.flickOrder
+      ..arms = settings.flickArms
+      ..autoStopSec = settings.flickAutoStop
+      ..changed();
     terminal.mirrorIdle = Duration(minutes: settings.autoOffMinutes);
     if (terminal.agent != settings.terminalAgent) terminal.setAgent(settings.terminalAgent);
     system.volumeKeys(settings.volumeKeysScroll);
@@ -205,6 +236,7 @@ class Suite extends ChangeNotifier {
     if (connected == _lastConnected) return;
     _lastConnected = connected;
     _heartbeat?.cancel();
+    if (!connected && flicker.running) flicker.stop(reason: 'link', restore: false);
     if (connected) {
       // Same 8 s heartbeat as the demo keeps the link from idling out - but
       // not while other traffic (pictures, screens) already does, so it never
@@ -382,8 +414,8 @@ class Suite extends ChangeNotifier {
 
   void _onReply(BridgeMessage m) {
     HapticFeedback.mediumImpact();
-    // While the phone screen is on the glasses, replies stay on the phone.
-    if (settings.repliesOnGlasses && ble.isConnected && !mirror.running) {
+    // While the phone screen or flicker is on the glasses, replies stay on the phone.
+    if (settings.repliesOnGlasses && ble.isConnected && !mirror.running && !flicker.running) {
       display.showText(m.isError ? 'Error: ${m.text}' : m.text, title: 'Claude', ai: _aiSession);
     }
     _aiSession = false;
@@ -489,6 +521,7 @@ class Suite extends ChangeNotifier {
     settings.removeListener(applySettings);
     voice.dispose();
     mirror.dispose();
+    flicker.dispose();
     chat.dispose();
     terminal.dispose();
     display.dispose();

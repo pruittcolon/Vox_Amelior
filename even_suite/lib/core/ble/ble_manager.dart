@@ -315,8 +315,9 @@ class BleManager extends ChangeNotifier {
   }
 
   /// Send [data] and wait for the reply with the same command byte.
+  /// [log] off for callers that log every step themselves (flicker).
   Future<BleReceive> request(Uint8List data,
-      {String? lr, int timeoutMs = 1000, bool useNext = false}) async {
+      {String? lr, int timeoutMs = 1000, bool useNext = false, bool log = true}) async {
     final lr0 = lr ?? 'R';
     final completer = Completer<BleReceive>();
     final cmd = _key(lr0, data[0]);
@@ -348,6 +349,7 @@ class BleManager extends ChangeNotifier {
       if (cb != null && !cb.isCompleted) cb.complete(BleReceive.timeout());
     }
     final r = await completer.future;
+    if (!log) return r;
     EventLog.add('ble', 'req', {
       'cmd': data[0].toRadixString(16).padLeft(2, '0'),
       'lr': lr0,

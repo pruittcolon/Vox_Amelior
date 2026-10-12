@@ -40,6 +40,19 @@ class Settings extends ChangeNotifier {
   String mirrorFit = 'fit'; // fit, fill, stretch
   int mirrorRows = 68; // picture height: 68 (half, faster - the default), 102, 136 (full)
   bool mirrorFast = false; // experimental: verify the previous picture (one transfer per frame)
+  // Flicker: text at a high and a low spot in your view, switching on a timer
+  String flickTop = 'TOP\nThis text sits high in your view';
+  String flickBottom = 'BOTTOM\nThis text sits low in your view';
+  int flickTopMs = 100, flickBottomMs = 100; // time at each spot
+  int flickTopPos = 8, flickBottomPos = 0; // display height 0 (low) .. 8 (high)
+  int flickDepth = 3; // display depth 1 .. 9
+  int flickHomePos = 7, flickHomeDepth = 3; // normal spot, restored at stop
+  bool flickPreview = false; // send moves as "preview" instead of "keep"
+  bool flickWait = true; // wait for the glasses to answer each command
+  String flickWhat = 'both'; // both, move, text
+  String flickOrder = 'text'; // text (text first), move (move first), together
+  String flickArms = 'both'; // moves to both arms or R only
+  int flickAutoStop = 60; // seconds
   Target target = Target.claude;
   String terminalAgent = 'claude';
   bool volumeKeysScroll = false;
@@ -78,6 +91,21 @@ class Settings extends ChangeNotifier {
     mirrorFit = _s(m['mirrorFit'], mirrorFit);
     mirrorRows = _i(m['mirrorRows'], mirrorRows).clamp(16, 136);
     mirrorFast = _b(m['mirrorFast'], mirrorFast);
+    flickTop = _s(m['flickTop'], flickTop);
+    flickBottom = _s(m['flickBottom'], flickBottom);
+    flickTopMs = _i(m['flickTopMs'], flickTopMs).clamp(20, 5000);
+    flickBottomMs = _i(m['flickBottomMs'], flickBottomMs).clamp(20, 5000);
+    flickTopPos = _i(m['flickTopPos'], flickTopPos).clamp(0, 8);
+    flickBottomPos = _i(m['flickBottomPos'], flickBottomPos).clamp(0, 8);
+    flickDepth = _i(m['flickDepth'], flickDepth).clamp(1, 9);
+    flickHomePos = _i(m['flickHomePos'], flickHomePos).clamp(0, 8);
+    flickHomeDepth = _i(m['flickHomeDepth'], flickHomeDepth).clamp(1, 9);
+    flickPreview = _b(m['flickPreview'], flickPreview);
+    flickWait = _b(m['flickWait'], flickWait);
+    flickWhat = _s(m['flickWhat'], flickWhat);
+    flickOrder = _s(m['flickOrder'], flickOrder);
+    flickArms = _s(m['flickArms'], flickArms);
+    flickAutoStop = _i(m['flickAutoStop'], flickAutoStop).clamp(5, 600);
     target = _s(m['target'], target.name) == 'terminal' ? Target.terminal : Target.claude;
     terminalAgent = _s(m['terminalAgent'], terminalAgent);
     volumeKeysScroll = _b(m['volumeKeysScroll'], volumeKeysScroll);
@@ -153,6 +181,36 @@ class Settings extends ChangeNotifier {
         mirrorRows = value as int;
       case 'mirrorFast':
         mirrorFast = value as bool;
+      case 'flickTop':
+        flickTop = value as String;
+      case 'flickBottom':
+        flickBottom = value as String;
+      case 'flickTopMs':
+        flickTopMs = value as int;
+      case 'flickBottomMs':
+        flickBottomMs = value as int;
+      case 'flickTopPos':
+        flickTopPos = value as int;
+      case 'flickBottomPos':
+        flickBottomPos = value as int;
+      case 'flickDepth':
+        flickDepth = value as int;
+      case 'flickHomePos':
+        flickHomePos = value as int;
+      case 'flickHomeDepth':
+        flickHomeDepth = value as int;
+      case 'flickPreview':
+        flickPreview = value as bool;
+      case 'flickWait':
+        flickWait = value as bool;
+      case 'flickWhat':
+        flickWhat = value as String;
+      case 'flickOrder':
+        flickOrder = value as String;
+      case 'flickArms':
+        flickArms = value as String;
+      case 'flickAutoStop':
+        flickAutoStop = value as int;
       case 'target':
         target = value as Target;
         value = target.name;
@@ -173,8 +231,13 @@ class Settings extends ChangeNotifier {
         throw ArgumentError('Unknown setting $key');
     }
     _save?.call(key, value);
-    // Slider keys change many times a second; the screen log records the result.
-    const quiet = {'lastGlasses', 'mirrorX', 'mirrorY', 'mirrorW', 'mirrorH', 'mirrorStrip'};
+    // Slider and text keys change many times a second; the screen and flicker
+    // logs record the result.
+    const quiet = {
+      'lastGlasses', 'mirrorX', 'mirrorY', 'mirrorW', 'mirrorH', 'mirrorStrip', //
+      'flickTop', 'flickBottom', 'flickTopMs', 'flickBottomMs', 'flickTopPos', 'flickBottomPos',
+      'flickDepth', 'flickHomePos', 'flickHomeDepth',
+    };
     if (!quiet.contains(key)) EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
     notifyListeners();
   }

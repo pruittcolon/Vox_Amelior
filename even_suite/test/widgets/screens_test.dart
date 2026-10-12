@@ -153,6 +153,23 @@ void main() {
       await suite.mirror.stop();
       await tester.pump();
 
+      // Flicker tab, running: text and display height switch on the glasses.
+      await tester.tap(find.byIcon(Icons.swap_vert_outlined));
+      await tester.pump();
+      await tester.tap(find.text('Start flicker'));
+      await tester.pump();
+      await _shot(tester, '5d_flicker$tag');
+      expect(suite.flicker.running, isTrue);
+      expect(suite.flicker.steps, greaterThan(2));
+      expect(w.glasses.sent['L']!.where((p) => p[0] == 0x26).map((p) => p[6]).take(2), [8, 0],
+          reason: 'display moved high, then low');
+      await tester.tap(find.text('Stop'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(suite.flicker.running, isFalse);
+      await tester.drag(find.byType(ListView).first, const Offset(0, -900));
+      await _shot(tester, '5e_flicker_tuning$tag');
+
       // Tools, then each tool page.
       await tester.tap(find.byIcon(Icons.widgets_outlined));
       await tester.pump();
