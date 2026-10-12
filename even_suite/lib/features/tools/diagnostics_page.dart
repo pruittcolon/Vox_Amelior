@@ -57,7 +57,12 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('Diagnostics')),
-      body: Column(children: [
+      body: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 16),
+        itemCount: 2 + (shown.isEmpty ? 1 : shown.length),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: SectionCard(
@@ -137,7 +142,10 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
               ]),
             ]),
           ),
-        ),
+        );
+          }
+          if (index == 1) {
+            return
         SizedBox(
           height: 48,
           child: ListView(
@@ -155,14 +163,18 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                 ),
             ],
           ),
-        ),
-        Expanded(
-          child: shown.isEmpty
-              ? const Center(child: Text('No events yet', style: TextStyle(color: AppColors.muted)))
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                  itemCount: shown.length,
-                  itemBuilder: (context, i) {
+        );
+          }
+          if (shown.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: Text('No events yet', style: TextStyle(color: AppColors.muted))),
+            );
+          }
+          final i = index - 2;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Builder(builder: (context) {
                     final e = shown[i];
                     final t = e.time;
                     final ts = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:'
@@ -182,10 +194,10 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                         style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.35),
                       ),
                     );
-                  },
-                ),
-        ),
-      ]),
+            }),
+          );
+        },
+      ),
     );
   }
 }
