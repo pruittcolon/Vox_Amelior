@@ -42,7 +42,8 @@ class FlickerPage extends StatelessWidget {
             const SizedBox(height: 4),
             const Text(
               'Moves the glasses’ text up and down in your view on a timer, with different text at each spot, '
-              'to try to fill more of your view.',
+              'to try to fill more of your view. The glasses only move from a clear screen, so each switch '
+              'clears, moves (their dashboard may flash), then shows your text.',
               style: TextStyle(color: AppColors.muted),
             ),
             const SizedBox(height: 14),
@@ -180,12 +181,29 @@ class FlickerPage extends StatelessWidget {
                     s.flickMethod == 'apply'
                         ? 'Each move opens the glasses’ height preview, waits, then closes it. Slower: the glasses '
                             'pause about half a second after each close.'
-                        : 'Each move uses the glasses’ height preview, which moves the picture at once. The preview '
-                            'is closed when you stop.',
+                        : 'Each move opens the glasses’ height preview, which moves the picture; your text then '
+                            'takes over. The preview is closed when you stop.',
                     style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
                   ),
                 ),
-                _PauseSlider('Pause after move', s.flickSettleMs, (v) => s.set('flickSettleMs', v)),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Clear the screen before each move'),
+                  subtitle: const Text('Needed: the glasses ignore moves while text is showing (but still say ok).'),
+                  value: s.flickClear,
+                  onChanged: (v) => s.set('flickClear', v),
+                ),
+                if (s.flickClear)
+                  _PauseSlider('Wait after clearing', s.flickClearMs, (v) => s.set('flickClearMs', v)),
+                _PauseSlider('Wait after move', s.flickRedrawMs, (v) => s.set('flickRedrawMs', v)),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    'Time for the glasses to redraw at the new height. Too short and the text stays put; '
+                    'lower both waits to go faster.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12.5),
+                  ),
+                ),
                 if (s.flickMethod == 'apply')
                   _PauseSlider('Preview time', s.flickPreviewMs, (v) => s.set('flickPreviewMs', v)),
                 SwitchListTile(
@@ -197,8 +215,8 @@ class FlickerPage extends StatelessWidget {
                 ),
                 _Chips('Switch', s.flickWhat, const [('both', 'Text + spot'), ('move', 'Spot only'), ('text', 'Text only')],
                     (v) => s.set('flickWhat', v)),
-                _Chips('Moves go to', s.flickArms, const [('R', 'Right arm'), ('both', 'Both arms')],
-                    (v) => s.set('flickArms', v)),
+                _Chips('Moves go to', s.flickMoveTo, const [('both', 'Both arms'), ('R', 'Right arm')],
+                    (v) => s.set('flickMoveTo', v)),
                 _StepSlider('Depth', s.flickDepth, 1, 9, (v) => s.set('flickDepth', v),
                     caption: 'How far away the text looks while flickering'),
                 const Divider(height: 24),
@@ -234,6 +252,7 @@ class _Stats extends StatelessWidget {
     final parts = [
       '${f.steps} switches',
       if (f.running) '${f.rate.toStringAsFixed(1)}/s of ${f.askedRate.toStringAsFixed(1)} asked',
+      if (f.what != 'text' && f.lastClearMs > 0) 'clear ${f.lastClearMs} ms',
       if (f.what != 'text') 'move ${f.lastMoveMs} ms',
       if (f.what != 'move') 'text ${f.lastTextMs} ms',
       if (f.slow > 0) '${f.slow} slow',

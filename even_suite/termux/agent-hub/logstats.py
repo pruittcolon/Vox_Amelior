@@ -269,7 +269,8 @@ def main(argv):
             cfg = run[0]
             print(f"  latest run: top {cfg.get('topMs')} ms at height {cfg.get('topH')}, bottom {cfg.get('bottomMs')} ms "
                   f"at height {cfg.get('bottomH')}, depth {cfg.get('depth')}, switch={cfg.get('what')} "
-                  f"method={cfg.get('method', 'state0 (old)')} pause={cfg.get('settleMs', 0)} ms "
+                  f"method={cfg.get('method', 'state0 (old)')} clear={cfg.get('clear', 'no (old)')} "
+                  f"clear wait={cfg.get('clearMs', '-')} ms move wait={cfg.get('settleMs', 0)} ms "
                   f"preview={cfg.get('previewMs', '-')} ms wait={cfg.get('wait')} moves to={cfg.get('arms')}")
             steps = [e for e in run if e.get("e") == "step"]
             if steps:
@@ -282,6 +283,9 @@ def main(argv):
                     ss = [e for e in steps if e.get("side") == side]
                     if ss:
                         print(f"  {side:6} step {fmt_ms([e['ms'] for e in ss])} (asked {ss[-1].get('target')} ms)")
+                clears = [e['clearMs'] for e in steps if e.get('clearMs')]
+                if clears:
+                    print(f"  clear  {fmt_ms(clears)}")
                 print(f"  move   {fmt_ms([e['moveMs'] for e in steps if e.get('moveMs')])}")
                 print(f"  text   {fmt_ms([e['textMs'] for e in steps if e.get('textMs')])}")
                 replies = Counter(e["moveReply"] for e in steps if e.get("moveReply"))
@@ -297,14 +301,16 @@ def main(argv):
                 if e.get("e") == "change":
                     print(f"  changed while running: top {e.get('topMs')} ms h{e.get('topH')}, "
                           f"bottom {e.get('bottomMs')} ms h{e.get('bottomH')}, wait={e.get('wait')}, "
-                          f"method={e.get('method')}, pause={e.get('settleMs')} ms, switch={e.get('what')}")
+                          f"method={e.get('method')}, clear={e.get('clear')} {e.get('clearMs')} ms, "
+                          f"move wait={e.get('settleMs')} ms, switch={e.get('what')}")
             stop = next((e for e in run if e.get("e") == "stop"), None)
             if stop:
                 print(f"  stopped ({stop.get('reason')}): {stop.get('steps')} switches in {stop.get('secs')} s "
                       f"= {stop.get('rate')}/s of {stop.get('asked')}/s asked")
         tests = [e for e in fl if e.get("e") == "test"]
         for e in tests[-6:]:
-            print(f"  by hand: {e.get('side')} h{e.get('h')} {e.get('ms')} ms (move {e.get('moveMs')} ms "
+            print(f"  by hand: {e.get('side')} h{e.get('h')} {e.get('ms')} ms (clear {e.get('clearMs', '-')} ms, "
+                  f"move {e.get('moveMs')} ms "
                   f"{e.get('moveReply') or 'no answer'}, text {e.get('textMs')} ms {e.get('textReply') or 'no answer'})")
         for e in [e for e in fl if e.get("e") == "reset"][-3:]:
             print(f"  reset to height {e.get('homeH')} depth {e.get('homeD')}: ok={e.get('ok')} {e.get('ms')} ms")

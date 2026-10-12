@@ -178,7 +178,9 @@ void main() {
       await tester.pump();
       expect(boxIn('flick-bottom'), 'BOTTOM');
       await tester.drag(flickerList, const Offset(0, 3000));
-      await tester.pump();
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
       expect(suite.flicker.steps, greaterThan(2));
       expect(w.glasses.sent['R']!.where((p) => p[0] == 0x26).map((p) => '${p[5]}:${p[6]}').take(2), ['1:8', '1:0'],
           reason: 'display moved high, then low (state 1 = it moves)');

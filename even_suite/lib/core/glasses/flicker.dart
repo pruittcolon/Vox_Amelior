@@ -23,14 +23,22 @@ class FlickSend {
 /// of your view than one spot does.
 ///
 /// How the G1 firmware moves the picture (decompiled firmware, 0x26 sub 2):
-/// state 1 stores the new height at once and starts the glasses' own height
-/// preview (the screen the Even app shows while you drag its height slider);
-/// state 0 only closes that preview - it never moves anything. Text takes its
-/// height when it is drawn, so after a move the text is sent again.
+/// state 1 stores the new height and starts the glasses' height preview
+/// (task 0xf, the screen the Even app shows while you drag its height
+/// slider). Only that preview works out where things are drawn
+/// (`cal_panel_canvas_coord`: y = (8 - height) * 35 on the 480-row panel);
+/// text is drawn wherever the last preview left it. State 0 only closes the
+/// preview.
 ///
-/// Methods: `live` sends state 1 for every move and closes the preview when
-/// it stops; `apply` sends state 1, waits, then state 0 for every move (the
-/// Even app's way; the right arm pauses ~0.5 s after each close).
+/// The preview only starts from a clear screen: `update_persist_task_status`
+/// refuses task 0xf while text (task 0x10) is up, yet the glasses still
+/// answer "ok". So each move: clear (0x18), wait for the glasses to go idle,
+/// move (state 1), wait for the redraw at the new height, then the text
+/// (which may take over from the preview at any time).
+///
+/// Methods: `live` leaves the preview open between moves and closes it when
+/// it stops; `apply` closes it after every move (the Even app's way; the
+/// right arm pauses ~0.5 s after each close).
 ///
 /// Settings are read at every step, so changes apply while it runs. Every
 /// step is logged (`flicker.step`), plus a summary each second
@@ -52,11 +60,13 @@ class Flicker extends ChangeNotifier {
   int depth = 3; // 1 .. 9
   int homeHeight = 7, homeDepth = 3; // the normal spot, restored at stop
   String method = 'live'; // live (state 1 per move) or apply (state 1, then 0)
-  int settleMs = 0; // pause after a move, before the text
+  bool clearFirst = true; // clear the text before each move (moves are ignored while text is up)
+  int clearMs = 80; // pause after clearing, so the glasses are idle
+  int settleMs = 150; // pause after a move (the glasses redraw there), before the text
   int previewMs = 300; // apply: time between state 1 and state 0
   bool waitForReplies = true; // steadier; off = just hand it to Bluetooth
   String what = 'both'; // both, move (spot only), text (text only)
-  String arms = 'R'; // moves to the right arm (it passes them on) or both
+  String arms = 'both'; // moves to both arms (each arm works out its own height) or the right arm
   int autoStopSec = 60;
   int replyTimeoutMs = 250;
 
@@ -68,7 +78,7 @@ class Flicker extends ChangeNotifier {
   int slow = 0; // steps that took longer than their time
   int failures = 0; // commands without an answer, or rejected
   double rate = 0; // switches a second over the last second
-  int lastMoveMs = 0, lastTextMs = 0, lastStepMs = 0;
+  int lastClearMs = 0, lastMoveMs = 0, lastTextMs = 0, lastStepMs = 0;
   String moveReply = ''; // what the glasses answer to a move
   bool moveSilent = false; // the glasses never answered moves: stop waiting
   bool textSilent = false;
@@ -80,6 +90,7 @@ class Flicker extends ChangeNotifier {
   int _textSeq = 0;
   int _gen = 0;
   bool _previewOpen = false; // a state-1 move without its state 0 yet
+  bool _textUp = true; // something may be on the glasses (then clear before a move)
   String? _lastText;
   String _loggedConfig = '';
   int _moveMiss = 0, _textMiss = 0;
@@ -108,6 +119,8 @@ class Flicker extends ChangeNotifier {
         'homeH': homeHeight,
         'homeD': homeDepth,
         'method': method,
+        'clear': clearFirst,
+        'clearMs': clearMs,
         'settleMs': settleMs,
         'previewMs': previewMs,
         'wait': waitForReplies,
@@ -149,6 +162,7 @@ class Flicker extends ChangeNotifier {
     moveSilent = textSilent = false;
     _moveMiss = _textMiss = 0;
     _lastText = null;
+    _textUp = true;
     startedAt = now();
     offAt = autoStopSec > 0 ? startedAt!.add(Duration(seconds: autoStopSec)) : null;
     final gen = ++_gen;
@@ -191,8 +205,8 @@ class Flicker extends ChangeNotifier {
     if (restore) await reset();
   }
 
-  /// Back to the normal spot and the glasses' dashboard: move there (state
-  /// 1), close the height preview (state 0), clear the text.
+  /// Back to the normal spot and the glasses' dashboard: clear the text,
+  /// move there (state 1), close the height preview (state 0), clear.
   Future<void> reset() async {
     if (!_ble.isConnected || busy) return;
     busy = true;
@@ -203,6 +217,11 @@ class Flicker extends ChangeNotifier {
     try {
       if (what != 'text' || _previewOpen) {
         final lrs = arms == 'both' ? const ['L', 'R'] : const ['R'];
+        if (_textUp) {
+          await _send([_exitPacket], const ['L', 'R'], wait: true);
+          _textUp = false;
+          await _pause(clearMs);
+        }
         final open = await _send([Proto.positionPacket(_seq++, height: homeHeight, depth: homeDepth, preview: true)], lrs,
             wait: true);
         await _pause(previewMs);
@@ -212,6 +231,7 @@ class Flicker extends ChangeNotifier {
         _previewOpen = false;
       }
       ok = await proto.exit() && ok;
+      _textUp = false;
     } finally {
       _lastText = null;
       busy = false;
@@ -234,19 +254,23 @@ class Flicker extends ChangeNotifier {
     notifyListeners();
     try {
       _lastText = null;
+      _textUp = true; // other screens may have put something up meanwhile
       final t0 = _ms();
-      final (m, t) = await _step(atTop, wait: true);
+      final (c, m, t) = await _step(atTop, wait: true);
+      lastClearMs = c.ms;
       lastMoveMs = m.ms;
       lastTextMs = t.ms;
       lastStepMs = _ms() - t0;
       if (m.reply.isNotEmpty) moveReply = m.reply;
-      if (!m.ok || !t.ok) failures++;
+      if (!c.ok || !m.ok || !t.ok) failures++;
       EventLog.add('flicker', 'test', {
         'side': atTop ? 'top' : 'bottom',
         'h': atTop ? topHeight : bottomHeight,
         'ms': lastStepMs,
+        'clearMs': c.ms,
         'moveMs': m.ms,
         'textMs': t.ms,
+        'clearOk': c.ok,
         'moveOk': m.ok,
         'textOk': t.ok,
         'moveReply': m.reply,
@@ -266,12 +290,13 @@ class Flicker extends ChangeNotifier {
       final side = top;
       final target = side ? topMs : bottomMs;
       final t0 = _ms();
-      final (m, t) = await _step(side, wait: waitForReplies);
+      final (c, m, t) = await _step(side, wait: waitForReplies);
       if (!running || gen != _gen) break;
       final took = _ms() - t0;
       final isLate = took > target;
-      final ok = m.ok && t.ok;
+      final ok = c.ok && m.ok && t.ok;
       steps++;
+      lastClearMs = c.ms;
       lastMoveMs = m.ms;
       lastTextMs = t.ms;
       lastStepMs = took;
@@ -291,6 +316,7 @@ class Flicker extends ChangeNotifier {
         'h': side ? topHeight : bottomHeight,
         'target': target,
         'ms': took,
+        if (c.ms > 0) 'clearMs': c.ms,
         'moveMs': m.ms,
         'textMs': t.ms,
         'ok': ok,
@@ -324,18 +350,33 @@ class Flicker extends ChangeNotifier {
   /// A short fixed pause inside a step (not cut short by [stop]).
   Future<void> _pause(int ms) => ms > 0 ? Future<void>.delayed(Duration(milliseconds: ms)) : Future.value();
 
-  /// One spot: move there, then (re)draw its text so it takes the new height.
-  Future<(FlickSend, FlickSend)> _step(bool atTop, {required bool wait}) async {
+  /// One spot: clear, move there, then (re)draw its text at the new height.
+  /// Returns how the clear, the move and the text went.
+  Future<(FlickSend, FlickSend, FlickSend)> _step(bool atTop, {required bool wait}) async {
     final height = atTop ? topHeight : bottomHeight;
     final text = atTop ? topText : bottomText;
+    var c = FlickSend.skipped;
     var m = FlickSend.skipped;
     if (what != 'text') {
+      c = await _clear(wait: wait);
       m = await _move(height, wait: wait);
       if (what == 'both') await _pause(settleMs);
     }
     // After a move the text is drawn again even if it is the same.
     final t = what == 'move' ? FlickSend.skipped : await _text(text, wait: wait, force: what == 'both');
-    return (m, t);
+    return (c, m, t);
+  }
+
+  static final _exitPacket = Uint8List.fromList([0x18]);
+
+  /// Clears the text so the glasses go idle; they only move from idle.
+  Future<FlickSend> _clear({required bool wait}) async {
+    if (!clearFirst || !_textUp) return FlickSend.skipped;
+    final r = await _send([_exitPacket], const ['L', 'R'], wait: wait && !textSilent);
+    _textUp = false;
+    _lastText = null;
+    await _pause(clearMs);
+    return r;
   }
 
   Future<FlickSend> _move(int height, {required bool wait}) async {
@@ -367,6 +408,7 @@ class Flicker extends ChangeNotifier {
     final packets = Proto.evenaiPackets(utf8.encode(text.isEmpty ? ' ' : text),
         syncSeq: _textSeq++ & 0xff, newScreen: Proto.newScreen(Proto.textShow), pos: 0, currentPage: 1, maxPage: 1);
     final w = wait && !textSilent;
+    _textUp = true;
     final r = await _send(packets, const ['L', 'R'], wait: w);
     if (r.ok) _lastText = text;
     if (w) {

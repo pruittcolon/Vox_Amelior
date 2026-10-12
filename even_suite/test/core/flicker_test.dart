@@ -18,7 +18,9 @@ class _Rig {
       ..bottomHeight = 0
       ..depth = 4
       ..homeHeight = 5
-      ..homeDepth = 2;
+      ..homeDepth = 2
+      ..clearMs = 0
+      ..settleMs = 0;
   }
 
   final glasses = FakeGlasses();
@@ -67,27 +69,29 @@ void main() {
   setUp(() => EventLog.instance.recent.clear());
 
   test('position packet: state 1 moves (height preview), state 0 only closes it', () {
+    expect(Flicker(Proto(BleManager(FakeGlasses(), control: FakeControl()))).arms, 'both');
     expect(Proto.positionPacket(0x105, height: 7, depth: 3), [0x26, 0x08, 0x00, 0x05, 0x02, 0x00, 0x07, 0x03]);
     expect(Proto.positionPacket(1, height: 12, depth: 4, preview: true), [0x26, 8, 0, 1, 2, 1, 8, 4]);
   });
 
-  testWidgets('moves with state 1, then redraws the text, on its timer; then puts things back', (tester) async {
+  testWidgets('clears, moves with state 1, then redraws the text, on its timer; then puts things back', (tester) async {
     final r = _Rig(tester);
     await r.control.connectNow();
     await r.flicker.start();
     await _run(tester, 1000);
     expect(r.flicker.steps, inInclusiveRange(9, 11), reason: '0.1 s per spot = 10 switches a second');
 
-    expect(r.seq('R').take(4), ['move1:8', 'text:UP', 'move1:0', 'text:DOWN'],
-        reason: 'move first (state 1 = it moves), then the text so it is drawn at the new height');
+    expect(r.seq('R').take(6), ['exit', 'move1:8', 'text:UP', 'exit', 'move1:0', 'text:DOWN'],
+        reason: 'the glasses ignore moves while text is up: clear, move (state 1), then the text at the new height');
+    expect(r.seq('L').take(6), ['exit', 'move1:8', 'text:UP', 'exit', 'move1:0', 'text:DOWN'],
+        reason: 'both arms work out their own height');
     expect(r.moves('R').first, [0x26, 8, 0, 0, 2, 1, 8, 4]);
-    expect(r.moves('L'), isEmpty, reason: 'moves go to the right arm, which passes them on');
     expect(r.glasses.screens('L').take(4), ['UP', 'DOWN', 'UP', 'DOWN'], reason: 'text goes to both arms');
 
     await r.stop(tester);
     expect(r.flicker.running, isFalse);
-    expect(r.seq('R').reversed.take(3).toList().reversed, ['move1:5', 'move0:5', 'exit'],
-        reason: 'normal spot: move there, close the height preview, clear');
+    expect(r.seq('R').reversed.take(4).toList().reversed, ['exit', 'move1:5', 'move0:5', 'exit'],
+        reason: 'normal spot: clear, move there, close the height preview, clear');
     expect(r.moves('R').last.sublist(4), [0x02, 0x00, 5, 2]);
 
     expect(_events('step').length, inInclusiveRange(9, 11));
@@ -112,24 +116,40 @@ void main() {
     await r.control.connectNow();
     await r.flicker.start();
     await _run(tester, 1000);
-    expect(r.seq('R').take(6), ['move1:8', 'move0:8', 'text:UP', 'move1:0', 'move0:0', 'text:DOWN']);
+    expect(r.seq('R').take(8),
+        ['exit', 'move1:8', 'move0:8', 'text:UP', 'exit', 'move1:0', 'move0:0', 'text:DOWN']);
     expect(_events('step').first.data['moveMs'], greaterThanOrEqualTo(200), reason: 'includes the preview time');
     await r.stop(tester);
     r.dispose();
   });
 
-  testWidgets('pause after move, before the text', (tester) async {
+  testWidgets('waits after clearing, and after the move before the text', (tester) async {
     final r = _Rig(tester)
-      ..flicker.settleMs = 50
-      ..flicker.topMs = 200
-      ..flicker.bottomMs = 200;
+      ..flicker.clearMs = 50
+      ..flicker.settleMs = 60
+      ..flicker.topMs = 500
+      ..flicker.bottomMs = 500;
     await r.control.connectNow();
     await r.flicker.start();
     await tester.pump(const Duration(milliseconds: 10));
-    expect(r.seq('R'), ['move1:8'], reason: 'text waits for the pause');
+    expect(r.seq('R'), ['exit'], reason: 'the move waits for the glasses to go idle');
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(r.seq('R'), ['exit', 'move1:8'], reason: 'the text waits for the redraw at the new height');
     await tester.pump(const Duration(milliseconds: 60));
-    expect(r.seq('R'), ['move1:8', 'text:UP']);
+    expect(r.seq('R'), ['exit', 'move1:8', 'text:UP']);
     await r.stop(tester, restore: false);
+    r.dispose();
+  });
+
+  testWidgets('clearing can be turned off', (tester) async {
+    final r = _Rig(tester)..flicker.clearFirst = false;
+    await r.control.connectNow();
+    await r.flicker.start();
+    await _run(tester, 500);
+    await r.stop(tester, restore: false);
+    expect(r.seq('R').take(4), ['move1:8', 'text:UP', 'move1:0', 'text:DOWN']);
+    expect(r.seq('R'), isNot(contains('exit')));
+    expect(_events('start').single.data['clear'], isFalse);
     r.dispose();
   });
 
@@ -168,12 +188,15 @@ void main() {
     await a.stop(tester, restore: false);
     expect(a.glasses.screens('L'), isEmpty);
     expect(a.moves('R').length, greaterThanOrEqualTo(4));
+    expect(a.seq('R').where((p) => p == 'exit').length, 1,
+        reason: 'cleared once at the start; with no text the preview just keeps moving');
     a.dispose();
 
     final b = _Rig(tester)..flicker.what = 'text';
     await b.control.connectNow();
     await b.flicker.start();
     await _run(tester, 500);
+    expect(b.seq('R'), isNot(contains('exit')), reason: 'no moves, so nothing to clear for');
     await b.stop(tester);
     expect(b.moves('R'), isEmpty, reason: 'never moved, so nothing to put back');
     expect(b.glasses.screens('L').take(2), ['UP', 'DOWN']);
@@ -200,14 +223,15 @@ void main() {
     t.dispose();
   });
 
-  testWidgets('moves to both arms when asked', (tester) async {
-    final r = _Rig(tester)..flicker.arms = 'both';
+  testWidgets('moves to the right arm only when asked', (tester) async {
+    final r = _Rig(tester)..flicker.arms = 'R';
     await r.control.connectNow();
     await r.flicker.start();
     await _run(tester, 400);
     await r.stop(tester, restore: false);
-    expect(r.moves('L').length, r.moves('R').length);
-    expect(r.moves('L'), isNotEmpty);
+    expect(r.moves('L'), isEmpty);
+    expect(r.moves('R'), isNotEmpty);
+    expect(r.seq('L').take(2), ['exit', 'text:UP'], reason: 'clearing and text still go to both arms');
     r.dispose();
   });
 
@@ -241,7 +265,7 @@ void main() {
     final r = _Rig(tester);
     await r.control.connectNow();
     await r.flicker.showOnce(false);
-    expect(r.seq('R'), ['move1:0', 'text:DOWN']);
+    expect(r.seq('R'), ['exit', 'move1:0', 'text:DOWN']);
     final e = _events('test').single.data;
     expect(e['side'], 'bottom');
     expect(e['moveReply'], 'R:26 c9');

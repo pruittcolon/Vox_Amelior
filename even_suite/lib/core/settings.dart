@@ -48,11 +48,13 @@ class Settings extends ChangeNotifier {
   int flickDepth = 3; // display depth 1 .. 9
   int flickHomePos = 7, flickHomeDepth = 3; // normal spot, restored at stop
   String flickMethod = 'live'; // live (state 1 per move) or apply (state 1, then 0)
-  int flickSettleMs = 0; // pause after a move, before the text
+  bool flickClear = true; // clear the text before each move (the glasses ignore moves while text is up)
+  int flickClearMs = 80; // pause after clearing
+  int flickRedrawMs = 150; // pause after a move (the glasses redraw there), before the text
   int flickPreviewMs = 300; // apply: time between state 1 and state 0
   bool flickWait = true; // wait for the glasses to answer each command
   String flickWhat = 'both'; // both, move, text
-  String flickArms = 'R'; // moves to the right arm (it passes them on) or both
+  String flickMoveTo = 'both'; // moves to both arms or the right arm only
   int flickAutoStop = 60; // seconds
   Target target = Target.claude;
   String terminalAgent = 'claude';
@@ -102,11 +104,13 @@ class Settings extends ChangeNotifier {
     flickHomePos = _i(m['flickHomePos'], flickHomePos).clamp(0, 8);
     flickHomeDepth = _i(m['flickHomeDepth'], flickHomeDepth).clamp(1, 9);
     flickMethod = _s(m['flickMethod'], flickMethod);
-    flickSettleMs = _i(m['flickSettleMs'], flickSettleMs).clamp(0, 2000);
+    flickClear = _b(m['flickClear'], flickClear);
+    flickClearMs = _i(m['flickClearMs'], flickClearMs).clamp(0, 2000);
+    flickRedrawMs = _i(m['flickRedrawMs'], flickRedrawMs).clamp(0, 2000);
     flickPreviewMs = _i(m['flickPreviewMs'], flickPreviewMs).clamp(0, 3000);
     flickWait = _b(m['flickWait'], flickWait);
     flickWhat = _s(m['flickWhat'], flickWhat);
-    flickArms = _s(m['flickArms'], flickArms);
+    flickMoveTo = _s(m['flickMoveTo'], flickMoveTo);
     flickAutoStop = _i(m['flickAutoStop'], flickAutoStop).clamp(5, 600);
     target = _s(m['target'], target.name) == 'terminal' ? Target.terminal : Target.claude;
     terminalAgent = _s(m['terminalAgent'], terminalAgent);
@@ -203,16 +207,20 @@ class Settings extends ChangeNotifier {
         flickHomeDepth = value as int;
       case 'flickMethod':
         flickMethod = value as String;
-      case 'flickSettleMs':
-        flickSettleMs = value as int;
+      case 'flickClear':
+        flickClear = value as bool;
+      case 'flickClearMs':
+        flickClearMs = value as int;
+      case 'flickRedrawMs':
+        flickRedrawMs = value as int;
       case 'flickPreviewMs':
         flickPreviewMs = value as int;
       case 'flickWait':
         flickWait = value as bool;
       case 'flickWhat':
         flickWhat = value as String;
-      case 'flickArms':
-        flickArms = value as String;
+      case 'flickMoveTo':
+        flickMoveTo = value as String;
       case 'flickAutoStop':
         flickAutoStop = value as int;
       case 'target':
@@ -240,7 +248,7 @@ class Settings extends ChangeNotifier {
     const quiet = {
       'lastGlasses', 'mirrorX', 'mirrorY', 'mirrorW', 'mirrorH', 'mirrorStrip', //
       'flickTop', 'flickBottom', 'flickTopMs', 'flickBottomMs', 'flickTopPos', 'flickBottomPos',
-      'flickDepth', 'flickHomePos', 'flickHomeDepth', 'flickSettleMs', 'flickPreviewMs',
+      'flickDepth', 'flickHomePos', 'flickHomeDepth', 'flickClearMs', 'flickRedrawMs', 'flickPreviewMs',
     };
     if (!quiet.contains(key)) EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
     notifyListeners();

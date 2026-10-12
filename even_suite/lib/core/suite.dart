@@ -208,11 +208,13 @@ class Suite extends ChangeNotifier {
       ..homeHeight = settings.flickHomePos
       ..homeDepth = settings.flickHomeDepth
       ..method = settings.flickMethod
-      ..settleMs = settings.flickSettleMs
+      ..clearFirst = settings.flickClear
+      ..clearMs = settings.flickClearMs
+      ..settleMs = settings.flickRedrawMs
       ..previewMs = settings.flickPreviewMs
       ..waitForReplies = settings.flickWait
       ..what = settings.flickWhat
-      ..arms = settings.flickArms
+      ..arms = settings.flickMoveTo
       ..autoStopSec = settings.flickAutoStop
       ..changed();
     terminal.mirrorIdle = Duration(minutes: settings.autoOffMinutes);
