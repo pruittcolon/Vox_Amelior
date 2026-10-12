@@ -142,7 +142,7 @@ class VoiceCommands {
   /// Words that make a trailing "send" part of the sentence ("what should I
   /// send", "how to send it") rather than the command.
   static const _sentenceWords = {
-    'to', 'i', 'we', 'you', 'they', 'he', 'she', 'it', 'should', 'would',
+    'to', 'i', 'we', 'you', 'they', 'he', 'she', 'should', 'would',
     'could', 'can', 'will', 'did', 'do', 'not', "don't", 'dont', "didn't",
     'didnt', 'cannot', "can't", 'cant', 'must', 'might', 'may', "i'll", 'ill',
     "won't", 'wont', 'never', 'always',

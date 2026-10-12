@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:even_suite/core/ble/ble_manager.dart';
 import 'package:even_suite/core/ble/ble_receive.dart';
 import 'package:even_suite/core/bridge/bridge_client.dart';
+import 'package:even_suite/core/system.dart';
 import 'package:even_suite/core/voice/speech.dart';
 
 /// Simulated G1: acknowledges commands the way the real arms do and records
@@ -239,4 +240,46 @@ class FakeBridgeClient extends BridgeClient {
 
   @override
   void abortAll() {}
+}
+
+/// Android side of the app (permissions, settings, service) answered at once.
+class FakeSystem extends SystemBridge {
+  final prefsStore = <String, Object?>{};
+  final serviceCalls = <String>[];
+  bool micGranted = true;
+  bool volumeKeysOn = false;
+
+  @override
+  void init() {}
+
+  @override
+  Future<Map<String, Object?>> prefs() async => Map.of(prefsStore);
+
+  @override
+  Future<void> setPref(String key, Object? value) async => prefsStore[key] = value;
+
+  @override
+  Future<Map<String, bool>> permissions(List<String> kinds) async =>
+      {for (final k in kinds) k: k != 'microphone' || micGranted};
+
+  @override
+  Future<String?> service({required bool listening, required bool glasses, String text = ''}) async {
+    serviceCalls.add('listening=$listening glasses=$glasses');
+    return null;
+  }
+
+  @override
+  Future<bool> termuxInstalled() async => true;
+
+  @override
+  Future<String> runTermux(String command) async => 'ok';
+
+  @override
+  Future<bool> openTermux() async => true;
+
+  @override
+  Future<void> openAppSettings() async {}
+
+  @override
+  Future<void> volumeKeys(bool enabled) async => volumeKeysOn = enabled;
 }

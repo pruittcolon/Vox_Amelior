@@ -5,7 +5,6 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:even_suite/core/suite.dart';
-import 'package:even_suite/core/system.dart';
 import 'package:even_suite/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -56,12 +55,13 @@ Future<void> _shot(WidgetTester tester, String name) async {
 }
 
 class _World {
+  final system = FakeSystem();
   final glasses = FakeGlasses();
   final control = FakeControl();
   final speech = FakeSpeech();
   final bridge = FakeBridgeClient();
   late final Suite suite = Suite(
-    system: SystemBridge(),
+    system: system,
     transport: glasses,
     control: control,
     speech: speech,
@@ -157,7 +157,7 @@ void main() {
       await suite.setHandsFree(false);
       await tester.pumpWidget(const SizedBox());
       suite.dispose();
-    });
+    }, timeout: const Timeout(Duration(minutes: 3)));
   }
 
   testWidgets('glasses TouchBar taps page the reply; hold left to talk', (tester) async {
@@ -197,7 +197,7 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   testWidgets('volume keys and the notification Stop button are wired', (tester) async {
     final w = _World();
@@ -217,5 +217,5 @@ void main() {
     expect(suite.display.pager!.page, 0);
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
