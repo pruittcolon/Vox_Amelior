@@ -40,9 +40,16 @@ class ScreenMirror(
         private const val TAG = "ScreenMirror"
     }
 
-    @Volatile var region = "strip" // strip, top, full
+    @Volatile var region = "strip" // strip, top, full, custom
     @Volatile var strip = 0 // 0..100, strip position from top to bottom
     @Volatile var intervalMs = 1000L
+    // Custom area in percent of the screen (e.g. around a video player).
+    @Volatile var cx = 0
+    @Volatile var cy = 0
+    @Volatile var cw = 100
+    @Volatile var ch = 30
+    @Volatile var fit = "fit" // fit (keep shape), fill (crop to fill), stretch
+    @Volatile var rows = H // picture height sent to the glasses (136, 102, 68)
 
     private val thread = HandlerThread("screen-mirror").apply { start() }
     private val handler = Handler(thread.looper)
@@ -50,10 +57,10 @@ class ScreenMirror(
     private var virtualDisplay: VirtualDisplay? = null
     private var src: Bitmap? = null
     private var padded: java.nio.ByteBuffer? = null
-    private val out = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
-    private val canvas = Canvas(out)
+    private var out = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
+    private var canvas = Canvas(out)
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-    private val pixels = IntArray(W * H)
+    private var pixels = IntArray(W * H)
     private var lastHash = 0
     private var capW = 0
     private var capH = 0
@@ -136,6 +143,13 @@ class ScreenMirror(
     private fun regionRect(w: Int, h: Int): Rect = when (region) {
         "full" -> Rect(0, 0, w, h)
         "top" -> Rect(0, 0, w, h / 2)
+        "custom" -> {
+            val l = (w * cx.coerceIn(0, 99)) / 100
+            val t = (h * cy.coerceIn(0, 99)) / 100
+            val r = (l + maxOf(1, w * cw.coerceIn(1, 100) / 100)).coerceAtMost(w)
+            val b = (t + maxOf(1, h * ch.coerceIn(1, 100) / 100)).coerceAtMost(h)
+            Rect(l, t, maxOf(r, l + 1), maxOf(b, t + 1))
+        }
         else -> {
             // Full width, the glasses' own shape (576:136), so it fills the display.
             val sh = (w * H / W).coerceAtMost(h)
@@ -182,15 +196,43 @@ class ScreenMirror(
         } finally {
             image.close()
         }
-        val r = regionRect(capW, capH)
-        val s = min(W.toFloat() / r.width(), H.toFloat() / r.height())
-        val dw = r.width() * s
-        val dh = r.height() * s
-        val dst = RectF((W - dw) / 2f, (H - dh) / 2f, (W + dw) / 2f, (H + dh) / 2f)
+        val oh = rows.coerceIn(16, H)
+        if (out.height != oh) {
+            out = Bitmap.createBitmap(W, oh, Bitmap.Config.ARGB_8888)
+            canvas = Canvas(out)
+            pixels = IntArray(W * oh)
+            lastHash = 0
+        }
+        var r = regionRect(capW, capH)
+        val dst: RectF
+        when (fit) {
+            "stretch" -> dst = RectF(0f, 0f, W.toFloat(), oh.toFloat())
+            "fill" -> {
+                // Crop the area to the picture's shape, then fill it.
+                val target = W.toFloat() / oh
+                val cur = r.width().toFloat() / r.height()
+                r = if (cur > target) {
+                    val nw = (r.height() * target).toInt()
+                    val l = r.left + (r.width() - nw) / 2
+                    Rect(l, r.top, l + nw, r.bottom)
+                } else {
+                    val nh = (r.width() / target).toInt().coerceAtLeast(1)
+                    val t = r.top + (r.height() - nh) / 2
+                    Rect(r.left, t, r.right, t + nh)
+                }
+                dst = RectF(0f, 0f, W.toFloat(), oh.toFloat())
+            }
+            else -> {
+                val s = min(W.toFloat() / r.width(), oh.toFloat() / r.height())
+                val dw = r.width() * s
+                val dh = r.height() * s
+                dst = RectF((W - dw) / 2f, (oh - dh) / 2f, (W + dw) / 2f, (oh + dh) / 2f)
+            }
+        }
         canvas.drawColor(Color.BLACK)
         canvas.drawBitmap(bmp, r, dst, paint)
-        out.getPixels(pixels, 0, W, 0, 0, W, H)
-        val gray = ByteArray(W * H)
+        out.getPixels(pixels, 0, W, 0, 0, W, oh)
+        val gray = ByteArray(W * oh)
         var hash = 1
         for (i in pixels.indices) {
             val p = pixels[i]
@@ -211,6 +253,7 @@ class ScreenMirror(
                 "gray" to gray,
                 "x0" to dst.left.toInt(), "y0" to dst.top.toInt(),
                 "x1" to dst.right.toInt(), "y1" to dst.bottom.toInt(),
+                "w" to W, "h" to oh,
                 "ms" to (SystemClock.uptimeMillis() - t0).toInt(),
             )
         )

@@ -91,7 +91,12 @@ class ScreenPage extends StatelessWidget {
               iconColor: AppColors.glasses,
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  for (final (value, text) in const [('strip', 'Band'), ('top', 'Top half'), ('full', 'Whole screen')])
+                  for (final (value, text) in const [
+                    ('strip', 'Band'),
+                    ('top', 'Top half'),
+                    ('full', 'Whole screen'),
+                    ('custom', 'Custom area'),
+                  ])
                     ChoiceChip(
                       label: Text(text),
                       selected: s.mirrorRegion == value,
@@ -103,10 +108,37 @@ class ScreenPage extends StatelessWidget {
                   switch (s.mirrorRegion) {
                     'strip' => 'A full-width band in the glasses’ shape: the most readable.',
                     'top' => 'The top half of the screen, shrunk to fit.',
+                    'custom' => 'Any part of the screen, e.g. exactly around a video player.',
                     _ => 'The whole screen, shrunk to fit (small).',
                   },
                   style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
                 ),
+                if (s.mirrorRegion == 'custom') ...[
+                  const SizedBox(height: 10),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    _AreaPreview(x: s.mirrorX, y: s.mirrorY, w: s.mirrorW, h: s.mirrorH),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(children: [
+                        _PercentSlider('Left', s.mirrorX, 0, 99, (v) => s.set('mirrorX', v)),
+                        _PercentSlider('Top', s.mirrorY, 0, 99, (v) => s.set('mirrorY', v)),
+                        _PercentSlider('Width', s.mirrorW, 1, 100, (v) => s.set('mirrorW', v)),
+                        _PercentSlider('Height', s.mirrorH, 1, 100, (v) => s.set('mirrorH', v)),
+                      ]),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  const Text('Fit to the glasses', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final (value, text) in const [('fit', 'Fit (keep shape)'), ('fill', 'Fill (crop)'), ('stretch', 'Stretch')])
+                      ChoiceChip(
+                        label: Text(text),
+                        selected: s.mirrorFit == value,
+                        onSelected: (_) => s.set('mirrorFit', value),
+                      ),
+                  ]),
+                ],
                 if (s.mirrorRegion == 'strip') ...[
                   const SizedBox(height: 8),
                   Row(children: [
@@ -142,6 +174,21 @@ class ScreenPage extends StatelessWidget {
                       onSelected: (_) => s.set('mirrorFpsTenths', tenths),
                     ),
                 ]),
+                const SizedBox(height: 14),
+                const Text('Picture height (lower = faster)', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final (rows, text) in const [(136, 'Full'), (102, '¾'), (68, '½')])
+                    ChoiceChip(
+                      label: Text(text),
+                      selected: s.mirrorRows == rows,
+                      onSelected: (_) => s.set('mirrorRows', rows),
+                    ),
+                ]),
+                const SizedBox(height: 6),
+                const Text('Sends less data per frame (½ = about twice as fast). Experimental: if the glasses '
+                    'stop updating, go back to Full.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                 const SizedBox(height: 14),
                 const Text('Style', style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
@@ -212,4 +259,71 @@ class _Preview extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PercentSlider extends StatelessWidget {
+  const _PercentSlider(this.label, this.value, this.min, this.max, this.onChanged);
+  final String label;
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        SizedBox(width: 52, child: Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 13))),
+        Expanded(
+          child: Slider(
+            value: value.clamp(min, max).toDouble(),
+            min: min.toDouble(),
+            max: max.toDouble(),
+            onChanged: (v) => onChanged(v.round()),
+          ),
+        ),
+        SizedBox(width: 40, child: Text('$value%', textAlign: TextAlign.end, style: const TextStyle(fontSize: 13))),
+      ]);
+}
+
+/// A small phone outline with the shared area highlighted.
+class _AreaPreview extends StatelessWidget {
+  const _AreaPreview({required this.x, required this.y, required this.w, required this.h});
+  final int x, y, w, h;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 74,
+        height: 150,
+        child: CustomPaint(painter: _AreaPainter(x, y, w, h)),
+      );
+}
+
+class _AreaPainter extends CustomPainter {
+  _AreaPainter(this.x, this.y, this.w, this.h);
+  final int x, y, w, h;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final phone = RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(10));
+    canvas.drawRRect(phone, Paint()..color = AppColors.surfaceHigh);
+    canvas.drawRRect(
+        phone,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = AppColors.outline);
+    final l = size.width * x / 100, t = size.height * y / 100;
+    final r = (l + size.width * w / 100).clamp(l + 2, size.width);
+    final b = (t + size.height * h / 100).clamp(t + 2, size.height);
+    final area = Rect.fromLTRB(l, t, r.toDouble(), b.toDouble());
+    canvas.drawRect(area, Paint()..color = AppColors.hud.withOpacity(0.25));
+    canvas.drawRect(
+        area,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = AppColors.hud);
+  }
+
+  @override
+  bool shouldRepaint(_AreaPainter old) => old.x != x || old.y != y || old.w != w || old.h != h;
 }

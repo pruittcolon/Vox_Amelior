@@ -126,7 +126,8 @@ void main() {
         ..fpsTenths = 20;
       await mirror.start();
       expect(mirror.running, isTrue);
-      expect(screen.configs.single, {'region': 'top', 'strip': 0, 'intervalMs': 500});
+      expect(screen.configs.single,
+          {'region': 'top', 'strip': 0, 'intervalMs': 500, 'cx': 0, 'cy': 0, 'cw': 100, 'ch': 30, 'fit': 'fit', 'rows': 136});
     });
 
     test('a frame reaches both lenses; an unchanged frame is skipped', () async {

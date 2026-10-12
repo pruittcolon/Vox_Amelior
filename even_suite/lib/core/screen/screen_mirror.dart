@@ -64,6 +64,10 @@ class ScreenMirror extends ChangeNotifier {
   // Settings (pushed from the app's Settings)
   String region = 'strip';
   int strip = 0;
+  // Custom area (percent of the screen) and how it maps onto the glasses.
+  int cx = 0, cy = 0, cw = 100, ch = 30;
+  String fit = 'fit';
+  int rows = 136;
   int fpsTenths = 10;
   String style = 'text';
   String invert = 'auto';
@@ -113,6 +117,12 @@ class ScreenMirror extends ChangeNotifier {
         'region': region,
         'strip': strip,
         'intervalMs': (10000 / fpsTenths).round(),
+        'cx': cx,
+        'cy': cy,
+        'cw': cw,
+        'ch': ch,
+        'fit': fit,
+        'rows': rows,
       };
 
   Future<void> start() async {
@@ -198,13 +208,15 @@ class ScreenMirror extends ChangeNotifier {
       return;
     }
     final gray = f['gray'];
-    if (gray is! Uint8List || gray.length != MonoEncoder.width * MonoEncoder.height) return;
+    final h = (f['h'] as num?)?.toInt() ?? MonoEncoder.height;
+    if (gray is! Uint8List || gray.length != MonoEncoder.width * h) return;
     final enc = Stopwatch()..start();
     final frame = MonoEncoder.encode(gray,
+        rows: h,
         x0: (f['x0'] as num?)?.toInt() ?? 0,
         y0: (f['y0'] as num?)?.toInt() ?? 0,
         x1: (f['x1'] as num?)?.toInt() ?? MonoEncoder.width,
-        y1: (f['y1'] as num?)?.toInt() ?? MonoEncoder.height,
+        y1: (f['y1'] as num?)?.toInt() ?? h,
         style: style,
         invert: invert);
     preview = frame.bmp;

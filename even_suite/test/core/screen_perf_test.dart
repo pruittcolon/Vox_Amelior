@@ -1,14 +1,16 @@
 // Screen sharing speed against simulated glasses calibrated from real logs
-// (2026-10-12, 177 frames on the user's G1, 2M PHY, 9856-byte pictures):
-//   packets: 51 per arm at (gap + ~1.2) ms each
-//   an arm ACCEPTS a picture (CRC 0xC9) only when it was not sent faster
-//   than it can take: left needs ~4 ms between packets, the slower right
-//   arm more (at 5 ms it rejected 53 of 54); accepted pictures are
-//   confirmed fast (end reply p50 ~415 ms), rejected ones slowly (~565 ms)
-//   CRC reply: ~41 ms
-//   the glasses DISPLAY a picture only when both arms accepted it
-// Frames displayed per second are compared for the previous release and
-// the current sender (per-arm pacing that adapts, retry of a rejecting arm).
+// of the user's G1 (2026-10-12, 2M PHY, 9856-byte pictures):
+//   - packets: 51 per arm at (gap + ~1.2) ms each
+//   - each arm rejects (CRC 0xCA) the FIRST send of a new picture and accepts
+//     the same picture sent again - at any packet speed (seen 33 times in a
+//     row on both arms); modelled pessimistically: a CRC re-check without
+//     resending does not help (the app tries it, the logs will tell)
+//   - end reply after the last packet: ~415 ms (accepted) / ~565 ms (first
+//     send) at 5 ms spacing, ~60-120 ms at 15+ ms spacing; scales with size
+//   - the glasses DISPLAY a picture only when both arms accepted it
+// Compared: the previous release in the state the logs caught it in (both
+// arms slowed to 20 ms, one after the other: ~0.21 fps on the real glasses)
+// and the current sender, at full and half picture height.
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -20,18 +22,25 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
 
-/// Measured end-reply delays (ms) for accepted and rejected pictures.
+/// Measured end-reply delays (ms) at 5 ms spacing, and at 15+ ms.
 const acceptedEndMs = [380, 393, 405, 413, 418, 420, 426, 432, 441, 464];
 const rejectedEndMs = [423, 448, 505, 527, 564, 570, 576, 617, 673, 689];
-
-/// Slowest packet spacing (ms) each arm takes without corrupting a picture.
-const needGap = {'L': 4, 'R': 10};
+const slowPaceEndMs = [56, 61, 64, 68, 72, 80, 95, 120];
 
 class CalibratedGlasses implements BleTransport {
   final _rx = StreamController<BleReceive>.broadcast();
   final _batchDone = <String, DateTime>{};
   final _gap = <String, int>{};
+  final _packets = <String, int>{};
   final _accepted = <String, Set<int>>{'L': {}, 'R': {}};
+  // One-behind: an arm accepts a picture only if its previous transfer
+  // carried the same picture.
+  final _prev = <String, int?>{};
+  final _cur = <String, int?>{};
+  final _fresh = <String, bool>{};
+  final _lastSent = <String, int>{};
+  final _lastBatch = <String, int>{};
+  final _resend = <String, bool>{};
   final DateTime Function() now;
   int _sample = 0;
   int frames = 0;
@@ -39,7 +48,7 @@ class CalibratedGlasses implements BleTransport {
   final shownTimes = <int>[];
   final int Function() elapsed;
 
-  bool _ok(String arm) => (_gap[arm] ?? 0) >= needGap[arm]!;
+  bool _ok(String arm) => _cur[arm] != null && _cur[arm] == _prev[arm];
 
   CalibratedGlasses(this.now, this.elapsed);
 
@@ -61,6 +70,11 @@ class CalibratedGlasses implements BleTransport {
     await Future<void>.delayed(Duration(milliseconds: ms));
     _batchDone[lr] = now();
     _gap[lr] = gapMs;
+    _packets[lr] = packets.length;
+    _fresh[lr] = true;
+    final h = Object.hashAll(packets.map(Object.hashAll));
+    _resend[lr] = _lastBatch[lr] == h;
+    _lastBatch[lr] = h;
     return packets.length;
   }
 
@@ -69,14 +83,25 @@ class CalibratedGlasses implements BleTransport {
     for (final arm in lr == null ? ['L', 'R'] : [lr]) {
       switch (data[0]) {
         case 0x20:
-          final list = _ok(arm) ? acceptedEndMs : rejectedEndMs;
-          final delay = list[_sample++ % list.length];
+          // The pace, and whether this arm just had the same picture (a
+          // resend), set the delay.
+          final slow = (_gap[arm] ?? 5) >= 15;
+          final resend = _resend[arm] ?? false;
+          final list = slow ? slowPaceEndMs : (resend ? acceptedEndMs : rejectedEndMs);
+          final scale = (_packets[arm] ?? 51) / 51;
+          final delay = (list[_sample++ % list.length] * scale).round();
           final since = now().difference(_batchDone[arm] ?? now()).inMilliseconds;
           _reply(arm, [0x20, 0xC9], (delay - since).clamp(5, 5000));
         case 0x16:
           frames++;
-          final ok = _ok(arm);
           final id = (data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4];
+          if (_fresh[arm] == true) {
+            _prev[arm] = _cur[arm];
+            _cur[arm] = id;
+            _fresh[arm] = false;
+          }
+          _lastSent[arm] = id;
+          final ok = _ok(arm);
           if (ok) {
             _accepted[arm]!.add(id);
             final other = arm == 'L' ? 'R' : 'L';
@@ -107,7 +132,7 @@ class Result {
       'p90 gap $p90GapMs ms, $transfers arm transfers, final pace $pace';
 }
 
-Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour}) async {
+Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour, int rows = 136}) async {
   final clock = tester.binding.clock;
   var elapsed = 0;
   final glasses = CalibratedGlasses(() => clock.now(), () => elapsed);
@@ -118,13 +143,15 @@ Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour}) async
   final mirror = ScreenMirror(screen, proto)
     ..now = (() => clock.now())
     ..autoOff = const Duration(minutes: 10);
+  mirror.rows = rows;
   if (oldBehaviour) {
-    // The previous release: both arms at a fixed 5 ms, no retry, a frame
-    // counted once the CRC was answered.
+    // The previous release as the logs caught it: both arms slowed to
+    // 20 ms, one after the other, rejections answered by a full resend.
     proto
+      ..bmpGapMs = 20
       ..adaptivePacing = false
-      ..retryRejectedArm = false;
-    mirror.requireCrc = false;
+      ..recheckFirst = false
+      ..sequentialArms = true;
   }
   await control.connectNow();
   await mirror.start();
@@ -135,7 +162,7 @@ Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour}) async
   while (elapsed < 60000) {
     final interval = (screen.configs.last['intervalMs'] as int?) ?? 1000;
     tick++;
-    screen.frame((x, y) => (x + tick * 7) % 97 < 30);
+    screen.frame((x, y) => (x + tick * 7) % 97 < 30, rows: rows);
     for (var t = 0; t < interval; t += 50) {
       await tester.pump(const Duration(milliseconds: 50));
       elapsed += 50;
@@ -158,13 +185,15 @@ Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour}) async
 }
 
 void main() {
-  testWidgets('screen sharing keeps the glasses display updating', (tester) async {
+  testWidgets('screen sharing: faster than the previous release, faster still at half height', (tester) async {
     final before = await simulate(tester, oldBehaviour: true);
     final after = await simulate(tester, oldBehaviour: false);
+    final half = await simulate(tester, oldBehaviour: false, rows: 68);
     // ignore: avoid_print
-    print('Calibrated G1 simulation\n  before: $before\n  now:    $after');
-    expect(before.shown, lessThanOrEqualTo(2), reason: 'the stall seen on the real glasses');
-    expect(after.fps, greaterThanOrEqualTo(0.6), reason: 'the display keeps updating');
+    print('Calibrated G1 simulation\n  previous: $before\n  now:      $after\n  half:     $half');
+    expect(before.fps, lessThan(0.3), reason: 'matches the ~0.21 fps seen on the real glasses');
+    expect(after.fps, greaterThanOrEqualTo(before.fps * 2), reason: 'at least twice as fast');
     expect(after.p90GapMs, lessThanOrEqualTo(2500), reason: 'no long freezes');
-  }, timeout: const Timeout(Duration(minutes: 3)));
+    expect(half.fps, greaterThan(after.fps * 1.5), reason: 'half the data, much faster');
+  }, timeout: const Timeout(Duration(minutes: 4)));
 }

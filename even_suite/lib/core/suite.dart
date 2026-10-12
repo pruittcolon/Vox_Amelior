@@ -141,13 +141,25 @@ class Suite extends ChangeNotifier {
         mirror.strip != settings.mirrorStrip ||
         mirror.fpsTenths != settings.mirrorFpsTenths ||
         mirror.style != settings.mirrorStyle ||
-        mirror.invert != settings.mirrorInvert;
+        mirror.invert != settings.mirrorInvert ||
+        mirror.cx != settings.mirrorX ||
+        mirror.cy != settings.mirrorY ||
+        mirror.cw != settings.mirrorW ||
+        mirror.ch != settings.mirrorH ||
+        mirror.fit != settings.mirrorFit ||
+        mirror.rows != settings.mirrorRows;
     mirror
       ..region = settings.mirrorRegion
       ..strip = settings.mirrorStrip
       ..fpsTenths = settings.mirrorFpsTenths
       ..style = settings.mirrorStyle
       ..invert = settings.mirrorInvert
+      ..cx = settings.mirrorX
+      ..cy = settings.mirrorY
+      ..cw = settings.mirrorW
+      ..ch = settings.mirrorH
+      ..fit = settings.mirrorFit
+      ..rows = settings.mirrorRows
       ..autoOff = Duration(minutes: settings.autoOffMinutes);
     if (mirrorChanged) mirror.reconfigure();
     chat.system = glassesPrimer();

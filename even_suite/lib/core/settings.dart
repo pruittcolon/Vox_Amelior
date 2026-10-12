@@ -36,6 +36,9 @@ class Settings extends ChangeNotifier {
   int mirrorFpsTenths = 10; // 10 = 1 frame a second
   String mirrorInvert = 'auto'; // auto, on, off
   String mirrorStyle = 'text'; // text (sharp) or photo (dithered)
+  int mirrorX = 0, mirrorY = 20, mirrorW = 100, mirrorH = 30; // custom area, % of screen
+  String mirrorFit = 'fit'; // fit, fill, stretch
+  int mirrorRows = 136; // picture height: 136 (full), 102, 68 (experimental, faster)
   Target target = Target.claude;
   String terminalAgent = 'claude';
   bool volumeKeysScroll = false;
@@ -67,6 +70,12 @@ class Settings extends ChangeNotifier {
     mirrorFpsTenths = _i(m['mirrorFpsTenths'], mirrorFpsTenths).clamp(2, 50);
     mirrorInvert = _s(m['mirrorInvert'], mirrorInvert);
     mirrorStyle = _s(m['mirrorStyle'], mirrorStyle);
+    mirrorX = _i(m['mirrorX'], mirrorX).clamp(0, 99);
+    mirrorY = _i(m['mirrorY'], mirrorY).clamp(0, 99);
+    mirrorW = _i(m['mirrorW'], mirrorW).clamp(1, 100);
+    mirrorH = _i(m['mirrorH'], mirrorH).clamp(1, 100);
+    mirrorFit = _s(m['mirrorFit'], mirrorFit);
+    mirrorRows = _i(m['mirrorRows'], mirrorRows).clamp(16, 136);
     target = _s(m['target'], target.name) == 'terminal' ? Target.terminal : Target.claude;
     terminalAgent = _s(m['terminalAgent'], terminalAgent);
     volumeKeysScroll = _b(m['volumeKeysScroll'], volumeKeysScroll);
@@ -128,6 +137,18 @@ class Settings extends ChangeNotifier {
         mirrorInvert = value as String;
       case 'mirrorStyle':
         mirrorStyle = value as String;
+      case 'mirrorX':
+        mirrorX = value as int;
+      case 'mirrorY':
+        mirrorY = value as int;
+      case 'mirrorW':
+        mirrorW = value as int;
+      case 'mirrorH':
+        mirrorH = value as int;
+      case 'mirrorFit':
+        mirrorFit = value as String;
+      case 'mirrorRows':
+        mirrorRows = value as int;
       case 'target':
         target = value as Target;
         value = target.name;

@@ -345,14 +345,14 @@ class FakeScreen implements ScreenSource {
   Future<void> configure(Map<String, Object> config) async => configs.add(config);
 
   /// A frame: [lit] decides which pixels are bright (255) or dark (0).
-  void frame(bool Function(int x, int y) lit) {
-    final gray = Uint8List(576 * 136);
-    for (var y = 0; y < 136; y++) {
+  void frame(bool Function(int x, int y) lit, {int rows = 136}) {
+    final gray = Uint8List(576 * rows);
+    for (var y = 0; y < rows; y++) {
       for (var x = 0; x < 576; x++) {
         gray[y * 576 + x] = lit(x, y) ? 255 : 0;
       }
     }
-    _frames.add({'gray': gray, 'x0': 0, 'y0': 0, 'x1': 576, 'y1': 136, 'ms': 5});
+    _frames.add({'gray': gray, 'x0': 0, 'y0': 0, 'x1': 576, 'y1': rows, 'w': 576, 'h': rows, 'ms': 5});
   }
 
   void same() => _frames.add({'same': true});

@@ -24,22 +24,23 @@ class MonoEncoder {
   /// white), 'on' always inverts, 'off' never.
   static MonoFrame encode(
     Uint8List gray, {
+    int rows = height,
     int x0 = 0,
     int y0 = 0,
     int x1 = width,
-    int y1 = height,
+    int? y1,
     String style = 'text',
     String invert = 'auto',
   }) {
-    assert(gray.length == width * height);
+    assert(gray.length == width * rows);
     x0 = x0.clamp(0, width);
     x1 = x1.clamp(x0, width);
-    y0 = y0.clamp(0, height);
-    y1 = y1.clamp(y0, height);
+    y0 = y0.clamp(0, rows);
+    final yEnd = (y1 ?? rows).clamp(y0, rows);
 
     final hist = List<int>.filled(256, 0);
     var sum = 0;
-    for (var y = y0; y < y1; y++) {
+    for (var y = y0; y < yEnd; y++) {
       final row = y * width;
       for (var x = x0; x < x1; x++) {
         final g = gray[row + x];
@@ -47,17 +48,17 @@ class MonoEncoder {
         sum += g;
       }
     }
-    final count = (x1 - x0) * (y1 - y0);
+    final count = (x1 - x0) * (yEnd - y0);
     final mean = count == 0 ? 0 : sum ~/ count;
     final flip = invert == 'on' || (invert == 'auto' && mean > 128);
 
-    final lit = Uint8List(width * height);
+    final lit = Uint8List(width * rows);
     if (count > 0) {
       if (style == 'photo') {
-        _dither(gray, lit, x0, y0, x1, y1, flip);
+        _dither(gray, lit, x0, y0, x1, yEnd, flip);
       } else {
         final t = otsu(hist, count);
-        for (var y = y0; y < y1; y++) {
+        for (var y = y0; y < yEnd; y++) {
           final row = y * width;
           for (var x = x0; x < x1; x++) {
             final g = gray[row + x];
@@ -66,7 +67,7 @@ class MonoEncoder {
         }
       }
     }
-    return MonoFrame(bmp(lit), lit, flipped: flip);
+    return MonoFrame(bmp(lit, rows: rows), lit, flipped: flip);
   }
 
   /// Otsu's threshold: the gray level that best splits the histogram in two.
@@ -119,25 +120,27 @@ class MonoEncoder {
     }
   }
 
-  /// 1-bit BMP from lit flags (1 = lit).
-  static Uint8List bmp(Uint8List lit) {
-    final out = Uint8List(bmpSize);
+  /// 1-bit BMP from lit flags (1 = lit), [rows] high (136 = full display).
+  static Uint8List bmp(Uint8List lit, {int rows = height}) {
+    final data = stride * rows;
+    final size = 62 + data + 2;
+    final out = Uint8List(size);
     final bd = ByteData.view(out.buffer);
     out[0] = 0x42; // B
     out[1] = 0x4D; // M
-    bd.setUint32(2, bmpSize, Endian.little);
+    bd.setUint32(2, size, Endian.little);
     bd.setUint32(10, 62, Endian.little);
     bd.setUint32(14, 40, Endian.little);
     bd.setInt32(18, width, Endian.little);
-    bd.setInt32(22, height, Endian.little);
+    bd.setInt32(22, rows, Endian.little);
     bd.setUint16(26, 1, Endian.little);
     bd.setUint16(28, 1, Endian.little);
-    bd.setUint32(34, dataSize + 2, Endian.little);
+    bd.setUint32(34, data + 2, Endian.little);
     bd.setInt32(38, 2834, Endian.little); // 72 dpi, as in the demo files
     bd.setInt32(42, 2834, Endian.little);
     out.setRange(54, 62, const [0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00]);
     var o = 62;
-    for (var y = height - 1; y >= 0; y--) {
+    for (var y = rows - 1; y >= 0; y--) {
       final row = y * width;
       for (var xb = 0; xb < stride; xb++) {
         var b = 0;

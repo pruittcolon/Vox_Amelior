@@ -156,7 +156,7 @@ void main() {
       final ends = glasses.sent['L']!.where((p) => p[0] == 0x20).length +
           glasses.sent['R']!.where((p) => p[0] == 0x20).length;
       expect(ends, 4, reason: 'one retry per arm');
-      expect(glasses.batchGaps, [5, 8], reason: 'left at the demo pace, right a little gentler');
+      expect(glasses.batchGaps, [5, 5], reason: 'both arms at the demo pace');
     });
 
     test('image: a CRC mismatch (0xCA) still counts as shown when the CRC is not required', () async {

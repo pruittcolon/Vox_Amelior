@@ -146,6 +146,10 @@ void main() {
       await tester.runAsync(() => precacheImage(
           MemoryImage(suite.mirror.preview!), tester.element(find.byType(EvenSuiteApp))));
       await _shot(tester, '5b_screen$tag');
+      suite.settings.set('mirrorRegion', 'custom');
+      await tester.pump();
+      await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+      await _shot(tester, '5c_screen_custom$tag');
       await suite.mirror.stop();
       await tester.pump();
 

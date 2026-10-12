@@ -263,6 +263,12 @@ class SuiteService : Service() {
             (config?.get("region") as? String)?.let { m.region = it }
             (config?.get("strip") as? Int)?.let { m.strip = it }
             (config?.get("intervalMs") as? Int)?.let { m.intervalMs = it.toLong().coerceIn(200L, 5000L) }
+            (config?.get("cx") as? Int)?.let { m.cx = it }
+            (config?.get("cy") as? Int)?.let { m.cy = it }
+            (config?.get("cw") as? Int)?.let { m.cw = it }
+            (config?.get("ch") as? Int)?.let { m.ch = it }
+            (config?.get("fit") as? String)?.let { m.fit = it }
+            (config?.get("rows") as? Int)?.let { m.rows = it }
             m.refresh()
         }
 
