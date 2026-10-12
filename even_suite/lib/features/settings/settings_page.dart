@@ -106,7 +106,6 @@ class SettingsPage extends StatelessWidget {
                     style: const TextStyle(color: AppColors.muted, fontSize: 12.5));
               }),
             ]),
-            ]),
             _Section('Termux bridge', Icons.terminal_rounded, AppColors.ok, [
               _TextSetting(
                 label: 'Bridge address',
