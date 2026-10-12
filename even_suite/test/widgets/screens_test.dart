@@ -164,8 +164,12 @@ void main() {
       final flickerList = find.descendant(of: find.byType(FlickerPage), matching: find.byType(Scrollable)).first;
       await tester.scrollUntilVisible(find.text('Bottom text'), 200, scrollable: flickerList);
       await tester.pump();
-      expect(find.widgetWithText(TextField, 'TOP\nThis text sits high in your view'), findsOneWidget,
-          reason: 'each text box keeps its own text when the list shifts');
+      final boxes = tester
+          .widgetList<EditableText>(find.descendant(
+              of: find.byType(FlickerPage), matching: find.byType(EditableText), skipOffstage: false))
+          .map((e) => e.controller.text.split('\n').first)
+          .toList();
+      expect(boxes, ['TOP', 'BOTTOM'], reason: 'each text box keeps its own text when the list shifts');
       await tester.drag(flickerList, const Offset(0, 3000));
       await tester.pump();
       expect(suite.flicker.steps, greaterThan(2));
