@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../ble/ble_manager.dart';
 import '../ble/proto.dart';
+import '../log.dart';
 import 'glasses_text.dart';
 
 enum DisplayMode { idle, reply, live, mirror }
@@ -322,13 +323,27 @@ class GlassesDisplay extends ChangeNotifier {
     // Live screens are replaced soon anyway; a finished reply gets retries.
     final tries = mode == DisplayMode.reply ? 3 : 1;
     var ok = false;
+    var tried = 0;
+    final sw = Stopwatch()..start();
     for (var i = 0; i < tries && !ok; i++) {
       if (_dirty) return; // something newer is waiting
+      tried++;
       ok = await proto.sendEvenAIData(screen,
           newScreen: Proto.newScreen(status),
           currentPage: p.page + 1,
           maxPage: p.pageCount);
     }
+    EventLog.add('display', 'screen', {
+      'mode': mode.name,
+      'page': p.page + 1,
+      'pages': p.pageCount,
+      'status': status.toRadixString(16),
+      'chars': screen.length,
+      'ms': sw.elapsedMilliseconds,
+      'tries': tried,
+      'ok': ok,
+      'auto': _auto != null,
+    });
     if (ok) {
       _shownKey = key;
       error = null;

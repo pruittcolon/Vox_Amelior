@@ -156,6 +156,12 @@ class BridgeClient {
 
   Future<void> stop() => _send('POST', '/api/bridge/stop', body: const {});
 
+  /// Upload diagnostics events (written to ~/.agent-hub/logs/ in Termux).
+  Future<void> log(List<Map<String, Object?>> events, {String session = '', int dropped = 0}) =>
+      _send('POST', '/api/log',
+          body: {'app': 'even-suite', 'session': session, 'dropped': dropped, 'events': events},
+          timeout: const Duration(seconds: 10));
+
   Future<void> reset() => _send('POST', '/api/bridge/reset', body: const {});
 
   /// The terminal screen of [agent]. With [waitSec] it waits until the screen

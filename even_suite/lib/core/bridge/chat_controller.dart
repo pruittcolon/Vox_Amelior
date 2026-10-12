@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../log.dart';
 import 'bridge_client.dart';
 
 enum BridgeState { unknown, online, offline, starting }
@@ -84,6 +85,7 @@ class ChatController extends ChangeNotifier {
     final t = text.trim();
     if (t.isEmpty) return;
     _awaitingSince = DateTime.now();
+    EventLog.add('chat', 'send', {'chars': t.length, 'system': system?.length ?? 0});
     // Show the bubble straight away; the next poll replaces it.
     messages = [
       ...messages,
@@ -166,6 +168,11 @@ class ChatController extends ChangeNotifier {
       } else if (_pending.remove(m.id) ||
           (!firstLook && _awaiting && m.time.isAfter(_awaitingSince!.subtract(const Duration(seconds: 5))) &&
               !messages.any((old) => old.id == m.id && !old.isPending))) {
+        EventLog.add('chat', 'reply', {
+          'chars': m.text.length,
+          'ok': !m.isError,
+          'ms': _awaitingSince == null ? null : DateTime.now().difference(_awaitingSince!).inMilliseconds,
+        });
         if (!busy) _awaitingSince = null;
         onReply?.call(m);
       }

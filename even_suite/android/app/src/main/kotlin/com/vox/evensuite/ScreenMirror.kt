@@ -59,6 +59,31 @@ class ScreenMirror(
     private var capH = 0
     @Volatile private var released = false
 
+    // Diagnostics
+    private var statFrames = 0
+    private var statSame = 0
+    private var statCaptureMs = 0L
+    private var statCaptureMaxMs = 0L
+
+    @Synchronized
+    fun takeStats(): Map<String, Any> {
+        val m = mapOf(
+            "captured" to statFrames, "unchanged" to statSame,
+            "captureAvgMs" to (if (statFrames == 0) 0.0 else statCaptureMs.toDouble() / statFrames),
+            "captureMaxMs" to statCaptureMaxMs, "intervalMs" to intervalMs, "size" to "${capW}x$capH",
+        )
+        statFrames = 0; statSame = 0; statCaptureMs = 0; statCaptureMaxMs = 0
+        return m
+    }
+
+    @Synchronized
+    private fun countFrame(ms: Long, same: Boolean) {
+        statFrames++
+        if (same) statSame++
+        statCaptureMs += ms
+        if (ms > statCaptureMaxMs) statCaptureMaxMs = ms
+    }
+
     fun start() {
         val (sw, sh, dpi) = screenSize()
         val scale = min(1f, 720f / sw)
@@ -173,10 +198,13 @@ class ScreenMirror(
             gray[i] = g.toByte()
             hash = 31 * hash + g
         }
+        val ms = SystemClock.uptimeMillis() - t0
         if (hash == lastHash) {
+            countFrame(ms, true)
             onFrame(mapOf("same" to true))
             return
         }
+        countFrame(ms, false)
         lastHash = hash
         onFrame(
             mapOf(

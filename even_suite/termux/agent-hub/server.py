@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
 DATA_DIR = os.path.expanduser("~/.agent-hub")
 STATE_FILE = os.path.join(DATA_DIR, "bridge.json")
+LOG_DIR = os.path.join(DATA_DIR, "logs")  # Even Suite timing logs (one JSON object per line)
 WORKDIR = os.environ.get("HUB_WORKDIR", os.path.expanduser("~"))
 
 CLAUDE_BIN = shutil.which("claude", path=os.path.expanduser("~/.local/bin")) or "claude"
@@ -443,6 +444,19 @@ class Handler(BaseHTTPRequestHandler):
             bridge.send(text, to, max(0, min(int(d.get("turns", 0)), 10)),
                         system if isinstance(system, str) else None)
             return self.send_json({"ok": True})
+        if parts == ["api", "log"]:
+            d = self.json_body()
+            events = d.get("events")
+            if not isinstance(events, list):
+                return self.send_json({"error": "bad request"}, 400)
+            os.makedirs(LOG_DIR, exist_ok=True)
+            path = os.path.join(LOG_DIR, time.strftime("even-suite-%Y-%m-%d.jsonl"))
+            meta = {"session": d.get("session", ""), "dropped": d.get("dropped", 0)}
+            with open(path, "a") as f:
+                for e in events[:5000]:
+                    if isinstance(e, dict):
+                        f.write(json.dumps({**e, **meta}, separators=(",", ":")) + "\n")
+            return self.send_json({"ok": True, "n": len(events)})
         if parts == ["api", "quit"]:
             # `all stop` in Termux. Claude's tmux session keeps running.
             self.send_json({"ok": True})

@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import android.view.KeyEvent
 import com.vox.evensuite.ble.BleManager
+import com.vox.evensuite.speech.GlassesMic
 import com.vox.evensuite.speech.SpeechEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -243,6 +244,14 @@ class MainActivity : FlutterActivity() {
                 val launch = packageManager.getLaunchIntentForPackage(TERMUX)
                 if (launch != null) startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 result.success(launch != null)
+            }
+            "nativeStats" -> {
+                val m = HashMap<String, Any>()
+                m["ble"] = BleManager.stats()
+                m["mic"] = GlassesMic.takeStats()
+                speech?.let { m["speech"] = it.takeStats() }
+                SuiteService.mirrorStats()?.let { m["screen"] = it }
+                result.success(m)
             }
             "volumeKeys" -> {
                 volumeKeys = args?.get("enabled") as? Boolean ?: false

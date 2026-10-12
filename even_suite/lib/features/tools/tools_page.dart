@@ -4,6 +4,7 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../widgets/common.dart';
 import '../settings/settings_page.dart';
+import 'diagnostics_page.dart';
 import 'help_page.dart';
 import 'images_page.dart';
 import 'notify_page.dart';
@@ -53,6 +54,8 @@ class ToolsPage extends StatelessWidget {
             'Wake word, “send”, scrolling and every voice command', () => push(const HelpPage())),
         tile(Icons.settings_rounded, AppColors.glasses, 'Settings', 'Termux bridge, voice, auto-off, glasses',
             () => push(const SettingsPage())),
+        tile(Icons.insights_rounded, AppColors.hud, 'Diagnostics', 'Timing log of every send, saved in Termux',
+            () => push(const DiagnosticsPage())),
       ],
     );
   }

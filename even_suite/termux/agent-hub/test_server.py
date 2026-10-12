@@ -3,6 +3,7 @@
 Runs the real server against a private tmux server and a fake `claude`
 binary, so nothing touches the real sessions:  python3 -m unittest test_server
 """
+import glob
 import json
 import os
 import shutil
@@ -121,6 +122,29 @@ class AgentHubTest(unittest.TestCase):
         reply = self.wait_reply(last[-1] if last else None)
         self.assertIsNotNone(reply)
         self.assertEqual(reply["text"], "echo: fit the glasses [glasses]")
+
+    def test_log_upload_and_summary(self):
+        now = int(time.time() * 1000)
+        events = [
+            {"t": now, "c": "ble", "e": "req", "cmd": "4e", "lr": "L", "ms": 38, "ok": True},
+            {"t": now + 10, "c": "bmp", "e": "frame", "ok": True, "stage": "done", "ms": 640,
+             "packetsMs": 520, "endMs": 60, "bytes": 9854},
+            {"t": now + 20, "c": "voice", "e": "final", "text": "clod what time is it", "mode": "waiting",
+             "src": "phone"},
+        ]
+        r = self.post("/api/log", {"app": "even-suite", "session": "s1", "dropped": 0, "events": events})
+        self.assertEqual(r["n"], 3)
+        logs = glob.glob(os.path.join(self.home, ".agent-hub", "logs", "even-suite-*.jsonl"))
+        self.assertEqual(len(logs), 1)
+        with open(logs[0]) as f:
+            lines = [json.loads(line) for line in f]
+        self.assertEqual(lines[1]["packetsMs"], 520)
+        self.assertEqual(lines[0]["session"], "s1")
+        out = subprocess.run([sys.executable, os.path.join(HERE, "logstats.py"), logs[0]],
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("Picture frames: ok=1", out.stdout)
+        self.assertIn("clod what time is it", out.stdout)
 
     def test_zz_quit(self):
         # Last test: `all stop` shuts the server down cleanly.

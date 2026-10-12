@@ -252,6 +252,8 @@ class SuiteService : Service() {
             }
         }
 
+        fun mirrorStats(): Map<String, Any>? = mirror?.takeStats()
+
         fun configureMirror(config: Map<*, *>?) {
             pendingConfig = config
             mirror?.let { applyConfig(it, config) }

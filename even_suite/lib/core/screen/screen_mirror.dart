@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../ble/proto.dart';
+import '../log.dart';
 import 'mono_encoder.dart';
 
 /// Where screen frames come from (Android screen capture, or a test fake).
@@ -112,6 +113,7 @@ class ScreenMirror extends ChangeNotifier {
     if (r == 'ok') {
       running = true;
       sent = skipped = failed = 0;
+      _capturedInterval = (10000 / fpsTenths).round();
       _times.clear();
       _shown = null;
       _armOff();
@@ -182,6 +184,7 @@ class ScreenMirror extends ChangeNotifier {
     }
     final gray = f['gray'];
     if (gray is! Uint8List || gray.length != MonoEncoder.width * MonoEncoder.height) return;
+    final enc = Stopwatch()..start();
     final frame = MonoEncoder.encode(gray,
         x0: (f['x0'] as num?)?.toInt() ?? 0,
         y0: (f['y0'] as num?)?.toInt() ?? 0,
@@ -190,6 +193,14 @@ class ScreenMirror extends ChangeNotifier {
         style: style,
         invert: invert);
     preview = frame.bmp;
+    EventLog.add('screen', 'capture', {
+      'captureMs': f['ms'],
+      'encodeMs': enc.elapsedMilliseconds,
+      'lit': (frame.litShare * 100).round(),
+      'flipped': frame.flipped,
+      'style': style,
+      'busy': _sending,
+    });
     notifyListeners();
     push(frame.bmp);
   }
@@ -219,6 +230,8 @@ class ScreenMirror extends ChangeNotifier {
         final ok = await proto.sendBmp(frame, timeoutMs: 800);
         final t1 = now().millisecondsSinceEpoch;
         lastSendMs = t1 - t0;
+        EventLog.add('screen', 'sent', {'ok': ok, 'ms': lastSendMs, 'sent': sent + (ok ? 1 : 0)});
+        _adapt();
         if (ok) {
           sent++;
           _shown = frame;
@@ -234,6 +247,21 @@ class ScreenMirror extends ChangeNotifier {
       }
     } finally {
       _sending = false;
+    }
+  }
+
+  int _capturedInterval = 0;
+
+  /// Do not capture faster than the glasses can take frames: if a send takes
+  /// longer than the chosen interval, slow the capture down to match (and
+  /// speed back up when sends get quick again).
+  void _adapt() {
+    final want = (10000 / fpsTenths).round();
+    final need = lastSendMs > want ? ((lastSendMs * 1.15) ~/ 100 + 1) * 100 : want;
+    if (need != _capturedInterval) {
+      _capturedInterval = need;
+      EventLog.add('screen', 'interval', {'ms': need, 'sendMs': lastSendMs});
+      if (running) source.configure({...config, 'intervalMs': need});
     }
   }
 

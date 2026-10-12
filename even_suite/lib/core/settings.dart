@@ -25,6 +25,7 @@ class Settings extends ChangeNotifier {
   bool repliesOnGlasses = true;
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
   bool glassesMic = true; // TouchBar hold listens through the glasses' mic
+  bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
   // Phone screen on the glasses
   String mirrorRegion = 'strip'; // strip (readable band), top (top half), full
   int mirrorStrip = 0; // strip position, 0 (top) .. 100 (bottom)
@@ -53,6 +54,7 @@ class Settings extends ChangeNotifier {
     repliesOnGlasses = _b(m['repliesOnGlasses'], repliesOnGlasses);
     readingWpm = _i(m['readingWpm'], readingWpm).clamp(0, 400);
     glassesMic = _b(m['glassesMic'], glassesMic);
+    diagnostics = _b(m['diagnostics'], diagnostics);
     mirrorRegion = _s(m['mirrorRegion'], mirrorRegion);
     mirrorStrip = _i(m['mirrorStrip'], mirrorStrip).clamp(0, 100);
     mirrorFpsTenths = _i(m['mirrorFpsTenths'], mirrorFpsTenths).clamp(2, 50);
@@ -101,6 +103,8 @@ class Settings extends ChangeNotifier {
         readingWpm = value as int;
       case 'glassesMic':
         glassesMic = value as bool;
+      case 'diagnostics':
+        diagnostics = value as bool;
       case 'mirrorRegion':
         mirrorRegion = value as String;
       case 'mirrorStrip':

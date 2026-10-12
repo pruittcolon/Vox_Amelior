@@ -11,6 +11,7 @@ import 'bridge/chat_controller.dart';
 import 'bridge/terminal_controller.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
+import 'log.dart';
 import 'screen/screen_mirror.dart';
 import 'settings.dart';
 import 'system.dart';
@@ -101,6 +102,18 @@ class Suite extends ChangeNotifier {
     settings.load(await system.prefs());
     applySettings();
     settings.addListener(applySettings);
+    final log = EventLog.instance
+      ..client = client
+      ..nativeStats = system.nativeStats
+      ..enabled = settings.diagnostics;
+    final size = GlassesText.screenSize();
+    EventLog.add('app', 'start', {
+      'charsPerLine': size.charsPerLine,
+      'readingWpm': settings.readingWpm,
+      'glassesMic': settings.glassesMic,
+      'recognizer': settings.recognizer,
+    });
+    unawaited(log.flush());
     // Reconnect the glasses used last time, without scanning.
     final last = settings.lastGlasses;
     if (last != null) {
@@ -119,6 +132,7 @@ class Suite extends ChangeNotifier {
       ..language = settings.language
       ..engineName = settings.recognizer;
     if (display.wpm != settings.readingWpm) display.setWpm(settings.readingWpm);
+    EventLog.instance.enabled = settings.diagnostics;
     final mirrorChanged = mirror.region != settings.mirrorRegion ||
         mirror.strip != settings.mirrorStrip ||
         mirror.fpsTenths != settings.mirrorFpsTenths ||

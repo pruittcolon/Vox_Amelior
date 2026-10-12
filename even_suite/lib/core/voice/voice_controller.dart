@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../log.dart';
 import 'speech.dart';
 import 'voice_commands.dart';
 import 'wake_word.dart';
@@ -188,6 +189,17 @@ class VoiceController extends ChangeNotifier {
   // --------------------------------------------------------------- events
 
   void _onEvent(SpeechEvent e) {
+    if (e.type == 'final' || e.type == 'error' || e.type == 'state' || e.type == 'source' || e.type == 'engine') {
+      EventLog.add('voice', e.type, {
+        if (e.type == 'final') 'text': e.text,
+        if (e.type == 'error') 'message': e.message,
+        if (e.type == 'error') 'fatal': e.fatal,
+        if (e.type == 'state') 'listening': e.listening,
+        if (e.type == 'source') 'glassesMic': e.glassesMic,
+        'mode': mode.name,
+        'src': source,
+      });
+    }
     switch (e.type) {
       case 'state':
         listening = e.listening;
@@ -298,6 +310,7 @@ class VoiceController extends ChangeNotifier {
   }
 
   void _afterWake(String rest) {
+    EventLog.add('voice', 'wake', {'rest': rest});
     _armAutoOff();
     final cmd = VoiceCommands.parse(rest);
     if (cmd != null) {
@@ -318,6 +331,7 @@ class VoiceController extends ChangeNotifier {
   }
 
   void _runCommand(VoiceCommand cmd) {
+    EventLog.add('voice', 'command', {'cmd': cmd.name});
     switch (cmd) {
       case VoiceCommand.send:
         if (draft.trim().isNotEmpty) _submit(draft);
@@ -357,6 +371,7 @@ class VoiceController extends ChangeNotifier {
 
   Future<void> _submit(String text) async {
     final t = text.trim();
+    EventLog.add('voice', 'submit', {'chars': t.length, 'src': source, 'hold': holding || _awaitingRelease});
     _awaitingRelease = false;
     _releaseTimer?.cancel();
     _idleTimer?.cancel();

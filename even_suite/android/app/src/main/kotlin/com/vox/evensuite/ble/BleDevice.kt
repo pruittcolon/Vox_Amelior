@@ -31,6 +31,35 @@ class BleDevice(
     private val writer = Executors.newSingleThreadExecutor()
     @Volatile private var writeDone: CountDownLatch? = null
 
+    // Diagnostics (read and reset by takeStats): how long each write waited
+    // for the Bluetooth stack, and how often the stack said "busy".
+    private var statWrites = 0
+    private var statBytes = 0L
+    private var statBusy = 0
+    private var statDropped = 0
+    private var statWaitUs = 0L
+    private var statWaitMaxUs = 0L
+
+    @Synchronized
+    fun takeStats(): Map<String, Any> {
+        val m = mapOf(
+            "writes" to statWrites, "bytes" to statBytes, "busy" to statBusy, "dropped" to statDropped,
+            "waitAvgMs" to (if (statWrites == 0) 0.0 else statWaitUs / 1000.0 / statWrites),
+            "waitMaxMs" to statWaitMaxUs / 1000.0,
+        )
+        statWrites = 0; statBytes = 0; statBusy = 0; statDropped = 0; statWaitUs = 0; statWaitMaxUs = 0
+        return m
+    }
+
+    @Synchronized
+    private fun record(bytes: Int, waitUs: Long, busy: Int) {
+        statWrites++
+        statBytes += bytes
+        statBusy += busy
+        statWaitUs += waitUs
+        if (waitUs > statWaitMaxUs) statWaitMaxUs = waitUs
+    }
+
     /** Called from BluetoothGattCallback.onCharacteristicWrite. */
     fun onWriteComplete() {
         writeDone?.countDown()
@@ -65,6 +94,8 @@ class BleDevice(
     }
 
     private fun writeNow(data: ByteArray): Boolean {
+        val start = System.nanoTime()
+        var busy = 0
         repeat(50) {
             val g = gatt ?: return false
             val c = writeCharacteristic ?: return false
@@ -90,12 +121,15 @@ class BleDevice(
             }
             if (accepted) {
                 latch.await(200, TimeUnit.MILLISECONDS)
+                record(data.size, (System.nanoTime() - start) / 1000, busy)
                 return true
             }
             //  Stack busy (a callback still pending): try again shortly.
+            busy++
             Thread.sleep(2)
         }
         Log.e(TAG, "$name: write refused 50 times, dropping packet")
+        synchronized(this) { statDropped++ }
         return false
     }
 

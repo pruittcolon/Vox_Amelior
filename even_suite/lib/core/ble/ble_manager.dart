@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../log.dart';
 import 'ble_receive.dart';
 
 enum LinkState { disconnected, scanning, connecting, connected }
@@ -200,6 +201,9 @@ class BleManager extends ChangeNotifier {
   }
 
   Future<void> _onNative(String method, Map args) async {
+    if (method != 'foundPairedGlasses') {
+      EventLog.add('glasses', method, {'arm': args['arm'], 'reason': args['reason']});
+    }
     switch (method) {
       case 'foundPairedGlasses':
         final pair = GlassesPair.fromMap(args);
@@ -242,6 +246,7 @@ class BleManager extends ChangeNotifier {
   void _onReceive(BleReceive res) {
     if (res.data.isEmpty || res.type == 'VoiceChunk') return;
     if (res.data[0] == 0xF5 && res.data.length > 1) {
+      EventLog.add('glasses', 'touch', {'code': res.data[1], 'lr': res.lr});
       _events.add(GlassesEvent(res.data[1], res.lr));
       return;
     }
@@ -261,8 +266,18 @@ class BleManager extends ChangeNotifier {
   Future<void> sendData(Uint8List data, {String? lr}) =>
       transport.send(data, lr);
 
-  Future<int> sendBatch(List<Uint8List> packets, String lr) =>
-      transport.sendBatch(packets, lr);
+  Future<int> sendBatch(List<Uint8List> packets, String lr) async {
+    final sw = Stopwatch()..start();
+    final sent = await transport.sendBatch(packets, lr);
+    EventLog.add('ble', 'batch', {
+      'lr': lr,
+      'n': packets.length,
+      'sent': sent,
+      'bytes': packets.fold<int>(0, (a, p) => a + p.length),
+      'ms': sw.elapsedMilliseconds,
+    });
+    return sent;
+  }
 
   /// Send [data] and wait for the reply with the same command byte.
   Future<BleReceive> request(Uint8List data,
@@ -289,6 +304,7 @@ class BleManager extends ChangeNotifier {
       });
     }
 
+    final sw = Stopwatch()..start();
     try {
       await transport.send(data, lr0).timeout(const Duration(seconds: 2));
     } catch (_) {
@@ -296,7 +312,15 @@ class BleManager extends ChangeNotifier {
       final cb = _reqListen.remove(cmd);
       if (cb != null && !cb.isCompleted) cb.complete(BleReceive.timeout());
     }
-    return completer.future;
+    final r = await completer.future;
+    EventLog.add('ble', 'req', {
+      'cmd': data[0].toRadixString(16).padLeft(2, '0'),
+      'lr': lr0,
+      'bytes': data.length,
+      'ms': sw.elapsedMilliseconds,
+      'ok': !r.isTimeout,
+    });
+    return r;
   }
 
   Future<BleReceive> requestRetry(Uint8List data,

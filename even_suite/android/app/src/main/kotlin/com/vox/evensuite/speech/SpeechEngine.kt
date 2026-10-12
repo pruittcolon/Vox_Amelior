@@ -44,6 +44,18 @@ class SpeechEngine(
     private var finishing = false
     private var usingGlasses = false
 
+    // Diagnostics
+    private var statSessions = 0
+    private val statErrors = mutableMapOf<String, Int>()
+
+    fun takeStats(): Map<String, Any> {
+        val m = mapOf("sessions" to statSessions, "errors" to HashMap(statErrors), "onDevice" to usingOnDevice,
+            "glasses" to usingGlasses)
+        statSessions = 0
+        statErrors.clear()
+        return m
+    }
+
     fun isAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(context) ||
         (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context))
 
@@ -133,6 +145,7 @@ class SpeechEngine(
         emit(mapOf("type" to "source", "glasses" to usingGlasses))
         // The Google recognizer plays a chime at every start. While waiting for
         // the wake word that would chime every few seconds, so mute briefly.
+        statSessions++
         if (quiet && continuous) mute()
         try {
             r.startListening(intent)
@@ -243,6 +256,7 @@ class SpeechEngine(
     }
 
     override fun onError(error: Int) {
+        statErrors["$error"] = (statErrors["$error"] ?: 0) + 1
         unmute()
         if (usingGlasses) GlassesMic.closeStreamNow()
         val wasFinishing = finishing

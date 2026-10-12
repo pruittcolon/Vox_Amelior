@@ -20,6 +20,9 @@ class FakeGlasses implements BleTransport {
   /// Commands to ignore (e.g. {0x4E}).
   final Set<int> ignoreCmds = {};
 
+  /// Simulated Bluetooth round trip (0 = reply at once).
+  Duration replyDelay = Duration.zero;
+
   @override
   Stream<BleReceive> get receive => _rx.stream;
 
@@ -30,10 +33,15 @@ class FakeGlasses implements BleTransport {
       if (deaf.contains(arm) || ignoreCmds.contains(data[0])) continue;
       final reply = _reply(data);
       if (reply != null) {
-        scheduleMicrotask(() => _rx.add(BleReceive()
+        void deliver() => _rx.add(BleReceive()
           ..lr = arm
           ..data = reply
-          ..type = 'Receive'));
+          ..type = 'Receive');
+        if (replyDelay == Duration.zero) {
+          scheduleMicrotask(deliver);
+        } else {
+          Timer(replyDelay, deliver);
+        }
       }
     }
   }
@@ -244,6 +252,12 @@ class FakeBridgeClient extends BridgeClient {
     messages.clear();
     _bump();
   }
+
+  final logged = <Map<String, Object?>>[];
+
+  @override
+  Future<void> log(List<Map<String, Object?>> events, {String session = '', int dropped = 0}) async =>
+      logged.addAll(events);
 
   @override
   void abortAll() {}

@@ -158,6 +158,7 @@ void main() {
         ('Notifications', '8_notifications'),
         ('How to talk to it', '9_help'),
         ('Settings', '10_settings'),
+        ('Diagnostics', '12_diagnostics'),
         ('Images', '11_images'),
       ]) {
         final tile = find.text(label);

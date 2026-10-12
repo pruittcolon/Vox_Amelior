@@ -1,0 +1,161 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../app/shell.dart';
+import '../../app/theme.dart';
+import '../../core/log.dart';
+import '../../widgets/common.dart';
+
+/// Live view of the timing log, and where it is saved.
+class DiagnosticsPage extends StatefulWidget {
+  const DiagnosticsPage({super.key});
+
+  @override
+  State<DiagnosticsPage> createState() => _DiagnosticsPageState();
+}
+
+class _DiagnosticsPageState extends State<DiagnosticsPage> {
+  Timer? _tick;
+  String _filter = 'all';
+  bool _uploading = false;
+
+  static const filters = ['all', 'ble', 'display', 'bmp', 'screen', 'voice', 'chat', 'glasses', 'native'];
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  /// Median and slowest of `ms` for events of one kind.
+  static String _ms(List<LogEvent> events, String cat, String name) {
+    final ms = [
+      for (final e in events)
+        if (e.cat == cat && e.name == name && e.data['ms'] is num) (e.data['ms'] as num).toInt(),
+    ]..sort();
+    if (ms.isEmpty) return '–';
+    return '${ms[ms.length ~/ 2]} ms (max ${ms.last})';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final log = EventLog.instance;
+    final suite = SuiteScope.of(context);
+    final events = log.recent;
+    final shown = [
+      for (final e in events.reversed)
+        if (_filter == 'all' || e.cat == _filter) e,
+    ];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Diagnostics')),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SectionCard(
+            title: 'Timing log',
+            icon: Icons.insights_rounded,
+            iconColor: AppColors.glasses,
+            trailing: Switch(
+              value: suite.settings.diagnostics,
+              onChanged: (v) => setState(() => suite.settings.set('diagnostics', v)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(
+                'Saved in Termux at ~/.agent-hub/logs/ so Claude can read the raw data. '
+                '${log.uploaded} uploaded · ${log.pending} waiting'
+                '${log.dropped > 0 ? ' · ${log.dropped} dropped' : ''}'
+                '${log.lastError != null ? '\nLast upload failed: ${log.lastError}' : ''}',
+                style: const TextStyle(color: AppColors.muted, fontSize: 13),
+              ),
+              const SizedBox(height: 10),
+              Text('Glasses screen send: ${_ms(events, 'display', 'screen')}\n'
+                  'Picture frame: ${_ms(events, 'bmp', 'frame')}\n'
+                  'Bluetooth round trip: ${_ms(events, 'ble', 'req')}\n'
+                  'Claude reply: ${_ms(events, 'chat', 'reply')}',
+                  style: const TextStyle(fontSize: 13, height: 1.5)),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: _uploading
+                        ? null
+                        : () async {
+                            setState(() => _uploading = true);
+                            final ok = await log.flush();
+                            if (!context.mounted) return;
+                            setState(() => _uploading = false);
+                            showToast(context, ok ? 'Uploaded to Termux' : 'Upload failed: is Agent Hub running?');
+                          },
+                    icon: const Icon(Icons.upload_rounded),
+                    label: const Text('Upload now'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => setState(log.clear),
+                  child: const Text('Clear'),
+                ),
+              ]),
+            ]),
+          ),
+        ),
+        SizedBox(
+          height: 48,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              for (final f in filters)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(f),
+                    selected: _filter == f,
+                    onSelected: (_) => setState(() => _filter = f),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: shown.isEmpty
+              ? const Center(child: Text('No events yet', style: TextStyle(color: AppColors.muted)))
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  itemCount: shown.length,
+                  itemBuilder: (context, i) {
+                    final e = shown[i];
+                    final t = e.time;
+                    final ts = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:'
+                        '${t.second.toString().padLeft(2, '0')}.${(t.millisecond ~/ 100)}';
+                    final bad = e.data['ok'] == false || e.name == 'error';
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Text.rich(
+                        TextSpan(children: [
+                          TextSpan(text: '$ts  ', style: const TextStyle(color: AppColors.muted)),
+                          TextSpan(
+                              text: '${e.cat}.${e.name}  ',
+                              style: TextStyle(
+                                  color: bad ? AppColors.warn : AppColors.glasses, fontWeight: FontWeight.w700)),
+                          TextSpan(text: e.summary),
+                        ]),
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.35),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ]),
+    );
+  }
+}

@@ -21,6 +21,30 @@ object GlassesMic {
     private var readSide: ParcelFileDescriptor? = null
     @Volatile private var streaming = false
 
+    // Diagnostics
+    private var statPackets = 0
+    private var statDecodeUs = 0L
+    private var statWriteErrors = 0
+    private var statBytesOut = 0L
+
+    @Synchronized
+    fun takeStats(): Map<String, Any> {
+        val m = mapOf(
+            "packets" to statPackets, "bytesOut" to statBytesOut, "writeErrors" to statWriteErrors,
+            "decodeAvgMs" to (if (statPackets == 0) 0.0 else statDecodeUs / 1000.0 / statPackets),
+        )
+        statPackets = 0; statDecodeUs = 0; statWriteErrors = 0; statBytesOut = 0
+        return m
+    }
+
+    @Synchronized
+    private fun count(decodeUs: Long, bytes: Int, error: Boolean) {
+        statPackets++
+        statDecodeUs += decodeUs
+        statBytesOut += bytes
+        if (error) statWriteErrors++
+    }
+
     val supported get() = Lc3.loaded
 
     /** A fresh pipe for one recognition session; returns the end the recognizer reads. */
@@ -47,10 +71,15 @@ object GlassesMic {
         val o = out ?: return
         worker.execute {
             if (handle == 0L) return@execute
+            val t0 = System.nanoTime()
+            val pcm = Lc3.decode(handle, lc3)
+            val us = (System.nanoTime() - t0) / 1000
             try {
-                o.write(Lc3.decode(handle, lc3))
+                o.write(pcm)
+                count(us, pcm.size, false)
             } catch (e: IOException) {
                 // That session's pipe is closed (the recognizer is done with it).
+                count(us, 0, true)
             }
         }
     }

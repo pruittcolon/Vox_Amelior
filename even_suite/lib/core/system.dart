@@ -62,4 +62,10 @@ class SystemBridge {
   Future<void> openAppSettings() => _invoke('openAppSettings');
 
   Future<void> volumeKeys(bool enabled) => _invoke('volumeKeys', {'enabled': enabled});
+
+  /// Native counters since the last call (Bluetooth writes, mic, recognizer, screen).
+  Future<Map<String, Object?>> nativeStats() async {
+    final m = await _invoke<Map>('nativeStats');
+    return {for (final e in (m ?? const {}).entries) '${e.key}': e.value};
+  }
 }

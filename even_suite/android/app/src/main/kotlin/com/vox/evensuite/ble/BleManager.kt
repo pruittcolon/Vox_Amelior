@@ -147,6 +147,12 @@ object BleManager {
         arm.enqueue(packets) { sent -> main.post { done(sent) } }
     }
 
+    /** Per-arm write statistics since the last call (diagnostics log). */
+    fun stats(): Map<String, Any> {
+        val p = pair ?: return emptyMap()
+        return mapOf("L" to p.leftDevice.takeStats(), "R" to p.rightDevice.takeStats())
+    }
+
     fun status(): Map<String, Any> {
         val p = pair ?: return mapOf("state" to "disconnected")
         val state = when {

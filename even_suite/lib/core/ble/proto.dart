@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:crclib/catalog.dart';
 
+import '../log.dart';
 import 'ble_manager.dart';
 
 /// G1 commands from the Even Realities demo. Packet builders are static and
@@ -81,7 +82,9 @@ class Proto {
   /// left TouchBar is held). Audio then streams as 0xF1 packets.
   Future<bool> micOn(bool on) async {
     final r = await ble.request(Uint8List.fromList([0x0E, on ? 0x01 : 0x00]), lr: 'R', timeoutMs: 1000);
-    return !r.isTimeout && r.data.length > 1 && r.data[1] == 0xc9;
+    final ok = !r.isTimeout && r.data.length > 1 && r.data[1] == 0xc9;
+    EventLog.add('glasses', 'mic', {'on': on, 'ok': ok});
+    return ok;
   }
 
   // -------------------------------------------------------- heartbeat (0x25)
@@ -182,24 +185,45 @@ class Proto {
   /// Show a 576x136 1-bit BMP on both arms. All packets for an arm go down
   /// in one flow-controlled batch, both arms in parallel, then end + CRC.
   Future<bool> sendBmp(Uint8List bmp, {int timeoutMs = 3000}) async {
-    final packs = bmpPackets(bmp);
-    final sent = await Future.wait([ble.sendBatch(packs, 'L'), ble.sendBatch(packs, 'R')]);
-    if (sent[0] != packs.length || sent[1] != packs.length) return false;
+    final sw = Stopwatch()..start();
+    var stage = 'packets';
+    var ok = false;
+    int? packetsMs, endMs;
+    try {
+      final packs = bmpPackets(bmp);
+      final sent = await Future.wait([ble.sendBatch(packs, 'L'), ble.sendBatch(packs, 'R')]);
+      packetsMs = sw.elapsedMilliseconds;
+      if (sent[0] != packs.length || sent[1] != packs.length) return false;
 
-    final end = Uint8List.fromList([0x20, 0x0d, 0x0e]);
-    final ends = await Future.wait([
-      ble.request(end, lr: 'L', timeoutMs: timeoutMs),
-      ble.request(end, lr: 'R', timeoutMs: timeoutMs),
-    ]);
-    if (ends.any((r) => r.isTimeout || r.data.length < 2 || r.data[1] != 0xc9)) {
-      return false;
+      stage = 'end';
+      final end = Uint8List.fromList([0x20, 0x0d, 0x0e]);
+      final ends = await Future.wait([
+        ble.request(end, lr: 'L', timeoutMs: timeoutMs),
+        ble.request(end, lr: 'R', timeoutMs: timeoutMs),
+      ]);
+      endMs = sw.elapsedMilliseconds - packetsMs;
+      if (ends.any((r) => r.isTimeout || r.data.length < 2 || r.data[1] != 0xc9)) {
+        return false;
+      }
+      stage = 'crc';
+      final crc = bmpCrcCommand(bmp);
+      final crcs = await Future.wait([
+        ble.request(crc, lr: 'L', timeoutMs: timeoutMs),
+        ble.request(crc, lr: 'R', timeoutMs: timeoutMs),
+      ]);
+      // Same check as the demo: byte 5 of the reply is the status.
+      ok = crcs.every((r) => !r.isTimeout && r.data.length > 5 && r.data[5] == 0xc9);
+      if (ok) stage = 'done';
+      return ok;
+    } finally {
+      EventLog.add('bmp', 'frame', {
+        'ok': ok,
+        'stage': stage,
+        'ms': sw.elapsedMilliseconds,
+        'packetsMs': packetsMs,
+        'endMs': endMs,
+        'bytes': bmp.length,
+      });
     }
-    final crc = bmpCrcCommand(bmp);
-    final crcs = await Future.wait([
-      ble.request(crc, lr: 'L', timeoutMs: timeoutMs),
-      ble.request(crc, lr: 'R', timeoutMs: timeoutMs),
-    ]);
-    // Same check as the demo: byte 5 of the reply is the status.
-    return crcs.every((r) => !r.isTimeout && r.data.length > 5 && r.data[5] == 0xc9);
   }
 }
