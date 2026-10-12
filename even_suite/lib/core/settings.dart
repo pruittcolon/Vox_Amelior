@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'log.dart';
 import 'voice/wake_word.dart';
 
 /// Where a spoken or typed message goes.
@@ -147,6 +148,7 @@ class Settings extends ChangeNotifier {
         throw ArgumentError('Unknown setting $key');
     }
     _save?.call(key, value);
+    if (key != 'lastGlasses') EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
     notifyListeners();
   }
 

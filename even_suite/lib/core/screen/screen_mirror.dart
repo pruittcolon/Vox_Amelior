@@ -76,12 +76,13 @@ class ScreenMirror extends ChangeNotifier {
   int endTimeoutMs = 3000;
   int crcTimeoutMs = 2000;
 
-  /// Pause after a missed frame so the glasses can settle before the next.
-  Duration coolDown = const Duration(seconds: 1);
+  /// Pause after a missed frame before the next one (off: the sender
+  /// already retries the arm that rejected a picture, more slowly).
+  Duration coolDown = Duration.zero;
 
-  /// Treat a CRC mismatch as a miss (the older behaviour; the glasses show
-  /// the picture anyway, so this is off).
-  bool requireCrc = false;
+  /// A frame counts once both arms accepted it (CRC match) - the glasses
+  /// only display it then.
+  bool requireCrc = true;
 
   // State
   bool running = false;
@@ -121,6 +122,7 @@ class ScreenMirror extends ChangeNotifier {
     notifyListeners();
     final r = await source.start(config);
     starting = false;
+    EventLog.add('screen', 'start', {...config, 'style': style, 'invert': invert, 'answer': r});
     if (r == 'ok') {
       running = true;
       sent = skipped = failed = 0;
@@ -138,6 +140,7 @@ class ScreenMirror extends ChangeNotifier {
 
   Future<void> stop({bool clearGlasses = true}) async {
     if (!running && !starting) return;
+    EventLog.add('screen', 'stop', {'sent': sent, 'skipped': skipped, 'failed': failed});
     running = false;
     starting = false;
     _off?.cancel();
@@ -176,6 +179,7 @@ class ScreenMirror extends ChangeNotifier {
   void _onFrame(Map f) {
     if (f['stopped'] == true) {
       final reason = '${f['reason'] ?? ''}';
+      EventLog.add('screen', 'ended', {'reason': reason, 'sent': sent});
       if (reason.isNotEmpty) error = reason;
       if (running) {
         running = false;
@@ -255,7 +259,7 @@ class ScreenMirror extends ChangeNotifier {
           _shown = null;
           _lastFailed = frame;
           notifyListeners();
-          await Future.delayed(coolDown);
+          if (coolDown > Duration.zero) await Future.delayed(coolDown);
         }
         notifyListeners();
       }

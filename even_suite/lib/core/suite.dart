@@ -133,7 +133,7 @@ class Suite extends ChangeNotifier {
       ..engineName = settings.recognizer;
     if (display.wpm != settings.readingWpm) display.setWpm(settings.readingWpm);
     EventLog.instance.enabled = settings.diagnostics;
-    proto.bmpGapMs = settings.bmpGapMs;
+    if (proto.bmpGapMs != settings.bmpGapMs) proto.bmpGapMs = settings.bmpGapMs;
     proto.bmpChunk = settings.bmpChunk;
     final ctl = ble.control;
     if (ctl is PlatformBle) ctl.phy2m = settings.ble2m;

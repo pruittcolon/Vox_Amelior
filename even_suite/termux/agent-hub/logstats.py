@@ -123,6 +123,21 @@ def main(argv):
         for (chunk, gap), es in sorted(by_cfg.items(), key=lambda kv: str(kv[0])):
             oks = [e["ms"] for e in es if e.get("ok")]
             print(f"  chunk={chunk} gap={gap}ms: ok {len(oks)}/{len(es)}  {fmt_ms(oks)}")
+        shown = [e for e in frames if e.get("shown")]
+        if any("shown" in e for e in frames):
+            print(f"  displayed (both arms accepted): {len(shown)}/{len(frames)}")
+        retried = Counter(e.get("retried") for e in frames if e.get("retried"))
+        if retried:
+            print("  resent to arm after a rejection:", dict(retried))
+        paces = [e for e in ev if e.get("c") == "bmp" and e.get("e") == "pace"]
+        if paces:
+            print("  pace changes:", [f"{e['arm']}:{e['from']}->{e['to']}" for e in paces][-12:])
+        modes = [e for e in ev if e.get("c") == "bmp" and e.get("e") == "mode"]
+        if modes:
+            print("  switched to left-then-right:", len(modes), "times")
+        last = [e for e in frames if e.get("gapL") is not None][-1:]
+        if last:
+            print(f"  latest pace: L {last[0]['gapL']} ms, R {last[0]['gapR']} ms, mode {last[0].get('mode')}")
         crc = Counter(e.get("crc") for e in frames if e.get("crc"))
         if crc:
             print("  CRC answers (L/R, c9 = match, ca = mismatch):", dict(crc.most_common(6)))
@@ -202,6 +217,23 @@ def main(argv):
         if mic.get("packets"):
             print(f"Glasses mic: packets={mic['packets']} pcm bytes={mic['bytesOut']} "
                   f"pipe errors={mic['writeErrors']}")
+
+    # Glasses display confirmations (0xF5 0x12 seen right after accepted pictures)
+    disp = [e for e in ev if e.get("c") == "glasses" and e.get("e") == "touch" and e.get("code") == 18]
+    if disp:
+        print(f"\nGlasses display events (0xF5 0x12): {len(disp)}")
+
+    # App health
+    errs = [e for e in ev if e.get("c") == "app" and e.get("e") in ("error", "crash")]
+    jank = [e for e in ev if e.get("c") == "app" and e.get("e") == "jank"]
+    life = [e for e in ev if e.get("c") == "app" and e.get("e") == "lifecycle"]
+    if errs or jank or life:
+        print(f"\nApp: errors={len(errs)} slow-UI reports={len(jank)} lifecycle changes={len(life)}")
+        for e in errs[-5:]:
+            print(f"  {e['e']}: {e.get('error', '')[:120]}")
+        if jank:
+            print(f"  worst UI frame: {max(e.get('worstMs', 0) for e in jank)} ms, "
+                  f"slow frames: {sum(e.get('slowFrames', 0) for e in jank)}")
 
     # Link problems
     link = [e for e in ev if e.get("c") == "glasses" and e.get("e") in ("glassesDisconnected", "glassesConnected")]

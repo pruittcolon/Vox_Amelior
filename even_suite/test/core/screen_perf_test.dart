@@ -1,10 +1,14 @@
 // Screen sharing speed against simulated glasses calibrated from real logs
-// (2026-10-12, 123 frames on the user's G1, 2M PHY):
-//   packets: 51 per arm at ~6.2 ms each with a 5 ms gap  (~317 ms)
-//   end reply after the last packet: 381..1119 ms, median ~560 ms
-//   CRC reply: ~41 ms, status 0xCA (mismatch) - the worst case
-// The same frames are run through the old behaviour (CRC mismatch = miss,
-// 1 s pause, resend) and the current one, and frame rates are compared.
+// (2026-10-12, 177 frames on the user's G1, 2M PHY, 9856-byte pictures):
+//   packets: 51 per arm at (gap + ~1.2) ms each
+//   an arm ACCEPTS a picture (CRC 0xC9) only when it was not sent faster
+//   than it can take: left needs ~4 ms between packets, the slower right
+//   arm more (at 5 ms it rejected 53 of 54); accepted pictures are
+//   confirmed fast (end reply p50 ~415 ms), rejected ones slowly (~565 ms)
+//   CRC reply: ~41 ms
+//   the glasses DISPLAY a picture only when both arms accepted it
+// Frames displayed per second are compared for the previous release and
+// the current sender (per-arm pacing that adapts, retry of a rejecting arm).
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -16,20 +20,28 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
 
-/// Measured end-reply delays (ms), every 6th of the sorted log sample.
-const measuredEndMs = [
-  381, 415, 423, 431, 434, 441, 447, 451, 463, 536, 562, //
-  569, 574, 584, 617, 666, 675, 687, 715, 889, 1119,
-];
+/// Measured end-reply delays (ms) for accepted and rejected pictures.
+const acceptedEndMs = [380, 393, 405, 413, 418, 420, 426, 432, 441, 464];
+const rejectedEndMs = [423, 448, 505, 527, 564, 570, 576, 617, 673, 689];
+
+/// Slowest packet spacing (ms) each arm takes without corrupting a picture.
+const needGap = {'L': 4, 'R': 10};
 
 class CalibratedGlasses implements BleTransport {
   final _rx = StreamController<BleReceive>.broadcast();
   final _batchDone = <String, DateTime>{};
+  final _gap = <String, int>{};
+  final _accepted = <String, Set<int>>{'L': {}, 'R': {}};
   final DateTime Function() now;
   int _sample = 0;
   int frames = 0;
+  final shownAt = <int>[];
+  final shownTimes = <int>[];
+  final int Function() elapsed;
 
-  CalibratedGlasses(this.now);
+  bool _ok(String arm) => (_gap[arm] ?? 0) >= needGap[arm]!;
+
+  CalibratedGlasses(this.now, this.elapsed);
 
   @override
   Stream<BleReceive> get receive => _rx.stream;
@@ -48,6 +60,7 @@ class CalibratedGlasses implements BleTransport {
     final ms = (packets.length * (gapMs + 1.22)).round();
     await Future<void>.delayed(Duration(milliseconds: ms));
     _batchDone[lr] = now();
+    _gap[lr] = gapMs;
     return packets.length;
   }
 
@@ -56,12 +69,23 @@ class CalibratedGlasses implements BleTransport {
     for (final arm in lr == null ? ['L', 'R'] : [lr]) {
       switch (data[0]) {
         case 0x20:
-          final delay = measuredEndMs[(_sample++ ~/ 2) % measuredEndMs.length];
+          final list = _ok(arm) ? acceptedEndMs : rejectedEndMs;
+          final delay = list[_sample++ % list.length];
           final since = now().difference(_batchDone[arm] ?? now()).inMilliseconds;
           _reply(arm, [0x20, 0xC9], (delay - since).clamp(5, 5000));
         case 0x16:
-          if (arm == 'R') frames++;
-          _reply(arm, [0x16, data[1], data[2], data[3], data[4], 0xCA], 41);
+          frames++;
+          final ok = _ok(arm);
+          final id = (data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4];
+          if (ok) {
+            _accepted[arm]!.add(id);
+            final other = arm == 'L' ? 'R' : 'L';
+            if (_accepted[other]!.contains(id) && !shownAt.contains(id)) {
+              shownAt.add(id);
+              shownTimes.add(elapsed());
+            }
+          }
+          _reply(arm, [0x16, data[1], data[2], data[3], data[4], ok ? 0xC9 : 0xCA], 41);
         case 0x25:
           _reply(arm, [0x25, 6, 0, data[3], 0x04, data[5]], 40);
         default:
@@ -72,39 +96,42 @@ class CalibratedGlasses implements BleTransport {
 }
 
 class Result {
-  final int delivered;
+  final int shown;
   final double fps;
   final int p90GapMs;
-  final int attempts;
-  Result(this.delivered, this.fps, this.p90GapMs, this.attempts);
+  final int transfers;
+  final String pace;
+  Result(this.shown, this.fps, this.p90GapMs, this.transfers, this.pace);
   @override
-  String toString() =>
-      '$delivered new frames in 60 s = ${fps.toStringAsFixed(2)} fps, p90 gap $p90GapMs ms, $attempts transfers';
+  String toString() => '$shown frames displayed in 60 s = ${fps.toStringAsFixed(2)} fps, '
+      'p90 gap $p90GapMs ms, $transfers arm transfers, final pace $pace';
 }
 
 Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour}) async {
   final clock = tester.binding.clock;
-  final glasses = CalibratedGlasses(() => clock.now());
+  var elapsed = 0;
+  final glasses = CalibratedGlasses(() => clock.now(), () => elapsed);
   final control = FakeControl();
   final ble = BleManager(glasses, control: control);
   final screen = FakeScreen();
-  final mirror = ScreenMirror(screen, Proto(ble))
+  final proto = Proto(ble);
+  final mirror = ScreenMirror(screen, proto)
     ..now = (() => clock.now())
     ..autoOff = const Duration(minutes: 10);
   if (oldBehaviour) {
-    mirror
-      ..requireCrc = true
-      ..coolDown = const Duration(seconds: 1);
+    // The previous release: both arms at a fixed 5 ms, no retry, a frame
+    // counted once the CRC was answered.
+    proto
+      ..adaptivePacing = false
+      ..retryRejectedArm = false;
+    mirror.requireCrc = false;
   }
   await control.connectNow();
   await mirror.start();
 
   // The phone screen changes constantly; capture follows the interval the
   // mirror asks for (it adapts to the send time).
-  var elapsed = 0;
   var tick = 0;
-  final deliveredAt = <int>[];
-  var lastSent = 0;
   while (elapsed < 60000) {
     final interval = (screen.configs.last['intervalMs'] as int?) ?? 1000;
     tick++;
@@ -112,18 +139,16 @@ Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour}) async
     for (var t = 0; t < interval; t += 50) {
       await tester.pump(const Duration(milliseconds: 50));
       elapsed += 50;
-      if (mirror.sent != lastSent) {
-        lastSent = mirror.sent;
-        deliveredAt.add(elapsed);
-      }
     }
   }
-  final gaps = [for (var i = 1; i < deliveredAt.length; i++) deliveredAt[i] - deliveredAt[i - 1]]..sort();
+  final shown = glasses.shownTimes;
+  final gaps = [for (var i = 1; i < shown.length; i++) shown[i] - shown[i - 1]]..sort();
   final r = Result(
-    mirror.sent,
-    mirror.sent / 60,
+    shown.length,
+    shown.length / 60,
     gaps.isEmpty ? 60000 : gaps[(gaps.length * 0.9).floor().clamp(0, gaps.length - 1)],
     glasses.frames,
+    'L ${proto.armGap['L']} ms / R ${proto.armGap['R']} ms${proto.sequentialArms ? ' (sequential)' : ''}',
   );
   await mirror.stop(clearGlasses: false);
   await tester.pump(const Duration(seconds: 2));
@@ -133,13 +158,13 @@ Future<Result> simulate(WidgetTester tester, {required bool oldBehaviour}) async
 }
 
 void main() {
-  testWidgets('screen sharing reaches ~1 fps on glasses that answer like the real ones', (tester) async {
+  testWidgets('screen sharing keeps the glasses display updating', (tester) async {
     final before = await simulate(tester, oldBehaviour: true);
     final after = await simulate(tester, oldBehaviour: false);
     // ignore: avoid_print
     print('Calibrated G1 simulation\n  before: $before\n  now:    $after');
-    expect(after.fps, greaterThanOrEqualTo(0.9), reason: 'about one new frame a second');
-    expect(after.p90GapMs, lessThanOrEqualTo(1300), reason: 'steady: 9 in 10 frames within 1.3 s');
-    expect(after.fps, greaterThanOrEqualTo(before.fps * 2), reason: 'at least twice the old rate');
+    expect(before.shown, lessThanOrEqualTo(2), reason: 'the stall seen on the real glasses');
+    expect(after.fps, greaterThanOrEqualTo(0.6), reason: 'the display keeps updating');
+    expect(after.p90GapMs, lessThanOrEqualTo(2500), reason: 'no long freezes');
   }, timeout: const Timeout(Duration(minutes: 3)));
 }

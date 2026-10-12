@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/log.dart';
 import '../core/suite.dart';
 import '../features/claude/claude_page.dart';
 import '../features/home/home_page.dart';
@@ -61,6 +62,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Screens stop their live updates while the app is in the background.
+    EventLog.add('app', 'lifecycle', {'state': state.name});
     final fg = state == AppLifecycleState.resumed;
     if (fg != _foreground) setState(() => _foreground = fg);
     if (fg) SuiteScope.of(context).chat.check();
