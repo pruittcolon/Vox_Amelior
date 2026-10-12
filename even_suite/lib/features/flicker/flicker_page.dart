@@ -172,6 +172,22 @@ class FlickerPage extends StatelessWidget {
               icon: Icons.tune_rounded,
               iconColor: AppColors.claude,
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                _Chips('How to move', s.flickMethod,
+                    const [('live', 'Live (fast)'), ('apply', 'Like the Even app')], (v) => s.set('flickMethod', v)),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    s.flickMethod == 'apply'
+                        ? 'Each move opens the glasses’ height preview, waits, then closes it. Slower: the glasses '
+                            'pause about half a second after each close.'
+                        : 'Each move uses the glasses’ height preview, which moves the picture at once. The preview '
+                            'is closed when you stop.',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+                  ),
+                ),
+                _PauseSlider('Pause after move', s.flickSettleMs, (v) => s.set('flickSettleMs', v)),
+                if (s.flickMethod == 'apply')
+                  _PauseSlider('Preview time', s.flickPreviewMs, (v) => s.set('flickPreviewMs', v)),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Wait for the glasses to answer'),
@@ -181,12 +197,7 @@ class FlickerPage extends StatelessWidget {
                 ),
                 _Chips('Switch', s.flickWhat, const [('both', 'Text + spot'), ('move', 'Spot only'), ('text', 'Text only')],
                     (v) => s.set('flickWhat', v)),
-                _Chips('Order', s.flickOrder,
-                    const [('text', 'Text first'), ('move', 'Move first'), ('together', 'Together')],
-                    (v) => s.set('flickOrder', v)),
-                _Chips('Move as', s.flickPreview ? 'preview' : 'keep', const [('keep', 'Setting'), ('preview', 'Preview')],
-                    (v) => s.set('flickPreview', v == 'preview')),
-                _Chips('Moves go to', s.flickArms, const [('both', 'Both arms'), ('R', 'Right arm')],
+                _Chips('Moves go to', s.flickArms, const [('R', 'Right arm'), ('both', 'Both arms')],
                     (v) => s.set('flickArms', v)),
                 _StepSlider('Depth', s.flickDepth, 1, 9, (v) => s.set('flickDepth', v),
                     caption: 'How far away the text looks while flickering'),
@@ -198,8 +209,7 @@ class FlickerPage extends StatelessWidget {
                 _StepSlider('Depth', s.flickHomeDepth, 1, 9, (v) => s.set('flickHomeDepth', v)),
                 const SizedBox(height: 4),
                 const Text(
-                  'Set these to the display height and depth you use in the Even app. Each move may be saved '
-                  'on the glasses, which is why runs stop by themselves.',
+                  'Set these to the display height and depth you use in the Even app.',
                   style: TextStyle(color: AppColors.muted, fontSize: 12.5),
                 ),
               ]),
@@ -403,6 +413,40 @@ class _TimeSlider extends StatelessWidget {
         ),
       ),
       SizedBox(width: 56, child: Text(_secs(ms), textAlign: TextAlign.end, style: const TextStyle(fontSize: 13))),
+    ]);
+  }
+}
+
+/// Pauses (ms) for the fine-tuning sliders, 0 = none.
+const _pauses = [0, 20, 50, 80, 100, 150, 200, 300, 400, 500, 600, 700, 800, 1000, 1500, 2000];
+
+class _PauseSlider extends StatelessWidget {
+  const _PauseSlider(this.label, this.ms, this.onChanged);
+  final String label;
+  final int ms;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    var i = _pauses.indexWhere((t) => t >= ms);
+    if (i < 0) i = _pauses.length - 1;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+      Row(children: [
+        Expanded(
+          child: Slider(
+            value: i.toDouble(),
+            min: 0,
+            max: (_pauses.length - 1).toDouble(),
+            divisions: _pauses.length - 1,
+            label: ms == 0 ? 'none' : _secs(_pauses[i]),
+            onChanged: (v) => onChanged(_pauses[v.round()]),
+          ),
+        ),
+        SizedBox(
+            width: 56,
+            child: Text(ms == 0 ? 'none' : _secs(ms), textAlign: TextAlign.end, style: const TextStyle(fontSize: 13))),
+      ]),
     ]);
   }
 }

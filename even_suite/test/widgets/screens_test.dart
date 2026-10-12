@@ -164,8 +164,8 @@ void main() {
       expect(find.widgetWithText(TextField, 'TOP\nThis text sits high in your view'), findsOneWidget,
           reason: 'each text box keeps its own text when the list shifts');
       expect(suite.flicker.steps, greaterThan(2));
-      expect(w.glasses.sent['L']!.where((p) => p[0] == 0x26).map((p) => p[6]).take(2), [8, 0],
-          reason: 'display moved high, then low');
+      expect(w.glasses.sent['R']!.where((p) => p[0] == 0x26).map((p) => '${p[5]}:${p[6]}').take(2), ['1:8', '1:0'],
+          reason: 'display moved high, then low (state 1 = it moves)');
       await tester.tap(find.descendant(of: find.byType(FlickerPage), matching: find.byIcon(Icons.stop_rounded)));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

@@ -207,10 +207,11 @@ class Suite extends ChangeNotifier {
       ..depth = settings.flickDepth
       ..homeHeight = settings.flickHomePos
       ..homeDepth = settings.flickHomeDepth
-      ..preview = settings.flickPreview
+      ..method = settings.flickMethod
+      ..settleMs = settings.flickSettleMs
+      ..previewMs = settings.flickPreviewMs
       ..waitForReplies = settings.flickWait
       ..what = settings.flickWhat
-      ..order = settings.flickOrder
       ..arms = settings.flickArms
       ..autoStopSec = settings.flickAutoStop
       ..changed();

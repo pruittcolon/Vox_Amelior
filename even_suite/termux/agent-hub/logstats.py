@@ -269,7 +269,8 @@ def main(argv):
             cfg = run[0]
             print(f"  latest run: top {cfg.get('topMs')} ms at height {cfg.get('topH')}, bottom {cfg.get('bottomMs')} ms "
                   f"at height {cfg.get('bottomH')}, depth {cfg.get('depth')}, switch={cfg.get('what')} "
-                  f"order={cfg.get('order')} wait={cfg.get('wait')} moves to={cfg.get('arms')} preview={cfg.get('preview')}")
+                  f"method={cfg.get('method', 'state0 (old)')} pause={cfg.get('settleMs', 0)} ms "
+                  f"preview={cfg.get('previewMs', '-')} ms wait={cfg.get('wait')} moves to={cfg.get('arms')}")
             steps = [e for e in run if e.get("e") == "step"]
             if steps:
                 late = sum(1 for e in steps if e.get("late"))
@@ -296,7 +297,7 @@ def main(argv):
                 if e.get("e") == "change":
                     print(f"  changed while running: top {e.get('topMs')} ms h{e.get('topH')}, "
                           f"bottom {e.get('bottomMs')} ms h{e.get('bottomH')}, wait={e.get('wait')}, "
-                          f"order={e.get('order')}, switch={e.get('what')}")
+                          f"method={e.get('method')}, pause={e.get('settleMs')} ms, switch={e.get('what')}")
             stop = next((e for e in run if e.get("e") == "stop"), None)
             if stop:
                 print(f"  stopped ({stop.get('reason')}): {stop.get('steps')} switches in {stop.get('secs')} s "

@@ -80,10 +80,15 @@ class Proto {
 
   /// Where the glasses' picture sits in your view, the "display height and
   /// depth" setting of the Even app: [height] 0 (low) .. 8 (high), [depth]
-  /// 1 (near) .. 9 (far). The Even app sends [preview] 1 while you drag its
-  /// sliders and 0 to keep the value. `26 08 00 <seq> 02 <preview> <height>
-  /// <depth>` (0x26 = hardware settings, sub-command 0x02 = display; seen in
-  /// the Even app's own traffic as `26 08 00 00 02 00 07 03`).
+  /// 1 (near) .. 9 (far). `26 08 00 <seq> 02 <state> <height> <depth>`
+  /// (0x26 = hardware settings, sub-command 0x02 = display); the glasses
+  /// answer `26 06 00 <seq> 02 c9`.
+  ///
+  /// From the decompiled firmware: [preview] true (state 1) stores the height
+  /// at once and opens the glasses' height preview - the picture moves, and
+  /// text drawn afterwards uses the new height (y = (8 - height) x 35 px on
+  /// the panel). State 0 only closes the preview; it moves nothing. The Even
+  /// app sends 1 while you drag its slider and 0 when you are done.
   static Uint8List positionPacket(int seq, {required int height, required int depth, bool preview = false}) =>
       Uint8List.fromList([0x26, 0x08, 0x00, seq & 0xff, 0x02, preview ? 1 : 0, height.clamp(0, 8), depth.clamp(0, 9)]);
 

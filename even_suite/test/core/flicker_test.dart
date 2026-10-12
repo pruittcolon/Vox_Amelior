@@ -31,6 +31,24 @@ class _Rig {
           if (p[0] == 0x26) p,
       ];
 
+  /// 0x26 and 0x4E packets to [lr], in order, as short labels.
+  List<String> seq(String lr) => [
+        for (final p in glasses.sent[lr]!)
+          if (p[0] == 0x26)
+            'move${p[5]}:${p[6]}'
+          else if (p[0] == 0x4E)
+            'text:${String.fromCharCodes(p.sublist(9))}'
+          else if (p[0] == 0x18)
+            'exit',
+      ];
+
+  /// Stop, letting the reset's pauses run.
+  Future<void> stop(WidgetTester tester, {bool restore = true}) async {
+    final done = flicker.stop(restore: restore);
+    await _run(tester, 1200);
+    await done;
+  }
+
   void dispose() {
     flicker.dispose();
     ble.dispose();
@@ -48,33 +66,29 @@ Iterable<LogEvent> _events(String name) => EventLog.instance.recent.where((e) =>
 void main() {
   setUp(() => EventLog.instance.recent.clear());
 
-  test('position packet is the Even app display setting', () {
+  test('position packet: state 1 moves (height preview), state 0 only closes it', () {
     expect(Proto.positionPacket(0x105, height: 7, depth: 3), [0x26, 0x08, 0x00, 0x05, 0x02, 0x00, 0x07, 0x03]);
     expect(Proto.positionPacket(1, height: 12, depth: 4, preview: true), [0x26, 8, 0, 1, 2, 1, 8, 4]);
   });
 
-  testWidgets('switches spot and text on its timer, then puts things back', (tester) async {
+  testWidgets('moves with state 1, then redraws the text, on its timer; then puts things back', (tester) async {
     final r = _Rig(tester);
     await r.control.connectNow();
     await r.flicker.start();
     await _run(tester, 1000);
     expect(r.flicker.steps, inInclusiveRange(9, 11), reason: '0.1 s per spot = 10 switches a second');
 
-    final moves = r.moves('L');
-    expect(moves.take(4).map((p) => p[6]), [8, 0, 8, 0], reason: 'high, low, high, low');
-    expect(moves.first.sublist(4), [0x02, 0x00, 8, 4], reason: 'display sub-command, keep, height, depth');
-    expect(r.moves('R').length, moves.length, reason: 'moves go to both arms');
-    expect(r.glasses.screens('L').take(4), ['UP', 'DOWN', 'UP', 'DOWN']);
-    expect(r.glasses.screens('R').take(4), ['UP', 'DOWN', 'UP', 'DOWN']);
-    final sentL = r.glasses.sent['L']!;
-    expect(sentL.indexWhere((p) => p[0] == 0x4E), lessThan(sentL.indexWhere((p) => p[0] == 0x26)),
-        reason: 'text first, then the move (default order)');
+    expect(r.seq('R').take(4), ['move1:8', 'text:UP', 'move1:0', 'text:DOWN'],
+        reason: 'move first (state 1 = it moves), then the text so it is drawn at the new height');
+    expect(r.moves('R').first, [0x26, 8, 0, 0, 2, 1, 8, 4]);
+    expect(r.moves('L'), isEmpty, reason: 'moves go to the right arm, which passes them on');
+    expect(r.glasses.screens('L').take(4), ['UP', 'DOWN', 'UP', 'DOWN'], reason: 'text goes to both arms');
 
-    await r.flicker.stop();
-    await tester.pump();
+    await r.stop(tester);
     expect(r.flicker.running, isFalse);
-    expect(r.moves('R').last.sublist(4), [0x02, 0x00, 5, 2], reason: 'normal spot restored');
-    expect(r.glasses.sent['R']!.last[0], 0x18, reason: 'then back to the dashboard');
+    expect(r.seq('R').reversed.take(3).toList().reversed, ['move1:5', 'move0:5', 'exit'],
+        reason: 'normal spot: move there, close the height preview, clear');
+    expect(r.moves('R').last.sublist(4), [0x02, 0x00, 5, 2]);
 
     expect(_events('step').length, inInclusiveRange(9, 11));
     final step = _events('step').first.data;
@@ -84,8 +98,38 @@ void main() {
     final stop = _events('stop').single.data;
     expect(stop['reason'], 'user');
     expect(stop['rate'] as num, closeTo(10, 1.5));
-    expect(_events('start').single.data['topMs'], 100);
+    expect(_events('start').single.data['method'], 'live');
     expect(_events('reset').single.data['ok'], isTrue);
+    r.dispose();
+  });
+
+  testWidgets('the Even app way: state 1, wait, state 0, then the text', (tester) async {
+    final r = _Rig(tester)
+      ..flicker.method = 'apply'
+      ..flicker.previewMs = 200
+      ..flicker.topMs = 500
+      ..flicker.bottomMs = 500;
+    await r.control.connectNow();
+    await r.flicker.start();
+    await _run(tester, 1000);
+    expect(r.seq('R').take(6), ['move1:8', 'move0:8', 'text:UP', 'move1:0', 'move0:0', 'text:DOWN']);
+    expect(_events('step').first.data['moveMs'], greaterThanOrEqualTo(200), reason: 'includes the preview time');
+    await r.stop(tester);
+    r.dispose();
+  });
+
+  testWidgets('pause after move, before the text', (tester) async {
+    final r = _Rig(tester)
+      ..flicker.settleMs = 50
+      ..flicker.topMs = 200
+      ..flicker.bottomMs = 200;
+    await r.control.connectNow();
+    await r.flicker.start();
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(r.seq('R'), ['move1:8'], reason: 'text waits for the pause');
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(r.seq('R'), ['move1:8', 'text:UP']);
+    await r.stop(tester, restore: false);
     r.dispose();
   });
 
@@ -99,8 +143,8 @@ void main() {
     expect(r.flicker.steps, inInclusiveRange(9, 11), reason: '0.4 s per round = 5 rounds in 2 s');
     r.flicker.topHeight = 6;
     await _run(tester, 1000);
-    expect(r.moves('L').map((p) => p[6]), contains(6), reason: 'new top height used on the next switch');
-    await r.flicker.stop();
+    expect(r.moves('R').map((p) => p[6]), contains(6), reason: 'new top height used on the next switch');
+    await r.stop(tester, restore: false);
     r.dispose();
   });
 
@@ -109,67 +153,62 @@ void main() {
     await r.control.connectNow();
     await r.flicker.start();
     expect(r.flicker.offAt, isNotNull);
-    await _run(tester, 2300);
+    await _run(tester, 2800);
     expect(r.flicker.running, isFalse);
     expect(_events('stop').single.data['reason'], 'auto');
     expect(_events('stats'), isNotEmpty, reason: 'a summary every second');
     r.dispose();
   });
 
-  testWidgets('spot only and text only', (tester) async {
+  testWidgets('spot only, text only', (tester) async {
     final a = _Rig(tester)..flicker.what = 'move';
     await a.control.connectNow();
     await a.flicker.start();
     await _run(tester, 500);
-    await a.flicker.stop(restore: false);
+    await a.stop(tester, restore: false);
     expect(a.glasses.screens('L'), isEmpty);
-    expect(a.moves('L').length, greaterThanOrEqualTo(4));
+    expect(a.moves('R').length, greaterThanOrEqualTo(4));
     a.dispose();
 
     final b = _Rig(tester)..flicker.what = 'text';
     await b.control.connectNow();
     await b.flicker.start();
     await _run(tester, 500);
-    await b.flicker.stop();
-    await tester.pump();
-    expect(b.moves('L'), isEmpty, reason: 'never moved, so nothing to put back');
-    expect(b.moves('R'), isEmpty);
+    await b.stop(tester);
+    expect(b.moves('R'), isEmpty, reason: 'never moved, so nothing to put back');
     expect(b.glasses.screens('L').take(2), ['UP', 'DOWN']);
     b.dispose();
   });
 
-  testWidgets('same text at both spots is sent once', (tester) async {
+  testWidgets('same text: redrawn after each move, sent once in text-only mode', (tester) async {
     final r = _Rig(tester)..flicker.bottomText = 'UP';
     await r.control.connectNow();
     await r.flicker.start();
-    await _run(tester, 1000);
-    await r.flicker.stop(restore: false);
-    expect(r.glasses.screens('L'), ['UP']);
-    expect(r.moves('L').length, greaterThanOrEqualTo(9));
+    await _run(tester, 500);
+    await r.stop(tester, restore: false);
+    expect(r.glasses.screens('L').length, r.flicker.steps, reason: 'drawn again at the new height');
     r.dispose();
+
+    final t = _Rig(tester)
+      ..flicker.bottomText = 'UP'
+      ..flicker.what = 'text';
+    await t.control.connectNow();
+    await t.flicker.start();
+    await _run(tester, 500);
+    await t.stop(tester, restore: false);
+    expect(t.glasses.screens('L'), ['UP']);
+    t.dispose();
   });
 
-  testWidgets('move first, together, right arm only', (tester) async {
-    final r = _Rig(tester)
-      ..flicker.order = 'move'
-      ..flicker.arms = 'R';
+  testWidgets('moves to both arms when asked', (tester) async {
+    final r = _Rig(tester)..flicker.arms = 'both';
     await r.control.connectNow();
     await r.flicker.start();
     await _run(tester, 400);
-    await r.flicker.stop(restore: false);
-    final sentR = r.glasses.sent['R']!;
-    expect(sentR.indexWhere((p) => p[0] == 0x26), lessThan(sentR.indexWhere((p) => p[0] == 0x4E)));
-    expect(r.moves('L'), isEmpty, reason: 'the right arm passes moves on itself');
+    await r.stop(tester, restore: false);
+    expect(r.moves('L').length, r.moves('R').length);
+    expect(r.moves('L'), isNotEmpty);
     r.dispose();
-
-    final t = _Rig(tester)..flicker.order = 'together';
-    await t.control.connectNow();
-    await t.flicker.start();
-    await _run(tester, 400);
-    await t.flicker.stop(restore: false);
-    expect(t.flicker.steps, inInclusiveRange(3, 5));
-    expect(t.moves('L').length, t.flicker.steps);
-    t.dispose();
   });
 
   testWidgets('glasses that never answer moves: stops waiting and keeps going', (tester) async {
@@ -182,9 +221,7 @@ void main() {
     expect(_events('silent').single.data['what'], 'move');
     expect(r.flicker.steps, greaterThanOrEqualTo(12), reason: 'only the first 3 moves wait for the timeout');
     expect(_events('step').first.data['moveTimeout'], isTrue);
-    final done = r.flicker.stop();
-    await _run(tester, 400);
-    await done;
+    await r.stop(tester);
     expect(_events('reset').single.data['ok'], isFalse);
     r.dispose();
   });
@@ -194,7 +231,7 @@ void main() {
     await r.control.connectNow();
     await r.flicker.start();
     await _run(tester, 1000);
-    await r.flicker.stop(restore: false);
+    await r.stop(tester, restore: false);
     expect(r.flicker.steps, inInclusiveRange(9, 11));
     expect(r.flicker.failures, 0);
     r.dispose();
@@ -204,8 +241,7 @@ void main() {
     final r = _Rig(tester);
     await r.control.connectNow();
     await r.flicker.showOnce(false);
-    expect(r.moves('L').single[6], 0);
-    expect(r.glasses.screens('L'), ['DOWN']);
+    expect(r.seq('R'), ['move1:0', 'text:DOWN']);
     final e = _events('test').single.data;
     expect(e['side'], 'bottom');
     expect(e['moveReply'], 'R:26 c9');
