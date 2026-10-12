@@ -161,8 +161,13 @@ void main() {
       await tester.pump();
       await _shot(tester, '5d_flicker$tag');
       expect(suite.flicker.running, isTrue);
+      final flickerList = find.descendant(of: find.byType(FlickerPage), matching: find.byType(Scrollable)).first;
+      await tester.scrollUntilVisible(find.text('Bottom text'), 200, scrollable: flickerList);
+      await tester.pump();
       expect(find.widgetWithText(TextField, 'TOP\nThis text sits high in your view'), findsOneWidget,
           reason: 'each text box keeps its own text when the list shifts');
+      await tester.drag(flickerList, const Offset(0, 3000));
+      await tester.pump();
       expect(suite.flicker.steps, greaterThan(2));
       expect(w.glasses.sent['R']!.where((p) => p[0] == 0x26).map((p) => '${p[5]}:${p[6]}').take(2), ['1:8', '1:0'],
           reason: 'display moved high, then low (state 1 = it moves)');
