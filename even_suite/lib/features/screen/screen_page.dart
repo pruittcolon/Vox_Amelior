@@ -4,6 +4,7 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../core/screen/screen_mirror.dart';
 import '../../widgets/common.dart';
+import '../tools/diagnostics_page.dart';
 import '../../widgets/voice_widgets.dart';
 
 /// Phone screen on the glasses, about one frame a second.
@@ -78,6 +79,12 @@ class ScreenPage extends StatelessWidget {
                   child: Text(m.offAt == null ? '+${s.autoOffMinutes} min' : 'Until ${clockTime(m.offAt!)}'),
                 ),
               ]),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DiagnosticsPage())),
+              icon: const Icon(Icons.science_rounded),
+              label: const Text('Not updating? Run the picture test'),
+            ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: () {

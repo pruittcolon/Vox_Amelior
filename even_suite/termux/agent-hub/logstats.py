@@ -234,6 +234,42 @@ def main(argv):
             print(f"Glasses mic: packets={mic['packets']} pcm bytes={mic['bytesOut']} "
                   f"pipe errors={mic['writeErrors']}")
 
+    # Picture test (Diagnostics): every answer in order, per trial
+    starts = [i for i, e in enumerate(ev) if e.get("c") == "lab" and e.get("e") == "start"]
+    if starts:
+        run = ev[starts[-1]:]
+        print("\nPicture test (latest run): send = transfer result, crc = c9 accepted / ca rejected")
+        trial = None
+        line = []
+        for e in run:
+            if e.get("c") != "lab" or e.get("e") != "step":
+                if e.get("c") == "lab" and e.get("e") == "done":
+                    break
+                continue
+            if e["trial"] != trial:
+                if line:
+                    print("  " + " | ".join(line))
+                trial = e["trial"]
+                print(f" {trial}")
+                line = []
+            if e["arm"] == "L" or "arm at a time" in trial:
+                line.append(f"{e['step']}:")
+            line[-1] += f" {e['arm']}={e['crc']}"
+        if line:
+            print("  " + " | ".join(line))
+
+    # Unsolicited packets from the glasses
+    rx = [e for e in ev if e.get("c") == "ble" and e.get("e") == "rx"]
+    if rx:
+        kinds = Counter()
+        first = {}
+        for e in rx:
+            kinds[e["kind"]] += e.get("count", 1)
+            first.setdefault(e["kind"], e.get("first"))
+        print("\nUnrequested packets from the glasses:")
+        for k, n in kinds.most_common(10):
+            print(f"  {k} x{n}  e.g. {first[k]}")
+
     # Glasses display confirmations (0xF5 0x12 seen right after accepted pictures)
     disp = [e for e in ev if e.get("c") == "glasses" and e.get("e") == "touch" and e.get("code") == 18]
     if disp:

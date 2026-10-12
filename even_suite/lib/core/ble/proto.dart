@@ -198,6 +198,11 @@ class Proto {
   bool retryRejectedArm = true;
   int lateCheckMs = 300;
 
+  /// Pause + extra CRC query before a resend: the sequence that got 95% of
+  /// resends accepted in the user's 21:05 session (an immediate resend did
+  /// much worse the next day).
+  int beforeResendMs = 150;
+
   static bool _accepted(String? crc) => crc == 'c9' || crc == 'short';
 
   Future<String> _crc(String lr, Uint8List crcCmd, int timeoutMs) async {
@@ -254,7 +259,13 @@ class Proto {
       crc = await _crc(lr, crcCmd, crcTimeoutMs);
       steps.add(crc);
       if (retryRejectedArm && crc != 'timeout' && !_accepted(crc)) {
-        // 1. Resend (the glasses usually accept a picture the second time).
+        // 1. Short pause and ask again, then resend (what worked best so far).
+        await Future<void>.delayed(Duration(milliseconds: beforeResendMs));
+        final again = await _crc(lr, crcCmd, crcTimeoutMs);
+        steps.add('pause:$again');
+        if (_accepted(again)) {
+          return a.copyWith(crc: again, ms: sw.elapsedMilliseconds, steps: steps.join(' '));
+        }
         final redo = await transfer();
         crc = redo.stage == 'sent' ? await _crc(lr, crcCmd, crcTimeoutMs) : 'failed:${redo.stage}';
         steps.add('resend:$crc');
@@ -322,9 +333,28 @@ class Proto {
         'gapMs': bmpGapMs,
         'chunk': bmpChunk,
         'bytes': bmp.length,
+        'crcHex': bmpCrcCommand(bmp).sublist(1).map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+        if (previous != null)
+          'prevHex': bmpCrcCommand(previous).sublist(1).map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
       });
     }
   }
+
+  // ----------------------------------------------- building blocks (lab)
+
+  /// Packets + end to one arm; returns stage 'sent' or where it failed.
+  Future<ArmResult> labTransfer(String lr, Uint8List bmp, {int? gapMs}) async {
+    final saved = bmpGapMs;
+    if (gapMs != null) bmpGapMs = gapMs;
+    try {
+      return await _transfer(lr, bmpPackets(bmp, chunk: bmpChunk), endTimeoutMs: 3000, endRetries: 2);
+    } finally {
+      bmpGapMs = saved;
+    }
+  }
+
+  /// Ask one arm to verify [bmp]'s CRC: c9, ca, short or timeout.
+  Future<String> labCrc(String lr, Uint8List bmp) => _crc(lr, bmpCrcCommand(bmp), 2000);
 
   /// One picture (images page etc.): shown when both arms accepted it; with
   /// [requireCrc] false, done once both arms answered.

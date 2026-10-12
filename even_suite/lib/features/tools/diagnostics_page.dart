@@ -62,8 +62,9 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
         itemCount: 2 + (shown.isEmpty ? 1 : shown.length),
         itemBuilder: (context, index) {
           if (index == 0) {
-            return
-        Padding(
+            return Column(children: [
+              const _LabCard(),
+              Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: SectionCard(
             title: 'Timing log',
@@ -142,7 +143,8 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
               ]),
             ]),
           ),
-        );
+        ),
+            ]);
           }
           if (index == 1) {
             return
@@ -198,6 +200,70 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
           );
         },
       ),
+    );
+  }
+}
+
+/// Picture test: run it, see per-trial answers, results go to the log.
+class _LabCard extends StatelessWidget {
+  const _LabCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final suite = SuiteScope.of(context);
+    final lab = suite.lab;
+    return ListenableBuilder(
+      listenable: Listenable.merge([lab, suite.ble]),
+      builder: (context, _) {
+        // c9 count per trial and arm
+        final summary = <String, Map<String, (int, int)>>{};
+        for (final r in lab.results) {
+          if (!r.step.startsWith('crc')) continue;
+          final t = summary.putIfAbsent(r.trial, () => {});
+          final (ok, n) = t[r.arm] ?? (0, 0);
+          t[r.arm] = (ok + (r.crc == 'c9' ? 1 : 0), n + 1);
+        }
+        String arm(Map<String, (int, int)> m, String a) {
+          final v = m[a];
+          return v == null ? '-' : '${v.$1}/${v.$2}';
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: SectionCard(
+            title: 'Picture test',
+            icon: Icons.science_rounded,
+            iconColor: AppColors.claude,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const Text(
+                  'Sends test pictures 12 different ways (about 30 s) and logs exactly what each side of the '
+                  'glasses answers, so the sending can be fixed from facts. Stops screen sharing while it runs.',
+                  style: TextStyle(color: AppColors.muted, fontSize: 13)),
+              const SizedBox(height: 10),
+              if (lab.running) ...[
+                LinearProgressIndicator(value: lab.progress),
+                const SizedBox(height: 6),
+                Text(lab.status, style: const TextStyle(fontSize: 13)),
+              ] else
+                FilledButton.icon(
+                  onPressed: suite.ble.isConnected ? suite.runPictureTest : null,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(suite.ble.isConnected ? 'Run picture test' : 'Connect the glasses first'),
+                ),
+              if (summary.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text('Accepted (left / right):', style: TextStyle(fontWeight: FontWeight.w600)),
+                for (final e in summary.entries)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text('${e.key}:  L ${arm(e.value, 'L')}  R ${arm(e.value, 'R')}',
+                        style: const TextStyle(fontSize: 12.5, fontFamily: 'monospace')),
+                  ),
+              ],
+            ]),
+          ),
+        );
+      },
     );
   }
 }

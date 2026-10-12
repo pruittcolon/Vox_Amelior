@@ -260,13 +260,38 @@ class BleManager extends ChangeNotifier {
     }
     final cmd = _key(res.lr, res.data[0]);
     if (res.data[0] != 0x25) lastReply = DateTime.now();
-    _reqListen.remove(cmd)?.complete(res);
+    final waiting = _reqListen.remove(cmd);
     _reqTimeout.remove(cmd)?.cancel();
+    if (waiting != null) {
+      waiting.complete(res);
+    } else if (_nextReceive == null) {
+      _unsolicited(res);
+    }
     final next = _nextReceive;
     if (next != null && !next.isCompleted) {
       _nextReceive = null;
       next.complete(res);
     }
+  }
+
+  // Packets the glasses send that no request was waiting for (late replies,
+  // status or error notices): counted per kind, logged once a second.
+  final _rxCounts = <String, int>{};
+  final _rxFirst = <String, String>{};
+  Timer? _rxTimer;
+
+  void _unsolicited(BleReceive res) {
+    final kind = '${res.lr}:${res.data.take(2).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+    _rxCounts[kind] = (_rxCounts[kind] ?? 0) + 1;
+    _rxFirst[kind] ??= res.hexString.length > 60 ? res.hexString.substring(0, 60) : res.hexString;
+    _rxTimer ??= Timer(const Duration(seconds: 1), () {
+      _rxTimer = null;
+      for (final k in _rxCounts.keys) {
+        EventLog.add('ble', 'rx', {'kind': k, 'count': _rxCounts[k], 'first': _rxFirst[k]});
+      }
+      _rxCounts.clear();
+      _rxFirst.clear();
+    });
   }
 
   static String _key(String lr, int cmd) =>
@@ -392,6 +417,7 @@ class BleManager extends ChangeNotifier {
   void dispose() {
     _sub?.cancel();
     _scanTimer?.cancel();
+    _rxTimer?.cancel();
     for (final t in _reqTimeout.values) {
       t.cancel();
     }

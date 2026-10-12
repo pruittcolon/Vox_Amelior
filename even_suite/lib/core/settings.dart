@@ -39,7 +39,7 @@ class Settings extends ChangeNotifier {
   int mirrorX = 0, mirrorY = 20, mirrorW = 100, mirrorH = 30; // custom area, % of screen
   String mirrorFit = 'fit'; // fit, fill, stretch
   int mirrorRows = 68; // picture height: 68 (half, faster - the default), 102, 136 (full)
-  bool mirrorFast = true; // one transfer per frame (verify the previous picture)
+  bool mirrorFast = false; // experimental: verify the previous picture (one transfer per frame)
   Target target = Target.claude;
   String terminalAgent = 'claude';
   bool volumeKeysScroll = false;

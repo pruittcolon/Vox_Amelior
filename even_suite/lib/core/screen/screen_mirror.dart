@@ -80,7 +80,7 @@ class ScreenMirror extends ChangeNotifier {
   int fpsTenths = 10;
   String style = 'text';
   String invert = 'auto';
-  bool fastMode = true;
+  bool fastMode = false;
   Duration autoOff = const Duration(minutes: 10);
 
   /// Called when the app gives up on reduced height for this session.

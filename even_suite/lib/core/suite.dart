@@ -12,6 +12,7 @@ import 'bridge/terminal_controller.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
 import 'log.dart';
+import 'screen/picture_lab.dart';
 import 'screen/screen_mirror.dart';
 import 'settings.dart';
 import 'system.dart';
@@ -80,6 +81,18 @@ class Suite extends ChangeNotifier {
   late final TerminalController terminal;
   late final VoiceController voice;
   late final ScreenMirror mirror;
+  late final PictureLab lab = PictureLab(proto);
+
+  /// Picture test (stops screen sharing first so nothing else is sending).
+  Future<void> runPictureTest() async {
+    if (!ble.isConnected) {
+      _toast('Connect your glasses first');
+      return;
+    }
+    if (mirror.running) await mirror.stop(clearGlasses: false);
+    await lab.run();
+    _toast('Picture test done - say "check the logs"');
+  }
 
   StreamSubscription<GlassesEvent>? _events;
   Timer? _heartbeat;
