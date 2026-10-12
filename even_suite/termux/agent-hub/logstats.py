@@ -126,6 +126,22 @@ def main(argv):
         shown = [e for e in frames if e.get("shown")]
         if any("shown" in e for e in frames):
             print(f"  displayed (both arms accepted): {len(shown)}/{len(frames)}")
+        for arm in ("L", "R"):
+            steps = Counter(e.get("steps" + arm) for e in frames if e.get("steps" + arm))
+            if steps:
+                print(f"  {arm} steps:", dict(steps.most_common(6)))
+        fastf = [e for e in frames if e.get("fast")]
+        if fastf:
+            hits = sum(1 for e in fastf if e.get("viaPrevious"))
+            print(f"  fast mode: {hits}/{len(fastf)} frames verified via the previous picture "
+                  f"(one transfer), median {pct([e['ms'] for e in fastf], 50)} ms")
+        normal = [e for e in frames if not e.get("fast") and e.get("ok")]
+        if normal:
+            print(f"  normal (send twice): median {pct([e['ms'] for e in normal], 50)} ms")
+        for name in ("fast-off", "fallback", "clear", "reconfigure"):
+            n = [e for e in ev if e.get("c") == "screen" and e.get("e") == name]
+            if n:
+                print(f"  screen.{name}: {len(n)}")
         retried = Counter(e.get("retried") for e in frames if e.get("retried"))
         if retried:
             print("  resent to arm after a rejection:", dict(retried))

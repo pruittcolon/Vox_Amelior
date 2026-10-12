@@ -37,7 +37,7 @@ class Suite extends ChangeNotifier {
     this.client = client ?? BridgeClient(settings.bridgeUrl);
     chat = ChatController(this.client);
     terminal = TerminalController(this.client, display);
-    mirror = ScreenMirror(screen ?? PlatformScreen(), proto);
+    mirror = ScreenMirror(screen ?? PlatformScreen(), proto)..onFallback = _toast;
     voice = VoiceController(
       speech,
       onSubmit: submit,
@@ -85,6 +85,7 @@ class Suite extends ChangeNotifier {
   Timer? _heartbeat;
   Timer? _liveCleanup;
   Timer? _holdLimit;
+  Timer? _mirrorTimer;
   bool _aiSession = false; // the current question came from the TouchBar
   bool _micOpen = false;
   bool _lastConnected = false;
@@ -147,7 +148,8 @@ class Suite extends ChangeNotifier {
         mirror.cw != settings.mirrorW ||
         mirror.ch != settings.mirrorH ||
         mirror.fit != settings.mirrorFit ||
-        mirror.rows != settings.mirrorRows;
+        mirror.rows != settings.mirrorRows ||
+        mirror.fastMode != settings.mirrorFast;
     mirror
       ..region = settings.mirrorRegion
       ..strip = settings.mirrorStrip
@@ -160,8 +162,13 @@ class Suite extends ChangeNotifier {
       ..ch = settings.mirrorH
       ..fit = settings.mirrorFit
       ..rows = settings.mirrorRows
+      ..fastMode = settings.mirrorFast
       ..autoOff = Duration(minutes: settings.autoOffMinutes);
-    if (mirrorChanged) mirror.reconfigure();
+    // Sliders change settings many times a second: apply once they settle.
+    if (mirrorChanged) {
+      _mirrorTimer?.cancel();
+      _mirrorTimer = Timer(const Duration(milliseconds: 400), mirror.reconfigure);
+    }
     chat.system = glassesPrimer();
     terminal.mirrorIdle = Duration(minutes: settings.autoOffMinutes);
     if (terminal.agent != settings.terminalAgent) terminal.setAgent(settings.terminalAgent);
@@ -465,6 +472,7 @@ class Suite extends ChangeNotifier {
     _heartbeat?.cancel();
     _liveCleanup?.cancel();
     _holdLimit?.cancel();
+    _mirrorTimer?.cancel();
     settings.removeListener(applySettings);
     voice.dispose();
     mirror.dispose();

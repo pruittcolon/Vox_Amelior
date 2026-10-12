@@ -78,6 +78,21 @@ class ScreenPage extends StatelessWidget {
                   child: Text(m.offAt == null ? '+${s.autoOffMinutes} min' : 'Until ${clockTime(m.offAt!)}'),
                 ),
               ]),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                m.clear();
+                showToast(context, m.running ? 'Glasses cleared; sending a fresh frame' : 'Glasses cleared');
+              },
+              icon: const Icon(Icons.cleaning_services_rounded),
+              label: const Text('Clear glasses and resync'),
+            ),
+            if (m.running && m.effectiveRows != s.mirrorRows)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text('Using full height this session (the glasses rejected shorter pictures).',
+                    style: const TextStyle(color: AppColors.warn, fontSize: 12.5)),
+              ),
             const SizedBox(height: 6),
             Text(
               'Android asks each time; pick “Entire screen”. It turns itself off after ${s.autoOffMinutes} min, '
@@ -175,10 +190,22 @@ class ScreenPage extends StatelessWidget {
                     ),
                 ]),
                 const SizedBox(height: 14),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Fast mode', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                      m.running && s.mirrorFast && !m.fastActive
+                          ? 'Off for now: the glasses did not go along this time.'
+                          : 'One send per frame instead of two; the glasses show the previous frame.',
+                      style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                  value: s.mirrorFast,
+                  onChanged: (v) => s.set('mirrorFast', v),
+                ),
+                const SizedBox(height: 8),
                 const Text('Picture height (lower = faster)', style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  for (final (rows, text) in const [(136, 'Full'), (102, '¾'), (68, '½')])
+                  for (final (rows, text) in const [(68, '½ (fastest)'), (102, '¾'), (136, 'Full')])
                     ChoiceChip(
                       label: Text(text),
                       selected: s.mirrorRows == rows,
@@ -186,8 +213,8 @@ class ScreenPage extends StatelessWidget {
                     ),
                 ]),
                 const SizedBox(height: 6),
-                const Text('Sends less data per frame (½ = about twice as fast). Experimental: if the glasses '
-                    'stop updating, go back to Full.',
+                const Text('Less data per frame. If the glasses keep rejecting shorter pictures, the app '
+                    'switches to Full by itself.',
                     style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                 const SizedBox(height: 14),
                 const Text('Style', style: TextStyle(fontWeight: FontWeight.w600)),

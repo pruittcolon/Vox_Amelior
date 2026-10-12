@@ -45,13 +45,22 @@ class PlatformScreen implements ScreenSource {
   Future<void> configure(Map<String, Object> config) => _methods.invokeMethod('configure', config);
 }
 
-/// Phone screen on the glasses, about one frame a second.
+/// Phone screen on the glasses.
 ///
 /// Android captures a small grayscale frame; here it becomes a 1-bit BMP and
-/// goes out through the fast image path. Only the newest frame is ever sent,
-/// a frame identical to the one on the glasses is skipped, and a frame the
-/// glasses did not confirm is retried on the next tick. It turns itself off
-/// after [autoOff], like hands-free.
+/// goes out through the picture path. Only the newest frame is ever sent and
+/// a frame identical to the one on the glasses is skipped.
+///
+/// What the logs taught (and what this does about it):
+/// - the glasses reject the first send of a new picture and accept a resend:
+///   [fastMode] instead verifies the PREVIOUS picture after each transfer
+///   (one transfer per frame, display one frame behind) and falls back to
+///   send + resend on its own if the glasses do not go along;
+/// - when the screen stops changing, the last frame is resent so it is shown;
+/// - reduced-height pictures are faster; if the glasses keep rejecting them,
+///   it switches to full height ([onFallback]);
+/// - any settings change or Clear starts from a clean state.
+/// It turns itself off after [autoOff], like hands-free.
 class ScreenMirror extends ChangeNotifier {
   ScreenMirror(this.source, this.proto) {
     _sub = source.frames.listen(_onFrame, onError: (_) {});
@@ -71,21 +80,24 @@ class ScreenMirror extends ChangeNotifier {
   int fpsTenths = 10;
   String style = 'text';
   String invert = 'auto';
+  bool fastMode = true;
   Duration autoOff = const Duration(minutes: 10);
+
+  /// Called when the app gives up on reduced height for this session.
+  void Function(String message)? onFallback;
 
   /// Clock for the frame-rate figure (tests use fake time).
   DateTime Function() now = DateTime.now;
 
-  /// Waits for the glasses (see [Proto.sendBmp]); shorter in tests.
+  /// Waits for the glasses (see [Proto.sendFrame]); shorter in tests.
   int endTimeoutMs = 3000;
   int crcTimeoutMs = 2000;
 
-  /// Pause after a missed frame before the next one (off: the sender
-  /// already retries the arm that rejected a picture, more slowly).
+  /// Pause after a missed frame before the next one.
   Duration coolDown = Duration.zero;
 
   /// A frame counts once both arms accepted it (CRC match) - the glasses
-  /// only display it then.
+  /// only display it then. (Off: counted once answered; tests only.)
   bool requireCrc = true;
 
   // State
@@ -99,11 +111,20 @@ class ScreenMirror extends ChangeNotifier {
   int lastSendMs = 0;
   DateTime? offAt;
 
+  /// Fast mode is working this session (it switches itself off if not).
+  bool fastActive = true;
+
+  /// Picture height actually used (may drop back to full height).
+  int effectiveRows = 136;
+
   Timer? _off;
   Uint8List? _pending;
-  Uint8List? _shown;
+  Uint8List? _shown; // last picture the glasses confirmed showing
+  Uint8List? _unverified; // last picture transferred, not yet confirmed (fast mode)
   Uint8List? _lastFailed;
   bool _sending = false;
+  int _fastMisses = 0;
+  int _rowFails = 0;
   final _times = <int>[];
 
   /// Frames per second actually reaching the glasses (last 10 frames).
@@ -122,23 +143,36 @@ class ScreenMirror extends ChangeNotifier {
         'cw': cw,
         'ch': ch,
         'fit': fit,
-        'rows': rows,
+        'rows': effectiveRows,
       };
+
+  /// Forget everything about what is on the glasses (start, Clear, settings).
+  void _resetState() {
+    _pending = null;
+    _shown = null;
+    _unverified = null;
+    _lastFailed = null;
+    _fastMisses = 0;
+    _rowFails = 0;
+    fastActive = fastMode;
+    _recentSends.clear();
+    _capturedInterval = (10000 / fpsTenths).round();
+  }
 
   Future<void> start() async {
     if (running || starting) return;
     starting = true;
     error = null;
+    effectiveRows = rows;
+    _resetState();
     notifyListeners();
     final r = await source.start(config);
     starting = false;
-    EventLog.add('screen', 'start', {...config, 'style': style, 'invert': invert, 'answer': r});
+    EventLog.add('screen', 'start', {...config, 'style': style, 'invert': invert, 'fast': fastMode, 'answer': r});
     if (r == 'ok') {
       running = true;
       sent = skipped = failed = 0;
-      _capturedInterval = (10000 / fpsTenths).round();
       _times.clear();
-      _shown = null;
       _armOff();
     } else if (r == 'denied') {
       error = 'Screen sharing was not allowed';
@@ -163,9 +197,23 @@ class ScreenMirror extends ChangeNotifier {
     if (clearGlasses && proto.ble.isConnected) await proto.exit();
   }
 
-  /// Apply changed settings while running.
+  /// Clear button: blank the glasses and start over from a clean state (the
+  /// next captured frame is sent fresh).
+  Future<void> clear() async {
+    EventLog.add('screen', 'clear', {'running': running, 'sent': sent, 'failed': failed});
+    _resetState();
+    effectiveRows = rows;
+    error = null;
+    notifyListeners();
+    if (proto.ble.isConnected) await proto.exit();
+    if (running) await source.configure(config); // also makes Android resend the screen
+  }
+
+  /// Apply changed settings while running, from a clean state.
   Future<void> reconfigure() async {
-    _shown = null; // style changes must reach the glasses
+    effectiveRows = rows;
+    _resetState();
+    EventLog.add('screen', 'reconfigure', {...config, 'style': style, 'invert': invert, 'fast': fastMode});
     if (running) await source.configure(config);
   }
 
@@ -202,9 +250,9 @@ class ScreenMirror extends ChangeNotifier {
     }
     if (!running) return;
     if (f['same'] == true) {
-      // Nothing new on screen; resend a frame the glasses missed.
-      final missed = _lastFailed;
-      if (missed != null) push(missed);
+      // Nothing new on screen: make sure the latest frame is actually shown.
+      final missed = _lastFailed ?? _unverified;
+      if (missed != null && !_sending) push(missed, flush: true);
       return;
     }
     final gray = f['gray'];
@@ -225,17 +273,21 @@ class ScreenMirror extends ChangeNotifier {
       'encodeMs': enc.elapsedMilliseconds,
       'lit': (frame.litShare * 100).round(),
       'flipped': frame.flipped,
-      'style': style,
+      'rows': h,
       'busy': _sending,
     });
     notifyListeners();
     push(frame.bmp);
   }
 
-  /// Queue a frame; only the newest waiting frame is kept.
+  bool _flushNext = false;
+
+  /// Queue a frame; only the newest waiting frame is kept. [flush] = show
+  /// this exact frame now (normal check, no fast mode).
   @visibleForTesting
-  void push(Uint8List bmp) {
+  void push(Uint8List bmp, {bool flush = false}) {
     _pending = bmp;
+    _flushNext = flush;
     if (!_sending) _loop();
   }
 
@@ -244,8 +296,10 @@ class ScreenMirror extends ChangeNotifier {
     try {
       while (_pending != null && running) {
         final frame = _pending!;
+        final flush = _flushNext;
         _pending = null;
-        if (_shown != null && listEquals(frame, _shown)) {
+        _flushNext = false;
+        if (_shown != null && listEquals(frame, _shown) && _unverified == null) {
           skipped++;
           continue;
         }
@@ -253,23 +307,48 @@ class ScreenMirror extends ChangeNotifier {
           _lastFailed = frame;
           continue;
         }
+        // Fast mode: transfer this frame, verify the last one transferred
+        // (waiting, or already shown - verifying that again is harmless).
+        final last = _unverified ?? _shown;
+        final previous = (fastActive && !flush && last != null && !listEquals(last, frame)) ? last : null;
         final t0 = now().millisecondsSinceEpoch;
-        final ok = await proto.sendBmp(frame,
-            endTimeoutMs: endTimeoutMs, crcTimeoutMs: crcTimeoutMs, requireCrc: requireCrc);
+        final o = await proto.sendFrame(frame,
+            previous: previous, endTimeoutMs: endTimeoutMs, crcTimeoutMs: crcTimeoutMs);
         final t1 = now().millisecondsSinceEpoch;
         lastSendMs = t1 - t0;
-        EventLog.add('screen', 'sent', {'ok': ok, 'ms': lastSendMs, 'sent': sent + (ok ? 1 : 0)});
+        final ok = requireCrc ? o.shown : o.delivered;
+        EventLog.add('screen', 'sent', {
+          'ok': ok,
+          'ms': lastSendMs,
+          'fast': previous != null,
+          'viaPrevious': o.viaPrevious,
+          'flush': flush,
+          'sent': sent + (ok ? 1 : 0),
+        });
         _adapt();
+        if (previous != null) {
+          if (o.viaPrevious) {
+            _fastMisses = 0;
+          } else if (++_fastMisses >= 3 && fastActive) {
+            fastActive = false;
+            EventLog.add('screen', 'fast-off', {'reason': 'glasses did not accept the previous picture'});
+          }
+        }
         if (ok) {
           sent++;
-          _shown = frame;
+          _rowFails = 0;
+          // Fast mode showed the previous frame and left this one waiting.
+          _shown = o.viaPrevious ? previous : frame;
+          _unverified = o.viaPrevious ? frame : null;
           _lastFailed = null;
           _times.add(t1);
           if (_times.length > 10) _times.removeAt(0);
         } else {
           failed++;
           _shown = null;
+          _unverified = null;
           _lastFailed = frame;
+          _maybeFallBack();
           notifyListeners();
           if (coolDown > Duration.zero) await Future.delayed(coolDown);
         }
@@ -278,6 +357,17 @@ class ScreenMirror extends ChangeNotifier {
     } finally {
       _sending = false;
     }
+  }
+
+  /// Reduced-height pictures that keep failing: go back to full height.
+  void _maybeFallBack() {
+    if (effectiveRows >= MonoEncoder.height) return;
+    if (++_rowFails < 3) return;
+    EventLog.add('screen', 'fallback', {'from': effectiveRows, 'to': MonoEncoder.height});
+    effectiveRows = MonoEncoder.height;
+    _resetState();
+    if (running) source.configure(config);
+    onFallback?.call('Switched to full height: the glasses kept rejecting shorter pictures');
   }
 
   int _capturedInterval = 0;

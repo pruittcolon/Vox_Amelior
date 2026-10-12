@@ -38,7 +38,8 @@ class Settings extends ChangeNotifier {
   String mirrorStyle = 'text'; // text (sharp) or photo (dithered)
   int mirrorX = 0, mirrorY = 20, mirrorW = 100, mirrorH = 30; // custom area, % of screen
   String mirrorFit = 'fit'; // fit, fill, stretch
-  int mirrorRows = 136; // picture height: 136 (full), 102, 68 (experimental, faster)
+  int mirrorRows = 68; // picture height: 68 (half, faster - the default), 102, 136 (full)
+  bool mirrorFast = true; // one transfer per frame (verify the previous picture)
   Target target = Target.claude;
   String terminalAgent = 'claude';
   bool volumeKeysScroll = false;
@@ -76,6 +77,7 @@ class Settings extends ChangeNotifier {
     mirrorH = _i(m['mirrorH'], mirrorH).clamp(1, 100);
     mirrorFit = _s(m['mirrorFit'], mirrorFit);
     mirrorRows = _i(m['mirrorRows'], mirrorRows).clamp(16, 136);
+    mirrorFast = _b(m['mirrorFast'], mirrorFast);
     target = _s(m['target'], target.name) == 'terminal' ? Target.terminal : Target.claude;
     terminalAgent = _s(m['terminalAgent'], terminalAgent);
     volumeKeysScroll = _b(m['volumeKeysScroll'], volumeKeysScroll);
@@ -149,6 +151,8 @@ class Settings extends ChangeNotifier {
         mirrorFit = value as String;
       case 'mirrorRows':
         mirrorRows = value as int;
+      case 'mirrorFast':
+        mirrorFast = value as bool;
       case 'target':
         target = value as Target;
         value = target.name;
@@ -169,7 +173,9 @@ class Settings extends ChangeNotifier {
         throw ArgumentError('Unknown setting $key');
     }
     _save?.call(key, value);
-    if (key != 'lastGlasses') EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
+    // Slider keys change many times a second; the screen log records the result.
+    const quiet = {'lastGlasses', 'mirrorX', 'mirrorY', 'mirrorW', 'mirrorH', 'mirrorStrip'};
+    if (!quiet.contains(key)) EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
     notifyListeners();
   }
 

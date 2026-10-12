@@ -186,42 +186,17 @@ class Proto {
         [0x16, val >> 24 & 0xff, val >> 16 & 0xff, val >> 8 & 0xff, val & 0xff]);
   }
 
-  // ------------------------------------------------- picture pacing (tuned)
+  // ------------------------------------------------------- picture sending
 
-  /// Gap between picture packets per arm (ms). The logs show the glasses
-  /// reject (CRC 0xCA) the first send of a NEW picture and accept the same
-  /// picture right after, at any packet speed - so a rejection is answered
-  /// by re-checking, then resending, not by slowing down. The pace only
-  /// rises when even a resend is rejected, and comes back quickly.
-  int get bmpGapMs => _baseGap;
-  set bmpGapMs(int v) {
-    _baseGap = v;
-    armGap['L'] = v;
-    armGap['R'] = v;
-    _streak.updateAll((_, __) => 0);
-    _strikes.updateAll((_, __) => 0);
-    sequentialArms = false;
-  }
+  /// Gap between picture packets per arm (ms). Fixed: the logs showed the
+  /// packet speed makes no difference to whether the glasses accept a
+  /// picture, and slowing down only made everything slower.
+  int bmpGapMs = 5;
 
-  int _baseGap = 5;
-  final Map<String, int> armGap = {'L': 5, 'R': 5};
-  final Map<String, int> _streak = {'L': 0, 'R': 0};
-  final Map<String, int> _strikes = {'L': 0, 'R': 0};
-  static const int maxGap = 20;
-
-  /// Tune the pace per arm (off = fixed [bmpGapMs]).
-  bool adaptivePacing = true;
-
-  /// After a rejection: ask for the CRC again after [crcRecheckMs] (cheap),
-  /// then resend the picture to that arm once.
+  /// Recovery when an arm rejects a picture (CRC 0xCA): resend it; if that
+  /// is rejected too, wait [lateCheckMs] and ask again; then a last resend.
   bool retryRejectedArm = true;
-  int crcRecheckMs = 120;
-
-  /// Try the cheap CRC re-check before resending (off = resend straight away).
-  bool recheckFirst = true;
-
-  /// Left first, then right (only if an arm keeps rejecting resends).
-  bool sequentialArms = false;
+  int lateCheckMs = 300;
 
   static bool _accepted(String? crc) => crc == 'c9' || crc == 'short';
 
@@ -231,14 +206,13 @@ class Proto {
     return c.isTimeout ? 'timeout' : (c.data.length > 5 ? c.data[5].toRadixString(16) : 'short');
   }
 
-  /// Packets, end, CRC to one arm (the demo's per-arm sequence).
-  Future<ArmResult> _transfer(String lr, List<Uint8List> packs, Uint8List crcCmd,
-      {required int endTimeoutMs, required int endRetries, required int crcTimeoutMs}) async {
+  /// Packets and the end command to one arm (the demo's sequence, minus CRC).
+  Future<ArmResult> _transfer(String lr, List<Uint8List> packs,
+      {required int endTimeoutMs, required int endRetries}) async {
     final sw = Stopwatch()..start();
-    final gap = adaptivePacing ? armGap[lr]! : _baseGap;
-    final n = await ble.sendBatch(packs, lr, gapMs: gap);
+    final n = await ble.sendBatch(packs, lr, gapMs: bmpGapMs);
     final packetsMs = sw.elapsedMilliseconds;
-    if (n != packs.length) return ArmResult(lr, gap, packetsMs: packetsMs, stage: 'packets');
+    if (n != packs.length) return ArmResult(lr, bmpGapMs, packetsMs: packetsMs, stage: 'packets');
     final end = Uint8List.fromList([0x20, 0x0d, 0x0e]);
     var tries = 0;
     var endOk = false;
@@ -250,124 +224,129 @@ class Proto {
         break;
       }
     }
-    final endMs = sw.elapsedMilliseconds - packetsMs;
-    if (!endOk) return ArmResult(lr, gap, packetsMs: packetsMs, endMs: endMs, endTries: tries, stage: 'end');
-    final crc = await _crc(lr, crcCmd, crcTimeoutMs);
-    return ArmResult(lr, gap,
-        packetsMs: packetsMs, endMs: endMs, endTries: tries, crc: crc, ms: sw.elapsedMilliseconds, stage: 'crc');
+    return ArmResult(lr, bmpGapMs,
+        packetsMs: packetsMs,
+        endMs: sw.elapsedMilliseconds - packetsMs,
+        endTries: tries,
+        stage: endOk ? 'sent' : 'end');
   }
 
-  /// One arm, with the recovery steps; returns the final result and what it took.
-  Future<ArmResult> _sendArm(String lr, List<Uint8List> packs, Uint8List crcCmd,
+  /// One arm: transfer [packs], then ask the glasses to verify [verifyCmd]
+  /// (normally this picture's CRC; in fast mode the PREVIOUS picture's),
+  /// with the recovery steps if they say no.
+  Future<ArmResult> _sendArm(String lr, List<Uint8List> packs, Uint8List crcCmd, Uint8List? verifyCmd,
       {required int endTimeoutMs, required int endRetries, required int crcTimeoutMs}) async {
     final sw = Stopwatch()..start();
-    var a = await _transfer(lr, packs, crcCmd,
-        endTimeoutMs: endTimeoutMs, endRetries: endRetries, crcTimeoutMs: crcTimeoutMs);
-    final steps = <String>[a.crc ?? a.stage];
-    if (retryRejectedArm && a.crc != null && a.crc != 'timeout' && !_accepted(a.crc)) {
-      // 1. Same data, just ask again a moment later.
-      var again = 'skipped';
-      if (recheckFirst) {
-        await Future<void>.delayed(Duration(milliseconds: crcRecheckMs));
-        again = await _crc(lr, crcCmd, crcTimeoutMs);
-        steps.add('recheck:$again');
-      }
-      if (_accepted(again)) {
-        a = a.copyWith(crc: again);
-      } else {
-        // 2. Resend the picture to this arm.
-        final redo = await _transfer(lr, packs, crcCmd,
-            endTimeoutMs: endTimeoutMs, endRetries: endRetries, crcTimeoutMs: crcTimeoutMs);
-        steps.add('resend:${redo.crc ?? redo.stage}');
-        a = redo;
+    Future<ArmResult> transfer() => _transfer(lr, packs, endTimeoutMs: endTimeoutMs, endRetries: endRetries);
+    final steps = <String>[];
+    var a = await transfer();
+    if (a.stage != 'sent') {
+      return a.copyWith(ms: sw.elapsedMilliseconds, steps: 'failed:${a.stage}');
+    }
+    var crc = 'none';
+    var viaPrevious = false;
+    if (verifyCmd != null) {
+      crc = await _crc(lr, verifyCmd, crcTimeoutMs);
+      steps.add('prev:$crc');
+      viaPrevious = _accepted(crc);
+    }
+    if (!viaPrevious) {
+      crc = await _crc(lr, crcCmd, crcTimeoutMs);
+      steps.add(crc);
+      if (retryRejectedArm && crc != 'timeout' && !_accepted(crc)) {
+        // 1. Resend (the glasses usually accept a picture the second time).
+        final redo = await transfer();
+        crc = redo.stage == 'sent' ? await _crc(lr, crcCmd, crcTimeoutMs) : 'failed:${redo.stage}';
+        steps.add('resend:$crc');
+        if (!_accepted(crc) && crc != 'timeout') {
+          // 2. Maybe it is still storing: give it a moment and ask again.
+          await Future<void>.delayed(Duration(milliseconds: lateCheckMs));
+          crc = await _crc(lr, crcCmd, crcTimeoutMs);
+          steps.add('late:$crc');
+        }
+        if (!_accepted(crc) && crc != 'timeout') {
+          // 3. Last resend.
+          final third = await transfer();
+          crc = third.stage == 'sent' ? await _crc(lr, crcCmd, crcTimeoutMs) : 'failed:${third.stage}';
+          steps.add('resend2:$crc');
+        }
       }
     }
-    _tune(lr, a.crc, resent: steps.any((x) => x.startsWith('resend')));
-    return a.copyWith(ms: sw.elapsedMilliseconds, steps: steps.join(' '));
+    return a.copyWith(crc: crc, ms: sw.elapsedMilliseconds, steps: steps.join(' '), viaPrevious: viaPrevious);
   }
 
-  void _tune(String lr, String? crc, {required bool resent}) {
-    if (!adaptivePacing || crc == null || crc == 'timeout') return;
-    final before = armGap[lr]!;
-    if (_accepted(crc)) {
-      _strikes[lr] = 0;
-      _streak[lr] = _streak[lr]! + 1;
-      if (_streak[lr]! >= 4 && armGap[lr]! > _baseGap) {
-        armGap[lr] = (armGap[lr]! - 2).clamp(_baseGap, maxGap);
-        _streak[lr] = 0;
-      }
-    } else if (resent) {
-      // Even the resend was rejected: now slowing down may help.
-      _streak[lr] = 0;
-      armGap[lr] = (armGap[lr]! + 3).clamp(_baseGap, maxGap);
-      if (armGap[lr]! >= 14) _strikes[lr] = _strikes[lr]! + 1;
-      if (_strikes[lr]! >= 3 && !sequentialArms) {
-        sequentialArms = true;
-        EventLog.add('bmp', 'mode', {'sequential': true, 'arm': lr, 'gap': armGap[lr]});
-      }
-    }
-    if (armGap[lr] != before) {
-      EventLog.add('bmp', 'pace', {'arm': lr, 'from': before, 'to': armGap[lr], 'crc': crc});
-    }
-    if (sequentialArms && armGap['L']! <= _baseGap + 3 && armGap['R']! <= _baseGap + 3) {
-      sequentialArms = false;
-      EventLog.add('bmp', 'mode', {'sequential': false});
-    }
-  }
-
-  /// Show a 1-bit BMP (576 wide) on both arms - per arm: packets (paced),
-  /// the end command (waited for patiently), the CRC; an arm that rejects
-  /// the picture is asked to re-check, then gets the picture once more.
+  /// Show a 1-bit BMP (576 wide) on both arms (in parallel).
   ///
-  /// The glasses only display a picture both arms accepted. With
-  /// [requireCrc] false, it counts as done once both arms confirmed the end
-  /// and answered the CRC, whatever the CRC said (used for single pictures).
-  Future<bool> sendBmp(Uint8List bmp,
-      {int endTimeoutMs = 3000, int endRetries = 2, int crcTimeoutMs = 2000, bool requireCrc = true}) async {
+  /// With [previous] (fast mode), the glasses are asked to verify the
+  /// previous picture after this one arrives - they seem to check a picture
+  /// against the one sent before it, so this needs one transfer per frame
+  /// instead of two; the display then runs one frame behind. If they do not
+  /// accept that, the normal check and recovery steps follow.
+  Future<BmpOutcome> sendFrame(Uint8List bmp,
+      {Uint8List? previous, int endTimeoutMs = 3000, int endRetries = 2, int crcTimeoutMs = 2000}) async {
     final sw = Stopwatch()..start();
     var arms = <ArmResult>[];
-    var ok = false;
-    var shown = false;
+    var outcome = const BmpOutcome(shown: false, delivered: false, viaPrevious: false);
     try {
       final packs = bmpPackets(bmp, chunk: bmpChunk);
       final crcCmd = bmpCrcCommand(bmp);
-      Future<ArmResult> go(String lr) => _sendArm(lr, packs, crcCmd,
-          endTimeoutMs: endTimeoutMs, endRetries: endRetries, crcTimeoutMs: crcTimeoutMs);
-      if (sequentialArms) {
-        arms = [await go('L'), await go('R')];
-      } else {
-        arms = await Future.wait([go('L'), go('R')]);
-      }
-      shown = arms.every((a) => _accepted(a.crc));
-      final delivered = arms.every((a) => a.crc != null && a.crc != 'timeout');
-      ok = requireCrc ? shown : delivered;
-      return ok;
+      final verifyCmd = previous == null ? null : bmpCrcCommand(previous);
+      arms = await Future.wait([
+        for (final lr in const ['L', 'R'])
+          _sendArm(lr, packs, crcCmd, verifyCmd,
+              endTimeoutMs: endTimeoutMs, endRetries: endRetries, crcTimeoutMs: crcTimeoutMs),
+      ]);
+      outcome = BmpOutcome(
+        shown: arms.every((a) => _accepted(a.crc)),
+        delivered: arms.every((a) => a.crc != null && a.crc != 'timeout' && !a.crc!.startsWith('failed')),
+        viaPrevious: arms.every((a) => a.viaPrevious),
+      );
+      return outcome;
     } finally {
       ArmResult? arm(String lr) => arms.where((a) => a.lr == lr).firstOrNull;
       final l = arm('L'), r = arm('R');
       EventLog.add('bmp', 'frame', {
-        'ok': ok,
-        'shown': shown,
-        'stage': shown ? 'done' : [l?.stage, r?.stage].join('/'),
+        'ok': outcome.shown,
+        'shown': outcome.shown,
+        'fast': previous != null,
+        'viaPrevious': outcome.viaPrevious,
+        'stage': outcome.shown ? 'done' : [l?.stage, r?.stage].join('/'),
         'ms': sw.elapsedMilliseconds,
         'crc': '${l?.crc}/${r?.crc}',
         'stepsL': l?.steps,
         'stepsR': r?.steps,
-        'gapL': l?.gap,
-        'gapR': r?.gap,
         'msL': l?.ms,
         'msR': r?.ms,
         'packetsMs': [l?.packetsMs ?? 0, r?.packetsMs ?? 0].reduce((a, b) => a > b ? a : b),
         'endMs': [l?.endMs ?? 0, r?.endMs ?? 0].reduce((a, b) => a > b ? a : b),
-        'endL': l?.endMs,
-        'endR': r?.endMs,
-        'mode': sequentialArms ? 'seq' : 'par',
-        'gapMs': _baseGap,
+        'gapMs': bmpGapMs,
         'chunk': bmpChunk,
         'bytes': bmp.length,
       });
     }
   }
+
+  /// One picture (images page etc.): shown when both arms accepted it; with
+  /// [requireCrc] false, done once both arms answered.
+  Future<bool> sendBmp(Uint8List bmp,
+      {int endTimeoutMs = 3000, int endRetries = 2, int crcTimeoutMs = 2000, bool requireCrc = true}) async {
+    final o = await sendFrame(bmp, endTimeoutMs: endTimeoutMs, endRetries: endRetries, crcTimeoutMs: crcTimeoutMs);
+    return requireCrc ? o.shown : o.delivered;
+  }
+}
+
+/// What happened to a picture.
+class BmpOutcome {
+  /// Both arms accepted (this picture, or in fast mode the previous one).
+  final bool shown;
+
+  /// Both arms answered the CRC (whatever it said).
+  final bool delivered;
+
+  /// Fast mode worked: the previous picture was verified with one transfer.
+  final bool viaPrevious;
+
+  const BmpOutcome({required this.shown, required this.delivered, required this.viaPrevious});
 }
 
 /// One arm's part of a picture transfer.
@@ -380,17 +359,26 @@ class ArmResult {
   final String? crc; // c9, ca, short, timeout, or null when it stopped earlier
   final int? ms;
   final String stage;
-  final String steps; // e.g. "ca recheck:c9" or "ca recheck:ca resend:c9"
+  final String steps; // e.g. "ca resend:c9" or "prev:c9"
+  final bool viaPrevious;
   const ArmResult(this.lr, this.gap,
-      {this.packetsMs, this.endMs, this.endTries = 0, this.crc, this.ms, this.stage = 'packets', this.steps = ''});
+      {this.packetsMs,
+      this.endMs,
+      this.endTries = 0,
+      this.crc,
+      this.ms,
+      this.stage = 'packets',
+      this.steps = '',
+      this.viaPrevious = false});
 
-  ArmResult copyWith({String? crc, int? ms, String? steps}) => ArmResult(lr, gap,
+  ArmResult copyWith({String? crc, int? ms, String? steps, bool? viaPrevious}) => ArmResult(lr, gap,
       packetsMs: packetsMs,
       endMs: endMs,
       endTries: endTries,
       crc: crc ?? this.crc,
       ms: ms ?? this.ms,
       stage: stage,
-      steps: steps ?? this.steps);
+      steps: steps ?? this.steps,
+      viaPrevious: viaPrevious ?? this.viaPrevious);
 }
 

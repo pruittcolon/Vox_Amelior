@@ -23,10 +23,10 @@ class _ImagesPageState extends State<ImagesPage> {
     setState(() => _sending = asset);
     final sw = Stopwatch()..start();
     final data = await rootBundle.load(asset);
-    final ok = await suite.proto.sendBmp(data.buffer.asUint8List(), requireCrc: false);
+    final ok = await suite.proto.sendBmp(data.buffer.asUint8List());
     if (!mounted) return;
     setState(() => _sending = null);
-    showToast(context, ok ? 'On your glasses (${sw.elapsedMilliseconds} ms)' : 'The glasses did not confirm the picture');
+    showToast(context, ok ? 'On your glasses (${sw.elapsedMilliseconds} ms)' : 'The glasses did not take the picture (see Diagnostics)');
   }
 
   @override
