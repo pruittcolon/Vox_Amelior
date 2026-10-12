@@ -311,6 +311,7 @@ class Suite extends ChangeNotifier {
         await terminal.sendLine(t);
         if (settings.repliesOnGlasses && ble.isConnected) terminal.setMirror(true);
       } else {
+        chat.system ??= glassesPrimer();
         if (ble.isConnected && settings.repliesOnGlasses && !mirror.running) {
           display.showText('You: $t\n\nClaude is thinking...', title: 'Claude', ai: _aiSession);
         }
