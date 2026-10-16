@@ -126,7 +126,12 @@ class Library extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> save() async {
+  Future<void> _saving = Future.value();
+
+  /// Saves are queued: two overlapping writes would race on the temp file.
+  Future<void> save() => _saving = _saving.catchError((Object _) {}).then((_) => _write());
+
+  Future<void> _write() async {
     await dir.create(recursive: true);
     final tmp = File('${_index.path}.tmp');
     await tmp.writeAsString(jsonEncode(_docs.map((d) => d.toJson()).toList()), flush: true);

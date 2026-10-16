@@ -179,8 +179,8 @@ void main() {
       // Reader with the sample podcast, sentence 12 highlighted.
       await tester.pumpWidget(w.wrap(ReaderScreen(key: UniqueKey(), doc: doc), scale));
       await _io(tester);
-      expect(find.textContaining('Podcast'), findsWidgets);
       await _shot(tester, '05_reader$tag');
+      expect(find.textContaining('Podcast'), findsWidgets);
 
       // Voices & style sheet.
       final session = (await tester.runAsync(() => app.openSession(doc)))!;

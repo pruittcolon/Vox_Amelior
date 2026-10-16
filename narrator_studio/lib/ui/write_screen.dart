@@ -52,34 +52,36 @@ class _WriteScreenState extends State<WriteScreen> {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = 0; i < howItWorks.length; i++)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 5),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: 12,
-                            backgroundColor: scheme.primary,
-                            child: Text('${i + 1}', style: TextStyle(fontSize: 12, color: scheme.onPrimary)),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text.rich(TextSpan(children: [
-                              TextSpan(text: '${howItWorks[i].$1}. ', style: const TextStyle(fontWeight: FontWeight.w700)),
-                              TextSpan(text: howItWorks[i].$2),
-                            ])),
-                          ),
-                        ],
-                      ),
+            clipBehavior: Clip.antiAlias,
+            child: ExpansionTile(
+              shape: const Border(),
+              leading: Icon(Icons.auto_awesome, color: scheme.primary),
+              title: const Text('Copy a prompt, paste it into Claude, paste the reply back here.'),
+              subtitle: const Text('How it works'),
+              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              children: [
+                for (var i = 0; i < howItWorks.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 12,
+                          backgroundColor: scheme.primary,
+                          child: Text('${i + 1}', style: TextStyle(fontSize: 12, color: scheme.onPrimary)),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text.rich(TextSpan(children: [
+                            TextSpan(text: '${howItWorks[i].$1}. ', style: const TextStyle(fontWeight: FontWeight.w700)),
+                            TextSpan(text: howItWorks[i].$2),
+                          ])),
+                        ),
+                      ],
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
