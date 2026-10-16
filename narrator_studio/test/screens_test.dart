@@ -102,6 +102,7 @@ class _World {
           native: native,
           preview: preview,
           child: MaterialApp(
+            key: UniqueKey(), // a fresh navigator per screen (no sheets left open)
             debugShowCheckedModeBanner: false,
             theme: buildTheme(Brightness.light),
             darkTheme: buildTheme(Brightness.dark),

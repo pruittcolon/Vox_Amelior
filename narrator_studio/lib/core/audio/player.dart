@@ -226,10 +226,11 @@ class Player extends ChangeNotifier {
   }
 
   Future<void> stop() async {
-    await _persist();
+    // Silence first, then save: stopping should feel instant.
     await _halt();
     state = PlayState.idle;
     notifyListeners();
+    await _persist();
     await native.serviceStop();
   }
 

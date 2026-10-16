@@ -332,13 +332,23 @@ class _Header extends StatelessWidget {
                     Icon(Icons.theater_comedy_outlined, size: 18, color: scheme.primary),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        '${session.style.name} · ~${formatDuration(est)}'
-                        '${session.music ? ' · ♪ ${themeById(session.theme?.id)?.name ?? 'music'}' : ''}',
+                      child: Text.rich(
+                        TextSpan(children: [
+                          TextSpan(text: '${session.style.name} · ~${formatDuration(est)}'),
+                          if (session.music) ...[
+                            const TextSpan(text: '  '),
+                            WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Icon(Icons.music_note, size: 16, color: scheme.primary),
+                            ),
+                            TextSpan(text: themeById(session.theme?.id)?.name ?? 'Music'),
+                          ],
+                        ]),
                         style: text.labelLarge?.copyWith(color: scheme.primary),
                       ),
                     ),
-                    Text('Change', style: text.labelMedium?.copyWith(color: scheme.primary)),
+                    const SizedBox(width: 8),
+                    Icon(Icons.edit_outlined, size: 18, color: scheme.primary),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -410,7 +420,7 @@ class _Heading extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          decoration: active ? BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(8)) : null,
+          decoration: active ? BoxDecoration(color: readingHighlight(context).$1, borderRadius: BorderRadius.circular(8)) : null,
           child: Text(block.text, style: style),
         ),
       ),
@@ -470,12 +480,11 @@ class _ParagraphState extends State<_Paragraph> {
       final active = widget.current?.index == u.index;
       final r = TapGestureRecognizer()..onTap = () => widget.onTap(u.index);
       _recognizers.add(r);
+      final (bg, fg) = readingHighlight(context);
       spans.add(TextSpan(
         text: text.substring(u.start, u.end),
         recognizer: r,
-        style: active
-            ? TextStyle(backgroundColor: scheme.tertiaryContainer, color: scheme.onTertiaryContainer)
-            : null,
+        style: active ? TextStyle(backgroundColor: bg, color: fg) : null,
       ));
       at = u.end;
     }

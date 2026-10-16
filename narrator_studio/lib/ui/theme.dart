@@ -46,3 +46,8 @@ Color speakerColor(BuildContext context, int index) {
   final dark = Theme.of(context).brightness == Brightness.dark;
   return (dark ? night : light)[index % light.length];
 }
+
+/// The sentence being read: warm lamplight, readable in both themes.
+(Color, Color) readingHighlight(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+    ? (const Color(0xFF5C4614), const Color(0xFFFFF3D6))
+    : (const Color(0xFFFFE6A8), const Color(0xFF2A2000));

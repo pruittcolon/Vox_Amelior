@@ -253,7 +253,7 @@ void main() {
       expect(synth.calls.sublist(mark).map((c) => c.$2), contains('Sentence number 10.'));
       expect(synth.calls.sublist(mark).map((c) => c.$2), isNot(contains('Sentence number 2.')));
       native.media.add('stop');
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       expect(player.state, PlayState.idle);
       expect(doc.position, greaterThanOrEqualTo(10));
       player.dispose();
