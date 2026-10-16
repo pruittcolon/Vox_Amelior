@@ -410,7 +410,6 @@ class _Heading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final active = utterances.isNotEmpty && current?.index == utterances.first.index;
-    final scheme = Theme.of(context).colorScheme;
     final style = (block.level <= 1 ? Theme.of(context).textTheme.headlineSmall : Theme.of(context).textTheme.titleLarge)
         ?.copyWith(fontWeight: FontWeight.w700);
     return Padding(
