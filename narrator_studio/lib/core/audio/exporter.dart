@@ -27,6 +27,9 @@ class Exporter extends ChangeNotifier {
   String? error;
   String? title;
   Duration length = Duration.zero;
+
+  /// Sentences the voice could not say (rendered as a short silence).
+  final failed = <int>[];
   final _watch = Stopwatch();
   bool _cancel = false;
 
@@ -69,7 +72,17 @@ class Exporter extends ChangeNotifier {
     try {
       await _notify(s, 0);
       wav = await WavWriter.create(wavPath, outputRate);
-      final r = Renderer(plan: s.plan, synth: app.synth, voiceFor: s.voiceFor, theme: s.theme);
+      failed.clear();
+      final r = Renderer(
+        plan: s.plan,
+        synth: app.synth,
+        voiceFor: s.voiceFor,
+        theme: s.theme,
+        onError: (u, e) {
+          failed.add(u);
+          debugPrint('export: sentence $u failed: $e');
+        },
+      );
       final total = s.plan.utterances.length;
       var lastShown = -1;
       while (true) {

@@ -88,7 +88,9 @@ class SherpaSynth implements Synth {
       'op': 'speak',
       'engine': voice.engine.name,
       'sid': voice.sid,
-      'lang': voice.engine == Engine.kokoro && voice.id.startsWith('kokoro:b') ? 'en-gb' : '',
+      // British voices get British pronunciation from espeak-ng, whose British
+      // English voice is called "en" (gmw/en); "en-gb" is not a voice name.
+      'lang': voice.engine == Engine.kokoro && voice.id.startsWith('kokoro:b') ? 'en' : '',
       'ref': voice.refPath,
       'speed': speed,
       'text': text,
@@ -238,6 +240,13 @@ class _Worker {
           text: text,
           config: so.OfflineTtsGenerationConfig(sid: sid, speed: speed, extra: {if (lang.isNotEmpty) 'lang': lang}),
         );
+        if (audio.samples.isEmpty && lang.isNotEmpty) {
+          // Never lose a sentence over an accent: fall back to the dictionary.
+          audio = kokoro!.generateWithConfig(
+            text: text,
+            config: so.OfflineTtsGenerationConfig(sid: sid, speed: speed),
+          );
+        }
       case 'supertonic':
         final dir = m['supertonicDir']! as String;
         final key = '$dir|$threads';
@@ -308,6 +317,7 @@ class _Worker {
         throw StateError('Unknown engine $engine');
     }
     var samples = audio.samples;
+    if (samples.isEmpty) throw StateError('The voice produced no audio for: "$text"');
     if (audio.sampleRate != outputRate) samples = resample(samples, audio.sampleRate, outputRate);
     return samples;
   }

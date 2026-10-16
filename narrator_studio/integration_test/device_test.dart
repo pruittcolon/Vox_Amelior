@@ -88,6 +88,13 @@ void main() {
           '(${(secs / (watch.elapsedMilliseconds / 1000)).toStringAsFixed(2)}x real time)');
       expect(secs, greaterThan(2));
     }
+    // British voices use espeak-ng's British English.
+    for (final id in ['kokoro:bm_george', 'kokoro:bf_emma']) {
+      final v = kokoroVoices.firstWhere((x) => x.id == id);
+      final pcm = await app.synth.speak(v, 'The tomato schedule was rather good.');
+      log('$id: ${(pcm.length / outputRate).toStringAsFixed(2)}s');
+      expect(pcm.length / outputRate, greaterThan(1));
+    }
     final bria = Voice(
       id: 'test:bria',
       name: 'Bria',
@@ -142,6 +149,7 @@ void main() {
     final out = await exporter.export(session);
     log('export: ${exporter.state} in ${exportWatch.elapsed.inSeconds}s -> $out ${exporter.error ?? ''}');
     expect(exporter.state, ExportState.done, reason: exporter.error);
+    expect(exporter.failed, isEmpty, reason: 'every sentence was spoken');
     final size = File(out!).lengthSync();
     final (pcm, rate) = await native.decodeAudio(out, maxSeconds: 400);
     log('m4a: $size bytes, decoded ${(pcm.length / rate).toStringAsFixed(1)}s at $rate Hz; '

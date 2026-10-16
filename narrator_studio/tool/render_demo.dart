@@ -44,7 +44,8 @@ Future<void> main(List<String> args) async {
   final cast = <String?, VoiceSpec>{
     null: VoiceSpec(k('af_heart'), 0.97),
     'HOST': VoiceSpec(k('am_michael'), 1.02),
-    'CO-HOST': VoiceSpec(k('af_bella'), 1.02),
+    // A British voice, so CI also checks the British pronunciation path.
+    'CO-HOST': VoiceSpec(k('bf_emma'), 1.02),
     'GUEST': VoiceSpec(k('bm_george'), 0.92),
   };
   if (pocket.isNotEmpty && which == 'podcast') {
@@ -55,12 +56,16 @@ Future<void> main(List<String> args) async {
     );
   }
   final plan = buildPlan(script, style);
+  var failures = 0;
   final renderer = Renderer(
     plan: plan,
     synth: synth,
     voiceFor: (s) => cast[s] ?? cast[null]!,
     theme: themeById(script.music ?? style.music) ?? musicThemes.first,
-    onError: (u, e) => stderr.writeln('sentence $u failed: $e'),
+    onError: (u, e) {
+      stderr.writeln('sentence $u failed: $e');
+      failures++;
+    },
   );
   final wav = await WavWriter.create(out, outputRate);
   final watch = Stopwatch()..start();
@@ -79,5 +84,9 @@ Future<void> main(List<String> args) async {
   stdout.writeln('Rendered ${wav.seconds.toStringAsFixed(1)} s of audio in ${secs.toStringAsFixed(1)} s '
       '(${(wav.seconds / secs).toStringAsFixed(2)}x real time) -> $out');
   await synth.dispose();
+  if (failures > 0) {
+    stderr.writeln('$failures sentence(s) failed');
+    exit(1);
+  }
   exit(0);
 }

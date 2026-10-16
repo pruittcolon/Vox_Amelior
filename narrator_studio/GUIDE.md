@@ -122,3 +122,17 @@ screen (Write tab → ?) has a button that copies them.
 * Spell out how numbers and symbols are said ("nineteen oh five", "about three hundred thousand kilometres per second").
 * No tables, bullet lists, URLs, citations or footnotes.
 * Give each speaker a distinct personality; let them react to each other.
+
+## Credits when you publish
+
+All voices may be used in episodes you publish, including monetized ones.
+Put a line like this in the episode notes:
+
+> Voices generated on-device with Narrator Studio: Kokoro-82M (Apache-2.0),
+> Supertonic 3 (Supertone, OpenRAIL), Pocket TTS (Kyutai, CC BY 4.0).
+
+If you used a **Voice Gallery** voice marked CC-BY (VCTK speakers, Alba
+MacKenna), also credit it, e.g. "Voice: VCTK corpus speaker p234 (University
+of Edinburgh, CC BY 4.0)". CC0 voices (donated voices, LibriVox narrators via
+Voice-Zero) need no credit. Many platforms ask you to label realistic
+AI-generated voices; turn that label on when you upload.

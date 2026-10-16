@@ -150,6 +150,15 @@ class _ExportSheetState extends State<_ExportSheet> {
         ),
         const SizedBox(height: 8),
         Text('$name · ${formatDuration(e.length)}'),
+        if (e.failed.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '${e.failed.length} sentence(s) could not be spoken and were left silent '
+              '(first: #${e.failed.first + 1}). Try another voice for that speaker.',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         const SizedBox(height: 16),
         Wrap(
           spacing: 8,
