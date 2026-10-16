@@ -1,0 +1,118 @@
+name: Narrator Studio (app)
+on:
+  workflow_dispatch:
+  push:
+    branches: [narrator-studio]
+    paths:
+      - 'narrator_studio/**'
+      - '.github/workflows/narrator-studio.yml'
+      - '!narrator_studio/tool/models/**'
+  pull_request:
+    paths: ['narrator_studio/**', '.github/workflows/narrator-studio.yml']
+permissions:
+  contents: write
+concurrency:
+  group: narrator-studio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: narrator_studio
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      # Same Flutter as the Vox app (sherpa_onnx 1.13.8 and pdfrx 2.6 both work with it).
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.47.5', channel: stable, cache: true }
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - name: Tests (parser, planner, renderer, downloads, player, export, every screen)
+        run: flutter test -r expanded
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: narrator-screenshots
+          path: narrator_studio/test/screenshots/out/
+          if-no-files-found: ignore
+
+      # ---- The real voices, end to end ------------------------------------
+      - name: Voice models (cached)
+        uses: actions/cache@v4
+        with:
+          path: ~/narrator-models
+          key: narrator-models-${{ hashFiles('narrator_studio/lib/core/models/catalog_data.dart') }}
+      - name: Download the voice models
+        run: bash tool/fetch_models.sh ~/narrator-models
+      - name: Render the sample podcast with the real voices (app code, Linux)
+        run: |
+          mkdir -p "$RUNNER_TEMP/demo"
+          dart run tool/render_demo.dart --kokoro ~/narrator-models/kokoro --pocket ~/narrator-models/pocket \
+            --out "$RUNNER_TEMP/demo/sample-podcast.wav"
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Listen to it (Whisper must understand the script)
+        run: |
+          pip install --quiet sherpa-onnx==1.13.8 numpy soundfile
+          mkdir -p "$RUNNER_TEMP/asr" && cd "$RUNNER_TEMP/asr"
+          curl -sSL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2 | tar xj
+          cd "$GITHUB_WORKSPACE/narrator_studio"
+          python3 tool/listen.py --wav "$RUNNER_TEMP/demo/sample-podcast.wav" --text "$RUNNER_TEMP/demo/sample-podcast.wav.txt" \
+            --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en" --max-wer 0.2
+      - name: Encode the sample as M4A
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          ffmpeg -loglevel error -y -i "$RUNNER_TEMP/demo/sample-podcast.wav" -c:a aac -b:a 96k "$RUNNER_TEMP/demo/sample-podcast.m4a"
+          ls -l "$RUNNER_TEMP/demo"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: narrator-sample-podcast
+          path: ${{ runner.temp }}/demo/sample-podcast.m4a
+
+      # ---- APK ------------------------------------------------------------
+      - name: Release signing key
+        if: github.event_name != 'pull_request'
+        # The same key as the other Vox apps, so each new APK installs over the old one.
+        env:
+          VOX_KEYSTORE_B64: ${{ secrets.VOX_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$VOX_KEYSTORE_B64" ]; then
+            echo "::error::Secret VOX_KEYSTORE_B64 is missing."
+            exit 1
+          fi
+          echo "$VOX_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/vox-release.p12"
+          echo "VOX_KEYSTORE_PATH=$RUNNER_TEMP/vox-release.p12" >> "$GITHUB_ENV"
+      - name: Build APK
+        if: github.event_name != 'pull_request'
+        env:
+          VOX_KEYSTORE_PASSWORD: ${{ secrets.VOX_KEYSTORE_PASSWORD }}
+        run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
+      - name: Name the files
+        if: github.event_name != 'pull_request'
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk ../narrator-studio.apk
+          cp "$RUNNER_TEMP/demo/sample-podcast.m4a" ../sample-podcast.m4a
+          ls -l ../narrator-studio.apk
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: narrator-studio-apk
+          path: narrator-studio.apk
+      - name: Publish release (download from your phone)
+        if: github.event_name != 'pull_request'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete narrator-studio-latest --cleanup-tag --yes || true
+          gh release create narrator-studio-latest narrator-studio.apk sample-podcast.m4a \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Narrator Studio (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. On your phone: download narrator-studio.apk, open it, and allow installing from this source (64-bit Android 8+). Then open the Voices tab and download Kokoro. sample-podcast.m4a is the built-in sample rendered in CI with the real voices (the guest uses Pocket TTS voice cloning)."

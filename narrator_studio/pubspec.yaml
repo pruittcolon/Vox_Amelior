@@ -1,0 +1,30 @@
+name: narrator_studio
+description: "Reads .txt and .pdf files aloud in many free on-device voices and turns scripts into podcasts."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # On-device speech: Kokoro voices, Pocket TTS voice cloning, Supertonic.
+  sherpa_onnx: ^1.13.8
+  # PDF text (PDFium).
+  pdfrx: ^2.6.5
+  file_picker: ^13.1.0
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  crypto: ^3.0.7
+  # Unzips the espeak-ng pronunciation data that comes with the voices.
+  archive: ^4.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
