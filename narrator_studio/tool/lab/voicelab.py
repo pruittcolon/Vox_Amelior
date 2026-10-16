@@ -125,11 +125,52 @@ class Clarity:
         return spec, (re_[0] + 1j * im_[0])
 
     def enhance(self, x48, cutoff=11000.0, width=1000.0):
+        """First version: fixed crossover, complex crossfade (leaves a notch)."""
         spec, pred = self.predict(x48)
         f = np.arange(spec.shape[0]) * 48000.0 / N_FFT
         t = np.clip((f - (cutoff - width / 2)) / width, 0, 1)
         m = (t * t * (3 - 2 * t))[:, None]
         return istft(spec * (1 - m) + pred[:, : spec.shape[1]] * m, len(x48))
+
+    def enhance_v2(self, x48, width=800.0, floor_db=50.0):
+        """What the app runs: the crossover sits just below where the voice's own
+        spectrum ends; in the crossfade, magnitudes blend under the voice's own
+        phase (no cancellation notch); the added band is level-matched per frame
+        to the real voice just below the crossover."""
+        spec, pred = self.predict(x48)
+        pred = pred[:, : spec.shape[1]]
+        bins, frames = spec.shape
+        hz = 48000.0 / N_FFT
+        f = np.arange(bins) * hz
+        cutoff = voice_edge(spec, floor_db) - width / 2
+        lo = cutoff - width / 2
+        mag_s, mag_p = np.abs(spec), np.abs(pred)
+        band = (f >= lo - 2000) & (f < lo)
+        es = (mag_s[band] ** 2).sum(0)
+        ep = (mag_p[band] ** 2).sum(0)
+        g = np.sqrt(es / np.maximum(ep, 1e-12))
+        g = np.where(ep > 1e-12, np.clip(g, 0.5, 2.0), 1.0)
+        g = np.convolve(g, np.ones(5) / 5, mode="same")  # smooth over ~50 ms
+        t = np.clip((f - lo) / width, 0, 1)
+        m = (t * t * (3 - 2 * t))[:, None]
+        phase = np.where(mag_s > 1e-9, spec / np.maximum(mag_s, 1e-9), pred / np.maximum(mag_p, 1e-9))
+        blend = ((1 - m) * mag_s + m * g[None, :] * mag_p) * phase
+        out = np.where(m <= 0, spec, np.where(m >= 1, pred * g[None, :], blend))
+        print(f"clarity2: voice ends at {cutoff + width / 2:.0f} Hz, crossover {lo:.0f}-{lo + width:.0f} Hz, gain {g.mean():.2f}", flush=True)
+        return istft(out, len(x48)), cutoff
+
+
+def voice_edge(spec, floor_db=50.0):
+    """Highest frequency (Hz, below 12 kHz) where the voice's average spectrum is
+    within floor_db of its 1-4 kHz level: where its own top end stops."""
+    hz = 48000.0 / N_FFT
+    power = (np.abs(spec) ** 2).mean(1)
+    smooth = np.convolve(power, np.ones(5) / 5, mode="same")
+    f = np.arange(len(power)) * hz
+    ref = np.median(smooth[(f >= 1000) & (f <= 4000)])
+    ok = np.nonzero((smooth > ref * 10 ** (-floor_db / 10)) & (f <= 12000))[0]
+    edge = f[ok[-1]] if len(ok) else 8000.0
+    return float(np.clip(edge, 4000.0, 12000.0))
 
 
 def check_against_reference(clarity, ref_dir, x48):
@@ -374,14 +415,16 @@ class Lab:
         print(json.dumps(row), flush=True)
         if self.clarity is not None and sr == 24000:
             x48 = signal.resample_poly(x, 2, 1).astype(np.float32)
-            for cutoff in clarity_cutoffs:
+            variants = [(f"+clarity{int(c / 1000)}k", lambda c=c: self.clarity.enhance(x48, cutoff=c)) for c in clarity_cutoffs]
+            variants.append(("+clarity2", lambda: self.clarity.enhance_v2(x48)[0]))
+            for tag, run in variants:
                 t0 = time.time()
-                y = self.clarity.enhance(x48, cutoff=cutoff)
+                y = run()
                 took = time.time() - t0
                 peak = float(np.max(np.abs(y)))
                 if peak > 0.99:
                     y = y * (0.99 / peak)
-                lab = f"{label} +clarity{int(cutoff / 1000)}k"
+                lab = f"{label} {tag}"
                 r = {
                     "group": group,
                     "label": lab,
@@ -473,6 +516,8 @@ def main():
     ap.add_argument("--asr", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--quick", action="store_true", help="a few voices per engine")
+    ap.add_argument("--groups", default="kokoro,supertonic,pocket,kitten", help="which engines to run")
+    ap.add_argument("--focus", default="", help="'clarity': only the voices the app uses, Clarity v1 vs v2")
     a = ap.parse_args()
     m = a.models
     os.makedirs(a.out, exist_ok=True)
@@ -484,17 +529,24 @@ def main():
         clarity = Clarity(cdir)
     lab = Lab(a.out, judges, clarity)
 
+    groups = set(a.groups.split(","))
+    focus = a.focus == "clarity"
+    if focus:
+        groups = {"kokoro", "pocket"}
+
     # ---- Kokoro fp32 (24 kHz) -----------------------------------------------
     kdir = os.path.join(m, "kokoro")
     names = kokoro_names(kdir)
-    tts = kokoro(kdir)
-    english = [n for n in names if n[:2] in ("af", "am", "bf", "bm")]
+    tts = kokoro(kdir) if "kokoro" in groups else None
+    english = [n for n in names if n[:2] in ("af", "am", "bf", "bm")] if tts else []
     if a.quick:
         english = ["af_heart", "am_michael", "bm_george", "bf_emma"]
+    if focus:
+        english = ["af_heart", "af_sarah", "af_kore", "am_fenrir", "am_puck", "bf_isabella", "bm_fable", "bm_george"]
     for n in english:
         sid = names.index(n)
         extra = {"lang": "en"} if n.startswith("b") else None
-        cut = (8000.0, 10000.0, 11000.0) if n in ("af_heart", "bm_george") else (11000.0,)
+        cut = (11000.0,) if focus else (8000.0, 10000.0, 11000.0) if n in ("af_heart", "bm_george") else (11000.0,)
         got = lab.add("kokoro", f"kokoro {n}", lambda: tts.generate(TEXT, gen_config(sid=sid, speed=1.0, extra=extra)), cut)
         if n == "af_heart" and got is not None and clarity is not None and os.path.isdir(os.path.join(m, "lavasr-ref")):
             check_against_reference(clarity, os.path.join(m, "lavasr-ref"), signal.resample_poly(got[0], 2, 1).astype(np.float32))
@@ -505,7 +557,7 @@ def main():
     voices = ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"]
     pick = [0, 5] if a.quick else range(10)
     variants = [("int8", sdir, ".int8", (8,)), ("fp32", os.path.join(m, "supertonic-fp32"), "", (5, 8, 16, 32))]
-    for q, onnx_root, suffix, steps_list in variants:
+    for q, onnx_root, suffix, steps_list in variants if "supertonic" in groups else []:
         try:
             tts = supertonic(sdir, onnx_root, suffix)
         except Exception as e:
@@ -526,7 +578,10 @@ def main():
     refs = sorted(f for f in os.listdir(os.path.join(m, "refs")) if f.endswith(".wav"))
     if a.quick:
         refs = refs[:2]
-    for q, root in (("int8", os.path.join(m, "pocket")), ("fp32", os.path.join(m, "pocket-fp32"))):
+    pockets = (("int8", os.path.join(m, "pocket")), ("fp32", os.path.join(m, "pocket-fp32")))
+    if focus:
+        pockets = pockets[1:]
+    for q, root in pockets if "pocket" in groups else ():
         try:
             tts = pocket(root, q == "int8")
         except Exception as e:
@@ -536,7 +591,7 @@ def main():
             ref, rsr = sf.read(os.path.join(m, "refs", ref_name), dtype="float32")
             if ref.ndim > 1:
                 ref = ref[:, 0]
-            settings = [(5, 0.7)] if q == "int8" else [(5, 0.7), (10, 0.7), (10, 0.5)]
+            settings = [(5, 0.7)] if q == "int8" else [(10, 0.5)] if focus else [(5, 0.7), (10, 0.7), (10, 0.5)]
             for steps, temp in settings:
                 lab.add(
                     "pocket",
@@ -556,7 +611,7 @@ def main():
 
     # ---- Kitten mini (24 kHz) ------------------------------------------------
     kt = os.path.join(m, "kitten")
-    if os.path.isdir(kt):
+    if os.path.isdir(kt) and "kitten" in groups:
         try:
             tts = kitten(kt)
             for sid in range(min(tts.num_speakers, 2 if a.quick else 8)):
@@ -566,6 +621,26 @@ def main():
             lab.rows.append({"group": "kitten", "label": "kitten", "error": repr(e)})
 
     report(a.out, lab.rows)
+    if focus:
+        spectrograms(
+            a.out,
+            lab.rows,
+            ["kokoro af_heart", "kokoro af_heart +clarity11k", "kokoro af_heart +clarity2", "kokoro bm_george", "kokoro bm_george +clarity2"],
+            "spectrograms-1.png",
+        )
+        spectrograms(
+            a.out,
+            lab.rows,
+            [
+                "pocket fp32 alba-mackenna-a-moment-by steps10 t0.5",
+                "pocket fp32 alba-mackenna-a-moment-by steps10 t0.5 +clarity11k",
+                "pocket fp32 alba-mackenna-a-moment-by steps10 t0.5 +clarity2",
+                "pocket fp32 voice-zero-caro-davy steps10 t0.5",
+                "pocket fp32 voice-zero-caro-davy steps10 t0.5 +clarity2",
+            ],
+            "spectrograms-2.png",
+        )
+        return
     spectrograms(
         a.out,
         lab.rows,

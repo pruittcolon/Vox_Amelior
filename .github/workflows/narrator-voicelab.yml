@@ -9,6 +9,10 @@ on:
         description: A few voices per engine only
         type: boolean
         default: false
+      focus:
+        description: "'clarity' (the app's voices, Clarity versions) or 'all'"
+        type: string
+        default: all
   push:
     branches: [narrator-studio]
     paths: ['narrator_studio/tool/lab/**', '.github/workflows/narrator-voicelab.yml']
@@ -44,7 +48,7 @@ jobs:
         run: >
           python3 narrator_studio/tool/lab/voicelab.py --models ~/lab-models
           --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en" --out "$RUNNER_TEMP/lab"
-          ${{ inputs.quick && '--quick' || '' }}
+          --focus "${{ inputs.focus || 'clarity' }}" ${{ inputs.quick && '--quick' || '' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
