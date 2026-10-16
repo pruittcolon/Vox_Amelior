@@ -63,11 +63,11 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 /// Lets real file I/O started by the UI finish, then redraws. Each await on
-/// I/O resumes only after a pump, so alternate a few times.
-Future<void> _io(WidgetTester tester) async {
-  for (var i = 0; i < 6; i++) {
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
-    await tester.pump(const Duration(milliseconds: 50));
+/// I/O resumes only after a pump, so alternate until [until] shows up.
+Future<void> _io(WidgetTester tester, Finder until) async {
+  for (var i = 0; i < 150 && until.evaluate().isEmpty; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester.pump(const Duration(milliseconds: 20));
   }
   await _settle(tester);
 }
@@ -178,7 +178,7 @@ void main() {
 
       // Reader with the sample podcast, sentence 12 highlighted.
       await tester.pumpWidget(w.wrap(ReaderScreen(key: UniqueKey(), doc: doc), scale));
-      await _io(tester);
+      await _io(tester, find.textContaining('Podcast'));
       await _shot(tester, '05_reader$tag');
       expect(find.textContaining('Podcast'), findsWidgets);
 
@@ -222,7 +222,7 @@ void main() {
         await f.writeAsString(jsonEncode(_gallery));
       });
       await tester.pumpWidget(w.wrap(const GalleryScreen(), scale));
-      await _io(tester);
+      await _io(tester, find.text('Caro (LibriVox narrator)'));
       expect(find.text('Caro (LibriVox narrator)'), findsOneWidget);
       await _shot(tester, '12_gallery$tag');
 
@@ -231,7 +231,7 @@ void main() {
 
       if (scale == 1.0) {
         await tester.pumpWidget(w.wrap(ReaderScreen(key: UniqueKey(), doc: doc), scale, brightness: Brightness.dark));
-        await _io(tester);
+        await _io(tester, find.textContaining('Podcast'));
         await _shot(tester, '14_reader_dark');
       }
       await tester.pumpWidget(const SizedBox());
