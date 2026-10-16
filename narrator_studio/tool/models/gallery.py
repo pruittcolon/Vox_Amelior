@@ -76,9 +76,32 @@ def pick(files):
     return chosen
 
 
-def vctk_info():
-    """speaker id -> (gender, age, accent, region) from the HF dataset viewer, if reachable."""
+def vctk_local():
+    """speaker id -> (gender, age, accent, region) from the bundled speaker-info.txt."""
     out = {}
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vctk-speaker-info.txt")
+    for line in open(path, encoding="utf-8"):
+        if not line.startswith("p"):
+            continue
+        line = re.sub(r"\(.*?\)", "", line).strip()
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        spk, age, gender, accent = parts[:4]
+        accent = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", accent)  # NorthernIrish -> Northern Irish
+        if accent == "Unknown":
+            accent = ""
+        region = " ".join(parts[4:])
+        out[spk] = (gender, age, accent, region)
+    return out
+
+
+def vctk_info():
+    """speaker id -> (gender, age, accent, region): bundled file, else the HF dataset viewer."""
+    out = vctk_local()
+    if out:
+        print(f"vctk speaker info for {len(out)} speakers (bundled)")
+        return out
     for attempt in range(4):
         _vctk_try(out)
         if out:
