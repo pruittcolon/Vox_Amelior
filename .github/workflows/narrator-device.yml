@@ -1,0 +1,78 @@
+name: Narrator Studio on Android (emulator)
+# The app on an Android emulator with the real voices: downloads through the
+# app's downloader, speech on device, the streaming speaker, pause/resume,
+# background service, M4A export and decode. Screenshots, timings and the
+# device log are kept as the run's artifact. Started by hand
+# (gh workflow run narrator-device.yml) or when the device test changes.
+on:
+  workflow_dispatch:
+  push:
+    branches: [narrator-studio]
+    paths:
+      - 'narrator_studio/integration_test/**'
+      - 'narrator_studio/tool/run_device_test.sh'
+      - 'narrator_studio/android/**'
+      - '.github/workflows/narrator-device.yml'
+concurrency:
+  group: narrator-device-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  device:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: narrator_studio
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio
+      - name: Make room for the emulator and the models
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell || true
+      - name: Enable KVM (hardware-accelerated emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.47.5', channel: stable, cache: true }
+      - run: flutter pub get
+      - name: Voice files (cached), named as on the release
+        uses: actions/cache@v4
+        with:
+          path: ~/narrator-release
+          key: narrator-release-${{ hashFiles('narrator_studio/lib/core/models/catalog_data.dart') }}
+      - name: Download the voice files to serve to the emulator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ~/narrator-release && cd ~/narrator-release
+          if [ ! -s kokoro-fp32--model.onnx ]; then
+            gh release download narrator-models -R "$GITHUB_REPOSITORY" --clobber \
+              -p 'kokoro-fp32--*' -p 'kokoro--*' -p 'pocket--*' -p 'gallery.json' -p 'voice--voice-zero-caro-davy.wav'
+          fi
+          ls -l
+      - name: Test on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          NARRATOR_ABIS: x86_64
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 6144M
+          heap-size: 512M
+          disk-size: 12G
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none -no-snapshot-save
+          disable-animations: true
+          working-directory: narrator_studio
+          script: MODELS=$HOME/narrator-release bash tool/run_device_test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: narrator-device
+          path: narrator_studio/build/device
