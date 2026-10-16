@@ -41,8 +41,8 @@ PACKS = {
     },
     "supertonic": {
         "archive": "sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
-        "title": "Supertonic 3 (int8)",
-        "license": "see LICENSE in the pack",
+        "title": "Supertonic 3 (int8), 10 fast voices",
+        "license": "OpenRAIL (Supertone/supertonic-3), code MIT",
     },
 }
 
@@ -112,7 +112,7 @@ def zip_folder(src, dest):
                 z.write(p, os.path.relpath(p, os.path.dirname(src)))
 
 
-def stage(work, out):
+def stage(work, out, gallery=None):
     os.makedirs(out, exist_ok=True)
     manifest = {"version": 1, "release": RELEASE, "packs": {}}
     for name, pack in PACKS.items():
@@ -150,6 +150,17 @@ def stage(work, out):
             "bytes": sum(f["size"] for f in listed),
             "files": listed,
         }
+    if gallery:
+        with open(os.path.join(gallery, "gallery.json")) as f:
+            voices = json.load(f)["voices"]
+        for v in voices:
+            shutil.copyfile(os.path.join(gallery, v["asset"]), os.path.join(out, v["asset"]))
+        shutil.copyfile(os.path.join(gallery, "gallery.json"), os.path.join(out, "gallery.json"))
+        manifest["gallery"] = {
+            "asset": "gallery.json",
+            "voices": len(voices),
+            "sha256": sha256(os.path.join(out, "gallery.json")),
+        }
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=1)
     print(json.dumps(manifest, indent=1))
@@ -179,11 +190,12 @@ def main():
     ap.add_argument("cmd", choices=["fetch", "stage", "publish"])
     ap.add_argument("--work")
     ap.add_argument("--out")
+    ap.add_argument("--gallery")
     a = ap.parse_args()
     if a.cmd == "fetch":
         fetch(a.work)
     elif a.cmd == "stage":
-        stage(a.work, a.out)
+        stage(a.work, a.out, a.gallery)
     else:
         publish(a.out)
 

@@ -100,12 +100,55 @@ def run(tts, gen, label, out, listener, results, text=TEXT):
     print(json.dumps(row), flush=True)
 
 
+LONG = (
+    "Light from the sun looks white, but it is really a mixture of every colour. "
+    "When sunlight enters the atmosphere, it bumps into tiny molecules of nitrogen and oxygen. "
+    "Blue light has a shorter wavelength, so it is scattered far more than red light, "
+    "and that scattered blue light reaches our eyes from every direction of the sky."
+)
+
+
+def bench(work):
+    """Real-time factor for each engine and thread count (lower is faster)."""
+    rows = []
+    k = os.path.join(work, "kokoro-int8-multi-lang-v1_0")
+    variants = [("kokoro int8", k, "model.int8.onnx")]
+    k32 = os.path.join(work, "kokoro-multi-lang-v1_0")
+    if os.path.isdir(k32):
+        variants.append(("kokoro fp32", k32, "model.onnx"))
+    for label, root, model in variants:
+        for threads in (1, 2, 4):
+            tts = sherpa_onnx.OfflineTts(
+                sherpa_onnx.OfflineTtsConfig(
+                    model=sherpa_onnx.OfflineTtsModelConfig(
+                        kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(
+                            model=os.path.join(root, model),
+                            voices=os.path.join(root, "voices.bin"),
+                            tokens=os.path.join(root, "tokens.txt"),
+                            data_dir=os.path.join(root, "espeak-ng-data"),
+                            lexicon=os.path.join(root, "lexicon-us-en.txt"),
+                        ),
+                        num_threads=threads,
+                        debug=False,
+                    ),
+                    max_num_sentences=1,
+                )
+            )
+            t0 = time.time()
+            audio = tts.generate(LONG, sid=3, speed=1.0)
+            rtf = (time.time() - t0) / (len(audio.samples) / audio.sample_rate)
+            rows.append((label, threads, round(rtf, 3)))
+            print("bench", label, threads, round(rtf, 3), flush=True)
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", required=True)
     ap.add_argument("--asr", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--all-kokoro", action="store_true")
+    ap.add_argument("--bench", action="store_true")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     listener = Listener(a.asr)
@@ -218,6 +261,8 @@ def main():
         print("supertonic failed:", repr(e))
         results.append({"voice": "supertonic", "error": repr(e)})
 
+    bench_rows = bench(a.work) if a.bench else []
+
     with open(os.path.join(a.out, "results.json"), "w") as f:
         json.dump(results, f, indent=1)
     lines = ["| voice | sec | RTF | peak | WER | heard |", "|---|---|---|---|---|---|"]
@@ -228,6 +273,9 @@ def main():
             lines.append(
                 f"| {r['voice']} | {r['seconds']} | {r['rtf']} | {r['peak']} | {r['wer']} | {r['heard'][:90]} |"
             )
+    if bench_rows:
+        lines += ["", "| speed test | threads | RTF |", "|---|---|---|"]
+        lines += [f"| {r[0]} | {r[1]} | {r[2]} |" for r in bench_rows]
     table = "\n".join(lines)
     print(table)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
