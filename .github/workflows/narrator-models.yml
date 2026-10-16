@@ -41,11 +41,6 @@ jobs:
         run: pip install --quiet sherpa-onnx==1.13.8 numpy soundfile onnx
       - name: Download and unpack the voice packs
         run: python3 narrator_studio/tool/models/republish.py fetch --work "$WORK"
-      - name: Kokoro fp32 (speed comparison only, not published)
-        run: |
-          cd "$WORK"
-          curl -sSL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
-          tar xf kokoro-multi-lang-v1_0.tar.bz2 && rm kokoro-multi-lang-v1_0.tar.bz2
       - name: Whisper (to listen to the results)
         run: |
           mkdir -p "$WORK/asr" && cd "$WORK/asr"

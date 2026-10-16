@@ -34,6 +34,14 @@ PACKS = {
         "title": "Kokoro v1.0 (int8), 53 voices",
         "license": "Apache-2.0 (hexgrad/Kokoro-82M)",
     },
+    # Only model.onnx is taken from the fp32 archive: it is ~3x faster than
+    # the int8 model on CPUs (CI speed test), so it is the default download.
+    "kokoro-fp32": {
+        "archive": "kokoro-multi-lang-v1_0.tar.bz2",
+        "title": "Kokoro v1.0 fp32 model (fast)",
+        "license": "Apache-2.0 (hexgrad/Kokoro-82M)",
+        "only": ["model.onnx"],
+    },
     "pocket": {
         "archive": "sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2",
         "title": "Pocket TTS (int8), voice cloning",
@@ -120,6 +128,8 @@ def stage(work, out, gallery=None):
         files = []
         for entry in sorted(os.listdir(root)):
             p = os.path.join(root, entry)
+            if "only" in pack and entry not in pack["only"]:
+                continue
             if skipped(entry):
                 print(f"{name}: skip {entry}")
                 continue

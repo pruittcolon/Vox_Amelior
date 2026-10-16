@@ -79,6 +79,18 @@ def pick(files):
 def vctk_info():
     """speaker id -> (gender, age, accent, region) from the HF dataset viewer, if reachable."""
     out = {}
+    for attempt in range(4):
+        _vctk_try(out)
+        if out:
+            break
+        import time
+
+        time.sleep(15 * (attempt + 1))
+    print(f"vctk speaker info for {len(out)} speakers")
+    return out
+
+
+def _vctk_try(out):
     try:
         where = urllib.parse.quote("\"text_id\"='023'")
         for offset in range(0, 200, 100):
@@ -95,8 +107,6 @@ def vctk_info():
                 break
     except Exception as e:  # best effort: pitch tags still work
         print("vctk speaker info unavailable:", repr(e))
-    print(f"vctk speaker info for {len(out)} speakers")
-    return out
 
 
 def resample(x, sr_in, sr_out):
@@ -135,20 +145,27 @@ def median_pitch(x):
         w = w - w.mean()
         ac = np.correlate(w, w, mode="full")[frame - 1 :]
         lo, hi = SR // 400, SR // 60
-        lag = lo + int(np.argmax(ac[lo:hi]))
-        if ac[lag] > 0.3 * ac[0]:
-            f0s.append(SR / lag)
+        seg = ac[lo:hi]
+        best = float(np.max(seg))
+        if best <= 0.3 * ac[0]:
+            continue
+        # The first peak close to the best one is the period (the global
+        # maximum is often a multiple of it, which would halve the pitch).
+        for k in range(1, len(seg) - 1):
+            if seg[k] >= 0.9 * best and seg[k] >= seg[k - 1] and seg[k] >= seg[k + 1]:
+                f0s.append(SR / (lo + k))
+                break
     return float(np.median(f0s)) if f0s else 0.0
 
 
 def tone(f0):
     if f0 <= 0:
         return "unknown"
-    if f0 < 120:
+    if f0 < 110:
         return "deep"
-    if f0 < 165:
+    if f0 < 150:
         return "low"
-    if f0 < 210:
+    if f0 < 190:
         return "medium"
     return "high"
 
