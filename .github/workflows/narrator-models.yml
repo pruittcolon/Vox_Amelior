@@ -1,0 +1,68 @@
+name: Narrator Studio voice models
+# Republishes the free voice models unpacked (one file per asset) to the
+# `narrator-models` release, after checking that every voice really speaks.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload to the narrator-models release
+        type: boolean
+        default: true
+      all_kokoro:
+        description: Test all 53 Kokoro voices (slower)
+        type: boolean
+        default: true
+  push:
+    branches: [narrator-studio]
+    paths: ['.github/workflows/narrator-models.yml', 'narrator_studio/tool/models/**']
+permissions:
+  contents: write
+concurrency:
+  group: narrator-models
+  cancel-in-progress: false
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      WORK: ${{ github.workspace }}/../work
+      OUT: ${{ github.workspace }}/../stage
+      SAMPLES: ${{ github.workspace }}/../samples
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio/tool
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Python packages
+        run: pip install --quiet sherpa-onnx==1.13.8 numpy soundfile onnx
+      - name: Download and unpack the voice packs
+        run: python3 narrator_studio/tool/models/republish.py fetch --work "$WORK"
+      - name: Whisper (to listen to the results)
+        run: |
+          mkdir -p "$WORK/asr" && cd "$WORK/asr"
+          curl -sSL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2
+          tar xf sherpa-onnx-whisper-tiny.en.tar.bz2 && rm sherpa-onnx-whisper-tiny.en.tar.bz2
+          ls -l sherpa-onnx-whisper-tiny.en
+      - name: Smoke test every voice
+        run: >
+          python3 narrator_studio/tool/models/smoke.py --work "$WORK"
+          --asr "$WORK/asr/sherpa-onnx-whisper-tiny.en" --out "$SAMPLES"
+          ${{ (github.event_name == 'push' || inputs.all_kokoro) && '--all-kokoro' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: narrator-voice-samples
+          path: ${{ env.SAMPLES }}
+          if-no-files-found: ignore
+      - name: Stage files and manifest
+        run: python3 narrator_studio/tool/models/republish.py stage --work "$WORK" --out "$OUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: narrator-manifest
+          path: ${{ env.OUT }}/manifest.json
+      - name: Publish to the narrator-models release
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 narrator_studio/tool/models/republish.py publish --out "$OUT"
