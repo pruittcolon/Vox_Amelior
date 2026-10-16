@@ -52,6 +52,37 @@ PACKS = {
         "title": "Supertonic 3 (int8), 10 fast voices",
         "license": "OpenRAIL (Supertone/supertonic-3), code MIT",
     },
+    # Best quality: the int8 packs quantize the vocoder (static int8), which
+    # adds grain. These are the full-precision originals of the same models;
+    # the app uses them instead of the int8 files when present.
+    "supertonic-fp32": {
+        "urls": {
+            f"{n}.onnx": f"https://huggingface.co/Supertone/supertonic-3/resolve/main/onnx/{n}.onnx"
+            for n in ("duration_predictor", "text_encoder", "vector_estimator", "vocoder")
+        },
+        "title": "Supertonic 3 full precision (HD)",
+        "license": "OpenRAIL (Supertone/supertonic-3)",
+    },
+    "pocket-fp32": {
+        "archive": "sherpa-onnx-pocket-tts-2026-01-26.tar.bz2",
+        "title": "Pocket TTS full precision (HD)",
+        "license": "CC-BY-4.0 (kyutai/pocket-tts)",
+        "only": ["lm_flow.onnx", "lm_main.onnx", "decoder.onnx"],
+    },
+    # Clarity: LavaSR bandwidth extension (24 kHz voices -> 48 kHz), ONNX export.
+    "clarity": {
+        "urls": {
+            f: f"https://github.com/Topping1/LavaSR-ONNX/releases/download/Alpha-v0.1/{f}"
+            for f in (
+                "enhancer_backbone.onnx",
+                "enhancer_backbone.onnx.data",
+                "enhancer_spec_head.onnx",
+                "enhancer_spec_head.onnx.data",
+            )
+        },
+        "title": "Clarity: LavaSR speech bandwidth extension (ONNX)",
+        "license": "Apache-2.0 (ysharma3501/LavaSR; ONNX export Topping1/LavaSR-ONNX)",
+    },
 }
 
 
@@ -64,6 +95,8 @@ def sha256(path):
 
 
 def pack_dir(work, name):
+    if "urls" in PACKS[name]:
+        return os.path.join(work, name)
     archive = PACKS[name]["archive"]
     return os.path.join(work, archive[: -len(".tar.bz2")])
 
@@ -74,6 +107,13 @@ def fetch(work):
         target = pack_dir(work, name)
         if os.path.isdir(target):
             print(f"{name}: already unpacked")
+            continue
+        if "urls" in pack:
+            os.makedirs(target + ".part", exist_ok=True)
+            for fname, url in pack["urls"].items():
+                print(f"{name}: downloading {url}", flush=True)
+                urllib.request.urlretrieve(url, os.path.join(target + ".part", fname))
+            os.rename(target + ".part", target)
             continue
         url = BASE + pack["archive"]
         dest = os.path.join(work, pack["archive"])
@@ -156,7 +196,7 @@ def stage(work, out, gallery=None):
         manifest["packs"][name] = {
             "title": pack["title"],
             "license": pack["license"],
-            "source": BASE + pack["archive"],
+            "source": BASE + pack["archive"] if "archive" in pack else sorted(pack["urls"].values())[0],
             "bytes": sum(f["size"] for f in listed),
             "files": listed,
         }
