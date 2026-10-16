@@ -62,9 +62,13 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
-/// Lets real file I/O started by the UI finish, then redraws.
+/// Lets real file I/O started by the UI finish, then redraws. Each await on
+/// I/O resumes only after a pump, so alternate a few times.
 Future<void> _io(WidgetTester tester) async {
-  await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 150)));
+  for (var i = 0; i < 6; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+    await tester.pump(const Duration(milliseconds: 50));
+  }
   await _settle(tester);
 }
 

@@ -18,7 +18,6 @@ ThemeData buildTheme(Brightness brightness) {
       backgroundColor: scheme.surface,
       surfaceTintColor: Colors.transparent,
       centerTitle: false,
-      titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: scheme.onSurface),
     ),
     cardTheme: CardThemeData(
       elevation: 0,

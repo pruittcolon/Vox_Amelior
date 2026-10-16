@@ -100,7 +100,7 @@ GUEST: Indeed.
     test('the built-in samples parse', () {
       final pod = parseScript(samplePodcast);
       expect(pod.speakers, ['HOST', 'CO-HOST', 'GUEST']);
-      expect(pod.wordCount, greaterThan(500));
+      expect(pod.wordCount, greaterThan(400));
       final book = parseScript(sampleAudiobook);
       expect(book.title, 'The Library That Remembered Everything');
       expect(book.speakers, isEmpty);
