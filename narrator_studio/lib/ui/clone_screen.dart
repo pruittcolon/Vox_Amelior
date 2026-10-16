@@ -95,8 +95,8 @@ class _CloneScreenState extends State<CloneScreen> {
 
   Future<void> _pickFile() async {
     final native = _native;
-    final r = await FilePicker.pickFiles(type: FileType.audio);
-    final path = r?.files.single.path;
+    final picked = await FilePicker.pickFiles(type: FileType.audio);
+    final path = picked.isEmpty ? null : picked.first.path;
     if (path == null) return;
     try {
       final (pcm, rate) = await native.decodeAudio(path, maxSeconds: 30);

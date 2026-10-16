@@ -119,8 +119,8 @@ Future<void> showAddSheet(BuildContext context, {required VoidCallback onOpenWri
 Future<void> openFile(BuildContext context) async {
   final app = context.app;
   final nav = Navigator.of(context);
-  final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: supportedExtensions);
-  final file = result?.files.single;
+  final picked = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: supportedExtensions);
+  final file = picked.isEmpty ? null : picked.first;
   if (file == null || file.path == null) return;
   if (!context.mounted) return;
   final messenger = ScaffoldMessenger.of(context);
