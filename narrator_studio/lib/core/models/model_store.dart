@@ -142,8 +142,11 @@ class ModelStore extends ChangeNotifier {
     return file.path;
   }
 
+  List<GalleryVoice>? _gallery;
+
   /// The gallery list (downloaded once, then refreshed when possible).
   Future<List<GalleryVoice>> gallery({bool refresh = false}) async {
+    if (!refresh && _gallery != null) return _gallery!;
     final file = File(path('gallery', 'gallery.json'));
     if (refresh || !file.existsSync()) {
       try {
@@ -153,7 +156,7 @@ class ModelStore extends ChangeNotifier {
         if (!file.existsSync()) rethrow;
       }
     }
-    return parseGallery(await file.readAsString());
+    return _gallery = parseGallery(await file.readAsString());
   }
 
   Future<void> downloadFile(

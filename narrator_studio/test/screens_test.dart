@@ -176,14 +176,16 @@ void main() {
       await tester.tap(find.text('Write').last);
       await _shot(tester, '04_write$tag');
 
-      // Reader with the sample podcast, sentence 12 highlighted.
+      // Reader with the sample podcast, sentence 12 highlighted. The session is
+      // loaded up front (file I/O does not run inside the fake test clock).
+      final session = (await tester.runAsync(() => app.openSession(doc)))!;
+      w.player.session = session;
       await tester.pumpWidget(w.wrap(ReaderScreen(key: UniqueKey(), doc: doc), scale));
       await _io(tester, find.textContaining('Podcast'));
       await _shot(tester, '05_reader$tag');
       expect(find.textContaining('Podcast'), findsWidgets);
 
       // Voices & style sheet.
-      final session = (await tester.runAsync(() => app.openSession(doc)))!;
       await tester.pumpWidget(w.wrap(Builder(builder: (context) {
         return Scaffold(
           body: Center(
@@ -220,6 +222,7 @@ void main() {
         final f = File(app.models.path('gallery', 'gallery.json'));
         await f.parent.create(recursive: true);
         await f.writeAsString(jsonEncode(_gallery));
+        await app.models.gallery(); // cached for the screen
       });
       await tester.pumpWidget(w.wrap(const GalleryScreen(), scale));
       await _io(tester, find.text('Caro (LibriVox narrator)'));
