@@ -255,6 +255,14 @@ def main():
         return x[..., left : (-right if right > 0 else None)]
 
     vt.unpad1d = unpad1d
+    # Its stride-1 convolutions pad by (ideal length - length), always 0, but
+    # traced it becomes (example length - length) and crops longer input.
+    extra_padding = vt.get_extra_padding_for_conv1d
+
+    def no_extra_for_stride_1(x, kernel_size, stride, padding_total=0):
+        return 0 if stride == 1 else extra_padding(x, kernel_size, stride, padding_total)
+
+    vt.get_extra_padding_for_conv1d = no_extra_for_stride_1
     decoder = Decoder(inner.acoustic_tokenizer).eval()
     export(
         decoder,
