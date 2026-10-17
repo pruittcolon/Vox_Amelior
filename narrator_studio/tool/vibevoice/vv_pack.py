@@ -140,7 +140,7 @@ class Pack:
     def eos(self, h):
         s = self.small
         x = np.maximum(s["eos_fc1_w"] @ h + s["eos_fc1_b"], 0)
-        return float(s["eos_fc2_w"] @ x + s["eos_fc2_b"]) > 0  # sigmoid > 0.5
+        return float((s["eos_fc2_w"] @ x + s["eos_fc2_b"])[0]) > 0  # sigmoid > 0.5
 
     def sample(self, cond, neg, noise):
         sch = self.cfg["scheduler"]
