@@ -97,6 +97,9 @@ class Out:
         speech = sum(len(trim(mono(x), sr)) for x in pieces) / sr
         name = slug(label)
         sf.write(os.path.join(self.out, name + ".wav"), audio, sr, subtype="PCM_16")
+        # Each line alone too, for the speech recogniser that checks the words.
+        for i, x in enumerate(pieces):
+            sf.write(os.path.join(self.out, f"{name}.line{i}.wav"), level(trim(mono(x), sr)), sr, subtype="PCM_16")
         row = {
             "label": label,
             "engine": engine,
@@ -365,7 +368,7 @@ def main():
     ap.add_argument("--engine", required=True)
     ap.add_argument("--models", default="")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--dtypes", default="fp32,q8,q4")
+    ap.add_argument("--dtypes", default="fp32,q4")  # q8 ran 8x slower than q4 on CPU and rambled
     ap.add_argument("--backbones", default="neuphonic/neutts-air,neuphonic/neutts-nano")
     ap.add_argument("--neutts-samples", default="")
     ap.add_argument("--vibevoice-voices", default="")

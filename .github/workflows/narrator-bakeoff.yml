@@ -4,6 +4,11 @@ name: Narrator Studio voice bake-off
 # needs. People choose by ear; the automatic judges once got it wrong.
 on:
   workflow_dispatch:
+    inputs:
+      engines:
+        description: 'JSON list of engines to run; the others keep their last results'
+        type: string
+        default: '["sherpa","chatterbox","soprano","neutts"]'
   push:
     branches: [narrator-studio]
     paths: ['narrator_studio/tool/lab/bakeoff*.py', '.github/workflows/narrator-bakeoff.yml']
@@ -17,7 +22,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [sherpa, chatterbox, soprano, neutts, vibevoice]
+        # (vibevoice also works, but needs ~1.5 s of CPU per 0.13 s of speech: no use on a phone)
+        engine: ${{ fromJSON(inputs.engines || '["sherpa","chatterbox","soprano","neutts"]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 100
     steps:
@@ -81,14 +87,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: narrator_studio/tool
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
       - uses: actions/download-artifact@v4
         with:
           pattern: bakeoff-*
           path: ${{ runner.temp }}/all
       - name: M4A files and the results table
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get install -y -qq ffmpeg > /dev/null
-          python3 narrator_studio/tool/lab/bakeoff_report.py --in "$RUNNER_TEMP/all" --out "$RUNNER_TEMP/release"
+          pip install --quiet sherpa-onnx==1.13.8 numpy soundfile
+          mkdir -p "$RUNNER_TEMP/asr" && (cd "$RUNNER_TEMP/asr" && curl -sSL \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2 | tar xj)
+          gh release download narrator-voice-bakeoff -D "$RUNNER_TEMP/previous" -R "$GITHUB_REPOSITORY" || true
+          python3 narrator_studio/tool/lab/bakeoff_report.py --in "$RUNNER_TEMP/all" --out "$RUNNER_TEMP/release" \
+            --previous "$RUNNER_TEMP/previous" --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en"
       - name: Publish (listen from your phone)
         env:
           GH_TOKEN: ${{ github.token }}
