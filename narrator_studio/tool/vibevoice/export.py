@@ -392,6 +392,19 @@ def main():
 
     # ---- 6. the whole loop vs Microsoft's generate(), same noise ------------
     pack = vv_pack.Pack(a.out)
+    if a.check_dir:
+        os.makedirs(a.check_dir, exist_ok=True)
+        cases = [
+            TEST,
+            "Hello! I can read your books, notes and podcast scripts. Shall we begin?",
+            "It's 1905, and Einstein's paper says E equals m c squared; isn't that wild?",
+            "  Two  spaces,\ttabs\nand newlines\n\nhere.  ",
+            "Wait, really?! Five times... (well, roughly) — 50% more: $3.50 & 12,000 km/s.",
+            "Café, naïve, résumé, Zürich, São Paulo, 東京, Привет, 🎙️ emoji.",
+            "don't won't they're I'm we'll you'd It'S DON'T",
+            "Numbers: 0 1 22 333 4444 55555 3.14159 1e10 2026-10-17",
+        ]
+        json.dump([{"text": t, "ids": pack.tokens(t)} for t in cases], open(os.path.join(a.check_dir, "tokenizer_cases.json"), "w"), ensure_ascii=False, indent=1)
     for name in ("carter", "emma"):
         noise = []
         real_randn = torch.randn
