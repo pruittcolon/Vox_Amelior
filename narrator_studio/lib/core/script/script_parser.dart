@@ -6,9 +6,13 @@
 ///     title: Why Is the Sky Blue?
 ///     style: podcast
 ///     music: curious
+///     summary: Why sunlight paints the sky blue and sunsets orange.
+///     topics: physics, light
 ///     voices:
 ///       HOST: Radio Host
 ///       GUEST: The Professor
+///     index:
+///       - Light is a wave | White light holds every colour.
 ///     ---
 ///     [music: intro]
 ///     HOST: Welcome back to Curious Minds!
@@ -18,6 +22,8 @@
 ///
 /// Anything else (a book, an article, notes) just reads as narration.
 library;
+
+import 'dart:math' as math;
 
 import 'script.dart';
 import 'text_cleaner.dart';
@@ -157,14 +163,111 @@ Script parseScript(String raw, {String fallbackTitle = 'Untitled'}) {
   }
   flush();
 
+  final finalTitle = (title == null || title.isEmpty) ? fallbackTitle : title;
+  final tidy = _tidy(blocks);
   return Script(
-    title: (title == null || title.isEmpty) ? fallbackTitle : title,
-    blocks: _tidy(blocks),
+    title: finalTitle,
+    blocks: tidy,
     style: front.style,
     music: front.music,
     voices: {for (final e in front.voices.entries) e.key.toUpperCase(): e.value},
     description: front.description,
+    topics: front.topics,
+    chapters: _chapters(tidy, front.index),
   );
+}
+
+/// The episode's chapters: its top-level headings, plus the opening before
+/// the first one, named and summarised by the script's `index:`.
+///
+/// Index entries are matched to headings by title; if the titles don't line
+/// up, by position (with or without an entry for the opening).
+List<Chapter> _chapters(List<Block> blocks, List<(String, String?)> index) {
+  var heads = [
+    for (var i = 0; i < blocks.length; i++)
+      if (blocks[i].kind == BlockKind.heading) i,
+  ];
+  // A leading "# Title" that names the document is not a chapter.
+  if (heads.length > 1 && heads.first == 0 && blocks[0].level == 1 && blocks.skip(1).any((b) => b.kind == BlockKind.heading && b.level > 1)) {
+    heads = heads.sublist(1);
+  }
+  if (heads.isEmpty) return const [];
+  final level = heads.map((i) => blocks[i].level).reduce(math.min);
+  heads = heads.where((i) => blocks[i].level == level).toList();
+  final opening = blocks.take(heads.first).any((b) => b.kind == BlockKind.line);
+
+  // match[h] = index entry for heading h.
+  final match = List<int?>.filled(heads.length, null);
+  var from = 0;
+  for (var h = 0; h < heads.length; h++) {
+    for (var j = from; j < index.length; j++) {
+      if (_sameTitle(blocks[heads[h]].text, index[j].$1)) {
+        match[h] = j;
+        from = j + 1;
+        break;
+      }
+    }
+  }
+  int? openingEntry;
+  if (index.isNotEmpty && match.contains(null)) {
+    if (index.length == heads.length + (opening ? 1 : 0)) {
+      final skip = opening ? 1 : 0;
+      for (var h = 0; h < heads.length; h++) {
+        match[h] = h + skip;
+      }
+      if (opening) openingEntry = 0;
+    } else if (index.length == heads.length) {
+      for (var h = 0; h < heads.length; h++) {
+        match[h] = h;
+      }
+    }
+  } else if (opening && index.isNotEmpty) {
+    final first = match.whereType<int>().firstOrNull ?? index.length;
+    if (first > 0) openingEntry = 0;
+  }
+
+  return [
+    if (opening)
+      Chapter(
+        title: openingEntry == null ? 'Intro' : index[openingEntry].$1,
+        block: 0,
+        summary: openingEntry == null ? null : index[openingEntry].$2,
+      ),
+    for (var h = 0; h < heads.length; h++)
+      Chapter(
+        title: chapterTitle(blocks[heads[h]].text),
+        // Nothing to hear before the first heading but the title: start there.
+        block: h == 0 && !opening ? 0 : heads[h],
+        heading: heads[h],
+        summary: match[h] == null ? null : index[match[h]!].$2,
+      ),
+  ];
+}
+
+const _numberWords = 'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|'
+    'sixteen|seventeen|eighteen|nineteen|twenty';
+
+/// "Part 1: Sunlight is a mixture" -> "Sunlight is a mixture" (a chapter list
+/// numbers its entries already). "Chapter 3" alone stays as it is.
+String chapterTitle(String heading) {
+  final t = heading.trim();
+  final m = RegExp(
+    r'^(?:(?:part|chapter|section|episode|act|scene|segment|headline|item|lesson)\s+(?:\d{1,3}|[ivxlc]{1,6}|' +
+        _numberWords +
+        r')\b\s*[:.\-–—]\s*|\d{1,3}[.):]\s+|headline\s*:\s*)(.+)$',
+    caseSensitive: false,
+  ).firstMatch(t);
+  return m == null ? t : m[1]!.trim();
+}
+
+String _titleKey(String t) => chapterTitle(t).toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
+
+bool _sameTitle(String a, String b) {
+  final x = _titleKey(a), y = _titleKey(b);
+  if (x.isEmpty || y.isEmpty) return false;
+  if (x == y) return true;
+  final (short, long) = x.length < y.length ? (x, y) : (y, x);
+  return short.length >= 6 && long.contains(short);
 }
 
 final _speakerLine = RegExp(
@@ -292,6 +395,10 @@ class _FrontMatter {
   String? music;
   String? description;
   final Map<String, String> voices = {};
+  final List<String> topics = [];
+
+  /// `index:` entries: (title, summary).
+  final List<(String, String?)> index = [];
 
   static _FrontMatter parse(String text) {
     final trimmed = text.trimLeft();
@@ -303,6 +410,16 @@ class _FrontMatter {
       final noComment = raw.replaceFirst(RegExp(r'\s+#.*$'), '');
       if (noComment.trim().isEmpty) continue;
       final indented = RegExp(r'^\s+').hasMatch(noComment);
+      // Lists may also sit flush under their key ("index:" then "- Intro | ...").
+      final listItem = RegExp(r'^\s*(?:[-*•]|\d{1,3}[.)])\s+').hasMatch(raw);
+      if ((section == 'index' || section == 'topics') && (indented || listItem)) {
+        if (section == 'index') {
+          fm._indexEntry(raw.trim());
+        } else {
+          fm._addTopics(noComment);
+        }
+        continue;
+      }
       final kv = RegExp(r'^\s*-?\s*([^:]+?)\s*:\s*(.*)$').firstMatch(noComment);
       if (kv == null) continue;
       final key = kv[1]!.trim();
@@ -319,8 +436,13 @@ class _FrontMatter {
           fm.style = value.toLowerCase();
         case 'music':
           fm.music = value.toLowerCase();
-        case 'description' || 'summary':
+        case 'description' || 'summary' || 'about':
           fm.description = value;
+        case 'topics' || 'topic' || 'tags' || 'subjects':
+          section = 'topics';
+          fm._addTopics(value);
+        case 'index' || 'chapters' || 'contents' || 'outline':
+          section = 'index';
         case 'voices' || 'cast' || 'speakers':
           section = 'voices';
           // Also allow "voices: HOST=Radio Host, GUEST=The Professor".
@@ -332,6 +454,55 @@ class _FrontMatter {
     }
     return fm;
   }
+
+  /// "Sunlight is a mixture | White light holds every colour." (also the
+  /// YAML form: "- title: ..." followed by "summary: ...").
+  void _indexEntry(String line) {
+    var t = line.replaceFirst(RegExp(r'^(?:[-*•]|\d{1,3}[.)])\s+'), '').trim();
+    t = t.replaceFirst(RegExp(r'^\[?\(?\d{1,2}:\d{2}(?::\d{2})?\)?\]?\s+'), ''); // a timestamp Claude guessed
+    final yaml = RegExp(r'^(title|name|summary|about|description)\s*:\s*(.*)$', caseSensitive: false).firstMatch(t);
+    if (yaml != null) {
+      final value = _clean(yaml[2]!);
+      if (value.isEmpty) return;
+      if (const {'title', 'name'}.contains(yaml[1]!.toLowerCase())) {
+        index.add((value, null));
+      } else if (index.isNotEmpty) {
+        index[index.length - 1] = (index.last.$1, value);
+      }
+      return;
+    }
+    var cut = t.indexOf('|');
+    var width = 1;
+    if (cut < 0) {
+      final dash = RegExp(r'\s+(?:—|–|--|-)\s+').firstMatch(t);
+      final colons = RegExp(r':\s+').allMatches(t).toList();
+      if (dash != null) {
+        cut = dash.start;
+        width = dash.end - dash.start;
+      } else if (colons.length == 1 && colons.first.start <= 60) {
+        cut = colons.first.start;
+        width = colons.first.end - colons.first.start;
+      }
+    }
+    final name = _clean(cut < 0 ? t : t.substring(0, cut));
+    final summary = cut < 0 ? '' : _clean(t.substring(cut + width));
+    if (name.isEmpty) return;
+    index.add((name, summary.isEmpty ? null : summary));
+  }
+
+  void _addTopics(String value) {
+    var v = value.trim();
+    if (v.startsWith('[') && v.endsWith(']')) v = v.substring(1, v.length - 1);
+    v = v.replaceFirst(RegExp(r'^(?:[-*•]|\d{1,3}[.)])\s+'), '');
+    for (final part in v.split(RegExp(r'[,;]'))) {
+      final topic = _clean(part).replaceAll(RegExp(r'^#'), '');
+      if (topic.isEmpty || topic.length > 32) continue;
+      if (topics.any((t) => t.toLowerCase() == topic.toLowerCase())) continue;
+      if (topics.length < 8) topics.add(topic);
+    }
+  }
+
+  static String _clean(String v) => displayText(_unquote(v.trim()));
 
   static String _unquote(String v) {
     if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {

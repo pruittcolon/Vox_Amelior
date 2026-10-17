@@ -8,17 +8,45 @@ import '../core/models/model_store.dart';
 import '../core/render/styles.dart';
 import '../core/samples.dart';
 import 'art.dart';
+import 'chapters.dart';
 import 'edit_text_screen.dart';
 import 'reader_screen.dart';
 import 'scope.dart';
 import 'settings_screen.dart';
 import 'theme.dart';
 
-class LibraryScreen extends StatelessWidget {
+class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key, required this.onOpenVoices, required this.onOpenWrite});
 
   final VoidCallback onOpenVoices;
   final VoidCallback onOpenWrite;
+
+  @override
+  State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+/// Topics across the library, most used first ("physics", "Physics" count
+/// as one).
+List<(String, int)> libraryTopics(List<Doc> docs) {
+  final count = <String, int>{};
+  final label = <String, String>{};
+  for (final d in docs) {
+    for (final t in d.topics) {
+      final k = t.toLowerCase();
+      count[k] = (count[k] ?? 0) + 1;
+      label.putIfAbsent(k, () => topicLabel(t));
+    }
+  }
+  final keys = count.keys.toList()..sort((a, b) => count[b] != count[a] ? count[b]!.compareTo(count[a]!) : a.compareTo(b));
+  return [for (final k in keys) (label[k]!, count[k]!)];
+}
+
+class _LibraryScreenState extends State<LibraryScreen> {
+  /// The topic you're browsing (lower case), or null for everything.
+  String? _topic;
+
+  VoidCallback get onOpenVoices => widget.onOpenVoices;
+  VoidCallback get onOpenWrite => widget.onOpenWrite;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +64,9 @@ class LibraryScreen extends StatelessWidget {
           builder: (context, _) {
             final docs = app.library.docs;
             final resume = docs.where((d) => d.progress > 0 && d.progress < 1).firstOrNull;
+            final topics = libraryTopics(docs);
+            final topic = topics.any((t) => t.$1.toLowerCase() == _topic) ? _topic : null;
+            final shown = topic == null ? docs : docs.where((d) => d.topics.any((t) => t.toLowerCase() == topic)).toList();
             return ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 104),
               children: [
@@ -54,7 +85,31 @@ class LibraryScreen extends StatelessWidget {
                   _EmptyLibrary(onOpenWrite: onOpenWrite)
                 else ...[
                   SectionLabel('Your library · ${docs.length}'),
-                  for (final d in docs) ...[_DocCard(doc: d), const SizedBox(height: 10)],
+                  if (topics.isNotEmpty) ...[
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ChoiceChip(
+                            label: const Text('All'),
+                            selected: topic == null,
+                            onSelected: (_) => setState(() => _topic = null),
+                          ),
+                          for (final (name, n) in topics) ...[
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              avatar: topic == name.toLowerCase() ? null : const Icon(Icons.tag_rounded, size: 16),
+                              label: Text('$name · $n'),
+                              selected: topic == name.toLowerCase(),
+                              onSelected: (on) => setState(() => _topic = on ? name.toLowerCase() : null),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  for (final d in shown) ...[_DocCard(doc: d), const SizedBox(height: 10)],
                 ],
               ],
             );
@@ -252,8 +307,8 @@ Future<void> addSample(BuildContext context, {required bool podcast}) async {
   await nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(doc: doc)));
 }
 
-/// The best-quality set, in the order they become useful.
-const starterPacks = ['supertonic', 'kokoro'];
+/// The natural voices: the most human-sounding set (Studio voices are optional).
+const starterPacks = ['kokoro'];
 
 Future<void> installStarterPacks(BuildContext context) async {
   final models = context.app.models;
@@ -293,7 +348,7 @@ class _GetVoicesCard extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  active != null ? 'Downloading the studio voices' : 'First, download the voices',
+                  active != null ? 'Downloading the natural voices' : 'First, download the voices',
                   style: theme.textTheme.titleLarge?.copyWith(color: onCard),
                 ),
               ),
@@ -302,8 +357,8 @@ class _GetVoicesCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             'Narrator Studio speaks entirely on your phone: no account, no internet once downloaded. '
-            'The studio set has the 10 crispest voices (Supertonic HD, full 44 kHz) and 54 more with accents '
-            '(Kokoro): ${formatBytes(total)}. Use Wi-Fi if you can.',
+            'The natural voices (Kokoro) are the most human-sounding free voices that run on a phone: 54 of them, '
+            'with British, French, Italian and more accents. ${formatBytes(total)}. Use Wi-Fi if you can.',
             style: theme.textTheme.bodyMedium?.copyWith(color: onCard.withValues(alpha: 0.88)),
           ),
           const SizedBox(height: 16),
@@ -434,6 +489,7 @@ class _DocCard extends StatelessWidget {
     final details = [
       style ?? _kind,
       if (minutes != null) '~$minutes min',
+      if (doc.chapters > 1) '${doc.chapters} chapters',
       if (doc.progress > 0) '${(doc.progress * 100).round()}% listened',
     ].join(' · ');
     return Card(
@@ -453,6 +509,15 @@ class _DocCard extends StatelessWidget {
                     Text(doc.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleMedium),
                     const SizedBox(height: 3),
                     Text(details, style: theme.textTheme.bodySmall),
+                    if (doc.summary != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        doc.summary!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.35),
+                      ),
+                    ],
                     if (doc.progress > 0) ...[
                       const SizedBox(height: 8),
                       LinearProgressIndicator(value: doc.progress, borderRadius: BorderRadius.circular(4), minHeight: 3),

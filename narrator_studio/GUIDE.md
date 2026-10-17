@@ -33,16 +33,21 @@ speaker tags. If Claude offers a file, a `.txt` or `.md` file is perfect too
 title: Why Is the Sky Blue?
 style: podcast
 music: curious
+summary: Why sunlight turns the sky blue, and sunsets orange.
+topics: physics, light
 voices:
   HOST: Radio Host
   CO-HOST: Co-Host
   GUEST: The Professor
+index:
+  - Welcome | Today's question, and a guest who has studied light for a lifetime.
+  - Sunlight is a mixture | White light is every colour mixed; the sky only sorts it.
 ---
 
 HOST: Welcome back to Curious Minds!
 CO-HOST: Today's question sounds simple.
 
-## Part 1: Sunlight is a mixture
+## Sunlight is a mixture
 HOST: So where does the blue come from?
 [pause 1]
 GUEST: It's already in the sunlight...
@@ -55,8 +60,11 @@ HOST: That's all for today.
 | Mark | Meaning |
 |---|---|
 | `--- … ---` header | Optional. `title`, `style`, `music`, and `voices` (speaker tag → character or voice name). |
+| `summary:` | One or two sentences about the episode, shown under the title and in the library. |
+| `topics:` | Subjects, comma separated; the library sorts episodes by topic. |
+| `index:` | The chapters, one line each: `- Title \| summary`, the opening first, then one per `## ` heading with the same title. The reader shows them as tappable chapters (like YouTube's), the seek bar is split at them, headphones skip by chapter, and an exported M4A carries them (QuickTime and Nero chapters) plus a "Copy chapters" list with exact timestamps for a YouTube or Spotify description. |
 | `HOST: text` | Spoken by HOST. Tags are CAPITALS (or `**Bold:**`). A paragraph without a tag is the narrator (or continues the previous speaker in a dialogue). |
-| `## Part 2` | Section. Announced in audiobook, lecture, story and briefing styles; in podcast/interview it plays a transition sound instead. |
+| `## Title` | A chapter. Announced in audiobook, lecture, story and briefing styles; in podcast/interview it plays a transition sound instead. |
 | `[pause 2]` | Silence in seconds (`[pause 500ms]` works too). |
 | `[sound: chime]` | `chime`, `ding`, `whoosh` or `pop`. |
 | `[music: intro]` / `[music: outro]` / `[music: stop]` | Control the music bed. With music on, an intro and outro are added automatically. |

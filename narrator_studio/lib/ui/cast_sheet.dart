@@ -6,6 +6,7 @@ import '../core/render/styles.dart';
 import 'scope.dart';
 import 'theme.dart';
 import 'voice_picker.dart';
+import 'voice_set.dart';
 
 /// Style, music and who reads what. Returns true when something changed.
 Future<bool?> showCastSheet(BuildContext context, Session session) {
@@ -142,6 +143,11 @@ class _CastSheetState extends State<_CastSheet> {
                 ),
               const Divider(height: 28),
               Text('Voices', style: text.titleMedium),
+              const SizedBox(height: 8),
+              VoiceSetSwitch(
+                reloadPlayer: false,
+                onChanged: () => setState(() => _changed = true),
+              ),
               const SizedBox(height: 4),
               _CastRow(label: 'Narrator', colorIndex: -1, ref: _refs[null]!, onTap: () => _pick(null)),
               for (var i = 0; i < speakers.length; i++)

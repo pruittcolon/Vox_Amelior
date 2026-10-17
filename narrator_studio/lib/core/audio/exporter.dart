@@ -11,6 +11,7 @@ import '../app_state.dart';
 import '../render/audio.dart';
 import '../render/renderer.dart';
 import '../render/wav.dart';
+import 'mp4_chapters.dart';
 import 'native.dart';
 
 enum ExportState { idle, rendering, encoding, done, failed, cancelled }
@@ -27,6 +28,12 @@ class Exporter extends ChangeNotifier {
   String? error;
   String? title;
   Duration length = Duration.zero;
+
+  /// Where each chapter starts in the exported file (exact, from the render).
+  List<ChapterMark> chapters = const [];
+
+  /// True when the M4A carries the chapters too.
+  bool chaptersInFile = false;
 
   /// Sentences the voice could not say (rendered as a short silence).
   final failed = <int>[];
@@ -60,6 +67,8 @@ class Exporter extends ChangeNotifier {
     progress = 0;
     output = null;
     error = null;
+    chapters = const [];
+    chaptersInFile = false;
     title = s.doc.title;
     _watch
       ..reset()
@@ -84,11 +93,21 @@ class Exporter extends ChangeNotifier {
         },
       );
       final total = s.plan.utterances.length;
+      final starts = {for (final c in s.plan.chapters) c.first: c};
+      final marks = <ChapterMark>[];
+      var written = 0;
       var lastShown = -1;
       while (true) {
         if (_cancel) throw const _Cancelled();
         final chunk = await r.next();
         if (chunk == null) break;
+        final chapter = chunk.utterance == null ? null : starts[chunk.utterance];
+        if (chapter != null) {
+          // The first chapter starts at 0:00, under the intro music.
+          final at = marks.isEmpty ? 0 : written * 1000000 ~/ outputRate;
+          marks.add(ChapterMark(Duration(microseconds: at), chapter.title));
+        }
+        written += chunk.samples.length;
         await wav.add(chunk.samples);
         if (chunk.utterance != null && total > 0) {
           progress = (chunk.utterance! + 1) / total * (format == 'm4a' ? 0.92 : 1.0);
@@ -102,6 +121,7 @@ class Exporter extends ChangeNotifier {
       }
       await wav.close();
       length = Duration(milliseconds: (wav.seconds * 1000).round());
+      chapters = s.plan.hasChapters ? marks : const [];
       wav = null;
       await app.exportsDir.create(recursive: true);
       String out;
@@ -122,6 +142,14 @@ class Exporter extends ChangeNotifier {
           await sub.cancel();
           final tmp = File(wavPath);
           if (tmp.existsSync()) await tmp.delete();
+        }
+        if (chapters.length >= 2) {
+          // Chapters inside the file, for podcast players; the audio is untouched.
+          try {
+            chaptersInFile = await writeMp4Chapters(out, chapters);
+          } catch (e) {
+            debugPrint('export: chapters not written: $e');
+          }
         }
       }
       output = out;
@@ -163,6 +191,25 @@ class Exporter extends ChangeNotifier {
 
 class _Cancelled implements Exception {
   const _Cancelled();
+}
+
+/// The chapter list as YouTube (and Spotify) read it from a description:
+/// "0:00 Intro", one per line, the first at 0:00.
+String chapterList(List<ChapterMark> chapters, {String? title, String? summary}) {
+  final long = chapters.isNotEmpty && chapters.last.start.inHours > 0;
+  String stamp(Duration d) {
+    final s = d.inSeconds;
+    final mm = (s ~/ 60 % 60).toString();
+    final ss = (s % 60).toString().padLeft(2, '0');
+    return long ? '${s ~/ 3600}:${mm.padLeft(2, '0')}:$ss' : '${s ~/ 60}:$ss';
+  }
+
+  return [
+    if (title != null) title,
+    if (summary != null && summary.isNotEmpty) summary,
+    if (title != null || (summary?.isNotEmpty ?? false)) '',
+    for (final c in chapters) '${stamp(c.start)} ${c.title}',
+  ].join('\n');
 }
 
 String safeFileName(String title) {

@@ -94,6 +94,10 @@ class Settings extends ChangeNotifier {
 
   /// Best quality: more refinement steps for Supertonic and Pocket TTS (slower).
   bool bestQuality = true;
+
+  /// Which voices the characters use: 'natural' (Kokoro, most human) or
+  /// 'studio' (Supertonic HD). See voiceSets.
+  String voiceSet = 'natural';
   bool cloneConsent = false;
   String exportFormat = 'm4a';
   List<VoiceMix> mixes = [];
@@ -110,6 +114,7 @@ class Settings extends ChangeNotifier {
       music = (j['music'] as bool?) ?? true;
       clarity = (j['clarity'] as bool?) ?? true;
       bestQuality = (j['bestQuality'] as bool?) ?? true;
+      voiceSet = (j['voiceSet'] as String?) ?? 'natural';
       cloneConsent = (j['cloneConsent'] as bool?) ?? false;
       exportFormat = (j['exportFormat'] as String?) ?? 'm4a';
       List<Map<String, Object?>> list(String k) => ((j[k] as List?) ?? const []).cast<Map<String, Object?>>();
@@ -138,6 +143,7 @@ class Settings extends ChangeNotifier {
         'music': music,
         'clarity': clarity,
         'bestQuality': bestQuality,
+        'voiceSet': voiceSet,
         'cloneConsent': cloneConsent,
         'exportFormat': exportFormat,
         'mixes': mixes.map((m) => m.toJson()).toList(),

@@ -99,8 +99,13 @@ class FakeNative implements NativeApi {
   }
 
   @override
-  Future<void> serviceShow({required String kind, required String title, required String text, required bool playing}) async =>
-      log.add('service:$kind');
+  Future<void> serviceShow({required String kind, required String title, required String text, required bool playing}) async {
+    log.add('service:$kind');
+    serviceText = text;
+  }
+
+  /// The notification's last line of text.
+  String? serviceText;
 
   @override
   Future<void> serviceStop() async => log.add('service:stop');

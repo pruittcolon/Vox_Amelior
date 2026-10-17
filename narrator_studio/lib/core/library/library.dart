@@ -23,8 +23,12 @@ class Doc {
     this.position = 0,
     this.utterances = 0,
     this.words = 0,
+    this.summary,
+    List<String>? topics,
+    this.chapters = 0,
   })  : opened = opened ?? created,
-        cast = cast ?? {};
+        cast = cast ?? {},
+        topics = topics ?? [];
 
   final String id;
   String title;
@@ -54,6 +58,12 @@ class Doc {
   int utterances;
   int words;
 
+  /// From the script's front matter (`summary:`, `topics:`) and its index;
+  /// kept here so the library can show and sort by them without parsing.
+  String? summary;
+  List<String> topics;
+  int chapters;
+
   double get progress => utterances == 0 ? 0 : math.min(1, position / utterances);
 
   Map<String, Object?> toJson() => {
@@ -70,6 +80,9 @@ class Doc {
         'position': position,
         'utterances': utterances,
         'words': words,
+        'summary': summary,
+        'topics': topics,
+        'chapters': chapters,
       };
 
   static Doc fromJson(Map<String, Object?> j) => Doc(
@@ -86,6 +99,9 @@ class Doc {
         position: (j['position'] as num?)?.toInt() ?? 0,
         utterances: (j['utterances'] as num?)?.toInt() ?? 0,
         words: (j['words'] as num?)?.toInt() ?? 0,
+        summary: j['summary'] as String?,
+        topics: (j['topics'] as List?)?.whereType<String>().toList(),
+        chapters: (j['chapters'] as num?)?.toInt() ?? 0,
       );
 }
 

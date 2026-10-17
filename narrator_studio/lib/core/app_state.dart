@@ -14,6 +14,7 @@ import 'models/model_store.dart';
 import 'render/music.dart';
 import 'render/plan.dart';
 import 'render/styles.dart';
+import 'samples.dart';
 import 'script/script.dart';
 import 'script/script_parser.dart';
 import 'tts/synth.dart';
@@ -218,13 +219,18 @@ class AppState extends ChangeNotifier {
     var speed = 1.0;
     String voiceId = ref;
     String? fallback;
+    String? studio;
     if (ref.startsWith('char:')) {
       final c = characterById(ref.substring(5)) ?? builtInCharacters.first;
       speed = c.speed;
       voiceId = c.voiceId;
       fallback = c.fallbackVoiceId;
+      studio = c.studioVoiceId;
     }
-    final candidates = [voiceId, ?fallback, 'kokoro:af_heart', 'supertonic:F1', 'supertonic:M1'];
+    // The chosen set first; the other set stands in when its pack is missing.
+    final candidates = settings.voiceSet == 'studio' && studio != null
+        ? [studio, voiceId, ?fallback, 'supertonic:F1', 'kokoro:af_heart']
+        : [voiceId, ?fallback, ?studio, 'kokoro:af_heart', 'supertonic:F1', 'supertonic:M1'];
     for (final id in candidates) {
       final v = voiceById(id);
       if (v != null && isAvailable(v)) {
@@ -264,7 +270,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Session> openSession(Doc doc) async {
-    final text = await library.readText(doc);
+    var text = await library.readText(doc);
+    final upgraded = doc.kind == 'sample' ? upgradedSample(text) : null;
+    if (upgraded != null) {
+      await library.textFile(doc.id).writeAsString(upgraded, flush: true);
+      text = upgraded;
+    }
     final script = parseScript(text, fallbackTitle: doc.title);
     final styleId = doc.style ??
         script.style ??
@@ -278,9 +289,17 @@ class AppState extends ChangeNotifier {
     final cast = <String?, VoiceSpec>{
       for (final e in refs.entries) e.key: resolve(e.value, extraSpeed: style.speed * userSpeed),
     };
-    if (doc.utterances != plan.utterances.length || doc.words != plan.words) {
+    final chapters = plan.hasChapters ? plan.chapters.length : 0;
+    if (doc.utterances != plan.utterances.length ||
+        doc.words != plan.words ||
+        doc.summary != script.description ||
+        doc.chapters != chapters ||
+        !listEquals(doc.topics, script.topics)) {
       doc.utterances = plan.utterances.length;
       doc.words = plan.words;
+      doc.summary = script.description;
+      doc.topics = [...script.topics];
+      doc.chapters = chapters;
       if (doc.position >= plan.utterances.length) doc.position = 0;
       await library.changed(doc);
     }

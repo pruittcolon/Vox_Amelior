@@ -14,6 +14,7 @@ import 'package:narrator_studio/core/audio/exporter.dart';
 import 'package:narrator_studio/core/audio/player.dart';
 import 'package:narrator_studio/core/samples.dart';
 import 'package:narrator_studio/ui/cast_sheet.dart';
+import 'package:narrator_studio/ui/chapters.dart';
 import 'package:narrator_studio/ui/clone_screen.dart';
 import 'package:narrator_studio/ui/export_sheet.dart';
 import 'package:narrator_studio/ui/gallery_screen.dart';
@@ -194,6 +195,21 @@ void main() {
       await _io(tester, find.textContaining('Podcast'));
       await _shot(tester, '05_reader$tag');
       expect(find.textContaining('Podcast'), findsWidgets);
+
+      // The index: every chapter with its summary.
+      await tester.pumpWidget(w.wrap(Builder(builder: (context) {
+        return Scaffold(
+          body: Center(
+            child: FilledButton(
+              onPressed: () => showChaptersSheet(context, session, current: 12),
+              child: const Text('open chapters'),
+            ),
+          ),
+        );
+      }), scale));
+      await tester.tap(find.text('open chapters'));
+      await _shot(tester, '05b_chapters$tag');
+      expect(find.text('The scattering trick'), findsWidgets);
 
       // Voices & style sheet.
       await tester.pumpWidget(w.wrap(Builder(builder: (context) {

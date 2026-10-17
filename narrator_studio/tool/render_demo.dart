@@ -4,6 +4,7 @@
 //   dart run tool/render_demo.dart --kokoro DIR [--supertonic DIR] [--pocket DIR] [--clarity DIR] --out demo.wav
 //
 // CI runs this to prove the whole pipeline speaks, and publishes the result.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:narrator_studio/core/render/audio.dart';
@@ -86,7 +87,14 @@ Future<void> main(List<String> args) async {
   final wav = await WavWriter.create(out, outputRate);
   final watch = Stopwatch()..start();
   final transcript = StringBuffer();
+  // Chapter starts, exactly as the app's exporter records them.
+  final starts = {for (final c in plan.chapters) c.first: c};
+  final chapters = <Map<String, Object>>[];
+  var written = 0;
   for (var c = await renderer.next(); c != null; c = await renderer.next()) {
+    final chapter = c.utterance == null ? null : starts[c.utterance];
+    if (chapter != null) chapters.add({'ms': chapters.isEmpty ? 0 : written * 1000 ~/ outputRate, 'title': chapter.title});
+    written += c.samples.length;
     await wav.add(c.samples);
     if (c.utterance != null) {
       final u = plan.utterances[c.utterance!];
@@ -97,6 +105,8 @@ Future<void> main(List<String> args) async {
   await wav.close();
   final secs = watch.elapsedMilliseconds / 1000;
   await File('$out.txt').writeAsString(transcript.toString());
+  await File('$out.chapters.json').writeAsString(jsonEncode(chapters));
+  stdout.writeln('Chapters: ${chapters.map((c) => '${c['ms']} ms ${c['title']}').join(' | ')}');
   stdout.writeln('Rendered ${wav.seconds.toStringAsFixed(1)} s of audio in ${secs.toStringAsFixed(1)} s '
       '(${(wav.seconds / secs).toStringAsFixed(2)}x real time) -> $out');
   await synth.dispose();

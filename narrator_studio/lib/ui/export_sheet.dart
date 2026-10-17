@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/app_state.dart';
@@ -181,9 +182,33 @@ class _ExportSheetState extends State<_ExportSheet> {
               icon: const Icon(Icons.share),
               label: const Text('Share'),
             ),
+            if (e.chapters.length >= 2)
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final s = widget.session;
+                  await Clipboard.setData(
+                    ClipboardData(text: chapterList(e.chapters, title: s.doc.title, summary: s.script.description)),
+                  );
+                  if (context.mounted) context.toast('Chapters copied. Paste them into the YouTube or Spotify description.');
+                },
+                icon: const Icon(Icons.format_list_numbered_rounded),
+                label: const Text('Copy chapters'),
+              ),
             TextButton(onPressed: e.reset, child: const Text('Export again')),
           ],
         ),
+        if (e.chapters.length >= 2) ...[
+          const SizedBox(height: 14),
+          Text(
+            '${e.chapters.length} chapters${e.chaptersInFile ? ', also inside the file for podcast apps' : ''}:',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: 4),
+          SelectableText(
+            chapterList(e.chapters),
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 13, height: 1.5),
+          ),
+        ],
       ],
     );
   }

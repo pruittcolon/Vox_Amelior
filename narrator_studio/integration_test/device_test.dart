@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:narrator_studio/core/app_state.dart';
 import 'package:narrator_studio/core/audio/exporter.dart';
+import 'package:narrator_studio/core/audio/mp4_chapters.dart';
 import 'package:narrator_studio/core/audio/native.dart';
 import 'package:narrator_studio/core/audio/player.dart';
 import 'package:narrator_studio/core/models/model_store.dart';
@@ -208,6 +209,12 @@ void main() {
     log('m4a: $size bytes, decoded ${(pcm.length / rate).toStringAsFixed(1)}s at $rate Hz; '
         'expected ${exporter.length.inSeconds}s');
     expect((pcm.length / rate - exporter.length.inMilliseconds / 1000).abs(), lessThan(1.5));
+    // Chapters went into the file (and Android still decodes it, above).
+    final (qt, nero) = await readMp4Chapters(out);
+    log('chapters in the m4a: ${exporter.chaptersInFile}; QuickTime ${qt.join(' | ')}; Nero ${nero.length}');
+    expect(exporter.chaptersInFile, isTrue);
+    expect(qt.map((c) => c.title).toList(), exporter.chapters.map((c) => c.title).toList());
+    expect(nero.map((c) => c.start).toList(), exporter.chapters.map((c) => c.start).toList());
     expect(size, greaterThan(200 * 1024));
     final saved = await native.saveToDownloads(out, 'narrator-test.m4a', 'audio/mp4');
     log('saved to $saved');

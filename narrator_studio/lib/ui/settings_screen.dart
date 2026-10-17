@@ -4,6 +4,7 @@ import '../core/models/catalog.dart';
 import '../core/render/audio.dart';
 import '../core/tts/voices.dart';
 import 'scope.dart';
+import 'voice_set.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -77,6 +78,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           return ListView(
             padding: const EdgeInsets.symmetric(vertical: 8),
             children: [
+              const ListTile(
+                title: Text('Voices'),
+                subtitle: Padding(padding: EdgeInsets.only(top: 8), child: VoiceSetSwitch()),
+              ),
               ListTile(
                 title: const Text('Reading speed'),
                 subtitle: Slider(
@@ -100,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               SwitchListTile(
                 title: const Text('Best quality'),
-                subtitle: const Text('More refinement steps for the Supertonic and cloned voices: cleaner, '
+                subtitle: const Text('More refinement steps for the Studio and cloned voices: cleaner, '
                     'slightly slower. Turn off only if playback can\'t keep up.'),
                 value: s.bestQuality,
                 onChanged: (v) => s.update((x) => x.bestQuality = v),

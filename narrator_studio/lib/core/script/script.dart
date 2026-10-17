@@ -38,6 +38,26 @@ class Block {
       };
 }
 
+/// One entry of the episode's index: where a part starts and what it covers.
+class Chapter {
+  const Chapter({required this.title, required this.block, this.heading, this.summary});
+
+  final String title;
+
+  /// First block of the chapter: its heading, or 0 for the opening (and for
+  /// a first chapter that only has the document's title before it).
+  final int block;
+
+  /// The heading block that starts the chapter (null for the opening).
+  final int? heading;
+
+  /// One or two sentences from the script's `index:`, if it has one.
+  final String? summary;
+
+  @override
+  String toString() => summary == null ? 'Ch($block $title)' : 'Ch($block $title | $summary)';
+}
+
 class Script {
   const Script({
     required this.title,
@@ -46,6 +66,8 @@ class Script {
     this.music,
     this.voices = const {},
     this.description,
+    this.topics = const [],
+    this.chapters = const [],
   });
 
   final String title;
@@ -59,7 +81,16 @@ class Script {
 
   /// Speaker tag -> voice or character name, from the front matter.
   final Map<String, String> voices;
+
+  /// What the episode is about (`summary:` in the front matter).
   final String? description;
+
+  /// Subjects for the library's catalog (`topics: physics, light`).
+  final List<String> topics;
+
+  /// The episode's parts in order, from its headings, with the summaries from
+  /// its `index:`. Empty when the text has no headings.
+  final List<Chapter> chapters;
 
   /// Speakers in order of first appearance.
   List<String> get speakers {

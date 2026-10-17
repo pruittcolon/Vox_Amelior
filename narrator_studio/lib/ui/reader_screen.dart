@@ -11,6 +11,7 @@ import '../core/render/plan.dart';
 import '../core/script/script.dart';
 import 'art.dart';
 import 'cast_sheet.dart';
+import 'chapters.dart';
 import 'edit_text_screen.dart';
 import 'export_sheet.dart';
 import 'scope.dart';
@@ -124,6 +125,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  /// The whole index; picking a chapter plays from there.
+  Future<void> _showChapters() async {
+    final s = _session;
+    if (s == null) return;
+    final target = await showChaptersSheet(context, s, current: _current);
+    if (target != null) await _playFrom(target);
+  }
+
+  /// Next or previous chapter. Back goes to the start of this chapter first,
+  /// unless you're right at its beginning.
+  Future<void> _skipChapter(int direction) async {
+    final s = _session;
+    if (s == null || !s.plan.hasChapters) return;
+    final chapters = s.plan.chapters;
+    final here = s.plan.chapterOf(_current)!;
+    int target;
+    if (direction > 0) {
+      if (here.index + 1 >= chapters.length) return;
+      target = chapters[here.index + 1].first;
+    } else {
+      target = _current > here.first + 1 || here.index == 0 ? here.first : chapters[here.index - 1].first;
+    }
+    await _playFrom(target);
+  }
+
   Future<void> _openCast() async {
     final s = _session;
     if (s == null) return;
@@ -180,6 +206,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                         playing: _mine && _player.active,
                         onTap: _playFrom,
                         onCast: _openCast,
+                        onShowChapters: _showChapters,
                       ),
                       if (_offTrack && _mine && _player.isPlaying)
                         Positioned(
@@ -206,6 +233,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
               current: _current,
               onToggle: _togglePlay,
               onSeek: _playFrom,
+              onSkipChapter: _skipChapter,
+              onShowChapters: _showChapters,
               onSpeed: _setSpeed,
               speed: widget.doc.speed ?? context.app.settings.speed,
             ),
@@ -253,6 +282,7 @@ class _TextView extends StatelessWidget {
     required this.playing,
     required this.onTap,
     required this.onCast,
+    required this.onShowChapters,
   });
 
   final Session session;
@@ -262,6 +292,7 @@ class _TextView extends StatelessWidget {
   final bool playing;
   final void Function(int utterance) onTap;
   final VoidCallback onCast;
+  final VoidCallback onShowChapters;
 
   @override
   Widget build(BuildContext context) {
@@ -269,12 +300,19 @@ class _TextView extends StatelessWidget {
     final byBlock = session.plan.byBlock;
     final speakers = session.script.speakers;
     final cur = session.plan.utterances.isEmpty ? null : session.plan.utterances[current.clamp(0, session.plan.utterances.length - 1)];
+    final chapterOfHeading = {
+      if (session.plan.hasChapters)
+        for (final c in session.plan.chapters)
+          if (c.chapter.heading != null) c.chapter.heading!: c,
+    };
     return ListView.builder(
       controller: controller,
       padding: const EdgeInsets.fromLTRB(22, 0, 22, 40),
       itemCount: blocks.length + 1,
       itemBuilder: (context, i) {
-        if (i == 0) return _Header(session: session, onCast: onCast);
+        if (i == 0) {
+          return _Header(session: session, onCast: onCast, current: current, onJump: onTap, onShowChapters: onShowChapters);
+        }
         final bi = i - 1;
         final b = blocks[bi];
         final key = keys.putIfAbsent(bi, GlobalKey.new);
@@ -282,7 +320,14 @@ class _TextView extends StatelessWidget {
         return KeyedSubtree(
           key: key,
           child: switch (b.kind) {
-            BlockKind.heading => _Heading(block: b, utterances: byBlock[bi] ?? const [], current: cur, onTap: onTap),
+            BlockKind.heading => _Heading(
+                block: b,
+                utterances: byBlock[bi] ?? const [],
+                current: cur,
+                chapter: chapterOfHeading[bi],
+                session: session,
+                onTap: onTap,
+              ),
             BlockKind.line => _Paragraph(
                 block: b,
                 utterances: byBlock[bi] ?? const [],
@@ -306,9 +351,18 @@ class _TextView extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.session, required this.onCast});
+  const _Header({
+    required this.session,
+    required this.onCast,
+    required this.current,
+    required this.onJump,
+    required this.onShowChapters,
+  });
   final Session session;
   final VoidCallback onCast;
+  final int current;
+  final void Function(int utterance) onJump;
+  final VoidCallback onShowChapters;
 
   @override
   Widget build(BuildContext context) {
@@ -353,6 +407,13 @@ class _Header extends StatelessWidget {
               ),
             ],
           ),
+          if (session.script.description != null) ...[
+            const SizedBox(height: 14),
+            Text(
+              session.script.description!,
+              style: text.bodyLarge?.copyWith(fontFamily: readingFont, height: 1.5, color: scheme.onSurfaceVariant),
+            ),
+          ],
           const SizedBox(height: 14),
           Wrap(
             spacing: 8,
@@ -360,8 +421,13 @@ class _Header extends StatelessWidget {
             children: [
               _Pill(icon: Icons.schedule_rounded, label: '${session.style.name} · ~${formatDuration(est)}'),
               if (session.music) _Pill(icon: Icons.music_note_rounded, label: themeById(session.theme?.id)?.name ?? 'Music'),
+              for (final t in session.script.topics) _Pill(icon: Icons.tag_rounded, label: topicLabel(t)),
             ],
           ),
+          if (session.plan.hasChapters) ...[
+            const SizedBox(height: 14),
+            ChapterCard(session: session, current: current, onJump: onJump, onShowAll: onShowChapters),
+          ],
           const SizedBox(height: 14),
           Material(
             color: scheme.surfaceContainerLow,
@@ -470,25 +536,58 @@ class _CastMember extends StatelessWidget {
 }
 
 class _Heading extends StatelessWidget {
-  const _Heading({required this.block, required this.utterances, required this.current, required this.onTap});
+  const _Heading({
+    required this.block,
+    required this.utterances,
+    required this.current,
+    required this.chapter,
+    required this.session,
+    required this.onTap,
+  });
   final Block block;
   final List<Utterance> utterances;
   final Utterance? current;
+  final PlanChapter? chapter;
+  final Session session;
   final void Function(int) onTap;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final active = utterances.isNotEmpty && current?.index == utterances.first.index;
-    final style = block.level <= 1 ? Theme.of(context).textTheme.headlineSmall : Theme.of(context).textTheme.titleLarge;
+    final style = block.level <= 1 ? theme.textTheme.headlineSmall : theme.textTheme.titleLarge;
+    final c = chapter;
+    final target = c?.first ?? (utterances.isEmpty ? null : utterances.first.index);
     return Padding(
       padding: const EdgeInsets.only(top: 22, bottom: 12),
       child: InkWell(
-        onTap: utterances.isEmpty ? null : () => onTap(utterances.first.index),
+        onTap: target == null ? null : () => onTap(target),
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           decoration: active ? BoxDecoration(color: readingHighlight(context).$1, borderRadius: BorderRadius.circular(8)) : null,
-          child: Text(block.text, style: style),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (c != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'CHAPTER ${c.index + 1} · ${formatClock(chapterStart(session, c))}',
+                    style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.secondary, letterSpacing: 1.2),
+                  ),
+                ),
+              Text(block.text, style: style),
+              if (c?.summary != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    c!.summary!,
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.45),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -635,7 +734,7 @@ class _Cue extends StatelessWidget {
   }
 }
 
-class _PlayerBar extends StatelessWidget {
+class _PlayerBar extends StatefulWidget {
   const _PlayerBar({
     required this.session,
     required this.mine,
@@ -643,6 +742,8 @@ class _PlayerBar extends StatelessWidget {
     required this.current,
     required this.onToggle,
     required this.onSeek,
+    required this.onSkipChapter,
+    required this.onShowChapters,
     required this.onSpeed,
     required this.speed,
   });
@@ -653,19 +754,36 @@ class _PlayerBar extends StatelessWidget {
   final int current;
   final VoidCallback onToggle;
   final void Function(int) onSeek;
+  final void Function(int direction) onSkipChapter;
+  final VoidCallback onShowChapters;
   final void Function(double) onSpeed;
   final double speed;
 
   @override
+  State<_PlayerBar> createState() => _PlayerBarState();
+}
+
+class _PlayerBarState extends State<_PlayerBar> {
+  /// The spot under your finger while dragging the seek bar.
+  int? _preview;
+
+  @override
   Widget build(BuildContext context) {
+    final session = widget.session;
+    final player = widget.player;
     final scheme = Theme.of(context).colorScheme;
     final total = session.plan.utterances.length;
-    final playing = mine && player.isPlaying;
-    final buffering = mine && player.state == PlayState.buffering;
-    final cur = total == 0 ? 0 : current.clamp(0, total - 1);
-    final remaining = total == 0 ? Duration.zero : session.plan.estimate(session.cast[null]?.speed ?? 1.0) * ((total - cur) / total);
+    final playing = widget.mine && player.isPlaying;
+    final buffering = widget.mine && player.state == PlayState.buffering;
+    final cur = total == 0 ? 0 : widget.current.clamp(0, total - 1);
+    final shown = _preview ?? cur;
+    final times = sessionTimes(session);
+    final at = total == 0 ? Duration.zero : Duration(milliseconds: times.starts[shown]);
+    final length = Duration(milliseconds: times.total);
     final text = Theme.of(context).textTheme;
     final p = paletteFor(session.doc.title);
+    final chapters = session.plan.hasChapters;
+    final chapter = chapters ? session.plan.chapterOf(shown) : null;
     return Container(
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
@@ -680,12 +798,59 @@ class _PlayerBar extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (mine && player.error != null)
+              if (widget.mine && player.error != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
                   child: Text(player.error!, style: TextStyle(color: scheme.error), maxLines: 3),
                 ),
-              if (total > 1) _SeekSlider(current: cur, total: total, onSeek: onSeek),
+              if (chapter != null)
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Previous chapter',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => widget.onSkipChapter(-1),
+                      icon: const Icon(Icons.keyboard_double_arrow_left_rounded),
+                    ),
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: widget.onShowChapters,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                          child: Column(
+                            children: [
+                              Text(
+                                'CHAPTER ${chapter.index + 1} OF ${session.plan.chapters.length}',
+                                style: text.labelSmall?.copyWith(color: scheme.secondary, letterSpacing: 1.2),
+                              ),
+                              Text(
+                                chapter.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: text.titleSmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Next chapter',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: chapter.index + 1 < session.plan.chapters.length ? () => widget.onSkipChapter(1) : null,
+                      icon: const Icon(Icons.keyboard_double_arrow_right_rounded),
+                    ),
+                  ],
+                ),
+              if (total > 1)
+                ChapterSeekBar(
+                  session: session,
+                  current: cur,
+                  onSeek: widget.onSeek,
+                  onPreview: (u) => setState(() => _preview = u),
+                ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -693,14 +858,19 @@ class _PlayerBar extends StatelessWidget {
                     if (playing) ...[Equalizer(playing: true, size: 12, color: scheme.secondary), const SizedBox(width: 8)],
                     Expanded(
                       child: Text(
-                        buffering
+                        buffering && _preview == null
                             ? 'Preparing the voice…'
                             : total == 0
                                 ? 'Nothing to read'
-                                : '${cur + 1} / $total · ${formatDuration(remaining)} left',
+                                : '${formatClock(at)} / ${formatClock(length)}',
                         style: text.bodySmall,
                       ),
                     ),
+                    if (total > 0)
+                      Text(
+                        '${formatClock(length - at)} left',
+                        style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
                   ],
                 ),
               ),
@@ -708,11 +878,11 @@ class _PlayerBar extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _SpeedButton(speed: speed, onTap: () => _pickSpeed(context)),
+                  _SpeedButton(speed: widget.speed, onTap: () => _pickSpeed(context)),
                   IconButton(
                     tooltip: 'Previous sentence',
                     iconSize: 30,
-                    onPressed: total == 0 ? null : () => onSeek(cur - 1),
+                    onPressed: total == 0 ? null : () => widget.onSeek(cur - 1),
                     icon: const Icon(Icons.skip_previous_rounded),
                   ),
                   Material(
@@ -726,7 +896,7 @@ class _PlayerBar extends StatelessWidget {
                         gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [p.b, p.a]),
                       ),
                       child: InkWell(
-                        onTap: total == 0 ? null : onToggle,
+                        onTap: total == 0 ? null : widget.onToggle,
                         child: Center(
                           child: buffering
                               ? const SizedBox(
@@ -747,10 +917,19 @@ class _PlayerBar extends StatelessWidget {
                   IconButton(
                     tooltip: 'Next sentence',
                     iconSize: 30,
-                    onPressed: total == 0 ? null : () => onSeek(cur + 1),
+                    onPressed: total == 0 ? null : () => widget.onSeek(cur + 1),
                     icon: const Icon(Icons.skip_next_rounded),
                   ),
-                  const SizedBox(width: 56),
+                  SizedBox(
+                    width: 56,
+                    child: chapters
+                        ? IconButton(
+                            tooltip: 'Chapters',
+                            onPressed: widget.onShowChapters,
+                            icon: const Icon(Icons.format_list_numbered_rounded),
+                          )
+                        : null,
+                  ),
                 ],
               ),
             ],
@@ -762,6 +941,7 @@ class _PlayerBar extends StatelessWidget {
 
   Future<void> _pickSpeed(BuildContext context) async {
     const options = [0.75, 0.85, 0.9, 1.0, 1.1, 1.2, 1.35, 1.5];
+    final speed = widget.speed;
     final v = await showModalBottomSheet<double>(
       context: context,
       showDragHandle: true,
@@ -778,7 +958,7 @@ class _PlayerBar extends StatelessWidget {
         ),
       ),
     );
-    if (v != null) onSpeed(v);
+    if (v != null) widget.onSpeed(v);
   }
 }
 
@@ -801,37 +981,6 @@ class _SpeedButton extends StatelessWidget {
         onPressed: onTap,
         child: Text('${speed.toStringAsFixed(speed == speed.roundToDouble() ? 1 : 2)}x'),
       ),
-    );
-  }
-}
-
-/// Drag to any sentence; it starts reading there when you let go.
-class _SeekSlider extends StatefulWidget {
-  const _SeekSlider({required this.current, required this.total, required this.onSeek});
-  final int current;
-  final int total;
-  final void Function(int) onSeek;
-
-  @override
-  State<_SeekSlider> createState() => _SeekSliderState();
-}
-
-class _SeekSliderState extends State<_SeekSlider> {
-  double? _drag;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = (_drag ?? widget.current.toDouble()).clamp(0, widget.total - 1).toDouble();
-    return Slider(
-      value: value,
-      max: (widget.total - 1).toDouble(),
-      label: 'Sentence ${value.round() + 1}',
-      divisions: widget.total - 1,
-      onChanged: (v) => setState(() => _drag = v),
-      onChangeEnd: (v) {
-        setState(() => _drag = null);
-        widget.onSeek(v.round());
-      },
     );
   }
 }

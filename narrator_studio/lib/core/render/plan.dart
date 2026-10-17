@@ -57,8 +57,48 @@ class CueStep extends Step {
   String toString() => 'Cue($cue)';
 }
 
+/// A chapter as heard: the utterances it spans.
+class PlanChapter {
+  const PlanChapter({required this.index, required this.chapter, required this.first, required this.last});
+
+  /// Position in [Plan.chapters].
+  final int index;
+  final Chapter chapter;
+
+  /// First and last utterance of the chapter.
+  final int first;
+  final int last;
+
+  String get title => chapter.title;
+  String? get summary => chapter.summary;
+}
+
+/// When each utterance starts (estimated, in ms), for timestamps and the
+/// seek bar.
+class PlanTimes {
+  const PlanTimes(this.starts, this.total);
+
+  final List<int> starts;
+  final int total;
+
+  /// The utterance playing [ms] into the episode.
+  int utteranceAt(int ms) {
+    if (starts.isEmpty) return 0;
+    var lo = 0, hi = starts.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= ms) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return lo;
+  }
+}
+
 class Plan {
-  Plan(this.utterances, this.steps) : stepOfUtterance = _index(utterances.length, steps);
+  Plan(this.utterances, this.steps, {this.chapters = const []}) : stepOfUtterance = _index(utterances.length, steps);
 
   static List<int> _index(int count, List<Step> steps) {
     final at = List<int>.filled(count, 0);
@@ -75,6 +115,23 @@ class Plan {
   /// Index into [steps] where each utterance is spoken.
   final List<int> stepOfUtterance;
 
+  /// The script's chapters that have something to hear; empty without
+  /// headings.
+  final List<PlanChapter> chapters;
+
+  /// Two or more chapters: worth an index and chapter skipping.
+  bool get hasChapters => chapters.length >= 2;
+
+  /// The chapter [utterance] belongs to (null without chapters).
+  PlanChapter? chapterOf(int utterance) {
+    PlanChapter? found;
+    for (final c in chapters) {
+      if (c.first > utterance) break;
+      found = c;
+    }
+    return found ?? chapters.firstOrNull;
+  }
+
   /// Utterances of each block, for the reader screen.
   Map<int, List<Utterance>> get byBlock {
     final m = <int, List<Utterance>>{};
@@ -86,15 +143,48 @@ class Plan {
 
   int get words => utterances.fold(0, (a, u) => a + u.words);
 
-  /// Rough listening time at [speed] (155 words/minute at 1.0x, plus gaps).
-  Duration estimate(double speed) {
-    var ms = words / (155 * speed) * 60000;
+  /// Rough listening time at [speed] (155 words/minute at 1.0x, plus gaps,
+  /// music and sounds).
+  Duration estimate(double speed) => Duration(milliseconds: times(speed).total);
+
+  final _times = <double, PlanTimes>{};
+
+  /// Estimated start of every utterance at [speed].
+  PlanTimes times(double speed) => _times[speed] ??= _estimateTimes(speed);
+
+  PlanTimes _estimateTimes(double speed) {
+    final starts = List<int>.filled(utterances.length, 0);
+    var t = 0.0;
+    var outro = false;
     for (final s in steps) {
-      if (s is GapStep) ms += s.ms;
+      switch (s) {
+        case SpeakStep(:final utterance):
+          starts[utterance] = t.round();
+          t += utterances[utterance].words / (155 * speed) * 60000;
+        case GapStep(:final ms):
+          t += ms;
+        case CueStep(:final cue):
+          t += _cueMs[cue] ?? 0;
+          if (cue == 'music:outro') outro = true;
+      }
     }
-    return Duration(milliseconds: ms.round());
+    if (outro) t += 7000; // the music plays out after the last words
+    return PlanTimes(starts, t.round());
   }
 }
+
+/// How long each cue takes in the renderer.
+const _cueMs = {
+  'music:intro': 4800,
+  'sound:chime': 1600,
+  'sound:bell': 1600,
+  'sound:transition-chime': 1600,
+  'sound:ding': 1200,
+  'sound:pop': 120,
+  'sound:whoosh': 900,
+  'sound:transition': 900,
+  'sound:swoosh': 900,
+};
 
 Plan buildPlan(Script script, ReadingStyle style, {bool music = true}) {
   final utterances = <Utterance>[];
@@ -190,7 +280,30 @@ Plan buildPlan(Script script, ReadingStyle style, {bool music = true}) {
     if (lastSay > 0) steps.insert(lastSay, const CueStep('music:outro'));
   }
 
-  return Plan(utterances, steps);
+  return Plan(utterances, steps, chapters: _planChapters(script.chapters, utterances));
+}
+
+List<PlanChapter> _planChapters(List<Chapter> chapters, List<Utterance> utterances) {
+  final firsts = <(Chapter, int)>[];
+  var u = 0;
+  for (final c in chapters) {
+    while (u < utterances.length && utterances[u].block < c.block) {
+      u++;
+    }
+    if (u >= utterances.length) break;
+    // A chapter with nothing to hear before the next one is skipped.
+    if (firsts.isNotEmpty && firsts.last.$2 == u) firsts.removeLast();
+    firsts.add((c, u));
+  }
+  return [
+    for (var i = 0; i < firsts.length; i++)
+      PlanChapter(
+        index: i,
+        chapter: firsts[i].$1,
+        first: firsts[i].$2,
+        last: i + 1 < firsts.length ? firsts[i + 1].$2 - 1 : utterances.length - 1,
+      ),
+  ];
 }
 
 /// Adds a gap; back-to-back gaps merge into the longer one.

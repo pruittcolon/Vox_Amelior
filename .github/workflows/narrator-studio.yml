@@ -78,6 +78,19 @@ jobs:
           sudo apt-get install -y -qq ffmpeg > /dev/null
           ffmpeg -loglevel error -y -i "$RUNNER_TEMP/demo/sample-podcast.wav" -c:a aac -b:a 160k "$RUNNER_TEMP/demo/sample-podcast.m4a"
           ls -l "$RUNNER_TEMP/demo"
+      - name: Chapters inside the M4A (the app's code writes them; ffprobe must read them)
+        run: |
+          D="$RUNNER_TEMP/demo"
+          C="$D/sample-podcast.wav.chapters.json"
+          # moov at the end (like ffmpeg's default) and at the front (+faststart), each chapter kind alone.
+          ffmpeg -loglevel error -y -i "$D/sample-podcast.wav" -c:a aac -b:a 160k -movflags +faststart "$D/front-qt.m4a"
+          cp "$D/front-qt.m4a" "$D/front-nero.m4a"
+          dart run tool/chapters_check.dart --m4a "$D/sample-podcast.m4a" --chapters "$C"
+          dart run tool/chapters_check.dart --m4a "$D/front-qt.m4a" --chapters "$C" --only quicktime
+          dart run tool/chapters_check.dart --m4a "$D/front-nero.m4a" --chapters "$C" --only nero
+          for f in sample-podcast front-qt front-nero; do
+            python3 tool/ffprobe_chapters.py --m4a "$D/$f.m4a" --chapters "$C" --decode
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: narrator-sample-podcast
@@ -122,4 +135,4 @@ jobs:
           gh release create narrator-studio-latest narrator-studio.apk sample-podcast.m4a \
             --target "$GITHUB_SHA" --prerelease \
             --title "Narrator Studio (latest build)" \
-            --notes "Built from ${GITHUB_SHA::7}. On your phone: download narrator-studio.apk, open it, and allow installing from this source (64-bit Android 8+). Then open the Voices tab and download Kokoro. sample-podcast.m4a is the built-in sample rendered in CI with the real voices (the guest uses Pocket TTS voice cloning)."
+            --notes "Built from ${GITHUB_SHA::7}. On your phone: download narrator-studio.apk, open it, and allow installing from this source (64-bit Android 8+). Then open the Voices tab and download Kokoro. sample-podcast.m4a is the built-in sample rendered in CI with the real voices (the natural Kokoro set), with its chapters inside."

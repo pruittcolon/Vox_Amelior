@@ -40,17 +40,24 @@ String get _musicList => [...musicThemes.map((t) => '${t.id} (${t.mood.split('.'
 String get scriptFormatRules => '''
 FORMAT — this will be read aloud by text-to-speech voices in the Narrator Studio app, so follow it exactly:
 
-1. Start with this header (YAML front matter):
+1. Start with this header (YAML front matter). Plan the episode first: the index is its table of contents.
 ---
 title: <a short, catchy title>
 style: <audiobook | podcast | lecture | interview | story | news>
 music: <one of: $_musicList>
+summary: <one or two sentences: what the listener will learn>
+topics: <2 to 4 subjects, lower case, comma separated, e.g. physics, light>
 voices:
   <SPEAKER TAG>: <character name from the list below>
+index:
+  - <Opening title> | <one-sentence summary of the opening, before the first ## heading>
+  - <Chapter title> | <one-sentence summary: the key idea or answer of that chapter>
 ---
 
+The index lists every chapter in order: first the opening, then one line per "## " heading, with exactly the same title as the heading. Each summary gives the actual takeaway ("Air scatters blue light five times more than red"), not a teaser ("We look at scattering"). The app shows the index as chapters you can tap to jump to, like YouTube chapters.
+
 2. Every spoken paragraph starts with its speaker tag in CAPITALS and a colon, like "HOST: Welcome back!". Use the same tag every time. A paragraph without a tag is read by the narrator.
-3. Split the script into parts with lines like "## Part 1: Why the sky is blue". In podcast and interview styles these are not read aloud (a transition sound plays); in the other styles they are announced.
+3. Split the script into 3 to 6 chapters, each starting with a "## " heading line like "## Why the sky is blue" (no "Part 1:" needed). In podcast and interview styles these are not read aloud (a transition sound plays); in the other styles they are announced.
 4. Optional cues on their own line: [pause 2] for a 2-second pause, [sound: chime] or [sound: whoosh] for a transition, [music: intro] / [music: outro] / [music: stop] to control the music.
 5. Write for the ear, not the eye: short sentences, natural spoken rhythm, contractions, signposting ("Here's the surprising part..."). Spell out symbols and tricky numbers the way you'd say them ("about three hundred thousand kilometres per second", "nineteen oh five"). No tables, bullet lists, URLs, citations, footnotes, emojis, or markdown bold/italics. Any stage direction goes in [brackets] and will be skipped.
 6. Output ONLY the script, nothing before or after it, so I can paste it straight into the app.

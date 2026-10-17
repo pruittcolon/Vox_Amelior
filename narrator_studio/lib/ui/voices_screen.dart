@@ -11,6 +11,7 @@ import 'gallery_screen.dart';
 import 'mix_screen.dart';
 import 'scope.dart';
 import 'voice_picker.dart';
+import 'voice_set.dart';
 
 class VoicesScreen extends StatelessWidget {
   const VoicesScreen({super.key});
@@ -34,8 +35,11 @@ class VoicesScreen extends StatelessWidget {
                 style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 18),
+              const SectionLabel('Characters speak with'),
+              const VoiceSetSwitch(),
+              const SizedBox(height: 20),
               const SectionLabel('Voice packs'),
-              for (final id in ['supertonic', 'kokoro', 'pocket', 'clarity']) ...[
+              for (final id in ['kokoro', 'supertonic', 'pocket', 'clarity']) ...[
                 PackCard(packId: id),
                 const SizedBox(height: 12),
               ],

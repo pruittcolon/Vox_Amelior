@@ -50,8 +50,9 @@ List<PackFile> _files(String pack, {Set<String>? only}) => [
 final voicePacks = <String, VoicePack>{
   'kokoro': VoicePack(
     id: 'kokoro',
-    title: 'Kokoro voices',
-    summary: '54 natural voices: American, British and accented English. The main voice pack.',
+    title: 'Natural voices (Kokoro)',
+    summary: '54 human-sounding voices: American, British and accented English. The most natural free '
+        'voices that run on a phone, and the cast of the podcast characters. Start here.',
     license: 'Apache-2.0 (hexgrad/Kokoro-82M)',
     files: [..._files('kokoro', only: _kokoroShared), ..._files('kokoro-fp32', only: {'model.onnx'})],
     required: true,
@@ -69,8 +70,8 @@ final voicePacks = <String, VoicePack>{
   'supertonic': VoicePack(
     id: 'supertonic',
     title: 'Studio voices (Supertonic HD)',
-    summary: '10 studio-quality voices at full 44 kHz: the crispest and most natural in the app, '
-        'and the cast of the podcast characters. As fast as Kokoro.',
+    summary: '10 very crisp voices at full 44 kHz, with a flatter, more even delivery than Kokoro. '
+        'Switch the characters to them with Natural / Studio at the top of this tab.',
     license: 'OpenRAIL model (Supertone), MIT code',
     files: [
       ..._files('supertonic', only: {'tts.json', 'unicode_indexer.bin', 'voice.bin', 'LICENSE'}),

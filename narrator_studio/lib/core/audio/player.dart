@@ -154,9 +154,11 @@ class Player extends ChangeNotifier {
     final finished = _producerDone && _queue.isEmpty && pos >= _written - outputRate ~/ 50;
     var changed = false;
     if (u != current) {
+      final chapterBefore = session?.plan.chapterOf(current);
       current = u;
       changed = true;
       _saveSoon();
+      if (session?.plan.chapterOf(u) != chapterBefore) unawaited(_service());
     }
     final next = finished ? PlayState.ended : (starving ? PlayState.buffering : PlayState.playing);
     if (next != state) {
@@ -211,6 +213,23 @@ class Player extends ChangeNotifier {
 
   Future<void> next() => jump(current + 1);
   Future<void> previous() => jump(current - 1);
+
+  /// Headphone and notification skip: by chapter when the episode has them.
+  /// Back restarts the chapter unless you're at its start.
+  Future<void> nextChapter() async {
+    final plan = session?.plan;
+    if (plan == null || !plan.hasChapters) return next();
+    final here = plan.chapterOf(current)!;
+    if (here.index + 1 < plan.chapters.length) await jump(plan.chapters[here.index + 1].first);
+  }
+
+  Future<void> previousChapter() async {
+    final plan = session?.plan;
+    if (plan == null || !plan.hasChapters) return previous();
+    final here = plan.chapterOf(current)!;
+    final back = current > here.first + 1 || here.index == 0;
+    await jump(back ? here.first : plan.chapters[here.index - 1].first);
+  }
 
   /// Restarts from the current sentence with a rebuilt session (new voices,
   /// speed or style).
@@ -271,7 +290,9 @@ class Player extends ChangeNotifier {
       await native.serviceShow(
         kind: 'play',
         title: s.doc.title,
-        text: '${s.style.name} · sentence ${current + 1} of ${s.plan.utterances.length}',
+        text: s.plan.hasChapters
+            ? 'Chapter ${s.plan.chapterOf(current)!.index + 1} of ${s.plan.chapters.length} · ${s.plan.chapterOf(current)!.title}'
+            : '${s.style.name} · sentence ${current + 1} of ${s.plan.utterances.length}',
         playing: state != PlayState.paused,
       );
     } catch (_) {
@@ -286,9 +307,9 @@ class Player extends ChangeNotifier {
       case 'pause':
         unawaited(pause());
       case 'next':
-        unawaited(next());
+        unawaited(nextChapter());
       case 'previous':
-        unawaited(previous());
+        unawaited(previousChapter());
       case 'stop':
         unawaited(stop());
     }

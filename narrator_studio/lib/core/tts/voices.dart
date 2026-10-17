@@ -180,16 +180,22 @@ class Character {
     required this.blurb,
     this.speed = 1.0,
     this.fallbackVoiceId,
+    this.studioVoiceId,
   });
 
   final String id;
   final String name;
+
+  /// The natural voice: the most human-sounding one for the part.
   final String voiceId;
   final String blurb;
   final double speed;
 
   /// Used when [voiceId]'s pack (or clip) isn't downloaded.
   final String? fallbackVoiceId;
+
+  /// The part's voice in the Studio set (Supertonic: crisper, flatter).
+  final String? studioVoiceId;
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -208,70 +214,75 @@ class Character {
       );
 }
 
-/// Voices chosen with the voice lab (tool/lab/voicelab.py: UTMOS and NISQA
-/// scores): the Supertonic studio voices first, with the best-scoring Kokoro
-/// voice for the part as the stand-in when Supertonic isn't downloaded.
+/// The voice sets: "natural" (Kokoro, the most human-sounding voices, and
+/// the default) or "studio" (Supertonic HD: crisper, but flatter delivery).
+const voiceSets = ['natural', 'studio'];
+
+/// Kokoro voices with the highest grades from its authors (af_heart A,
+/// af_bella A-, bf_emma and af_nicole B-, am_michael and am_fenrir C+) carry
+/// the main parts; each has a Studio stand-in.
 const builtInCharacters = <Character>[
   Character(
     id: 'narrator',
     name: 'The Narrator',
-    voiceId: 'supertonic:F1',
-    fallbackVoiceId: 'kokoro:af_heart',
+    voiceId: 'kokoro:af_heart',
+    studioVoiceId: 'supertonic:F1',
     blurb: 'Warm and clear. Reads books beautifully.',
     speed: 0.97,
   ),
   Character(
     id: 'storyteller',
     name: 'The Storyteller',
-    voiceId: 'kokoro:bf_isabella',
+    voiceId: 'kokoro:bm_fable',
+    studioVoiceId: 'supertonic:M2',
     blurb: 'A British storyteller by the fire.',
     speed: 0.93,
   ),
   Character(
     id: 'professor',
     name: 'The Professor',
-    voiceId: 'supertonic:M3',
-    fallbackVoiceId: 'kokoro:bm_george',
+    voiceId: 'kokoro:bm_george',
+    studioVoiceId: 'supertonic:M3',
     blurb: 'Distinguished and thoughtful. Explains big ideas slowly.',
     speed: 0.92,
   ),
   Character(
     id: 'sage',
     name: 'The Old Sage',
-    voiceId: 'supertonic:M5',
-    fallbackVoiceId: 'kokoro:am_adam',
+    voiceId: 'kokoro:am_onyx',
+    studioVoiceId: 'supertonic:M5',
     blurb: 'Deep, unhurried, a little gravelly. For a wise guest.',
     speed: 0.88,
   ),
   Character(
     id: 'host',
     name: 'Radio Host',
-    voiceId: 'supertonic:M1',
-    fallbackVoiceId: 'kokoro:am_fenrir',
+    voiceId: 'kokoro:am_michael',
+    studioVoiceId: 'supertonic:M1',
     blurb: 'Friendly, upbeat podcast host.',
     speed: 1.02,
   ),
   Character(
     id: 'cohost',
     name: 'Co-Host',
-    voiceId: 'supertonic:F2',
-    fallbackVoiceId: 'kokoro:af_sarah',
+    voiceId: 'kokoro:af_bella',
+    studioVoiceId: 'supertonic:F2',
     blurb: 'Bright and curious; asks the questions listeners would.',
     speed: 1.02,
   ),
   Character(
     id: 'explorer',
     name: 'The Explorer',
-    voiceId: 'supertonic:M4',
-    fallbackVoiceId: 'kokoro:am_fenrir',
+    voiceId: 'kokoro:am_fenrir',
+    studioVoiceId: 'supertonic:M4',
     blurb: 'Bold and adventurous. Documentaries and expeditions.',
     speed: 0.98,
   ),
   Character(
     id: 'anchor',
     name: 'News Anchor',
-    voiceId: 'supertonic:F5',
-    fallbackVoiceId: 'kokoro:af_kore',
+    voiceId: 'kokoro:bf_emma',
+    studioVoiceId: 'supertonic:F5',
     blurb: 'Polished and precise.',
     speed: 1.04,
   ),
@@ -285,8 +296,8 @@ const builtInCharacters = <Character>[
   Character(
     id: 'night',
     name: 'Night Reader',
-    voiceId: 'supertonic:F3',
-    fallbackVoiceId: 'kokoro:af_aoede',
+    voiceId: 'kokoro:af_nicole',
+    studioVoiceId: 'supertonic:F3',
     blurb: 'Soft and close. For winding down.',
     speed: 0.9,
   ),
@@ -294,6 +305,7 @@ const builtInCharacters = <Character>[
     id: 'student',
     name: 'The Student',
     voiceId: 'kokoro:af_sky',
+    studioVoiceId: 'supertonic:F4',
     blurb: 'Young and curious.',
     speed: 1.0,
   ),

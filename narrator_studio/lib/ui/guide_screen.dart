@@ -14,15 +14,20 @@ class GuideScreen extends StatelessWidget {
 title: Why Is the Sky Blue?
 style: podcast
 music: curious
+summary: Why sunlight turns the sky blue.
+topics: physics, light
 voices:
   HOST: Radio Host
   GUEST: The Professor
+index:
+  - Welcome | Today's question, and our guest.
+  - Sunlight is a mixture | White light holds every colour.
 ---
 
 HOST: Welcome back to Curious Minds!
 GUEST: Thanks for having me.
 
-## Part 1: Sunlight is a mixture
+## Sunlight is a mixture
 HOST: So where does the blue come from?
 [pause 1]
 GUEST: It's already in the sunlight...
@@ -59,8 +64,12 @@ HOST: That's all for today.''';
           Card(child: Padding(padding: const EdgeInsets.all(14), child: SelectableText(_example, style: mono))),
           h('Marks'),
           row('---  ...  ---', 'Optional header: title, style, music and which character voices each speaker.'),
+          row('summary:', 'One or two sentences about the episode. Shown under the title and in the library.'),
+          row('topics:', 'Subjects, comma separated. The library sorts your episodes by them.'),
+          row('index:', 'One line per chapter, "Title | summary", in order (the opening first). The app shows them '
+              'as chapters you can jump to, with exact times in the chapter list after an export.'),
           row('HOST: text', 'A line spoken by HOST. Tags are capitals (or **Bold:**). Untagged text is the narrator.'),
-          row('## Title', 'A section. Read aloud in audiobook, lecture, story and briefing styles; a transition sound in podcasts.'),
+          row('## Title', 'A chapter. Read aloud in audiobook, lecture, story and briefing styles; a transition sound in podcasts.'),
           row('[pause 2]', 'Silence, in seconds (also [pause 500ms]).'),
           row('[sound: chime]', 'A cue: chime, ding, whoosh or pop.'),
           row('[music: intro]', 'Music: intro, outro or stop. With music on, intro and outro happen automatically.'),

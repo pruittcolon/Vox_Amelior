@@ -9,6 +9,7 @@ import 'package:narrator_studio/core/app_state.dart';
 import 'package:narrator_studio/core/audio/exporter.dart';
 import 'package:narrator_studio/core/audio/player.dart';
 import 'package:narrator_studio/core/library/importer.dart';
+import 'package:narrator_studio/core/library/library.dart';
 import 'package:narrator_studio/core/library/settings.dart';
 import 'package:narrator_studio/core/models/catalog.dart';
 import 'package:narrator_studio/core/models/model_store.dart';
@@ -51,13 +52,17 @@ void main() {
       }
       expect(supertonicVoices, hasLength(10));
       for (final c in builtInCharacters) {
-        expect(c.voiceId, anyOf(startsWith('kokoro:'), startsWith('gallery:'), startsWith('supertonic:')), reason: c.id);
-        // Every Supertonic or Gallery character has a Kokoro stand-in.
+        // The natural voice is Kokoro (or a Gallery clip with a Kokoro stand-in).
+        expect(c.voiceId, anyOf(startsWith('kokoro:'), startsWith('gallery:')), reason: c.id);
         if (!c.voiceId.startsWith('kokoro:')) expect(c.fallbackVoiceId, startsWith('kokoro:'), reason: c.id);
-        for (final id in [c.voiceId, ?c.fallbackVoiceId]) {
+        if (c.studioVoiceId != null) expect(c.studioVoiceId, startsWith('supertonic:'), reason: c.id);
+        for (final id in [c.voiceId, ?c.fallbackVoiceId, ?c.studioVoiceId]) {
           if (!id.startsWith('gallery:')) expect([...kokoroVoices, ...supertonicVoices].any((v) => v.id == id), isTrue, reason: id);
         }
       }
+      // The main parts go to Kokoro's highest-graded voices.
+      expect(builtInCharacters.firstWhere((c) => c.id == 'narrator').voiceId, 'kokoro:af_heart');
+      expect(builtInCharacters.firstWhere((c) => c.id == 'cohost').voiceId, 'kokoro:af_bella');
     });
   });
 
@@ -161,13 +166,22 @@ void main() {
       expect(app.matchRef('nobody at all'), isNull);
     });
 
-    test('missing packs fall back, and no packs at all is a clear error', () async {
-      final (app, _, _, _) = await makeApp(packs: ['supertonic']);
-      expect(app.resolve('char:professor').voice.id, 'supertonic:M3');
-      expect(app.resolve('char:storyteller').voice.id, 'supertonic:F1', reason: 'a Kokoro-only character falls back');
+    test('natural voices by default, Studio with one switch, missing packs fall back', () async {
       final (both, _, _, _) = await makeApp(packs: ['kokoro', 'supertonic']);
+      expect(both.settings.voiceSet, 'natural');
+      expect(both.resolve('char:host').voice.id, 'kokoro:am_michael');
+      expect(both.resolve('char:professor').voice.id, 'kokoro:bm_george');
+      await both.settings.update((s) => s.voiceSet = 'studio');
       expect(both.resolve('char:host').voice.id, 'supertonic:M1');
-      expect(both.resolve('char:storyteller').voice.id, 'kokoro:bf_isabella');
+      expect(both.resolve('char:professor').voice.id, 'supertonic:M3');
+      expect(both.resolve('char:reporter').voice.id, 'kokoro:am_puck', reason: 'no Studio voice for this part');
+
+      final (studioOnly, _, _, _) = await makeApp(packs: ['supertonic']);
+      expect(studioOnly.resolve('char:professor').voice.id, 'supertonic:M3', reason: 'natural set, but only Studio downloaded');
+      expect(studioOnly.resolve('char:reporter').voice.id, 'supertonic:F1', reason: 'a Kokoro-only character falls back');
+      final (kokoroOnly, _, _, _) = await makeApp(packs: ['kokoro']);
+      await kokoroOnly.settings.update((s) => s.voiceSet = 'studio');
+      expect(kokoroOnly.resolve('char:host').voice.id, 'kokoro:am_michael', reason: 'Studio chosen, not downloaded');
       final (bare, _, _, _) = await makeApp(packs: []);
       expect(() => bare.resolve('char:narrator'), throwsA(isA<NoVoicesError>()));
     });
@@ -275,6 +289,60 @@ void main() {
       expect(player.state, PlayState.idle);
       expect(doc.position, greaterThanOrEqualTo(10));
       player.dispose();
+    });
+  });
+
+  group('chapters', () {
+    test('the library learns the summary, topics and chapters when a script opens', () async {
+      final (app, _, _, _) = await makeApp();
+      final doc = await app.library.add(title: 'Sky', kind: 'pasted', text: samplePodcast);
+      await app.openSession(doc);
+      expect(doc.summary, startsWith('Why sunlight'));
+      expect(doc.topics, ['science', 'physics', 'light']);
+      expect(doc.chapters, 4);
+      final again = Doc.fromJson(jsonDecode(jsonEncode(doc.toJson())) as Map<String, Object?>);
+      expect(again.topics, doc.topics);
+      expect(again.chapters, 4);
+    });
+
+    test('headphone skip goes by chapter; back restarts the chapter first', () async {
+      final (app, _, native, _) = await makeApp();
+      native.timeScale = 1;
+      final doc = await app.library.add(title: 'Sky', kind: 'pasted', text: samplePodcast);
+      final s = await app.openSession(doc);
+      final chapters = s.plan.chapters;
+      final player = Player(app, native);
+      await player.play(s);
+      await player.pause();
+      native.media.add('next');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(player.current, chapters[1].first);
+      await player.jump(chapters[1].first + 3);
+      native.media.add('previous');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(player.current, chapters[1].first, reason: 'back to the start of this chapter');
+      native.media.add('previous');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(player.current, 0, reason: 'then the chapter before');
+      expect(native.serviceText, contains('Chapter 1 of 4'));
+      await player.stop();
+      player.dispose();
+    });
+
+    test('an export records exactly where each chapter starts', () async {
+      final (app, _, native, _) = await makeApp();
+      final doc = await app.library.add(title: 'Sky', kind: 'pasted', text: samplePodcast);
+      final s = await app.openSession(doc);
+      final exporter = Exporter(app, native);
+      await exporter.export(s);
+      expect(exporter.state, ExportState.done);
+      expect(exporter.chapters.map((c) => c.title), s.plan.chapters.map((c) => c.title));
+      expect(exporter.chapters.first.start, Duration.zero);
+      for (var i = 1; i < exporter.chapters.length; i++) {
+        expect(exporter.chapters[i].start, greaterThan(exporter.chapters[i - 1].start));
+      }
+      expect(exporter.chapters.last.start, lessThan(exporter.length));
+      expect(exporter.chaptersInFile, isFalse, reason: 'the fake encoder writes a WAV, not an MP4');
     });
   });
 

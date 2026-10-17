@@ -1,14 +1,37 @@
 /// Two short originals so there is something to play straight away.
 library;
 
+/// A sample added before scripts had an index gets the new version, unless
+/// it was edited since. Returns null when there is nothing to upgrade.
+String? upgradedSample(String stored) {
+  for (final s in [samplePodcast, sampleAudiobook]) {
+    if (stored != s && stored == _withoutIndex(s)) return s;
+  }
+  return null;
+}
+
+String _withoutIndex(String s) {
+  final t = s
+      .replaceAll(RegExp(r'^(?:summary|topics):.*\n', multiLine: true), '')
+      .replaceAll(RegExp(r'^index:\n(?:  .*\n)*', multiLine: true), '');
+  return t.startsWith('---\n---\n') ? t.substring(8) : t;
+}
+
 const samplePodcast = '''---
 title: Why Is the Sky Blue?
 style: podcast
 music: curious
+summary: Why sunlight turns the sky blue, why it isn't violet, and why sunsets glow orange.
+topics: science, physics, light
 voices:
   HOST: Radio Host
   CO-HOST: Co-Host
   GUEST: The Professor
+index:
+  - Welcome | Meet the hosts and today's everyday question, with a guest who has spent a lifetime studying light.
+  - Sunlight is a mixture | White light is every colour mixed together. The sky doesn't make blue; it sorts it.
+  - The scattering trick | Air molecules scatter blue light about five times more than red, and that's why the sky isn't violet.
+  - Sunsets | At sunset light crosses far more air, so the blue is scattered away and the reds are left.
 ---
 
 HOST: Welcome to Curious Minds, the show where we take one everyday question and chase it all the way down. I'm your host.
@@ -62,7 +85,14 @@ CO-HOST: Next time on Curious Minds: why the ocean is blue. Spoiler, it's not ju
 HOST: Thanks for listening, and stay curious.
 ''';
 
-const sampleAudiobook = '''# The Library That Remembered Everything
+const sampleAudiobook = '''---
+summary: The rise and slow fading of the Library of Alexandria, and the idea that outlived it.
+topics: history, books
+index:
+  - A City of Books | How Alexandria set out to gather every book in the world, and copied scrolls from passing ships.
+  - What Was Lost | Not one great fire but a slow fading, and how the library's dream lives on in every search box.
+---
+# The Library That Remembered Everything
 
 ## Chapter One: A City of Books
 
