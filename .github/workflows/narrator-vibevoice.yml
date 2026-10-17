@@ -13,6 +13,8 @@ on:
       - 'narrator_studio/lib/core/tts/vibevoice.dart'
       - 'narrator_studio/lib/core/tts/bpe.dart'
       - '.github/workflows/narrator-vibevoice.yml'
+permissions:
+  contents: write
 concurrency:
   group: narrator-vibevoice
   cancel-in-progress: true
@@ -48,17 +50,36 @@ jobs:
         run: |
           flutter pub get
           dart run tool/vibevoice_check.dart --pack "$RUNNER_TEMP/pack" --check "$RUNNER_TEMP/check"
+      - name: Shrink for the phone, measuring what each saving costs
+        run: >
+          python3 narrator_studio/tool/vibevoice/shrink.py --pack "$RUNNER_TEMP/pack" --check "$RUNNER_TEMP/check"
+          --out "$RUNNER_TEMP/ship" --work "$RUNNER_TEMP/variants"
+      - name: The Dart port on the pack the phone gets (and how fast)
+        working-directory: narrator_studio
+        run: dart run tool/vibevoice_check.dart --pack "$RUNNER_TEMP/ship" --check "$RUNNER_TEMP/check" --loose
+      - name: Publish to the app's download release
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/narrator-studio'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf "$RUNNER_TEMP/pack" "$RUNNER_TEMP/variants"
+          gh release download narrator-models -p manifest.json -D "$RUNNER_TEMP/m" -R "$GITHUB_REPOSITORY"
+          python3 narrator_studio/tool/vibevoice/publish.py --pack "$RUNNER_TEMP/ship" --manifest "$RUNNER_TEMP/m/manifest.json" --out "$RUNNER_TEMP/stage"
+          cd "$RUNNER_TEMP/stage"
+          for f in vibevoice--*; do gh release upload narrator-models --clobber "$f" -R "$GITHUB_REPOSITORY"; done
+          gh release upload narrator-models --clobber manifest.json -R "$GITHUB_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vibevoice-manifest
+          path: ${{ runner.temp }}/stage/manifest.json
+          if-no-files-found: ignore
       - name: Sizes
         if: always()
-        run: du -ah "$RUNNER_TEMP/pack" | sort -h | tail -30
+        run: du -ah "$RUNNER_TEMP/ship" | sort -h | tail -30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: vibevoice-check
           path: ${{ runner.temp }}/check
           if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vibevoice-pack
-          path: ${{ runner.temp }}/pack
-          retention-days: 7
