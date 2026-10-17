@@ -47,7 +47,8 @@ jobs:
               pip install --quiet --extra-index-url "$CPU_TORCH" torch soprano-tts soundfile librosa ;;
             neutts)
               sudo apt-get install -y -qq espeak-ng > /dev/null
-              pip install --quiet --extra-index-url "$CPU_TORCH" torch neutts soundfile librosa
+              # neucodec imports torchtune, which needs a torchao that still has nf4tensor.
+              pip install --quiet --extra-index-url "$CPU_TORCH" torch==2.7.1 torchao==0.11.0 torchtune==0.6.1 neutts soundfile librosa
               git clone --depth 1 https://github.com/neuphonic/neutts "$RUNNER_TEMP/neutts" ;;
             vibevoice)
               git clone --depth 1 https://github.com/microsoft/VibeVoice "$RUNNER_TEMP/VibeVoice"

@@ -185,8 +185,11 @@ def run_chatterbox(a, out):
 
     def graph(name, dtype):
         f = f"{name}{'' if dtype == 'fp32' else '_quantized' if dtype == 'q8' else f'_{dtype}'}.onnx"
-        path = hf_hub_download(repo, subfolder="onnx", filename=f)
-        data = hf_hub_download(repo, subfolder="onnx", filename=f"{f}_data")
+        # Real files side by side: ONNX Runtime refuses weights that live
+        # elsewhere (the Hugging Face cache keeps them as blob symlinks).
+        local = os.path.join(os.path.expanduser("~"), "chatterbox-turbo")
+        path = hf_hub_download(repo, subfolder="onnx", filename=f, local_dir=local)
+        data = hf_hub_download(repo, subfolder="onnx", filename=f"{f}_data", local_dir=local)
         sizes[(dtype, name)] = os.path.getsize(path) + os.path.getsize(data)
         return path
 
@@ -316,8 +319,6 @@ def run_vibevoice(a, out):
     import copy
 
     import torch
-    from transformers.cache_utils import DynamicCache
-    from transformers.modeling_outputs import BaseModelOutputWithPast
     from vibevoice.modular.modeling_vibevoice_streaming_inference import (
         VibeVoiceStreamingForConditionalGenerationInference,
     )
@@ -336,8 +337,8 @@ def run_vibevoice(a, out):
     voices = {"HOST": "en-Carter_man", "CO-HOST": "en-Emma_woman", "GUEST": "en-Frank_man"}
     prompts = {}
     for spk, v in voices.items():
-        with torch.serialization.safe_globals([BaseModelOutputWithPast, DynamicCache]):
-            prompts[spk] = torch.load(os.path.join(a.vibevoice_voices, v + ".pt"), map_location="cpu", weights_only=True)
+        # Microsoft's own voice prompts from the official repo (pickled caches).
+        prompts[spk] = torch.load(os.path.join(a.vibevoice_voices, v + ".pt"), map_location="cpu", weights_only=False)
     pieces, total = [], 0.0
     for spk, text in LINES:
         t1 = time.time()
