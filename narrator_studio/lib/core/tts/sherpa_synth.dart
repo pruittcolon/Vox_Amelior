@@ -47,7 +47,7 @@ class EngineSetup {
 // 8 is best quality at half the work of 16.
 const supertonicBestSteps = 8;
 const pocketBestSteps = 10;
-const pocketBestTemperature = 0.7;
+const pocketBestTemperature = 0.5; // the voice lab: steadier, more natural clones
 
 class SherpaSynth implements Synth {
   SherpaSynth(this.setup);
