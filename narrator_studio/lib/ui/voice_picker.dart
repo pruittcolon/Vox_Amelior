@@ -57,15 +57,13 @@ class _VoicePickerScreenState extends State<VoicePickerScreen> {
                 itemBuilder: (context, i) {
                   final c = characters[i];
                   final ref = 'char:${c.id}';
-                  final voice = app.voiceById(c.voiceId);
-                  final ready = voice != null && app.isAvailable(voice);
                   VoiceSpec? spec;
                   try {
                     spec = app.resolve(ref);
                   } catch (_) {}
                   return VoiceTile(
                     title: c.name,
-                    subtitle: ready ? c.blurb : '${c.blurb} (not downloaded: uses a stand-in voice)',
+                    subtitle: spec == null ? '${c.blurb} (download a voice pack first)' : '${c.blurb} Voice: ${spec.voice.name}.',
                     selected: widget.current == ref,
                     voice: spec?.voice,
                     speed: spec?.speed ?? 1.0,

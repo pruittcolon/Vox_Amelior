@@ -29,11 +29,8 @@ class VoiceSetSwitch extends StatelessWidget {
     final app = context.app;
     final set = app.settings.voiceSet;
     final text = Theme.of(context).textTheme;
-    final missing = switch (set) {
-      'studio' => !app.models.isInstalled('supertonic'),
-      'lifelike' => !app.models.isInstalled('vibevoice'),
-      _ => !app.hasKokoro,
-    };
+    final missing = !app.hasVoiceSet(set);
+    final active = app.activeVoiceSet;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -61,11 +58,8 @@ class VoiceSetSwitch extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'Download ${switch (set) {
-                'studio' => 'Studio voices (Supertonic HD)',
-                'lifelike' => 'Lifelike voices (VibeVoice)',
-                _ => 'Kokoro',
-              }} in the Voices tab; until then the natural voices read.',
+              'Download the ${_packName(set)} in the Voices tab'
+              '${active != set && app.hasVoiceSet(active) ? '; until then the ${_packName(active)} read.' : '.'}',
               style: text.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
           ),
@@ -74,8 +68,14 @@ class VoiceSetSwitch extends StatelessWidget {
   }
 }
 
+String _packName(String set) => switch (set) {
+      'studio' => 'Studio voices (Supertonic HD)',
+      'lifelike' => 'Lifelike voices (VibeVoice)',
+      _ => 'Natural voices (Kokoro)',
+    };
+
 /// A short name for the voice set in use.
-String voiceSetName(AppState app) => switch (app.settings.voiceSet) {
+String voiceSetName(AppState app) => switch (app.activeVoiceSet) {
       'studio' => 'Studio voices',
       'lifelike' => 'Lifelike voices',
       _ => 'Natural voices',

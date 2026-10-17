@@ -97,7 +97,21 @@ class AppState extends ChangeNotifier {
   bool get hasKokoro => models.isInstalled('kokoro') || models.isInstalled('kokoro-lite');
 
   /// True once any voice pack is ready.
-  bool get hasAnyVoices => hasKokoro || models.isInstalled('supertonic');
+  bool get hasAnyVoices => hasKokoro || models.isInstalled('supertonic') || models.isInstalled('vibevoice');
+
+  bool hasVoiceSet(String set) => switch (set) {
+        'studio' => models.isInstalled('supertonic'),
+        'lifelike' => models.isInstalled('vibevoice'),
+        _ => hasKokoro,
+      };
+
+  /// The set that actually speaks: the one you chose if it is downloaded,
+  /// else the first that is (so a phone with only the lifelike voices uses them).
+  String get activeVoiceSet {
+    final chosen = settings.voiceSet;
+    if (hasVoiceSet(chosen)) return chosen;
+    return voiceSets.where(hasVoiceSet).firstOrNull ?? chosen;
+  }
 
   /// The VibeVoice pack's folder, or '' when it is not downloaded.
   String get vibevoiceDir => models.isInstalled('vibevoice') ? models.packDir('vibevoice').path : '';
@@ -219,26 +233,45 @@ class AppState extends ChangeNotifier {
   }
 
   /// Turns a cast choice into a concrete, downloaded voice and speed.
-  VoiceSpec resolve(String ref, {double extraSpeed = 1.0}) {
+  ///
+  /// A character speaks with its voice in the active set. A voice named
+  /// directly (by a script) is swapped for one of the active set's voices of
+  /// the same gender, so one switch changes everyone; a voice you [pinned]
+  /// yourself stays. Anything missing falls back to a downloaded voice of the
+  /// same gender.
+  VoiceSpec resolve(String ref, {double extraSpeed = 1.0, bool pinned = false}) {
+    final set = activeVoiceSet;
     var speed = 1.0;
-    String voiceId = ref;
-    String? fallback;
-    String? studio;
-    String? lifelike;
+    final candidates = <String>[];
+    String? gender;
     if (ref.startsWith('char:')) {
       final c = characterById(ref.substring(5)) ?? builtInCharacters.first;
       speed = c.speed;
-      voiceId = c.voiceId;
-      fallback = c.fallbackVoiceId;
-      studio = c.studioVoiceId;
-      lifelike = c.lifelikeVoiceId;
+      final inSet = switch (set) {
+        'studio' => c.studioVoiceId,
+        'lifelike' => c.lifelikeVoiceId,
+        _ => c.voiceId,
+      };
+      candidates.addAll([?inSet, c.voiceId, ?c.fallbackVoiceId, ?c.studioVoiceId, ?c.lifelikeVoiceId]);
+      gender = genderOf(inSet ?? c.voiceId) ?? genderOf(c.fallbackVoiceId ?? '');
+    } else {
+      gender = genderOf(ref);
+      final v = voiceById(ref);
+      final ownEngine = v?.engine;
+      final setEngine = setEngines[set];
+      if (!pinned && gender != null && ownEngine != setEngine && _isSetEngine(ownEngine)) {
+        final pool = setVoices[set]![gender]!;
+        candidates.add(pool[_stableHash(ref) % pool.length]);
+      }
+      candidates.add(ref);
     }
-    // The chosen set first; the natural voices stand in when its pack is missing.
-    final candidates = switch (settings.voiceSet) {
-      'studio' when studio != null => [studio, voiceId, ?fallback, 'supertonic:F1', 'kokoro:af_heart'],
-      'lifelike' when lifelike != null => [lifelike, voiceId, ?fallback, ?studio, 'kokoro:af_heart', 'supertonic:F1'],
-      _ => [voiceId, ?fallback, ?studio, 'kokoro:af_heart', 'supertonic:F1', 'supertonic:M1'],
-    };
+    final g = gender ?? 'f';
+    for (final s in [set, ...voiceSets]) {
+      candidates.add(setVoices[s]![g]!.first);
+    }
+    for (final s in voiceSets) {
+      candidates.add(setVoices[s]![g == 'f' ? 'm' : 'f']!.first);
+    }
     for (final id in candidates) {
       final v = voiceById(id);
       if (v != null && isAvailable(v)) {
@@ -246,6 +279,16 @@ class AppState extends ChangeNotifier {
       }
     }
     throw NoVoicesError();
+  }
+
+  static bool _isSetEngine(Engine? e) => e == Engine.kokoro || e == Engine.supertonic || e == Engine.vibevoice;
+
+  static int _stableHash(String s) {
+    var h = 0;
+    for (final c in s.codeUnits) {
+      h = (h * 31 + c) & 0x3fffffff;
+    }
+    return h;
   }
 
   /// Voices given to speakers nobody assigned, so each sounds different.
@@ -295,7 +338,12 @@ class AppState extends ChangeNotifier {
     final refs = castRefs(doc, script, style);
     final userSpeed = doc.speed ?? settings.speed;
     final cast = <String?, VoiceSpec>{
-      for (final e in refs.entries) e.key: resolve(e.value, extraSpeed: style.speed * userSpeed),
+      for (final e in refs.entries)
+        e.key: resolve(
+          e.value,
+          extraSpeed: style.speed * userSpeed,
+          pinned: e.key == null ? doc.narrator != null : doc.cast.containsKey(e.key),
+        ),
     };
     final chapters = plan.hasChapters ? plan.chapters.length : 0;
     if (doc.utterances != plan.utterances.length ||

@@ -66,6 +66,12 @@ class _CastSheetState extends State<_CastSheet> {
     nav.pop(_changed);
   }
 
+  /// A voice you chose yourself (here or before) is never swapped by the voice set.
+  bool _pinned(String? speaker) {
+    final doc = widget.session.doc;
+    return _picked.contains(speaker) || (speaker == null ? doc.narrator != null : doc.cast.containsKey(speaker));
+  }
+
   Future<void> _pick(String? speaker) async {
     final ref = await pickVoice(context, title: 'Voice for ${speaker ?? 'the narrator'}', current: _refs[speaker]);
     if (ref == null) return;
@@ -149,9 +155,15 @@ class _CastSheetState extends State<_CastSheet> {
                 onChanged: () => setState(() => _changed = true),
               ),
               const SizedBox(height: 4),
-              _CastRow(label: 'Narrator', colorIndex: -1, ref: _refs[null]!, onTap: () => _pick(null)),
+              _CastRow(label: 'Narrator', colorIndex: -1, ref: _refs[null]!, pinned: _pinned(null), onTap: () => _pick(null)),
               for (var i = 0; i < speakers.length; i++)
-                _CastRow(label: speakers[i], colorIndex: i, ref: _refs[speakers[i]] ?? _refs[null]!, onTap: () => _pick(speakers[i])),
+                _CastRow(
+                  label: speakers[i],
+                  colorIndex: i,
+                  ref: _refs[speakers[i]] ?? _refs[null]!,
+                  pinned: _pinned(speakers[i]),
+                  onTap: () => _pick(speakers[i]),
+                ),
               const SizedBox(height: 8),
               Text(
                 'Tip: name voices in the script header (voices: HOST: Radio Host) so they stick when you re-import.',
@@ -176,10 +188,11 @@ class _CastSheetState extends State<_CastSheet> {
 }
 
 class _CastRow extends StatelessWidget {
-  const _CastRow({required this.label, required this.colorIndex, required this.ref, required this.onTap});
+  const _CastRow({required this.label, required this.colorIndex, required this.ref, required this.pinned, required this.onTap});
   final String label;
   final int colorIndex;
   final String ref;
+  final bool pinned;
   final VoidCallback onTap;
 
   @override
@@ -187,7 +200,7 @@ class _CastRow extends StatelessWidget {
     final app = context.app;
     String detail = '';
     try {
-      detail = app.resolve(ref).voice.name;
+      detail = app.resolve(ref, pinned: pinned).voice.name;
     } catch (_) {}
     final name = app.refName(ref);
     return ListTile(

@@ -263,7 +263,7 @@ class _ErrorView extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text(noVoices ? 'Go to the Voices tab and download Kokoro (or Supertonic).' : '$error', textAlign: TextAlign.center),
+            Text(noVoices ? 'Go to the Voices tab and download a voice pack: Natural, Studio or Lifelike.' : '$error', textAlign: TextAlign.center),
             const SizedBox(height: 16),
             FilledButton(onPressed: onRetry, child: const Text('Try again')),
           ],

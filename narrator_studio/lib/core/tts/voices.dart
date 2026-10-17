@@ -193,6 +193,40 @@ final List<Voice> vibevoiceVoices = [
     ),
 ];
 
+/// 'f' or 'm' for a voice, when its name says so (Kokoro af_/am_..., Supertonic
+/// F1/M1..., VibeVoice's presets).
+String? genderOf(String voiceId) {
+  final i = voiceId.indexOf(':');
+  final engine = i < 0 ? '' : voiceId.substring(0, i);
+  final name = voiceId.substring(i + 1);
+  return switch (engine) {
+    'kokoro' when name.length > 2 && name[2] == '_' => name[1] == 'm' ? 'm' : 'f',
+    'supertonic' when name.isNotEmpty => name[0] == 'M' ? 'm' : 'f',
+    'vibevoice' => vibevoiceSpeakers[name]?.$2 == 'woman' ? 'f' : 'm',
+    _ => null,
+  };
+}
+
+/// The voices of one set's engine, by gender: what a speaker gets in that
+/// set when nothing more specific is known.
+const setVoices = <String, Map<String, List<String>>>{
+  'natural': {
+    'f': ['kokoro:af_heart', 'kokoro:af_bella', 'kokoro:bf_emma', 'kokoro:af_nicole'],
+    'm': ['kokoro:am_michael', 'kokoro:bm_george', 'kokoro:am_fenrir', 'kokoro:am_puck'],
+  },
+  'studio': {
+    'f': ['supertonic:F1', 'supertonic:F2', 'supertonic:F3', 'supertonic:F4', 'supertonic:F5'],
+    'm': ['supertonic:M1', 'supertonic:M2', 'supertonic:M3', 'supertonic:M4', 'supertonic:M5'],
+  },
+  'lifelike': {
+    'f': ['vibevoice:emma', 'vibevoice:grace'],
+    'm': ['vibevoice:carter', 'vibevoice:davis', 'vibevoice:frank', 'vibevoice:mike'],
+  },
+};
+
+/// The engine behind each voice set.
+const setEngines = {'natural': Engine.kokoro, 'studio': Engine.supertonic, 'lifelike': Engine.vibevoice};
+
 /// A character: a voice plus how it speaks. Scripts refer to these by name
 /// (`GUEST: The Professor`) and styles pick them for common roles.
 class Character {
@@ -327,6 +361,7 @@ const builtInCharacters = <Character>[
     name: 'Field Reporter',
     voiceId: 'kokoro:am_puck',
     lifelikeVoiceId: 'vibevoice:mike',
+    studioVoiceId: 'supertonic:M4',
     blurb: 'Lively, on-the-scene energy.',
     speed: 1.04,
   ),
@@ -352,6 +387,8 @@ const builtInCharacters = <Character>[
     id: 'maestro',
     name: 'Il Maestro',
     voiceId: 'kokoro:im_nicola',
+    studioVoiceId: 'supertonic:M2',
+    lifelikeVoiceId: 'vibevoice:davis',
     blurb: 'An Italian-flavored teacher of art and history.',
     speed: 0.93,
   ),
@@ -359,6 +396,8 @@ const builtInCharacters = <Character>[
     id: 'philosophe',
     name: 'La Philosophe',
     voiceId: 'kokoro:ff_siwis',
+    studioVoiceId: 'supertonic:F4',
+    lifelikeVoiceId: 'vibevoice:grace',
     blurb: 'A French-flavored philosopher.',
     speed: 0.94,
   ),
@@ -366,6 +405,8 @@ const builtInCharacters = <Character>[
     id: 'santa',
     name: 'Jolly Old Man',
     voiceId: 'kokoro:am_santa',
+    studioVoiceId: 'supertonic:M5',
+    lifelikeVoiceId: 'vibevoice:frank',
     blurb: 'Booming and merry.',
     speed: 0.95,
   ),
@@ -374,6 +415,8 @@ const builtInCharacters = <Character>[
     name: 'The Librarian',
     voiceId: 'gallery:voice-zero-caro-davy',
     fallbackVoiceId: 'kokoro:bf_isabella',
+    studioVoiceId: 'supertonic:F3',
+    lifelikeVoiceId: 'vibevoice:emma',
     blurb: 'A real LibriVox audiobook narrator (CC0). Needs the cloning pack.',
     speed: 1.0,
   ),
@@ -382,6 +425,8 @@ const builtInCharacters = <Character>[
     name: 'The Announcer',
     voiceId: 'gallery:alba-mackenna-announcer',
     fallbackVoiceId: 'kokoro:af_kore',
+    studioVoiceId: 'supertonic:F5',
+    lifelikeVoiceId: 'vibevoice:grace',
     blurb: 'Big announcer energy (voice-acted, CC-BY). Needs the cloning pack.',
     speed: 1.0,
   ),

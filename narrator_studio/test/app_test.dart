@@ -185,11 +185,14 @@ void main() {
       await both.settings.update((s) => s.voiceSet = 'studio');
       expect(both.resolve('char:host').voice.id, 'supertonic:M1');
       expect(both.resolve('char:professor').voice.id, 'supertonic:M3');
-      expect(both.resolve('char:reporter').voice.id, 'kokoro:am_puck', reason: 'no Studio voice for this part');
+      expect(both.resolve('char:reporter').voice.id, 'supertonic:M4');
+      expect(both.resolve('kokoro:bm_george').voice.engine, Engine.supertonic, reason: 'a voice named by a script follows the set');
+      expect(both.resolve('kokoro:bm_george', pinned: true).voice.id, 'kokoro:bm_george', reason: 'a voice you chose stays');
 
       final (studioOnly, _, _, _) = await makeApp(packs: ['supertonic']);
       expect(studioOnly.resolve('char:professor').voice.id, 'supertonic:M3', reason: 'natural set, but only Studio downloaded');
-      expect(studioOnly.resolve('char:reporter').voice.id, 'supertonic:F1', reason: 'a Kokoro-only character falls back');
+      expect(studioOnly.activeVoiceSet, 'studio');
+      expect(studioOnly.resolve('char:reporter').voice.id, 'supertonic:M4');
       final (kokoroOnly, _, _, _) = await makeApp(packs: ['kokoro']);
       await kokoroOnly.settings.update((s) => s.voiceSet = 'studio');
       expect(kokoroOnly.resolve('char:host').voice.id, 'kokoro:am_michael', reason: 'Studio chosen, not downloaded');
@@ -201,7 +204,24 @@ void main() {
       expect(life.resolve('char:host').voice.id, 'vibevoice:carter');
       expect(life.resolve('char:cohost').voice.id, 'vibevoice:grace');
       expect(life.resolve('char:narrator').voice.id, 'vibevoice:emma');
-      expect(life.resolve('char:maestro').voice.id, 'kokoro:im_nicola', reason: 'no lifelike voice for this part');
+      expect(life.resolve('char:maestro').voice.id, 'vibevoice:davis');
+      for (final c in builtInCharacters) {
+        expect(life.resolve('char:${c.id}').voice.engine, Engine.vibevoice, reason: '${c.id}: Lifelike is only VibeVoice');
+      }
+      expect(life.resolve('kokoro:bm_george').voice.engine, Engine.vibevoice);
+      expect(life.resolve('kokoro:af_heart').voice.id, 'vibevoice:emma');
+
+      // Only the lifelike voices downloaded: everything works with them alone.
+      final (onlyLife, _, _, _) = await makeApp(packs: ['vibevoice']);
+      expect(onlyLife.hasAnyVoices, isTrue);
+      expect(onlyLife.settings.voiceSet, 'natural');
+      expect(onlyLife.activeVoiceSet, 'lifelike');
+      expect(onlyLife.resolve('char:host').voice.id, 'vibevoice:carter');
+      expect(onlyLife.resolve('char:narrator').voice.id, 'vibevoice:emma');
+      expect(onlyLife.resolve('kokoro:bm_george', pinned: true).voice.engine, Engine.vibevoice, reason: 'not downloaded');
+      final doc = await onlyLife.library.add(title: 'x', kind: 'pasted', text: samplePodcast);
+      final session = await onlyLife.openSession(doc);
+      expect(session.cast.values.map((v) => v.voice.engine).toSet(), {Engine.vibevoice});
       final (noPack, _, _, _) = await makeApp(packs: ['kokoro']);
       await noPack.settings.update((s) => s.voiceSet = 'lifelike');
       expect(noPack.resolve('char:host').voice.id, 'kokoro:am_michael', reason: 'Lifelike chosen, not downloaded');
