@@ -214,7 +214,7 @@ Uint8List _u32(int v) => Uint8List(4)..buffer.asByteData().setUint32(0, v);
 
 Uint8List _box(String type, List<List<int>> parts) {
   final b = BytesBuilder()
-    ..add(_u32(8 + parts.fold(0, (a, p) => a + p.length)))
+    ..add(_u32(8 + parts.fold<int>(0, (a, p) => a + p.length)))
     ..add(ascii.encode(type));
   for (final p in parts) {
     b.add(p);

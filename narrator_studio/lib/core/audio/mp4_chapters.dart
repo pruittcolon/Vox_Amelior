@@ -329,7 +329,7 @@ bool _patchOffsets(Uint8List moov, int moovStart, int delta, int chapterTrack, i
 }
 
 Uint8List _chapterTrak(int id, List<int> durationsMs, List<int> sizes, {required int movieScale}) {
-  final totalMs = durationsMs.fold(0, (a, b) => a + b);
+  final totalMs = durationsMs.fold<int>(0, (a, b) => a + b);
   final n = durationsMs.length;
   const identity = [0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000];
   final tkhd = _full('tkhd', 0, 0x000002, [
@@ -391,7 +391,7 @@ final _textSampleEntry = Uint8List.fromList([
 const _encd = [0, 0, 0, 12, 0x65, 0x6E, 0x63, 0x64, 0, 0, 1, 0];
 
 Uint8List _box(String type, List<List<int>> parts) {
-  final size = 8 + parts.fold(0, (a, p) => a + p.length);
+  final size = 8 + parts.fold<int>(0, (a, p) => a + p.length);
   final b = BytesBuilder(copy: false)
     ..add(_u32(size))
     ..add(ascii.encode(type));
