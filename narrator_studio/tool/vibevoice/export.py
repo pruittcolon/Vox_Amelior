@@ -245,6 +245,16 @@ def main():
         {"noisy": {0: "b"}, "t": {0: "b"}, "cond": {0: "b"}, "v": {0: "b"}},
         os.path.join(a.out, "head.onnx"),
     )
+    # VibeVoice trims transposed-convolution output with an absolute end index
+    # (x.shape[-1] - right), which tracing would freeze at the example's
+    # length. Trimming from the end gives the same result for any length.
+    import vibevoice.modular.modular_vibevoice_tokenizer as vt
+
+    def unpad1d(x, paddings):
+        left, right = paddings
+        return x[..., left : (-right if right > 0 else None)]
+
+    vt.unpad1d = unpad1d
     decoder = Decoder(inner.acoustic_tokenizer).eval()
     export(
         decoder,
