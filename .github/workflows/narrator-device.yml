@@ -49,10 +49,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p ~/narrator-release && cd ~/narrator-release
-          if [ ! -s clarity--enhancer_backbone.onnx.data ]; then
+          if [ ! -s vibevoice--decoder.onnx.data ]; then
             gh release download narrator-models -R "$GITHUB_REPOSITORY" --clobber \
               -p 'kokoro-fp32--*' -p 'kokoro--*' -p 'pocket--*' -p 'pocket-fp32--*' -p 'supertonic--*' \
-              -p 'supertonic-fp32--*' -p 'clarity--*' -p 'gallery.json' -p 'voice--voice-zero-caro-davy.wav'
+              -p 'supertonic-fp32--*' -p 'clarity--*' -p 'vibevoice--*' -p 'gallery.json' -p 'voice--voice-zero-caro-davy.wav'
           fi
           ls -l
       - name: Test on the emulator
@@ -65,7 +65,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           cores: 4
-          ram-size: 6144M
+          ram-size: 8192M
           heap-size: 512M
           disk-size: 14G
           emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none -no-snapshot-save

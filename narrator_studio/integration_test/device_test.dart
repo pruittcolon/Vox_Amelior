@@ -56,6 +56,7 @@ void main() {
           pocketDir: a.models.packDir('pocket').path,
           kokoroVoicesFile: a.kokoroVoicesFile,
           clarityDir: a.clarityDir,
+          vibevoiceDir: a.vibevoiceDir,
           threads: a.settings.threads,
           best: a.settings.bestQuality,
         ),
@@ -71,7 +72,7 @@ void main() {
     await shot(tester, '01_first_launch');
 
     // 1. Downloads through the app's own downloader (sha256-checked).
-    for (final pack in ['kokoro', 'supertonic', 'pocket', 'clarity']) {
+    for (final pack in ['kokoro', 'supertonic', 'pocket', 'clarity', 'vibevoice']) {
       final watch = Stopwatch()..start();
       await models.install(pack);
       final st = models.status(pack);
@@ -115,6 +116,20 @@ void main() {
     log('supertonic HD: ${studioSecs.toStringAsFixed(2)}s audio in ${w.elapsedMilliseconds}ms '
         '(${(studioSecs / (w.elapsedMilliseconds / 1000)).toStringAsFixed(2)}x real time)');
     expect(studioSecs, greaterThan(2));
+
+    // The lifelike voices (VibeVoice, run by the app's own ONNX Runtime loop).
+    final emma = vibevoiceVoices.firstWhere((v) => v.id == 'vibevoice:emma');
+    w = Stopwatch()..start();
+    final life = await app.synth.speak(emma, 'Light from the sun looks white, but it is really a mixture of every colour.');
+    final lifeSecs = life.length / outputRate;
+    log('vibevoice (first sentence, loading included): ${lifeSecs.toStringAsFixed(2)}s audio in ${w.elapsedMilliseconds}ms');
+    w = Stopwatch()..start();
+    final life2 = await app.synth.speak(emma, 'So blue light gets bounced around the whole sky, and reaches your eyes from wherever you look.');
+    final life2Secs = life2.length / outputRate;
+    log('vibevoice: ${life2Secs.toStringAsFixed(2)}s audio in ${w.elapsedMilliseconds}ms '
+        '(${(life2Secs / (w.elapsedMilliseconds / 1000)).toStringAsFixed(2)}x real time)');
+    expect(lifeSecs, greaterThan(2));
+    expect(life2Secs, greaterThan(2));
 
     // British voices use espeak-ng's British English.
     for (final id in ['kokoro:bm_george', 'kokoro:bf_emma']) {

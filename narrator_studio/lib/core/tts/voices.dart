@@ -1,7 +1,7 @@
 /// Every voice the app can speak with, and the character presets built on them.
 library;
 
-enum Engine { kokoro, supertonic, pocket }
+enum Engine { kokoro, supertonic, pocket, vibevoice }
 
 extension EngineInfo on Engine {
   /// Voice pack that must be downloaded for this engine.
@@ -9,6 +9,7 @@ extension EngineInfo on Engine {
         Engine.kokoro => 'kokoro',
         Engine.supertonic => 'supertonic',
         Engine.pocket => 'pocket',
+        Engine.vibevoice => 'vibevoice',
       };
 }
 
@@ -170,6 +171,28 @@ final List<Voice> supertonicVoices = [
     ),
 ];
 
+/// VibeVoice-Realtime's English voices (Microsoft's presets, MIT).
+const vibevoiceSpeakers = <String, (String, String)>{
+  'carter': ('Carter', 'man'),
+  'davis': ('Davis', 'man'),
+  'emma': ('Emma', 'woman'),
+  'frank': ('Frank', 'man'),
+  'grace': ('Grace', 'woman'),
+  'mike': ('Mike', 'man'),
+};
+
+final List<Voice> vibevoiceVoices = [
+  for (final e in vibevoiceSpeakers.entries)
+    Voice(
+      id: 'vibevoice:${e.key}',
+      name: e.value.$1,
+      group: 'Lifelike',
+      blurb: 'Lifelike ${e.value.$2}\'s voice (VibeVoice): the most human-sounding in the app.',
+      engine: Engine.vibevoice,
+      license: 'MIT',
+    ),
+];
+
 /// A character: a voice plus how it speaks. Scripts refer to these by name
 /// (`GUEST: The Professor`) and styles pick them for common roles.
 class Character {
@@ -181,6 +204,7 @@ class Character {
     this.speed = 1.0,
     this.fallbackVoiceId,
     this.studioVoiceId,
+    this.lifelikeVoiceId,
   });
 
   final String id;
@@ -196,6 +220,9 @@ class Character {
 
   /// The part's voice in the Studio set (Supertonic: crisper, flatter).
   final String? studioVoiceId;
+
+  /// The part's voice in the Lifelike set (VibeVoice).
+  final String? lifelikeVoiceId;
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -214,9 +241,10 @@ class Character {
       );
 }
 
-/// The voice sets: "natural" (Kokoro, the most human-sounding voices, and
-/// the default) or "studio" (Supertonic HD: crisper, but flatter delivery).
-const voiceSets = ['natural', 'studio'];
+/// The voice sets: "natural" (Kokoro, human-sounding and fast; the default),
+/// "studio" (Supertonic HD: crisper, flatter) or "lifelike" (VibeVoice: the
+/// most human-sounding, and the slowest to make).
+const voiceSets = ['natural', 'studio', 'lifelike'];
 
 /// Kokoro voices with the highest grades from its authors (af_heart A,
 /// af_bella A-, bf_emma and af_nicole B-, am_michael and am_fenrir C+) carry
@@ -227,6 +255,7 @@ const builtInCharacters = <Character>[
     name: 'The Narrator',
     voiceId: 'kokoro:af_heart',
     studioVoiceId: 'supertonic:F1',
+    lifelikeVoiceId: 'vibevoice:emma',
     blurb: 'Warm and clear. Reads books beautifully.',
     speed: 0.97,
   ),
@@ -235,6 +264,7 @@ const builtInCharacters = <Character>[
     name: 'The Storyteller',
     voiceId: 'kokoro:bm_fable',
     studioVoiceId: 'supertonic:M2',
+    lifelikeVoiceId: 'vibevoice:davis',
     blurb: 'A British storyteller by the fire.',
     speed: 0.93,
   ),
@@ -243,6 +273,7 @@ const builtInCharacters = <Character>[
     name: 'The Professor',
     voiceId: 'kokoro:bm_george',
     studioVoiceId: 'supertonic:M3',
+    lifelikeVoiceId: 'vibevoice:frank',
     blurb: 'Distinguished and thoughtful. Explains big ideas slowly.',
     speed: 0.92,
   ),
@@ -251,6 +282,7 @@ const builtInCharacters = <Character>[
     name: 'The Old Sage',
     voiceId: 'kokoro:am_onyx',
     studioVoiceId: 'supertonic:M5',
+    lifelikeVoiceId: 'vibevoice:davis',
     blurb: 'Deep, unhurried, a little gravelly. For a wise guest.',
     speed: 0.88,
   ),
@@ -259,6 +291,7 @@ const builtInCharacters = <Character>[
     name: 'Radio Host',
     voiceId: 'kokoro:am_michael',
     studioVoiceId: 'supertonic:M1',
+    lifelikeVoiceId: 'vibevoice:carter',
     blurb: 'Friendly, upbeat podcast host.',
     speed: 1.02,
   ),
@@ -267,6 +300,7 @@ const builtInCharacters = <Character>[
     name: 'Co-Host',
     voiceId: 'kokoro:af_bella',
     studioVoiceId: 'supertonic:F2',
+    lifelikeVoiceId: 'vibevoice:grace',
     blurb: 'Bright and curious; asks the questions listeners would.',
     speed: 1.02,
   ),
@@ -275,6 +309,7 @@ const builtInCharacters = <Character>[
     name: 'The Explorer',
     voiceId: 'kokoro:am_fenrir',
     studioVoiceId: 'supertonic:M4',
+    lifelikeVoiceId: 'vibevoice:mike',
     blurb: 'Bold and adventurous. Documentaries and expeditions.',
     speed: 0.98,
   ),
@@ -283,6 +318,7 @@ const builtInCharacters = <Character>[
     name: 'News Anchor',
     voiceId: 'kokoro:bf_emma',
     studioVoiceId: 'supertonic:F5',
+    lifelikeVoiceId: 'vibevoice:emma',
     blurb: 'Polished and precise.',
     speed: 1.04,
   ),
@@ -290,6 +326,7 @@ const builtInCharacters = <Character>[
     id: 'reporter',
     name: 'Field Reporter',
     voiceId: 'kokoro:am_puck',
+    lifelikeVoiceId: 'vibevoice:mike',
     blurb: 'Lively, on-the-scene energy.',
     speed: 1.04,
   ),
@@ -298,6 +335,7 @@ const builtInCharacters = <Character>[
     name: 'Night Reader',
     voiceId: 'kokoro:af_nicole',
     studioVoiceId: 'supertonic:F3',
+    lifelikeVoiceId: 'vibevoice:emma',
     blurb: 'Soft and close. For winding down.',
     speed: 0.9,
   ),
@@ -306,6 +344,7 @@ const builtInCharacters = <Character>[
     name: 'The Student',
     voiceId: 'kokoro:af_sky',
     studioVoiceId: 'supertonic:F4',
+    lifelikeVoiceId: 'vibevoice:grace',
     blurb: 'Young and curious.',
     speed: 1.0,
   ),

@@ -13,6 +13,7 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as so;
 import '../render/audio.dart';
 import 'clarity.dart';
 import 'synth.dart';
+import 'vibevoice.dart';
 import 'voices.dart';
 
 /// Where each engine's files live and how hard to work.
@@ -23,6 +24,7 @@ class EngineSetup {
     required this.pocketDir,
     required this.kokoroVoicesFile,
     this.clarityDir = '',
+    this.vibevoiceDir = '',
     this.threads = 4,
     this.best = true,
   });
@@ -36,6 +38,9 @@ class EngineSetup {
 
   /// The Clarity upscaler's files, or '' to leave 24 kHz voices as they are.
   final String clarityDir;
+
+  /// The VibeVoice pack (lifelike voices), or '' when not downloaded.
+  final String vibevoiceDir;
   final int threads;
 
   /// Best quality: more refinement steps for Supertonic and Pocket TTS.
@@ -92,6 +97,7 @@ class SherpaSynth implements Synth {
       'pocketDir': s.pocketDir,
       'kokoroVoices': s.kokoroVoicesFile,
       'clarityDir': s.clarityDir,
+      'vibevoiceDir': s.vibevoiceDir,
       'threads': s.threads,
       'best': s.best,
     });
@@ -110,6 +116,7 @@ class SherpaSynth implements Synth {
       // English voice is called "en" (gmw/en); "en-gb" is not a voice name.
       'lang': voice.engine == Engine.kokoro && voice.id.startsWith('kokoro:b') ? 'en' : '',
       'ref': voice.refPath,
+      'voice': voice.id.contains(':') ? voice.id.split(':').last : voice.id,
       'speed': speed,
       'text': text,
     });
@@ -193,6 +200,8 @@ class _Worker {
   String? pocketKey;
   Clarity? clarity;
   String? clarityKey;
+  VibeVoice? vibevoice;
+  String? vibevoiceKey;
   final refs = <String, (Float32List, int)>{};
 
   void unloadKokoro() {
@@ -212,6 +221,9 @@ class _Worker {
     clarity?.free();
     clarity = null;
     clarityKey = null;
+    vibevoice?.free();
+    vibevoice = null;
+    vibevoiceKey = null;
     refs.clear();
   }
 
@@ -235,6 +247,20 @@ class _Worker {
     final sid = (m['sid']! as num).toInt();
     final threads = (m['threads']! as num).toInt();
     final best = m['best'] != false;
+    if (engine == 'vibevoice') {
+      final dir = (m['vibevoiceDir'] as String?) ?? '';
+      if (!VibeVoice.installedIn(dir)) throw StateError('Download the Lifelike voices (VibeVoice) first.');
+      final key = '$dir|$threads';
+      if (vibevoiceKey != key) {
+        vibevoice?.free();
+        vibevoice = VibeVoice(dir, threads: threads);
+        vibevoiceKey = key;
+      }
+      // VibeVoice has no speed control; it speaks at its own natural pace.
+      final pcm = vibevoice!.speak(m['voice']! as String, text);
+      if (pcm.isEmpty) throw StateError('The voice produced no audio for: "$text"');
+      return _finish(pcm, VibeVoice.sampleRate, m, threads);
+    }
     so.GeneratedAudio audio;
     switch (engine) {
       case 'kokoro':
@@ -349,12 +375,17 @@ class _Worker {
       default:
         throw StateError('Unknown engine $engine');
     }
-    var samples = audio.samples;
-    if (samples.isEmpty) throw StateError('The voice produced no audio for: "$text"');
-    if (audio.sampleRate != outputRate) samples = resample(samples, audio.sampleRate, outputRate);
+    if (audio.samples.isEmpty) throw StateError('The voice produced no audio for: "$text"');
+    return _finish(audio.samples, audio.sampleRate, m, threads);
+  }
+
+  /// To the output rate; a muffled 24 kHz voice gets its top octave back.
+  Float32List _finish(Float32List pcm, int rate, Map<String, Object?> m, int threads) {
+    var samples = pcm;
+    if (rate != outputRate) samples = resample(samples, rate, outputRate);
     // 24 kHz voices stop at 12 kHz; Clarity rebuilds the top octave.
     final clarityDir = (m['clarityDir'] as String?) ?? '';
-    if (audio.sampleRate == 24000 && outputRate == Clarity.rate && Clarity.installedIn(clarityDir)) {
+    if (rate == 24000 && outputRate == Clarity.rate && Clarity.installedIn(clarityDir)) {
       final key = '$clarityDir|$threads';
       if (clarityKey != key) {
         clarity?.free();

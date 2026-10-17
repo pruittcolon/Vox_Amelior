@@ -39,7 +39,7 @@ class VoicesScreen extends StatelessWidget {
               const VoiceSetSwitch(),
               const SizedBox(height: 20),
               const SectionLabel('Voice packs'),
-              for (final id in ['kokoro', 'supertonic', 'pocket', 'clarity']) ...[
+              for (final id in ['kokoro', 'supertonic', 'vibevoice', 'pocket', 'clarity']) ...[
                 PackCard(packId: id),
                 const SizedBox(height: 12),
               ],

@@ -78,6 +78,18 @@ final voicePacks = <String, VoicePack>{
       ..._files('supertonic-fp32'),
     ],
   ),
+  // Microsoft's VibeVoice-Realtime-0.5B, converted to ONNX in CI
+  // (tool/vibevoice, checked against the original) and run by the app's own
+  // loop (lib/core/tts/vibevoice.dart).
+  'vibevoice': VoicePack(
+    id: 'vibevoice',
+    title: 'Lifelike voices (VibeVoice)',
+    summary: 'Microsoft\'s VibeVoice: six English voices (Carter, Davis, Emma, Frank, Grace and Mike), the most '
+        'human-sounding in the app. A big download and heavy work: on most phones an episode is prepared '
+        'before it plays. Choose Lifelike at the top of this tab to cast the characters with them.',
+    license: 'MIT (microsoft/VibeVoice-Realtime-0.5B)',
+    files: _files('vibevoice'),
+  ),
   'pocket': VoicePack(
     id: 'pocket',
     title: 'Voice cloning (Pocket TTS HD)',

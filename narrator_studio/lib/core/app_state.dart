@@ -99,6 +99,9 @@ class AppState extends ChangeNotifier {
   /// True once any voice pack is ready.
   bool get hasAnyVoices => hasKokoro || models.isInstalled('supertonic');
 
+  /// The VibeVoice pack's folder, or '' when it is not downloaded.
+  String get vibevoiceDir => models.isInstalled('vibevoice') ? models.packDir('vibevoice').path : '';
+
   /// The Clarity upscaler's folder, or '' when it is off or not downloaded.
   String get clarityDir => settings.clarity && models.isInstalled('clarity') ? models.packDir('clarity').path : '';
 
@@ -124,6 +127,7 @@ class AppState extends ChangeNotifier {
         ...settings.gallery.map(_galleryVoice),
         ...kokoroVoices,
         ...supertonicVoices,
+        ...vibevoiceVoices,
       ];
 
   Voice _cloneVoice(ClonedVoice c) => Voice(
@@ -220,17 +224,21 @@ class AppState extends ChangeNotifier {
     String voiceId = ref;
     String? fallback;
     String? studio;
+    String? lifelike;
     if (ref.startsWith('char:')) {
       final c = characterById(ref.substring(5)) ?? builtInCharacters.first;
       speed = c.speed;
       voiceId = c.voiceId;
       fallback = c.fallbackVoiceId;
       studio = c.studioVoiceId;
+      lifelike = c.lifelikeVoiceId;
     }
-    // The chosen set first; the other set stands in when its pack is missing.
-    final candidates = settings.voiceSet == 'studio' && studio != null
-        ? [studio, voiceId, ?fallback, 'supertonic:F1', 'kokoro:af_heart']
-        : [voiceId, ?fallback, ?studio, 'kokoro:af_heart', 'supertonic:F1', 'supertonic:M1'];
+    // The chosen set first; the natural voices stand in when its pack is missing.
+    final candidates = switch (settings.voiceSet) {
+      'studio' when studio != null => [studio, voiceId, ?fallback, 'supertonic:F1', 'kokoro:af_heart'],
+      'lifelike' when lifelike != null => [lifelike, voiceId, ?fallback, ?studio, 'kokoro:af_heart', 'supertonic:F1'],
+      _ => [voiceId, ?fallback, ?studio, 'kokoro:af_heart', 'supertonic:F1', 'supertonic:M1'],
+    };
     for (final id in candidates) {
       final v = voiceById(id);
       if (v != null && isAvailable(v)) {

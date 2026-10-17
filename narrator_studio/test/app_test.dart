@@ -15,6 +15,7 @@ import 'package:narrator_studio/core/models/catalog.dart';
 import 'package:narrator_studio/core/models/model_store.dart';
 import 'package:narrator_studio/core/render/wav.dart';
 import 'package:narrator_studio/core/samples.dart';
+import 'package:narrator_studio/core/tts/vibevoice.dart';
 import 'package:narrator_studio/core/tts/voice_mix.dart';
 import 'package:narrator_studio/core/tts/voices.dart';
 import 'package:path/path.dart' as p;
@@ -42,6 +43,12 @@ void main() {
       expect(pocket, containsAll(['lm_main.onnx', 'lm_flow.onnx', 'decoder.onnx', 'encoder.onnx', 'text_conditioner.onnx']));
       expect(pocket.where((f) => f.contains('int8')), isEmpty);
       expect(voicePacks['clarity']!.files.map((f) => f.path), containsAll(['enhancer_backbone.onnx', 'enhancer_spec_head.onnx.data']));
+      // The lifelike voices: everything the app's VibeVoice loop opens, and every voice.
+      final vibe = voicePacks['vibevoice']!.files.map((f) => f.path).toSet();
+      expect(vibe, containsAll(VibeVoice.files));
+      for (final v in vibevoiceVoices) {
+        expect(vibe, contains('voices/${v.id.split(':').last}.bin'), reason: v.id);
+      }
     });
 
     test('voice tables line up with the models', () {
@@ -56,8 +63,11 @@ void main() {
         expect(c.voiceId, anyOf(startsWith('kokoro:'), startsWith('gallery:')), reason: c.id);
         if (!c.voiceId.startsWith('kokoro:')) expect(c.fallbackVoiceId, startsWith('kokoro:'), reason: c.id);
         if (c.studioVoiceId != null) expect(c.studioVoiceId, startsWith('supertonic:'), reason: c.id);
-        for (final id in [c.voiceId, ?c.fallbackVoiceId, ?c.studioVoiceId]) {
-          if (!id.startsWith('gallery:')) expect([...kokoroVoices, ...supertonicVoices].any((v) => v.id == id), isTrue, reason: id);
+        if (c.lifelikeVoiceId != null) expect(c.lifelikeVoiceId, startsWith('vibevoice:'), reason: c.id);
+        for (final id in [c.voiceId, ?c.fallbackVoiceId, ?c.studioVoiceId, ?c.lifelikeVoiceId]) {
+          if (!id.startsWith('gallery:')) {
+            expect([...kokoroVoices, ...supertonicVoices, ...vibevoiceVoices].any((v) => v.id == id), isTrue, reason: id);
+          }
         }
       }
       // The main parts go to Kokoro's highest-graded voices.
@@ -185,6 +195,16 @@ void main() {
       expect(kokoroOnly.resolve('char:host').voice.id, 'kokoro:am_michael', reason: 'Studio chosen, not downloaded');
       final (bare, _, _, _) = await makeApp(packs: []);
       expect(() => bare.resolve('char:narrator'), throwsA(isA<NoVoicesError>()));
+
+      final (life, _, _, _) = await makeApp(packs: ['kokoro', 'vibevoice']);
+      await life.settings.update((s) => s.voiceSet = 'lifelike');
+      expect(life.resolve('char:host').voice.id, 'vibevoice:carter');
+      expect(life.resolve('char:cohost').voice.id, 'vibevoice:grace');
+      expect(life.resolve('char:narrator').voice.id, 'vibevoice:emma');
+      expect(life.resolve('char:maestro').voice.id, 'kokoro:im_nicola', reason: 'no lifelike voice for this part');
+      final (noPack, _, _, _) = await makeApp(packs: ['kokoro']);
+      await noPack.settings.update((s) => s.voiceSet = 'lifelike');
+      expect(noPack.resolve('char:host').voice.id, 'kokoro:am_michael', reason: 'Lifelike chosen, not downloaded');
     });
 
     test('gallery characters use their stand-in until the clip is downloaded', () async {

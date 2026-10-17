@@ -859,7 +859,9 @@ class _PlayerBarState extends State<_PlayerBar> {
                     Expanded(
                       child: Text(
                         buffering && _preview == null
-                            ? 'Preparing the voice…'
+                            ? (widget.mine && player.preparing != null
+                                ? 'Getting ahead: ${(player.preparing! * 100).round()}%, then it plays to the end'
+                                : 'Preparing the voice…')
                             : total == 0
                                 ? 'Nothing to read'
                                 : '${formatClock(at)} / ${formatClock(length)}',

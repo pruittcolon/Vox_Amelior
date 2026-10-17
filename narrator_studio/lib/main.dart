@@ -40,6 +40,7 @@ Future<void> main() async {
         pocketDir: a.models.packDir('pocket').path,
         kokoroVoicesFile: a.kokoroVoicesFile,
         clarityDir: a.clarityDir,
+        vibevoiceDir: a.vibevoiceDir,
         threads: a.settings.threads,
         best: a.settings.bestQuality,
       ),

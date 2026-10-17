@@ -4,6 +4,8 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -34,9 +36,16 @@ class Player extends ChangeNotifier {
   /// Seconds of audio produced per second of work (above 1 keeps up).
   double speedRatio = 0;
 
+  /// A voice slower than real time (like the lifelike voices) first builds a
+  /// head start long enough to play to the end without stopping: how much of
+  /// it is ready (0..1), or null while nothing is being prepared.
+  double? preparing;
+
   int _gen = 0;
   Renderer? _renderer;
-  final _queue = Queue<RenderChunk>();
+  // Queued audio is kept as 16-bit PCM: a long head start stays small.
+  final _queue = Queue<(Uint8List, int, int?)>();
+  int? _renderedUtterance;
   int _queuedFrames = 0;
   int _written = 0;
   bool _producerDone = false;
@@ -76,6 +85,9 @@ class Player extends ChangeNotifier {
     _queuedFrames = 0;
     _written = 0;
     _producerDone = false;
+    _renderedUtterance = null;
+    preparing = null;
+    speedRatio = 0;
     _timeline.clear();
     _renderedFrames = 0;
     _renderWatch
@@ -93,7 +105,7 @@ class Player extends ChangeNotifier {
       final position = await native.playerPosition();
       if (gen != _gen) return;
       final ahead = (_written + _queuedFrames - position) / outputRate;
-      if (ahead > aheadSeconds) {
+      if (ahead > math.max(aheadSeconds, _headStart() + 5)) {
         await Future<void>.delayed(const Duration(milliseconds: 250));
         continue;
       }
@@ -113,8 +125,9 @@ class Player extends ChangeNotifier {
       _renderedFrames += chunk.samples.length;
       final secs = _renderWatch.elapsedMilliseconds / 1000;
       if (secs > 0.5) speedRatio = _renderedFrames / outputRate / secs;
-      _queue.add(chunk);
+      _queue.add((toInt16Bytes(chunk.samples), chunk.samples.length, chunk.utterance));
       _queuedFrames += chunk.samples.length;
+      if (chunk.utterance != null) _renderedUtterance = chunk.utterance;
     }
   }
 
@@ -125,17 +138,60 @@ class Player extends ChangeNotifier {
         await Future<void>.delayed(const Duration(milliseconds: 40));
         continue;
       }
-      final chunk = _queue.removeFirst();
-      _queuedFrames -= chunk.samples.length;
-      if (chunk.utterance != null) _timeline.add((_written, chunk.utterance!));
-      _written += chunk.samples.length;
+      if (!_producerDone && await _waitForHeadStart(gen)) continue;
+      final (pcm, frames, utterance) = _queue.removeFirst();
+      _queuedFrames -= frames;
+      if (utterance != null) _timeline.add((_written, utterance));
+      _written += frames;
       try {
-        await native.playerWrite(toInt16Bytes(chunk.samples));
+        await native.playerWrite(pcm);
       } catch (e) {
         if (gen == _gen) _fail('Audio output failed: $e');
         return;
       }
     }
+  }
+
+  /// Seconds of audio that must be ready before playing on, so a voice
+  /// slower than real time never runs dry: what is still to render, times
+  /// the extra time it takes (0 for voices that keep up).
+  double _headStart() {
+    final s = session;
+    if (s == null || speedRatio <= 0 || speedRatio >= 1.05 || _renderedUtterance == null) return 0;
+    final times = s.plan.times(s.cast[null]?.speed ?? 1.0);
+    final next = math.min(_renderedUtterance! + 1, times.starts.length - 1);
+    final left = math.max(0, times.total - times.starts[next]) / 1000;
+    return left * (1 / speedRatio - 1) * 1.15 + 2;
+  }
+
+  /// True while waiting for the head start (and [preparing] shows how far).
+  Future<bool> _waitForHeadStart(int gen) async {
+    final need = _headStart();
+    if (need <= 0) {
+      if (preparing != null) {
+        preparing = null;
+        notifyListeners();
+      }
+      return false;
+    }
+    final pos = await native.playerPosition();
+    final ready = (_written - pos + _queuedFrames) / outputRate;
+    // Only before playing, or once the speaker has run dry: never mid-sentence.
+    final idle = pos >= _written - outputRate ~/ 20;
+    if (ready >= need || !idle) {
+      if (preparing != null) {
+        preparing = null;
+        notifyListeners();
+      }
+      return false;
+    }
+    final p = (ready / need).clamp(0.0, 1.0);
+    if (preparing == null || (p - preparing!).abs() >= 0.01) {
+      preparing = p;
+      notifyListeners();
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    return gen == _gen;
   }
 
   Future<void> _tick(int gen) async {
