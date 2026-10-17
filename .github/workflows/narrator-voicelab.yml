@@ -15,7 +15,7 @@ on:
         default: all
   push:
     branches: [narrator-studio]
-    paths: ['narrator_studio/tool/lab/**', '.github/workflows/narrator-voicelab.yml']
+    paths: ['narrator_studio/tool/lab/**', '!narrator_studio/tool/lab/bakeoff*.py', '.github/workflows/narrator-voicelab.yml']
 concurrency:
   group: narrator-voicelab
   cancel-in-progress: true
