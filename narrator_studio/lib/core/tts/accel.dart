@@ -22,6 +22,9 @@ const npuOptions = {
 
 const gpuOptions = {'backend_path': 'libQnnGpu.so'};
 
+/// For `compute`: the report for the VibeVoice pack in [dir].
+String accelReportFor(String dir) => accelReport(dir);
+
 /// Runs every test; never throws (failures are part of the report).
 String accelReport(String vibevoiceDir, {int threads = 6}) {
   final out = StringBuffer();

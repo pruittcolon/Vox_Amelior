@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -39,22 +39,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _accelReport = null;
     });
     final dir = app.vibevoiceDir;
+    String report;
     try {
-      final report = await Isolate.run(() => accelReport(dir));
+      // A top-level function and a plain string: nothing of this screen
+      // travels to the background isolate.
+      report = await compute(accelReportFor, dir);
+    } catch (e, st) {
+      report = 'Test failed: $e\n$st';
+    }
+    // Whatever happened, the report goes to Downloads.
+    var where = '';
+    try {
       final f = File(p.join(app.cacheDir.path, 'narrator-accel.txt'));
       await f.parent.create(recursive: true);
       await f.writeAsString(report);
-      var where = '';
-      try {
-        where = await native.saveToDownloads(f.path, 'narrator-accel.txt', 'text/plain');
-      } catch (e) {
-        where = 'not saved ($e)';
-      }
-      if (mounted) setState(() => _accelReport = 'Report: $where\n\n$report');
+      where = await native.saveToDownloads(f.path, 'narrator-accel.txt', 'text/plain');
     } catch (e) {
-      if (mounted) setState(() => _accelReport = 'Test failed: $e');
-    } finally {
-      if (mounted) setState(() => _testingAccel = false);
+      where = 'not saved ($e)';
+    }
+    if (mounted) {
+      setState(() {
+        _accelReport = 'Report: $where\n\n$report';
+        _testingAccel = false;
+      });
     }
   }
 
