@@ -42,6 +42,17 @@ class MainActivity : FlutterActivity() {
     private var nextPermissionCode = 7100
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The AI chip loads its side of the runtime (the QNN skel) from these
+        // folders; the app's own native library folder must come first.
+        try {
+            val libs = applicationInfo.nativeLibraryDir
+            android.system.Os.setenv(
+                "ADSP_LIBRARY_PATH",
+                "$libs;/odm/lib/rfsa/adsp;/vendor/lib/rfsa/adsp/;/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp",
+                true,
+            )
+        } catch (_: Exception) {
+        }
         super.onCreate(savedInstanceState)
         pendingShare = readShare(intent)
     }

@@ -26,6 +26,7 @@ class EngineSetup {
     required this.kokoroVoicesFile,
     this.clarityDir = '',
     this.vibevoiceDir = '',
+    this.aiChip = false,
     this.threads = 4,
     this.best = true,
   });
@@ -42,6 +43,9 @@ class EngineSetup {
 
   /// The VibeVoice pack (lifelike voices), or '' when not downloaded.
   final String vibevoiceDir;
+
+  /// Run VibeVoice's diffusion head on the AI chip (experimental).
+  final bool aiChip;
   final int threads;
 
   /// Best quality: more refinement steps for Supertonic and Pocket TTS.
@@ -99,6 +103,7 @@ class SherpaSynth implements Synth {
       'kokoroVoices': s.kokoroVoicesFile,
       'clarityDir': s.clarityDir,
       'vibevoiceDir': s.vibevoiceDir,
+      'aiChip': s.aiChip,
       'threads': s.threads,
       'best': s.best,
     });
@@ -253,10 +258,11 @@ class _Worker {
       if (!VibeVoice.installedIn(dir)) throw StateError('Download the Lifelike voices (VibeVoice) first.');
       // Its large matrices gain from more cores than the small voices do.
       final cores = math.max(threads, math.min(6, Platform.numberOfProcessors));
-      final key = '$dir|$cores';
+      final aiChip = m['aiChip'] == true;
+      final key = '$dir|$cores|$aiChip';
       if (vibevoiceKey != key) {
         vibevoice?.free();
-        vibevoice = VibeVoice(dir, threads: cores);
+        vibevoice = VibeVoice(dir, threads: cores, aiChip: aiChip);
         vibevoiceKey = key;
       }
       // VibeVoice has no speed control; it speaks at its own natural pace.

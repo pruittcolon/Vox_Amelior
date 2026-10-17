@@ -20,6 +20,10 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:largeHeap="true">
+        <!-- Qualcomm's AI chip (Hexagon NPU) and GPU, used by the lifelike
+             voices when available; harmless on other phones. -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

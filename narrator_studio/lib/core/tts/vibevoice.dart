@@ -19,6 +19,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
+import 'accel.dart' show npuOptions;
 import 'bpe.dart';
 import 'ort.dart';
 
@@ -67,10 +68,10 @@ class VibeVoicePrompt {
 }
 
 class VibeVoice {
-  VibeVoice(this.dir, {int threads = 4})
+  VibeVoice(this.dir, {int threads = 4, bool aiChip = false})
       : _textLm = Ort.instance.open(p.join(dir, 'text_lm.onnx'), threads: threads),
         _ttsLm = Ort.instance.open(p.join(dir, 'tts_lm.onnx'), threads: threads),
-        _head = Ort.instance.open(p.join(dir, 'head.onnx'), threads: threads),
+        _head = _openHead(dir, threads, aiChip),
         _decoder = Ort.instance.open(p.join(dir, 'decoder.onnx'), threads: threads),
         _bpe = Bpe.fromFile(p.join(dir, 'tokenizer.json')),
         _embed = File(p.join(dir, 'embed.f16')).openSync() {
@@ -94,6 +95,27 @@ class VibeVoice {
     'decoder.onnx', 'decoder.onnx.data', 'embed.f16', 'small.f32', 'tokenizer.json', 'vibevoice.json', 'voices.json',
   ];
   static const sampleRate = 24000;
+
+  /// Where the diffusion head runs ('CPU', or 'NPU' on the AI chip).
+  static String headOn = 'CPU';
+
+  /// The head (5 runs per frame, a fixed batch of 2) on the AI chip when
+  /// asked and possible; anything that fails leaves it on the CPU.
+  static OrtSession _openHead(String dir, int threads, bool aiChip) {
+    final path = p.join(dir, 'head.onnx');
+    if (aiChip) {
+      try {
+        final s = Ort.qnn.open(path, threads: threads, dims: const {'b': 2}, provider: 'QNN', options: npuOptions);
+        headOn = 'NPU';
+        return s;
+      } catch (e) {
+        headOn = 'CPU (AI chip unavailable: $e)';
+      }
+    } else {
+      headOn = 'CPU';
+    }
+    return Ort.instance.open(path, threads: threads);
+  }
 
   static bool installedIn(String dir) => dir.isNotEmpty && File(p.join(dir, 'vibevoice.json')).existsSync();
 

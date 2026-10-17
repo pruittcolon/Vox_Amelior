@@ -41,6 +41,7 @@ Future<void> main() async {
         kokoroVoicesFile: a.kokoroVoicesFile,
         clarityDir: a.clarityDir,
         vibevoiceDir: a.vibevoiceDir,
+        aiChip: a.settings.aiChip,
         threads: a.settings.threads,
         best: a.settings.bestQuality,
       ),

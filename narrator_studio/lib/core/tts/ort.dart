@@ -51,9 +51,19 @@ class Ort {
   }
 
   static Ort? _instance;
+  static Ort? _qnn;
 
   /// Loads the runtime that ships with the speech engine.
   static Ort get instance => _instance ??= _load();
+
+  /// ONNX Runtime with Qualcomm's QNN execution provider (the AI chip and
+  /// GPU of Snapdragon phones), packaged as libonnxruntime_qnn.so by
+  /// tool/fetch_qnn.sh. Throws where it isn't packaged.
+  static Ort get qnn {
+    if (_qnn != null) return _qnn!;
+    if (!Platform.isAndroid) throw OrtError('the AI-chip runtime is only packaged for Android');
+    return _qnn = _fromLibrary(DynamicLibrary.open('libonnxruntime_qnn.so'));
+  }
 
   static Ort _load() {
     DynamicLibrary lib;
@@ -68,6 +78,10 @@ class Ort {
     } else {
       lib = DynamicLibrary.open('onnxruntime.dll');
     }
+    return _fromLibrary(lib);
+  }
+
+  static Ort _fromLibrary(DynamicLibrary lib) {
     final base = lib.lookupFunction<Pointer<_ApiBase> Function(), Pointer<_ApiBase> Function()>('OrtGetApiBase')();
     final version = base.ref.getVersionString.asFunction<Pointer<Utf8> Function()>()().toDartString();
     final api = base.ref.getApi.asFunction<_PP Function(int)>()(_apiVersion);
@@ -127,6 +141,36 @@ class Ort {
   late final _releaseValue = _api[96].cast<NativeFunction<Void Function(_P)>>().asFunction<void Function(_P)>();
   late final _releaseTypeAndShape = _api[99].cast<NativeFunction<Void Function(_P)>>().asFunction<void Function(_P)>();
   late final _releaseSessionOptions = _api[100].cast<NativeFunction<Void Function(_P)>>().asFunction<void Function(_P)>();
+  late final _addFreeDimensionOverrideByName = _api[124]
+      .cast<NativeFunction<_P Function(_P, Pointer<Utf8>, Int64)>>()
+      .asFunction<_P Function(_P, Pointer<Utf8>, int)>();
+  late final _getAvailableProviders = _api[125]
+      .cast<NativeFunction<_P Function(Pointer<Pointer<Pointer<Utf8>>>, Pointer<Int32>)>>()
+      .asFunction<_P Function(Pointer<Pointer<Pointer<Utf8>>>, Pointer<Int32>)>();
+  late final _releaseAvailableProviders = _api[126]
+      .cast<NativeFunction<_P Function(Pointer<Pointer<Utf8>>, Int32)>>()
+      .asFunction<_P Function(Pointer<Pointer<Utf8>>, int)>();
+  late final _addSessionConfigEntry = _api[130]
+      .cast<NativeFunction<_P Function(_P, Pointer<Utf8>, Pointer<Utf8>)>>()
+      .asFunction<_P Function(_P, Pointer<Utf8>, Pointer<Utf8>)>();
+  late final _appendExecutionProvider = _api[216]
+      .cast<NativeFunction<_P Function(_P, Pointer<Utf8>, Pointer<Pointer<Utf8>>, Pointer<Pointer<Utf8>>, Size)>>()
+      .asFunction<_P Function(_P, Pointer<Utf8>, Pointer<Pointer<Utf8>>, Pointer<Pointer<Utf8>>, int)>();
+
+  /// Execution providers built into this runtime (e.g. QNNExecutionProvider).
+  List<String> get providers {
+    final out = calloc<Pointer<Pointer<Utf8>>>();
+    final n = calloc<Int32>();
+    try {
+      check(_getAvailableProviders(out, n));
+      final names = [for (var i = 0; i < n.value; i++) out.value[i].toDartString()];
+      check(_releaseAvailableProviders(out.value, n.value));
+      return names;
+    } finally {
+      calloc.free(out);
+      calloc.free(n);
+    }
+  }
 
   void check(_P status) {
     if (status == nullptr) return;
@@ -136,9 +180,22 @@ class Ort {
   }
 
   /// Opens a model file (weights in a `.data` file next to it are found too).
-  OrtSession open(String path, {int threads = 2}) {
+  ///
+  /// [dims] fixes named dynamic dimensions (an AI chip needs static shapes).
+  /// [provider] adds an execution provider (e.g. 'QNN') with its [options];
+  /// with [strict], opening fails rather than leave any node on the CPU.
+  OrtSession open(
+    String path, {
+    int threads = 2,
+    Map<String, int> dims = const {},
+    String? provider,
+    Map<String, String> options = const {},
+    bool strict = false,
+  }) {
     final out = calloc<_P>();
     final cPath = path.toNativeUtf8();
+    final strings = <Pointer<Utf8>>[];
+    Pointer<Utf8> c(String v) => (strings..add(v.toNativeUtf8())).last;
     try {
       check(_createSessionOptions(out));
       final opts = out.value;
@@ -146,6 +203,26 @@ class Ort {
         check(_setIntraOpNumThreads(opts, threads));
         check(_setInterOpNumThreads(opts, 1));
         check(_setGraphOptimizationLevel(opts, 99)); // every optimization
+        for (final d in dims.entries) {
+          check(_addFreeDimensionOverrideByName(opts, c(d.key), d.value));
+        }
+        if (provider != null) {
+          if (strict) check(_addSessionConfigEntry(opts, c('session.disable_cpu_ep_fallback'), c('1')));
+          final keys = calloc<Pointer<Utf8>>(options.length);
+          final values = calloc<Pointer<Utf8>>(options.length);
+          try {
+            var i = 0;
+            for (final o in options.entries) {
+              keys[i] = c(o.key);
+              values[i] = c(o.value);
+              i++;
+            }
+            check(_appendExecutionProvider(opts, c(provider), keys, values, options.length));
+          } finally {
+            calloc.free(keys);
+            calloc.free(values);
+          }
+        }
         check(_createSession(_env, cPath, opts, out));
       } finally {
         _releaseSessionOptions(opts);
@@ -156,6 +233,9 @@ class Ort {
     } finally {
       calloc.free(out);
       calloc.free(cPath);
+      for (final p in strings) {
+        calloc.free(p);
+      }
     }
   }
 

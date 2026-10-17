@@ -49,3 +49,6 @@ app.*.map.json
 
 # The repository root ignores data/ folders; this is source code.
 !lib/data/
+
+# Qualcomm AI-chip runtime, staged by tool/fetch_qnn.sh in CI
+android/app/src/main/jniLibs/

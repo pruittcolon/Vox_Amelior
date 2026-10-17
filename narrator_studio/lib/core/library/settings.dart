@@ -98,6 +98,10 @@ class Settings extends ChangeNotifier {
   /// Which voices the characters use: 'natural' (Kokoro, most human) or
   /// 'studio' (Supertonic HD). See voiceSets.
   String voiceSet = 'natural';
+
+  /// Experimental: run the lifelike voices' diffusion head on the phone's AI
+  /// chip (Qualcomm Hexagon NPU), falling back to the CPU if it can't.
+  bool aiChip = false;
   bool cloneConsent = false;
   String exportFormat = 'm4a';
   List<VoiceMix> mixes = [];
@@ -115,6 +119,7 @@ class Settings extends ChangeNotifier {
       clarity = (j['clarity'] as bool?) ?? true;
       bestQuality = (j['bestQuality'] as bool?) ?? true;
       voiceSet = (j['voiceSet'] as String?) ?? 'natural';
+      aiChip = (j['aiChip'] as bool?) ?? false;
       cloneConsent = (j['cloneConsent'] as bool?) ?? false;
       exportFormat = (j['exportFormat'] as String?) ?? 'm4a';
       List<Map<String, Object?>> list(String k) => ((j[k] as List?) ?? const []).cast<Map<String, Object?>>();
@@ -144,6 +149,7 @@ class Settings extends ChangeNotifier {
         'clarity': clarity,
         'bestQuality': bestQuality,
         'voiceSet': voiceSet,
+        'aiChip': aiChip,
         'cloneConsent': cloneConsent,
         'exportFormat': exportFormat,
         'mixes': mixes.map((m) => m.toJson()).toList(),

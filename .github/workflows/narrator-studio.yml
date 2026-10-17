@@ -111,6 +111,11 @@ jobs:
           fi
           echo "$VOX_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/vox-release.p12"
           echo "VOX_KEYSTORE_PATH=$RUNNER_TEMP/vox-release.p12" >> "$GITHUB_ENV"
+      - name: Qualcomm AI-chip runtime for the APK (QNN)
+        if: github.event_name != 'pull_request'
+        run: |
+          sudo apt-get install -y -qq patchelf > /dev/null
+          bash tool/fetch_qnn.sh
       - name: Build APK
         if: github.event_name != 'pull_request'
         env:

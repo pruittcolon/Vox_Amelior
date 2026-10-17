@@ -43,6 +43,15 @@ android {
         }
     }
 
+    // The AI-chip runtime (tool/fetch_qnn.sh) loads its DSP library from real
+    // files: native libraries must be extracted at install, not read from
+    // inside the APK.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")

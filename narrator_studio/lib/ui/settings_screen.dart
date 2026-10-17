@@ -1,7 +1,12 @@
+import 'dart:io';
+import 'dart:isolate';
+
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../core/models/catalog.dart';
 import '../core/render/audio.dart';
+import '../core/tts/accel.dart';
 import '../core/tts/voices.dart';
 import 'scope.dart';
 import 'voice_set.dart';
@@ -16,6 +21,42 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _speedReport;
   bool _measuring = false;
+  String? _accelReport;
+  bool _testingAccel = false;
+
+  /// Runs tool-style timings of VibeVoice on each processor in a background
+  /// isolate, and saves the report to Downloads.
+  Future<void> _testAccel() async {
+    final app = context.app;
+    final native = context.scope.native;
+    if (!app.models.isInstalled('vibevoice')) {
+      context.toast('Download the Lifelike voices first (Voices tab).');
+      return;
+    }
+    await context.scope.player.stop();
+    setState(() {
+      _testingAccel = true;
+      _accelReport = null;
+    });
+    final dir = app.vibevoiceDir;
+    try {
+      final report = await Isolate.run(() => accelReport(dir));
+      final f = File(p.join(app.cacheDir.path, 'narrator-accel.txt'));
+      await f.parent.create(recursive: true);
+      await f.writeAsString(report);
+      var where = '';
+      try {
+        where = await native.saveToDownloads(f.path, 'narrator-accel.txt', 'text/plain');
+      } catch (e) {
+        where = 'not saved ($e)';
+      }
+      if (mounted) setState(() => _accelReport = 'Report: $where\n\n$report');
+    } catch (e) {
+      if (mounted) setState(() => _accelReport = 'Test failed: $e');
+    } finally {
+      if (mounted) setState(() => _testingAccel = false);
+    }
+  }
 
   /// Times a fixed paragraph with 2, 4, 6 and 8 threads and keeps the fastest.
   Future<void> _measure() async {
@@ -124,6 +165,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                     : FilledButton.tonal(onPressed: _measure, child: const Text('Run')),
               ),
+              const Divider(),
+              SwitchListTile(
+                title: const Text('Use the AI chip (experimental)'),
+                subtitle: const Text(
+                  'Lifelike voices: runs part of VibeVoice on the phone\'s Qualcomm AI chip (Hexagon NPU), if it has one, '
+                  'and falls back to the processor if it can\'t. Run the test below first.',
+                ),
+                value: s.aiChip,
+                onChanged: (v) => s.update((x) => x.aiChip = v),
+              ),
+              ListTile(
+                title: const Text('Test the AI chip'),
+                subtitle: Text(_accelReport ??
+                    'Times the lifelike voices on the processor, the AI chip and the graphics chip, and saves a report to Downloads.'),
+                trailing: _testingAccel
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                    : FilledButton.tonal(onPressed: _testAccel, child: const Text('Run')),
+              ),
+              const Divider(),
               ListTile(
                 title: const Text('Voice files on this phone'),
                 subtitle: Text(formatBytes(storage)),
