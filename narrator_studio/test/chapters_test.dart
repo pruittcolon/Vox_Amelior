@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:narrator_studio/core/audio/exporter.dart';
 import 'package:narrator_studio/core/audio/mp4_chapters.dart';
 import 'package:narrator_studio/core/render/plan.dart';
+import 'package:narrator_studio/core/render/renderer.dart';
 import 'package:narrator_studio/core/render/styles.dart';
 import 'package:narrator_studio/core/samples.dart';
 import 'package:narrator_studio/core/script/script_parser.dart';
@@ -129,7 +130,7 @@ More.
       expect(plan.chapters.map((c) => (c.first, c.last)), [(0, 1), (2, 2), (3, 3), (4, 4)]);
       expect(plan.chapterOf(3)!.title, 'The event horizon');
       final t = plan.times(1.0);
-      expect(t.starts.first, greaterThanOrEqualTo(4800), reason: 'after the intro music');
+      expect(t.starts.first, greaterThanOrEqualTo(introSeconds * 1000), reason: 'after the intro');
       for (var i = 1; i < t.starts.length; i++) {
         expect(t.starts[i], greaterThan(t.starts[i - 1]));
       }
