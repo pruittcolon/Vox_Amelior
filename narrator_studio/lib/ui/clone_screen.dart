@@ -106,7 +106,7 @@ class _CloneScreenState extends State<CloneScreen> {
     }
   }
 
-  /// Keeps the clearest ~12 s, at 24 kHz, normalized.
+  /// Keeps the clearest ~12 s, at the app's sample rate, normalized.
   Future<void> _useAudio(Float32List pcm, int rate) async {
     final preview = context.scope.preview;
     final dir = context.app.cacheDir..createSync(recursive: true);

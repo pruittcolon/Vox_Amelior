@@ -117,7 +117,7 @@ class Exporter extends ChangeNotifier {
           notifyListeners();
         });
         try {
-          await native.encodeM4a(wavPath, out);
+          await native.encodeM4a(wavPath, out, bitrate: 160000);
         } finally {
           await sub.cancel();
           final tmp = File(wavPath);

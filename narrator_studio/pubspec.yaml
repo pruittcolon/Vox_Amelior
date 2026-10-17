@@ -20,6 +20,8 @@ dependencies:
   crypto: ^3.0.7
   # Unzips the espeak-ng pronunciation data that comes with the voices.
   archive: ^4.3.0
+  # Native memory for the ONNX Runtime calls (the Clarity upscaler).
+  ffi: ^2.1.0
 
 dev_dependencies:
   flutter_test:
@@ -31,3 +33,30 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Inter (interface), Fraunces (titles), Literata (reading). SIL Open Font License.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+    - family: Fraunces
+      fonts:
+        - asset: assets/fonts/Fraunces72ptSoft-Regular.ttf
+        - asset: assets/fonts/Fraunces72ptSoft-SemiBold.ttf
+          weight: 600
+    - family: Literata
+      fonts:
+        - asset: assets/fonts/Literata-Regular.ttf
+        - asset: assets/fonts/Literata-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Literata-SemiBold.ttf
+          weight: 600
+  assets:
+    - assets/fonts/Inter-OFL.txt
+    - assets/fonts/Fraunces-OFL.txt
+    - assets/fonts/Literata-OFL.txt

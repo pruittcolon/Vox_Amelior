@@ -4,9 +4,10 @@ library;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-/// Everything is mixed and exported at this rate (Kokoro and Pocket TTS speak
-/// at 24 kHz natively; Supertonic's 44.1 kHz is resampled).
-const outputRate = 24000;
+/// Everything is mixed, played and exported at 48 kHz, the phone's own rate.
+/// Supertonic speaks at 44.1 kHz; Kokoro and Pocket TTS at 24 kHz, and the
+/// Clarity upscaler rebuilds the top octave they lack (tts/clarity.dart).
+const outputRate = 48000;
 
 class Pcm {
   const Pcm(this.samples, this.sampleRate);

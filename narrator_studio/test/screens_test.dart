@@ -54,6 +54,15 @@ Future<void> _loadFonts() async {
   for (final f in files.where((f) => name(f).startsWith('materialicons'))) {
     await (FontLoader('MaterialIcons')..addFont(bytes(f))).load();
   }
+  // The app's own fonts (assets/fonts, declared in pubspec.yaml).
+  final own = Directory('assets/fonts').listSync().whereType<File>().where((f) => f.path.endsWith('.ttf')).toList();
+  for (final family in ['Inter', 'Fraunces', 'Literata']) {
+    final loader = FontLoader(family);
+    for (final f in own.where((f) => f.uri.pathSegments.last.startsWith(family))) {
+      loader.addFont(bytes(f));
+    }
+    await loader.load();
+  }
 }
 
 Future<void> _settle(WidgetTester tester) async {

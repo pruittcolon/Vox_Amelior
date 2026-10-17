@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Downloads the Kokoro (fast) and Pocket TTS files from the narrator-models
-# release into DIR/kokoro and DIR/pocket, laid out like the app stores them.
+# Downloads Kokoro, Supertonic HD, Pocket TTS HD and Clarity from the
+# narrator-models release into DIR/<pack>, laid out like the app stores them.
 set -euo pipefail
 DIR=${1:?usage: fetch_models.sh DIR}
 BASE=https://github.com/pruittcolon/Vox_Amelior/releases/download/narrator-models
@@ -16,8 +16,12 @@ if [ ! -d "$DIR/kokoro/espeak-ng-data" ]; then
   get kokoro--espeak-ng-data.zip "$DIR/kokoro/espeak.zip"
   (cd "$DIR/kokoro" && unzip -q espeak.zip && rm espeak.zip)
 fi
-for f in lm_flow.int8.onnx lm_main.int8.onnx encoder.onnx decoder.int8.onnx text_conditioner.onnx vocab.json token_scores.json; do
-  get "pocket--$f" "$DIR/pocket/$f"
-done
+for f in encoder.onnx text_conditioner.onnx vocab.json token_scores.json; do get "pocket--$f" "$DIR/pocket/$f"; done
+for f in lm_flow.onnx lm_main.onnx decoder.onnx; do get "pocket-fp32--$f" "$DIR/pocket/$f"; done
 get pocket--bria.wav "$DIR/pocket/test_wavs/bria.wav"
+for f in tts.json unicode_indexer.bin voice.bin; do get "supertonic--$f" "$DIR/supertonic/$f"; done
+for f in duration_predictor.onnx text_encoder.onnx vector_estimator.onnx vocoder.onnx; do get "supertonic-fp32--$f" "$DIR/supertonic/$f"; done
+for f in enhancer_backbone.onnx enhancer_backbone.onnx.data enhancer_spec_head.onnx enhancer_spec_head.onnx.data; do
+  get "clarity--$f" "$DIR/clarity/$f"
+done
 du -sh "$DIR"/*

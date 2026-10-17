@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/script/prompts.dart';
+import 'art.dart';
 import 'edit_text_screen.dart';
 import 'guide_screen.dart';
 import 'scope.dart';
@@ -38,96 +39,105 @@ class _WriteScreenState extends State<WriteScreen> {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Write with Claude'),
-        actions: [
-          IconButton(
-            tooltip: 'Script format guide',
-            icon: const Icon(Icons.help_outline),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GuideScreen())),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
-        children: [
-          Card(
-            clipBehavior: Clip.antiAlias,
-            child: ExpansionTile(
-              shape: const Border(),
-              leading: Icon(Icons.auto_awesome, color: scheme.primary),
-              title: const Text('Copy a prompt, paste it into Claude, paste the reply back here.'),
-              subtitle: const Text('How it works'),
-              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var i = 0; i < howItWorks.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 12,
-                          backgroundColor: scheme.primary,
-                          child: Text('${i + 1}', style: TextStyle(fontSize: 12, color: scheme.onPrimary)),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text.rich(TextSpan(children: [
-                            TextSpan(text: '${howItWorks[i].$1}. ', style: const TextStyle(fontWeight: FontWeight.w700)),
-                            TextSpan(text: howItWorks[i].$2),
-                          ])),
-                        ),
-                      ],
-                    ),
-                  ),
+                Expanded(child: Text('Write with Claude', style: text.headlineLarge)),
+                IconButton(
+                  tooltip: 'Script format guide',
+                  icon: const Icon(Icons.help_outline_rounded),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GuideScreen())),
+                ),
               ],
             ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _topic,
-            decoration: const InputDecoration(
-              labelText: 'Your topic',
-              hintText: 'e.g. how black holes evaporate',
+            const SizedBox(height: 4),
+            Text(
+              'Claude writes the episode, the voices perform it.',
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
-            textCapitalization: TextCapitalization.sentences,
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text('Length: ${_minutes.round()} min', style: text.bodyMedium),
-              Expanded(
-                child: Slider(
-                  value: _minutes,
-                  min: 3,
-                  max: 30,
-                  divisions: 27,
-                  label: '${_minutes.round()} min',
-                  onChanged: (v) => setState(() => _minutes = v),
-                ),
+            const SizedBox(height: 16),
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: ExpansionTile(
+                leading: const IconTile(icon: Icons.auto_awesome_rounded, seed: 'claude-write', size: 38),
+                title: const Text('Copy a prompt, paste it into Claude, paste the reply back here.'),
+                subtitle: const Text('How it works'),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                children: [
+                  for (var i = 0; i < howItWorks.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 5),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 12,
+                            backgroundColor: scheme.primary,
+                            child: Text('${i + 1}', style: TextStyle(fontSize: 12, color: scheme.onPrimary, fontWeight: FontWeight.w700)),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text.rich(TextSpan(children: [
+                              TextSpan(text: '${howItWorks[i].$1}. ', style: const TextStyle(fontWeight: FontWeight.w700)),
+                              TextSpan(text: howItWorks[i].$2),
+                            ])),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _topic,
+              decoration: const InputDecoration(
+                labelText: 'Your topic',
+                hintText: 'e.g. how black holes evaporate',
+              ),
+              textCapitalization: TextCapitalization.sentences,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text('Length: ${_minutes.round()} min', style: text.bodyMedium),
+                Expanded(
+                  child: Slider(
+                    value: _minutes,
+                    min: 3,
+                    max: 30,
+                    divisions: 27,
+                    label: '${_minutes.round()} min',
+                    onChanged: (v) => setState(() => _minutes = v),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            for (final prompt in scriptPrompts) ...[
+              _PromptCard(prompt: prompt, onCopy: () => _copy(prompt)),
+              const SizedBox(height: 10),
             ],
-          ),
-          const SizedBox(height: 4),
-          for (final prompt in scriptPrompts) ...[
-            _PromptCard(prompt: prompt, onCopy: () => _copy(prompt)),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const EditTextScreen())),
+              icon: const Icon(Icons.content_paste),
+              label: const Text('Paste script from Claude'),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Text or PDF? Ask Claude for plain text and paste it: the speaker tags, pauses and music cues survive. '
+              'PDFs are for things that already exist (a book, a paper): open them directly and they read as an audiobook, '
+              'or attach the PDF to one of the prompts above to turn it into a podcast.',
+              style: text.bodySmall,
+            ),
           ],
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const EditTextScreen())),
-            icon: const Icon(Icons.content_paste),
-            label: const Text('Paste script from Claude'),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Text or PDF? Ask Claude for plain text and paste it: the speaker tags, pauses and music cues survive. '
-            'PDFs are for things that already exist (a book, a paper): open them directly and they read as an audiobook, '
-            'or attach the PDF to one of the prompts above to turn it into a podcast.',
-            style: text.bodySmall,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -142,23 +152,41 @@ class _PromptCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onCopy,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(prompt.title, style: text.titleMedium),
-                  const SizedBox(height: 2),
-                  Text(prompt.when, style: text.bodySmall),
+                  CoverArt(seed: 'style-${prompt.style}', style: prompt.style, size: 52, radius: 14),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(prompt.title, style: text.titleMedium),
+                        const SizedBox(height: 2),
+                        Text(prompt.when, style: text.bodySmall),
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(width: 8),
-            FilledButton.tonalIcon(onPressed: onCopy, icon: const Icon(Icons.copy, size: 18), label: const Text('Copy prompt')),
-          ],
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.tonalIcon(
+                  onPressed: onCopy,
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('Copy prompt'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

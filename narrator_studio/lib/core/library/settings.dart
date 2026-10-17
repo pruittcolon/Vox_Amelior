@@ -88,6 +88,12 @@ class Settings extends ChangeNotifier {
 
   /// Music beds and sound cues.
   bool music = true;
+
+  /// Clarity: rebuild the top octave of 24 kHz voices (when downloaded).
+  bool clarity = true;
+
+  /// Best quality: more refinement steps for Supertonic and Pocket TTS (slower).
+  bool bestQuality = true;
   bool cloneConsent = false;
   String exportFormat = 'm4a';
   List<VoiceMix> mixes = [];
@@ -102,6 +108,8 @@ class Settings extends ChangeNotifier {
       speed = ((j['speed'] as num?) ?? 1.0).toDouble();
       threads = ((j['threads'] as num?) ?? 4).toInt();
       music = (j['music'] as bool?) ?? true;
+      clarity = (j['clarity'] as bool?) ?? true;
+      bestQuality = (j['bestQuality'] as bool?) ?? true;
       cloneConsent = (j['cloneConsent'] as bool?) ?? false;
       exportFormat = (j['exportFormat'] as String?) ?? 'm4a';
       List<Map<String, Object?>> list(String k) => ((j[k] as List?) ?? const []).cast<Map<String, Object?>>();
@@ -128,6 +136,8 @@ class Settings extends ChangeNotifier {
         'speed': speed,
         'threads': threads,
         'music': music,
+        'clarity': clarity,
+        'bestQuality': bestQuality,
         'cloneConsent': cloneConsent,
         'exportFormat': exportFormat,
         'mixes': mixes.map((m) => m.toJson()).toList(),

@@ -123,6 +123,7 @@ class ModelStore extends ChangeNotifier {
         done += f.size;
         report(0, f.path);
       }
+      _prune(spec, dir);
       _marker(pack).writeAsStringSync(spec.fingerprint);
       _status[pack] = const PackStatus(PackState.installed);
     } on DownloadCancelled {
@@ -131,6 +132,23 @@ class ModelStore extends ChangeNotifier {
       _status[pack] = PackStatus(PackState.failed, error: _friendly(e), received: done, total: total);
     }
     notifyListeners();
+  }
+
+  /// After an update, removes what the pack no longer has (such as the old
+  /// int8 models once the full-precision ones are in).
+  void _prune(VoicePack spec, Directory dir) {
+    final keep = <String>{
+      '.installed',
+      for (final f in spec.files) f.path.split('/').first,
+      for (final f in spec.files)
+        if (f.unzip) '.${f.path}.ok',
+    };
+    for (final e in dir.listSync()) {
+      if (keep.contains(p.basename(e.path))) continue;
+      try {
+        e.deleteSync(recursive: true);
+      } catch (_) {}
+    }
   }
 
   /// One gallery clip (a few hundred KB); returns its local path.

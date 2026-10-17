@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'core/app_state.dart';
@@ -18,6 +20,11 @@ import 'ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    for (final font in ['Inter', 'Fraunces', 'Literata']) {
+      yield LicenseEntryWithLineBreaks([font], await rootBundle.loadString('assets/fonts/$font-OFL.txt'));
+    }
+  });
   final support = await getApplicationSupportDirectory();
   final documents = await getApplicationDocumentsDirectory();
   final native = AndroidNative();
@@ -32,7 +39,9 @@ Future<void> main() async {
         supertonicDir: a.models.packDir('supertonic').path,
         pocketDir: a.models.packDir('pocket').path,
         kokoroVoicesFile: a.kokoroVoicesFile,
+        clarityDir: a.clarityDir,
         threads: a.settings.threads,
+        best: a.settings.bestQuality,
       ),
     ),
   );

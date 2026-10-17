@@ -132,17 +132,22 @@ class Clarity:
         m = (t * t * (3 - 2 * t))[:, None]
         return istft(spec * (1 - m) + pred[:, : spec.shape[1]] * m, len(x48))
 
-    def enhance_v2(self, x48, width=800.0, floor_db=50.0):
-        """What the app runs: the crossover sits just below where the voice's own
-        spectrum ends; in the crossfade, magnitudes blend under the voice's own
-        phase (no cancellation notch); the added band is level-matched per frame
-        to the real voice just below the crossover."""
+    def enhance_v2(self, x48, width=800.0, skip_above=10500.0):
+        """What the app runs. Only voices whose spectrum stops short (a cliff
+        below skip_above, like Pocket TTS at ~7.8 kHz) are touched; the crossover
+        ends at the cliff; in the crossfade, magnitudes blend under the voice's
+        own phase (no cancellation notch); the added band is level-matched per
+        frame to the real voice just below the crossover."""
+        edge = voice_edge(stft(x48))
+        if edge >= skip_above:
+            print(f"clarity2: voice reaches {edge:.0f} Hz, left as it is", flush=True)
+            return x48.copy(), edge
         spec, pred = self.predict(x48)
         pred = pred[:, : spec.shape[1]]
         bins, frames = spec.shape
         hz = 48000.0 / N_FFT
         f = np.arange(bins) * hz
-        cutoff = voice_edge(spec, floor_db) - width / 2
+        cutoff = edge - width / 2
         lo = cutoff - width / 2
         mag_s, mag_p = np.abs(spec), np.abs(pred)
         band = (f >= lo - 2000) & (f < lo)
@@ -160,17 +165,22 @@ class Clarity:
         return istft(out, len(x48)), cutoff
 
 
-def voice_edge(spec, floor_db=50.0):
-    """Highest frequency (Hz, below 12 kHz) where the voice's average spectrum is
-    within floor_db of its 1-4 kHz level: where its own top end stops."""
+def voice_edge(spec, min_drop_db=15.0):
+    """Where the voice's own spectrum falls off a cliff (Hz): the largest drop
+    in its average log spectrum over 1 kHz, searched between 5 and 11.8 kHz.
+    A voice that only falls away at the 12 kHz limit of 24 kHz audio returns
+    12000 (it has its top end; nothing to rebuild)."""
     hz = 48000.0 / N_FFT
     power = (np.abs(spec) ** 2).mean(1)
-    smooth = np.convolve(power, np.ones(5) / 5, mode="same")
-    f = np.arange(len(power)) * hz
-    ref = np.median(smooth[(f >= 1000) & (f <= 4000)])
-    ok = np.nonzero((smooth > ref * 10 ** (-floor_db / 10)) & (f <= 12000))[0]
-    edge = f[ok[-1]] if len(ok) else 8000.0
-    return float(np.clip(edge, 4000.0, 12000.0))
+    level = 10 * np.log10(np.convolve(power, np.ones(5) / 5, mode="same") + 1e-20)
+    k_lo, k_hi = int(round(5000 / hz)), int(round(11800 / hz))
+    w0, w1 = int(round(100 / hz)), int(round(600 / hz))
+    best, edge = 0.0, 12000.0
+    for k in range(k_lo, k_hi + 1):
+        drop = level[k - w1 : k - w0 + 1].mean() - level[k + w0 : k + w1 + 1].mean()
+        if drop > best:
+            best, edge = drop, k * hz
+    return float(edge) if best >= min_drop_db else 12000.0
 
 
 def check_against_reference(clarity, ref_dir, x48):

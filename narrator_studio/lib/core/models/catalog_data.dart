@@ -39,4 +39,21 @@ const packFileData = <String, List<PackFile>>{
     PackFile('supertonic--vocoder.int8.onnx', 'vocoder.int8.onnx', 25991073, 'e923d60f53f95eb1ce235f1dc33ec56d9c057823c96fa6f8acf98f32b0da6152'),
     PackFile('supertonic--voice.bin', 'voice.bin', 517168, '67d5209b0ee8ce6c74105ffbe12fe6a7628aea3b4ba2fcb308a4a67938a93ce8'),
   ],
+  'supertonic-fp32': [
+    PackFile('supertonic-fp32--duration_predictor.onnx', 'duration_predictor.onnx', 3700147, 'c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db'),
+    PackFile('supertonic-fp32--text_encoder.onnx', 'text_encoder.onnx', 36416150, 'c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff'),
+    PackFile('supertonic-fp32--vector_estimator.onnx', 'vector_estimator.onnx', 256534781, '883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c'),
+    PackFile('supertonic-fp32--vocoder.onnx', 'vocoder.onnx', 101424195, '085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba'),
+  ],
+  'pocket-fp32': [
+    PackFile('pocket-fp32--decoder.onnx', 'decoder.onnx', 41478706, 'f267880fde6c58b17b0a8f3647eaf8dcfad321f833f32d583ebc2fb2d1a15f10'),
+    PackFile('pocket-fp32--lm_flow.onnx', 'lm_flow.onnx', 39097094, '79c013a554a54e63319c33c0cc8830cbbedc9b7e448ae7e26f7923ae11f9873e'),
+    PackFile('pocket-fp32--lm_main.onnx', 'lm_main.onnx', 302742148, '255d1a9263c5abdf36034abfc19c11d21cc5f40f0f87d8361288e972cbd5c578'),
+  ],
+  'clarity': [
+    PackFile('clarity--enhancer_backbone.onnx', 'enhancer_backbone.onnx', 190195, '841e96d261dffdf1dc974f3d29e2cfcf1b16fd0b358749c1ace0bbfa1d4c8ddd'),
+    PackFile('clarity--enhancer_backbone.onnx.data', 'enhancer_backbone.onnx.data', 51773440, 'a125a4ede7cfdd1073d906a3cadf2171a30be6a40f296ad28772e0ba258de8c5'),
+    PackFile('clarity--enhancer_spec_head.onnx', 'enhancer_spec_head.onnx', 7484, 'f66fd164c55fd1b07e5cea5e687c71522b192f452691128fd7ae4e6b26dbc683'),
+    PackFile('clarity--enhancer_spec_head.onnx.data', 'enhancer_spec_head.onnx.data', 4263936, 'b855e309b027af9aa75285b97b345571b6bd695a30fde434d06c979d83885fd6'),
+  ],
 };

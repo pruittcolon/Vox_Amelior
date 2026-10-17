@@ -55,6 +55,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/demo"
           dart run tool/render_demo.dart --kokoro ~/narrator-models/kokoro --pocket ~/narrator-models/pocket \
+            --supertonic ~/narrator-models/supertonic --clarity ~/narrator-models/clarity \
             --out "$RUNNER_TEMP/demo/sample-podcast.wav"
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
@@ -66,10 +67,16 @@ jobs:
           cd "$GITHUB_WORKSPACE/narrator_studio"
           python3 tool/listen.py --wav "$RUNNER_TEMP/demo/sample-podcast.wav" --text "$RUNNER_TEMP/demo/sample-podcast.wav.txt" \
             --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en" --max-wer 0.2
+      - name: Clarity in Dart matches the reference pipeline
+        run: |
+          pip install --quiet onnxruntime scipy
+          python3 tool/lab/clarity_compare.py prepare --src ~/narrator-models/pocket/test_wavs/bria.wav --out "$RUNNER_TEMP/demo/in48.wav"
+          dart run tool/clarity_check.dart --clarity ~/narrator-models/clarity --in "$RUNNER_TEMP/demo/in48.wav" --out "$RUNNER_TEMP/demo/clear.wav"
+          python3 tool/lab/clarity_compare.py compare --clarity ~/narrator-models/clarity --in "$RUNNER_TEMP/demo/in48.wav" --dart "$RUNNER_TEMP/demo/clear.wav"
       - name: Encode the sample as M4A
         run: |
           sudo apt-get install -y -qq ffmpeg > /dev/null
-          ffmpeg -loglevel error -y -i "$RUNNER_TEMP/demo/sample-podcast.wav" -c:a aac -b:a 96k "$RUNNER_TEMP/demo/sample-podcast.m4a"
+          ffmpeg -loglevel error -y -i "$RUNNER_TEMP/demo/sample-podcast.wav" -c:a aac -b:a 160k "$RUNNER_TEMP/demo/sample-podcast.m4a"
           ls -l "$RUNNER_TEMP/demo"
       - uses: actions/upload-artifact@v4
         with:

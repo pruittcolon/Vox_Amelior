@@ -4,6 +4,8 @@ import '../core/app_state.dart';
 import '../core/models/catalog.dart';
 import '../core/models/model_store.dart';
 import '../core/tts/synth.dart';
+import '../core/tts/voices.dart';
+import 'art.dart';
 import 'clone_screen.dart';
 import 'gallery_screen.dart';
 import 'mix_screen.dart';
@@ -16,77 +18,100 @@ class VoicesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.app;
+    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Voices')),
-      body: ListenableBuilder(
-        listenable: Listenable.merge([app, context.scope.preview]),
-        builder: (context, _) => ListView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
-          children: [
-            const _Heading('Voice packs', 'Free, open models. Download once; everything then runs offline on your phone.'),
-            for (final id in ['kokoro', 'supertonic', 'pocket']) ...[
-              PackCard(packId: id),
-              const SizedBox(height: 10),
-            ],
-            _CompactKokoro(app: app),
-            const SizedBox(height: 20),
-            const _Heading('Make it yours', 'More voices than any one pack: borrow, clone or blend.'),
-            _ActionCard(
-              icon: Icons.groups_outlined,
-              title: 'Voice Gallery',
-              subtitle: 'Hundreds of real voices donated or freely licensed for speech (CC0 / CC-BY): LibriVox narrators, '
-                  'voice actors, UK and US accents. Needs the cloning pack.',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GalleryScreen())),
-            ),
-            const SizedBox(height: 10),
-            _ActionCard(
-              icon: Icons.mic_none,
-              title: 'Clone a voice',
-              subtitle: 'Record 10 seconds of your own voice (or a voice you have permission to use) and narrate with it.',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CloneScreen())),
-            ),
-            const SizedBox(height: 10),
-            _ActionCard(
-              icon: Icons.tune,
-              title: 'Mix voices',
-              subtitle: 'Blend two Kokoro voices into a brand-new one, like 60% George + 40% Onyx.',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const MixScreen())),
-            ),
-            if (app.settings.clones.isNotEmpty || app.settings.mixes.isNotEmpty || app.settings.gallery.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              const _Heading('Your voices', ''),
-              for (final v in app.allVoices.where((v) => v.group == 'Cloned' || v.group == 'Mixes' || v.group == 'Gallery'))
-                VoiceTile(
-                  title: v.name,
-                  subtitle: app.isAvailable(v) ? '${v.group} · ${v.blurb}' : '${v.group} · needs the ${v.engine.name} pack',
-                  voice: app.isAvailable(v) ? v : null,
-                  onPick: null,
-                  trailing: IconButton(
-                    tooltip: 'Remove',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _removeVoice(context, app, v.id),
-                  ),
-                ),
-            ],
-            const SizedBox(height: 20),
-            const _Heading('Characters', 'Ready-made personas used by the styles. Tap ▶ to hear one.'),
-            for (final c in app.characters)
-              Builder(builder: (context) {
-                VoiceSpec? spec;
-                try {
-                  spec = app.resolve('char:${c.id}');
-                } catch (_) {}
-                return VoiceTile(title: c.name, subtitle: c.blurb, voice: spec?.voice, speed: spec?.speed ?? 1.0, onPick: null);
-              }),
-            const SizedBox(height: 12),
-            Center(
-              child: OutlinedButton.icon(
-                onPressed: () => pickVoice(context, title: 'All voices'),
-                icon: const Icon(Icons.library_music_outlined),
-                label: const Text('Browse all voices'),
+      body: SafeArea(
+        bottom: false,
+        child: ListenableBuilder(
+          listenable: Listenable.merge([app, context.scope.preview]),
+          builder: (context, _) => ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+            children: [
+              Text('Voices', style: theme.textTheme.headlineLarge),
+              const SizedBox(height: 4),
+              Text(
+                'Free, open models that run entirely on your phone. Download once, then everything works offline.',
+                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
-            ),
-          ],
+              const SizedBox(height: 18),
+              const SectionLabel('Voice packs'),
+              for (final id in ['supertonic', 'kokoro', 'pocket', 'clarity']) ...[
+                PackCard(packId: id),
+                const SizedBox(height: 12),
+              ],
+              _CompactKokoro(app: app),
+              const SizedBox(height: 12),
+              const SectionLabel('Make it yours'),
+              _ActionCard(
+                icon: Icons.groups_rounded,
+                seed: 'gallery',
+                title: 'Voice Gallery',
+                subtitle: 'Hundreds of real voices donated or freely licensed for speech (CC0 / CC-BY): LibriVox narrators, '
+                    'voice actors, UK and US accents. Needs the cloning pack.',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GalleryScreen())),
+              ),
+              const SizedBox(height: 10),
+              _ActionCard(
+                icon: Icons.mic_rounded,
+                seed: 'clone',
+                title: 'Clone a voice',
+                subtitle: 'Record 10 seconds of your own voice (or a voice you have permission to use) and narrate with it.',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CloneScreen())),
+              ),
+              const SizedBox(height: 10),
+              _ActionCard(
+                icon: Icons.tune_rounded,
+                seed: 'mix',
+                title: 'Mix voices',
+                subtitle: 'Blend two Kokoro voices into a brand-new one, like 60% George + 40% Onyx.',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const MixScreen())),
+              ),
+              if (app.settings.clones.isNotEmpty || app.settings.mixes.isNotEmpty || app.settings.gallery.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const SectionLabel('Your voices'),
+                for (final v in app.allVoices.where((v) => v.group == 'Cloned' || v.group == 'Mixes' || v.group == 'Gallery'))
+                  VoiceTile(
+                    title: v.name,
+                    subtitle: app.isAvailable(v) ? '${v.group} · ${v.blurb}' : '${v.group} · needs the ${v.engine.name} pack',
+                    voice: app.isAvailable(v) ? v : null,
+                    onPick: null,
+                    trailing: IconButton(
+                      tooltip: 'Remove',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _removeVoice(context, app, v.id),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 20),
+              const SectionLabel('Characters'),
+              Text(
+                'Ready-made personas the styles cast automatically. Tap one to hear it.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 10),
+              LayoutBuilder(
+                builder: (context, box) {
+                  final columns = box.maxWidth > 560 ? 3 : 2;
+                  final w = (box.maxWidth - 10 * (columns - 1)) / columns;
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final c in app.characters) SizedBox(width: w, child: _CharacterCard(character: c)),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: OutlinedButton.icon(
+                  onPressed: () => pickVoice(context, title: 'All voices'),
+                  icon: const Icon(Icons.library_music_outlined),
+                  label: const Text('Browse all voices'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -115,27 +140,10 @@ class VoicesScreen extends StatelessWidget {
   }
 }
 
-class _Heading extends StatelessWidget {
-  const _Heading(this.title, this.subtitle);
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
-            if (subtitle.isNotEmpty) Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-          ],
-        ),
-      );
-}
-
 class _ActionCard extends StatelessWidget {
-  const _ActionCard({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  const _ActionCard({required this.icon, required this.seed, required this.title, required this.subtitle, required this.onTap});
   final IconData icon;
+  final String seed;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
@@ -143,15 +151,90 @@ class _ActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
         clipBehavior: Clip.antiAlias,
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
-          title: Text(title),
-          subtitle: Text(subtitle),
-          trailing: const Icon(Icons.chevron_right),
+        child: InkWell(
           onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
+            child: Row(
+              children: [
+                IconTile(icon: icon, seed: seed),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 2),
+                      Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+          ),
         ),
       );
+}
+
+/// A character: portrait, voice, and a tap to hear it.
+class _CharacterCard extends StatelessWidget {
+  const _CharacterCard({required this.character});
+  final Character character;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.app;
+    final preview = context.scope.preview;
+    final theme = Theme.of(context);
+    VoiceSpec? spec;
+    try {
+      spec = app.resolve('char:${character.id}');
+    } catch (_) {}
+    final voice = spec?.voice;
+    final busy = voice != null && preview.busy == voice.id;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: voice == null
+            ? null
+            : () async {
+                await preview.play(voice, speed: spec?.speed ?? 1.0);
+                if (preview.error != null && context.mounted) context.toast(preview.error!);
+              },
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  VoiceAvatar(name: character.name, characterId: character.id, size: 40),
+                  const Spacer(),
+                  if (voice != null)
+                    Icon(
+                      busy ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
+                      color: theme.colorScheme.primary,
+                      size: 28,
+                      semanticLabel: busy ? 'Stop' : 'Try',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(character.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 2),
+              Text(
+                voice == null ? 'Download a voice pack' : '${voice.name} · ${voice.group}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A voice pack with its download / progress / delete button.
@@ -172,9 +255,9 @@ class PackCard extends StatelessWidget {
         action = Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle, color: scheme.primary, size: 20),
+            Icon(Icons.check_circle_rounded, color: scheme.primary, size: 20),
             const SizedBox(width: 4),
-            Text('Ready', style: TextStyle(color: scheme.primary)),
+            Text('Ready', style: text.labelLarge?.copyWith(color: scheme.primary)),
             IconButton(
               tooltip: 'Delete to free space',
               icon: const Icon(Icons.delete_outline),
@@ -192,24 +275,49 @@ class PackCard extends StatelessWidget {
           label: Text(st.received > 0 || st.state == PackState.failed ? 'Resume' : formatBytes(pack.bytes)),
         );
     }
+    final badges = switch (packId) {
+      'supertonic' => const ['HD', '44 kHz', 'Best voices'],
+      'kokoro' => const ['54 voices', 'Accents'],
+      'clarity' => const ['48 kHz', 'For cloned voices'],
+      'pocket' => const ['HD', 'Cloning'],
+      _ => const <String>[],
+    };
+    final icon = switch (packId) {
+      'supertonic' => Icons.graphic_eq_rounded,
+      'kokoro' || 'kokoro-lite' => Icons.record_voice_over_rounded,
+      'clarity' => Icons.auto_awesome_rounded,
+      'pocket' => Icons.content_copy_rounded,
+      _ => Icons.download_rounded,
+    };
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                IconTile(icon: icon, seed: 'pack-$packId'),
+                const SizedBox(width: 14),
                 Expanded(child: Text(pack.title, style: text.titleMedium)),
                 action,
               ],
             ),
+            if (badges.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [for (final b in badges) _Badge(b)],
+              ),
+            ],
+            const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Text(pack.summary, style: text.bodyMedium),
             ),
-            const SizedBox(height: 4),
-            Text('License: ${pack.license}', style: text.bodySmall?.copyWith(color: scheme.outline)),
+            const SizedBox(height: 6),
+            Text('${formatBytes(pack.bytes)} · ${pack.license}', style: text.bodySmall?.copyWith(color: scheme.outline)),
             if (st.state == PackState.downloading) ...[
               const SizedBox(height: 10),
               LinearProgressIndicator(value: st.progress, borderRadius: BorderRadius.circular(4)),
@@ -244,6 +352,21 @@ class PackCard extends StatelessWidget {
     await player.stop();
     await app.synth.unload();
     await app.models.delete(pack.id);
+  }
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: scheme.secondaryContainer, borderRadius: BorderRadius.circular(8)),
+      child: Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.onSecondaryContainer)),
+    );
   }
 }
 

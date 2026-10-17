@@ -64,29 +64,37 @@ final voicePacks = <String, VoicePack>{
     license: 'Apache-2.0 (hexgrad/Kokoro-82M)',
     files: _files('kokoro', only: {..._kokoroShared, 'model.int8.onnx'}),
   ),
+  // Full precision (HD): the int8 versions quantize the vocoder and score
+  // clearly lower in the voice lab (tool/lab/voicelab.py).
   'supertonic': VoicePack(
     id: 'supertonic',
-    title: 'Supertonic fast voices',
-    summary: '10 crisp voices that generate about 4x faster than Kokoro. Great for long books.',
+    title: 'Studio voices (Supertonic HD)',
+    summary: '10 studio-quality voices at full 44 kHz: the crispest and most natural in the app, '
+        'and the cast of the podcast characters. As fast as Kokoro.',
     license: 'OpenRAIL model (Supertone), MIT code',
-    files: _files('supertonic'),
+    files: [
+      ..._files('supertonic', only: {'tts.json', 'unicode_indexer.bin', 'voice.bin', 'LICENSE'}),
+      ..._files('supertonic-fp32'),
+    ],
   ),
   'pocket': VoicePack(
     id: 'pocket',
-    title: 'Voice cloning (Pocket TTS)',
+    title: 'Voice cloning (Pocket TTS HD)',
     summary: 'Speaks in any voice from a 10-second clip: the Voice Gallery\'s hundreds of '
-        'donated voices, or your own recording.',
+        'donated voices, or your own recording. Slower than real time on most phones: export, then listen.',
     license: 'CC-BY-4.0 (kyutai/pocket-tts)',
-    files: _files('pocket', only: {
-      'lm_flow.int8.onnx',
-      'lm_main.int8.onnx',
-      'encoder.onnx',
-      'decoder.int8.onnx',
-      'text_conditioner.onnx',
-      'vocab.json',
-      'token_scores.json',
-      'test_wavs/bria.wav',
-    }),
+    files: [
+      ..._files('pocket', only: {'encoder.onnx', 'text_conditioner.onnx', 'vocab.json', 'token_scores.json', 'test_wavs/bria.wav'}),
+      ..._files('pocket-fp32'),
+    ],
+  ),
+  'clarity': VoicePack(
+    id: 'clarity',
+    title: 'Clarity (HD sound)',
+    summary: 'Cloned voices stop at 8 kHz, which sounds dull. Clarity rebuilds their crisp top end '
+        'for full 48 kHz sound. Small download; get it with voice cloning.',
+    license: 'Apache-2.0 (LavaSR by ysharma3501; ONNX export by Topping1)',
+    files: _files('clarity'),
   ),
 };
 

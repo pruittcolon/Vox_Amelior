@@ -1,7 +1,7 @@
 // Renders the sample podcast with the real voice models, using the app's own
 // parser, planner, renderer and speech worker (no Flutter needed).
 //
-//   dart run tool/render_demo.dart --kokoro DIR [--pocket DIR] --out demo.wav
+//   dart run tool/render_demo.dart --kokoro DIR [--supertonic DIR] [--pocket DIR] [--clarity DIR] --out demo.wav
 //
 // CI runs this to prove the whole pipeline speaks, and publishes the result.
 import 'dart:io';
@@ -35,25 +35,41 @@ Future<void> main(List<String> args) async {
         supertonicDir: arg('supertonic') ?? '',
         pocketDir: pocket,
         kokoroVoicesFile: '$kokoro/voices.bin',
+        clarityDir: arg('clarity') ?? '',
         threads: threads,
       ));
 
-  Voice k(String name) => kokoroVoices.firstWhere((v) => v.id == 'kokoro:$name');
+  final supertonic = arg('supertonic') ?? '';
+  final all = [...kokoroVoices, ...supertonicVoices];
+  // Cast exactly as the app does: the character's voice, or its Kokoro stand-in
+  // when the Supertonic studio voices aren't there.
+  VoiceSpec character(String id) {
+    final c = builtInCharacters.firstWhere((c) => c.id == id);
+    final want = c.voiceId.startsWith('supertonic:') && supertonic.isEmpty ? c.fallbackVoiceId! : c.voiceId;
+    return VoiceSpec(all.firstWhere((v) => v.id == want), c.speed);
+  }
+
   final script = parseScript(which == 'podcast' ? samplePodcast : sampleAudiobook);
   final style = styleById(script.style ?? 'audiobook');
   final cast = <String?, VoiceSpec>{
-    null: VoiceSpec(k('af_heart'), 0.97),
-    'HOST': VoiceSpec(k('am_michael'), 1.02),
-    // A British voice, so CI also checks the British pronunciation path.
-    'CO-HOST': VoiceSpec(k('bf_emma'), 1.02),
-    'GUEST': VoiceSpec(k('bm_george'), 0.92),
+    null: character('narrator'),
+    'HOST': character('host'),
+    'CO-HOST': character('cohost'),
+    'GUEST': character('professor'),
   };
-  if (pocket.isNotEmpty && which == 'podcast') {
-    // The guest speaks in a cloned voice (Pocket TTS, reference clip from the pack).
-    cast['GUEST'] = VoiceSpec(
-      Voice(id: 'demo:bria', name: 'Bria', engine: Engine.pocket, blurb: '', refPath: '$pocket/test_wavs/bria.wav'),
-      1.0,
-    );
+  // Also prove the other paths speak: British Kokoro (espeak "en") and a cloned voice.
+  final extras = <String, Voice>{
+    'British Kokoro': all.firstWhere((v) => v.id == 'kokoro:bf_isabella'),
+    if (pocket.isNotEmpty)
+      'Pocket clone': Voice(id: 'demo:bria', name: 'Bria', engine: Engine.pocket, blurb: '', refPath: '$pocket/test_wavs/bria.wav'),
+  };
+  for (final e in extras.entries) {
+    final pcm = await synth.speak(e.value, 'The tomato schedule was rather good, and the light was perfectly clear.');
+    stdout.writeln('${e.key}: ${(pcm.length / outputRate).toStringAsFixed(2)} s');
+    if (pcm.length < outputRate) {
+      stderr.writeln('${e.key} produced no speech');
+      exit(1);
+    }
   }
   final plan = buildPlan(script, style);
   var failures = 0;

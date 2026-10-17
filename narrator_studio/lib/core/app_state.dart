@@ -98,6 +98,9 @@ class AppState extends ChangeNotifier {
   /// True once any voice pack is ready.
   bool get hasAnyVoices => hasKokoro || models.isInstalled('supertonic');
 
+  /// The Clarity upscaler's folder, or '' when it is off or not downloaded.
+  String get clarityDir => settings.clarity && models.isInstalled('clarity') ? models.packDir('clarity').path : '';
+
   String get kokoroVoicesFile {
     final original = models.path(kokoroPack, 'voices.bin');
     if (settings.mixes.isEmpty) return original;

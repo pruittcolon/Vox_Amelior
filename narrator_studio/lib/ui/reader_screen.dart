@@ -9,6 +9,7 @@ import '../core/library/library.dart';
 import '../core/render/music.dart';
 import '../core/render/plan.dart';
 import '../core/script/script.dart';
+import 'art.dart';
 import 'cast_sheet.dart';
 import 'edit_text_screen.dart';
 import 'export_sheet.dart';
@@ -141,7 +142,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final s = _session;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.doc.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(tooltip: 'Voices & style', icon: const Icon(Icons.theater_comedy_outlined), onPressed: s == null ? null : _openCast),
           IconButton(
@@ -271,7 +271,7 @@ class _TextView extends StatelessWidget {
     final cur = session.plan.utterances.isEmpty ? null : session.plan.utterances[current.clamp(0, session.plan.utterances.length - 1)];
     return ListView.builder(
       controller: controller,
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+      padding: const EdgeInsets.fromLTRB(22, 0, 22, 40),
       itemCount: blocks.length + 1,
       itemBuilder: (context, i) {
         if (i == 0) return _Header(session: session, onCast: onCast);
@@ -291,6 +291,7 @@ class _TextView extends StatelessWidget {
                 showSpeaker: b.speaker != null && b.speaker != prevSpeaker,
                 speakerIndex: b.speaker == null ? -1 : speakers.indexOf(b.speaker!),
                 speakerVoice: session.cast[b.speaker]?.voice.name,
+                speakerRef: session.castRefs[b.speaker],
                 onTap: onTap,
               ),
             BlockKind.pause => _Cue(icon: Icons.more_horiz, label: 'pause ${_secs(b.seconds)}'),
@@ -311,91 +312,159 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final text = theme.textTheme;
     final speed = session.cast[null]?.speed ?? 1.0;
     final est = session.plan.estimate(speed);
     final speakers = session.script.speakers;
+    final narrated = speakers.isEmpty || session.script.blocks.any((b) => b.kind == BlockKind.line && b.speaker == null);
+    final title = session.doc.title;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Card(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onCast,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: [
+                    BoxShadow(color: paletteFor(session.doc.title).a.withValues(alpha: 0.35), blurRadius: 24, offset: const Offset(0, 10)),
+                  ],
+                ),
+                child: CoverArt(seed: session.doc.title, style: session.style.id, size: 112, radius: 22),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.theater_comedy_outlined, size: 18, color: scheme.primary),
-                    const SizedBox(width: 8),
+                    Text(
+                      session.style.name.toUpperCase(),
+                      style: text.labelSmall?.copyWith(color: scheme.secondary, letterSpacing: 1.4),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(title, maxLines: 4, overflow: TextOverflow.ellipsis, style: text.headlineSmall),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _Pill(icon: Icons.schedule_rounded, label: '${session.style.name} · ~${formatDuration(est)}'),
+              if (session.music) _Pill(icon: Icons.music_note_rounded, label: themeById(session.theme?.id)?.name ?? 'Music'),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Material(
+            color: scheme.surfaceContainerLow,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: scheme.outlineVariant)),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onCast,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                child: Row(
+                  children: [
                     Expanded(
-                      child: Text.rich(
-                        TextSpan(children: [
-                          TextSpan(text: '${session.style.name} · ~${formatDuration(est)}'),
-                          if (session.music) ...[
-                            const TextSpan(text: '  '),
-                            WidgetSpan(
-                              alignment: PlaceholderAlignment.middle,
-                              child: Icon(Icons.music_note, size: 16, color: scheme.primary),
+                      child: Wrap(
+                        spacing: 14,
+                        runSpacing: 10,
+                        children: [
+                          if (narrated)
+                            _CastMember(
+                              label: 'Narrator',
+                              voice: session.cast[null]!.voice.name,
+                              reference: session.castRefs[null],
+                              color: speakerColor(context, -1),
                             ),
-                            TextSpan(text: themeById(session.theme?.id)?.name ?? 'Music'),
-                          ],
-                        ]),
-                        style: text.labelLarge?.copyWith(color: scheme.primary),
+                          for (var i = 0; i < speakers.length; i++)
+                            _CastMember(
+                              label: speakers[i],
+                              voice: session.cast[speakers[i]]?.voice.name ?? '',
+                              reference: session.castRefs[speakers[i]],
+                              color: speakerColor(context, i),
+                            ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Icon(Icons.edit_outlined, size: 18, color: scheme.primary),
+                    Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
                   ],
                 ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    if (speakers.isEmpty || session.script.blocks.any((b) => b.kind == BlockKind.line && b.speaker == null))
-                      _CastChip(label: 'Narrator', voice: session.cast[null]!.voice.name, color: speakerColor(context, -1)),
-                    for (var i = 0; i < speakers.length; i++)
-                      _CastChip(
-                        label: speakers[i],
-                        voice: session.cast[speakers[i]]?.voice.name ?? '',
-                        color: speakerColor(context, i),
-                      ),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-class _CastChip extends StatelessWidget {
-  const _CastChip({required this.label, required this.voice, required this.color});
+class _Pill extends StatelessWidget {
+  const _Pill({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: scheme.secondaryContainer.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: scheme.onSecondaryContainer),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSecondaryContainer)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String? characterIdOf(String? ref) => ref != null && ref.startsWith('char:') ? ref.substring(5) : null;
+
+class _CastMember extends StatelessWidget {
+  const _CastMember({required this.label, required this.voice, required this.reference, required this.color});
   final String label;
   final String voice;
+  final String? reference;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text.rich(
-        TextSpan(children: [
-          TextSpan(text: label, style: TextStyle(fontWeight: FontWeight.w700, color: color)),
-          TextSpan(text: '  $voice'),
-        ]),
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
+    final text = Theme.of(context).textTheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        VoiceAvatar(name: voice.isEmpty ? label : voice, characterId: characterIdOf(reference), size: 34),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.labelMedium?.copyWith(color: color, letterSpacing: 0.6),
+              ),
+              Text(voice, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.bodySmall),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -410,10 +479,9 @@ class _Heading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final active = utterances.isNotEmpty && current?.index == utterances.first.index;
-    final style = (block.level <= 1 ? Theme.of(context).textTheme.headlineSmall : Theme.of(context).textTheme.titleLarge)
-        ?.copyWith(fontWeight: FontWeight.w700);
+    final style = block.level <= 1 ? Theme.of(context).textTheme.headlineSmall : Theme.of(context).textTheme.titleLarge;
     return Padding(
-      padding: const EdgeInsets.only(top: 18, bottom: 10),
+      padding: const EdgeInsets.only(top: 22, bottom: 12),
       child: InkWell(
         onTap: utterances.isEmpty ? null : () => onTap(utterances.first.index),
         borderRadius: BorderRadius.circular(8),
@@ -436,6 +504,7 @@ class _Paragraph extends StatefulWidget {
     required this.showSpeaker,
     required this.speakerIndex,
     required this.speakerVoice,
+    required this.speakerRef,
     required this.onTap,
   });
 
@@ -446,6 +515,7 @@ class _Paragraph extends StatefulWidget {
   final bool showSpeaker;
   final int speakerIndex;
   final String? speakerVoice;
+  final String? speakerRef;
   final void Function(int) onTap;
 
   @override
@@ -470,7 +540,7 @@ class _ParagraphState extends State<_Paragraph> {
     }
     _recognizers.clear();
     final scheme = Theme.of(context).colorScheme;
-    final base = Theme.of(context).textTheme.bodyLarge!.copyWith(fontSize: 18, height: 1.55);
+    final base = Theme.of(context).textTheme.bodyLarge!.copyWith(fontFamily: readingFont, fontSize: 18.5, height: 1.62);
     final text = widget.block.text;
     final spans = <TextSpan>[];
     var at = 0;
@@ -490,30 +560,43 @@ class _ParagraphState extends State<_Paragraph> {
     if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
     final color = speakerColor(context, widget.speakerIndex);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Container(
-        decoration: widget.block.speaker == null
-            ? null
-            : BoxDecoration(border: Border(left: BorderSide(color: color.withValues(alpha: 0.6), width: 3))),
-        padding: widget.block.speaker == null ? EdgeInsets.zero : const EdgeInsets.only(left: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (widget.showSpeaker)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text.rich(
-                  TextSpan(children: [
-                    TextSpan(text: widget.block.speaker, style: TextStyle(color: color, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
-                    if (widget.speakerVoice != null)
-                      TextSpan(text: '  ${widget.speakerVoice}', style: TextStyle(color: scheme.onSurfaceVariant)),
-                  ]),
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.showSpeaker)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6, top: 4),
+              child: Row(
+                children: [
+                  VoiceAvatar(
+                    name: widget.speakerVoice ?? widget.block.speaker!,
+                    characterId: characterIdOf(widget.speakerRef),
+                    size: 24,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text.rich(
+                      TextSpan(children: [
+                        TextSpan(text: widget.block.speaker, style: TextStyle(color: color, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                        if (widget.speakerVoice != null)
+                          TextSpan(text: '  ${widget.speakerVoice}', style: TextStyle(color: scheme.onSurfaceVariant, fontWeight: FontWeight.w500)),
+                      ]),
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ),
+                ],
               ),
-            Text.rich(TextSpan(children: spans), style: base),
-          ],
-        ),
+            ),
+          Container(
+            decoration: widget.block.speaker == null
+                ? null
+                : BoxDecoration(border: Border(left: BorderSide(color: color.withValues(alpha: 0.35), width: 2))),
+            padding: widget.block.speaker == null ? EdgeInsets.zero : const EdgeInsets.only(left: 14),
+            margin: widget.block.speaker == null ? EdgeInsets.zero : const EdgeInsets.only(left: 11),
+            child: Text.rich(TextSpan(children: spans), style: base),
+          ),
+        ],
       ),
     );
   }
@@ -528,12 +611,24 @@ class _Cue extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: scheme.outline),
-          const SizedBox(width: 6),
-          Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.outline)),
+          Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: Border.all(color: scheme.outlineVariant)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 14, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
         ],
       ),
     );
@@ -569,12 +664,19 @@ class _PlayerBar extends StatelessWidget {
     final buffering = mine && player.state == PlayState.buffering;
     final cur = total == 0 ? 0 : current.clamp(0, total - 1);
     final remaining = total == 0 ? Duration.zero : session.plan.estimate(session.cast[null]?.speed ?? 1.0) * ((total - cur) / total);
-    return Material(
-      color: scheme.surfaceContainer,
+    final text = Theme.of(context).textTheme;
+    final p = paletteFor(session.doc.title);
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 20, offset: const Offset(0, -4))],
+      ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -584,40 +686,71 @@ class _PlayerBar extends StatelessWidget {
                   child: Text(player.error!, style: TextStyle(color: scheme.error), maxLines: 3),
                 ),
               if (total > 1) _SeekSlider(current: cur, total: total, onSeek: onSeek),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    if (playing) ...[Equalizer(playing: true, size: 12, color: scheme.secondary), const SizedBox(width: 8)],
+                    Expanded(
+                      child: Text(
+                        buffering
+                            ? 'Preparing the voice…'
+                            : total == 0
+                                ? 'Nothing to read'
+                                : '${cur + 1} / $total · ${formatDuration(remaining)} left',
+                        style: text.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      buffering
-                          ? 'Preparing the voice…'
-                          : total == 0
-                              ? 'Nothing to read'
-                              : '${cur + 1} / $total · ${formatDuration(remaining)} left',
-                      style: Theme.of(context).textTheme.bodySmall,
+                  _SpeedButton(speed: speed, onTap: () => _pickSpeed(context)),
+                  IconButton(
+                    tooltip: 'Previous sentence',
+                    iconSize: 30,
+                    onPressed: total == 0 ? null : () => onSeek(cur - 1),
+                    icon: const Icon(Icons.skip_previous_rounded),
+                  ),
+                  Material(
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: Ink(
+                      width: 66,
+                      height: 66,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [p.b, p.a]),
+                      ),
+                      child: InkWell(
+                        onTap: total == 0 ? null : onToggle,
+                        child: Center(
+                          child: buffering
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                                )
+                              : Icon(
+                                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                  size: 38,
+                                  color: Colors.white,
+                                  semanticLabel: playing ? 'Pause' : 'Play',
+                                ),
+                        ),
+                      ),
                     ),
                   ),
-                  IconButton(tooltip: 'Previous sentence', onPressed: total == 0 ? null : () => onSeek(cur - 1), icon: const Icon(Icons.skip_previous_rounded)),
-                  SizedBox(
-                    width: 56,
-                    height: 56,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(shape: const CircleBorder(), padding: EdgeInsets.zero),
-                      onPressed: total == 0 ? null : onToggle,
-                      child: buffering
-                          ? SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: scheme.onPrimary),
-                            )
-                          : Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 32),
-                    ),
+                  IconButton(
+                    tooltip: 'Next sentence',
+                    iconSize: 30,
+                    onPressed: total == 0 ? null : () => onSeek(cur + 1),
+                    icon: const Icon(Icons.skip_next_rounded),
                   ),
-                  IconButton(tooltip: 'Next sentence', onPressed: total == 0 ? null : () => onSeek(cur + 1), icon: const Icon(Icons.skip_next_rounded)),
-                  TextButton(
-                    onPressed: () => _pickSpeed(context),
-                    child: Text('${speed.toStringAsFixed(speed == speed.roundToDouble() ? 1 : 2)}x'),
-                  ),
+                  const SizedBox(width: 56),
                 ],
               ),
             ],
@@ -646,6 +779,29 @@ class _PlayerBar extends StatelessWidget {
       ),
     );
     if (v != null) onSpeed(v);
+  }
+}
+
+class _SpeedButton extends StatelessWidget {
+  const _SpeedButton({required this.speed, required this.onTap});
+  final double speed;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 56,
+      child: TextButton(
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          backgroundColor: scheme.surfaceContainerHigh,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: onTap,
+        child: Text('${speed.toStringAsFixed(speed == speed.roundToDouble() ? 1 : 2)}x'),
+      ),
+    );
   }
 }
 

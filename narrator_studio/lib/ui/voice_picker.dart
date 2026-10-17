@@ -11,7 +11,7 @@ Future<String?> pickVoice(BuildContext context, {required String title, String? 
   );
 }
 
-const voiceGroups = ['All', 'American', 'British', 'Accented', 'Fast', 'Gallery', 'Cloned', 'Mixes'];
+const voiceGroups = ['All', 'American', 'British', 'Accented', 'Studio', 'Gallery', 'Cloned', 'Mixes'];
 
 class VoicePickerScreen extends StatefulWidget {
   const VoicePickerScreen({super.key, required this.title, this.current});

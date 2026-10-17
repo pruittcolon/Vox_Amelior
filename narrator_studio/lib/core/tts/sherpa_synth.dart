@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:sherpa_onnx/sherpa_onnx.dart' as so;
 
 import '../render/audio.dart';
+import 'clarity.dart';
 import 'synth.dart';
 import 'voices.dart';
 
@@ -21,7 +22,9 @@ class EngineSetup {
     required this.supertonicDir,
     required this.pocketDir,
     required this.kokoroVoicesFile,
+    this.clarityDir = '',
     this.threads = 4,
+    this.best = true,
   });
 
   final String kokoroDir;
@@ -30,8 +33,19 @@ class EngineSetup {
 
   /// voices.bin, or the app's copy with voice mixes written into it.
   final String kokoroVoicesFile;
+
+  /// The Clarity upscaler's files, or '' to leave 24 kHz voices as they are.
+  final String clarityDir;
   final int threads;
+
+  /// Best quality: more refinement steps for Supertonic and Pocket TTS.
+  final bool best;
 }
+
+// Refinement settings for "best quality", chosen with tool/lab/voicelab.py.
+const supertonicBestSteps = 16;
+const pocketBestSteps = 10;
+const pocketBestTemperature = 0.7;
 
 class SherpaSynth implements Synth {
   SherpaSynth(this.setup);
@@ -75,7 +89,9 @@ class SherpaSynth implements Synth {
       'supertonicDir': s.supertonicDir,
       'pocketDir': s.pocketDir,
       'kokoroVoices': s.kokoroVoicesFile,
+      'clarityDir': s.clarityDir,
       'threads': s.threads,
+      'best': s.best,
     });
     final r = await c.future;
     if (r['ok'] != true) throw SynthError(r['error']?.toString() ?? 'Speech failed');
@@ -173,6 +189,8 @@ class _Worker {
   String? supertonicKey;
   so.OfflineTts? pocket;
   String? pocketKey;
+  Clarity? clarity;
+  String? clarityKey;
   final refs = <String, (Float32List, int)>{};
 
   void unloadKokoro() {
@@ -189,8 +207,15 @@ class _Worker {
     pocket?.free();
     pocket = null;
     pocketKey = null;
+    clarity?.free();
+    clarity = null;
+    clarityKey = null;
     refs.clear();
   }
+
+  /// The full-precision file if it was downloaded, else the compact one.
+  static String _pick(String dir, String full, String compact) =>
+      File(p.join(dir, full)).existsSync() ? p.join(dir, full) : _need(dir, compact);
 
   static String _need(String dir, String name) {
     final path = p.join(dir, name);
@@ -207,6 +232,7 @@ class _Worker {
     final speed = (m['speed']! as num).toDouble();
     final sid = (m['sid']! as num).toInt();
     final threads = (m['threads']! as num).toInt();
+    final best = m['best'] != false;
     so.GeneratedAudio audio;
     switch (engine) {
       case 'kokoro':
@@ -255,10 +281,10 @@ class _Worker {
           supertonic = so.OfflineTts(so.OfflineTtsConfig(
             model: so.OfflineTtsModelConfig(
               supertonic: so.OfflineTtsSupertonicModelConfig(
-                durationPredictor: _need(dir, 'duration_predictor.int8.onnx'),
-                textEncoder: _need(dir, 'text_encoder.int8.onnx'),
-                vectorEstimator: _need(dir, 'vector_estimator.int8.onnx'),
-                vocoder: _need(dir, 'vocoder.int8.onnx'),
+                durationPredictor: _pick(dir, 'duration_predictor.onnx', 'duration_predictor.int8.onnx'),
+                textEncoder: _pick(dir, 'text_encoder.onnx', 'text_encoder.int8.onnx'),
+                vectorEstimator: _pick(dir, 'vector_estimator.onnx', 'vector_estimator.int8.onnx'),
+                vocoder: _pick(dir, 'vocoder.onnx', 'vocoder.int8.onnx'),
                 ttsJson: _need(dir, 'tts.json'),
                 unicodeIndexer: _need(dir, 'unicode_indexer.bin'),
                 voiceStyle: _need(dir, 'voice.bin'),
@@ -271,7 +297,12 @@ class _Worker {
         }
         audio = supertonic!.generateWithConfig(
           text: text,
-          config: so.OfflineTtsGenerationConfig(sid: sid, speed: speed, numSteps: 8, extra: const {'lang': 'en'}),
+          config: so.OfflineTtsGenerationConfig(
+            sid: sid,
+            speed: speed,
+            numSteps: best ? supertonicBestSteps : 8,
+            extra: const {'lang': 'en', 'seed': 7},
+          ),
         );
       case 'pocket':
         final dir = m['pocketDir']! as String;
@@ -281,10 +312,10 @@ class _Worker {
           pocket = so.OfflineTts(so.OfflineTtsConfig(
             model: so.OfflineTtsModelConfig(
               pocket: so.OfflineTtsPocketModelConfig(
-                lmFlow: _need(dir, 'lm_flow.int8.onnx'),
-                lmMain: _need(dir, 'lm_main.int8.onnx'),
+                lmFlow: _pick(dir, 'lm_flow.onnx', 'lm_flow.int8.onnx'),
+                lmMain: _pick(dir, 'lm_main.onnx', 'lm_main.int8.onnx'),
                 encoder: _need(dir, 'encoder.onnx'),
-                decoder: _need(dir, 'decoder.int8.onnx'),
+                decoder: _pick(dir, 'decoder.onnx', 'decoder.int8.onnx'),
                 textConditioner: _need(dir, 'text_conditioner.onnx'),
                 vocabJson: _need(dir, 'vocab.json'),
                 tokenScoresJson: _need(dir, 'token_scores.json'),
@@ -309,8 +340,8 @@ class _Worker {
             speed: speed,
             referenceAudio: ref.$1,
             referenceSampleRate: ref.$2,
-            numSteps: 5,
-            extra: const {'max_reference_audio_len': 12, 'seed': 7},
+            numSteps: best ? pocketBestSteps : 5,
+            extra: {'max_reference_audio_len': 12, 'seed': 7, 'temperature': best ? pocketBestTemperature : 0.7},
           ),
         );
       default:
@@ -319,6 +350,17 @@ class _Worker {
     var samples = audio.samples;
     if (samples.isEmpty) throw StateError('The voice produced no audio for: "$text"');
     if (audio.sampleRate != outputRate) samples = resample(samples, audio.sampleRate, outputRate);
+    // 24 kHz voices stop at 12 kHz; Clarity rebuilds the top octave.
+    final clarityDir = (m['clarityDir'] as String?) ?? '';
+    if (audio.sampleRate == 24000 && outputRate == Clarity.rate && Clarity.installedIn(clarityDir)) {
+      final key = '$clarityDir|$threads';
+      if (clarityKey != key) {
+        clarity?.free();
+        clarity = Clarity(clarityDir, threads: threads);
+        clarityKey = key;
+      }
+      samples = clarity!.enhance(samples);
+    }
     return samples;
   }
 }

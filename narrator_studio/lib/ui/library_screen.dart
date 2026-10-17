@@ -7,10 +7,12 @@ import '../core/models/catalog.dart';
 import '../core/models/model_store.dart';
 import '../core/render/styles.dart';
 import '../core/samples.dart';
+import 'art.dart';
 import 'edit_text_screen.dart';
 import 'reader_screen.dart';
 import 'scope.dart';
 import 'settings_screen.dart';
+import 'theme.dart';
 
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key, required this.onOpenVoices, required this.onOpenWrite});
@@ -22,95 +24,197 @@ class LibraryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.app;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Narrator Studio'),
-        actions: [
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.tune),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
-          ),
-        ],
-      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showAddSheet(context, onOpenWrite: onOpenWrite),
-        icon: const Icon(Icons.add),
+        icon: const Icon(Icons.add_rounded),
         label: const Text('Add'),
       ),
-      body: ListenableBuilder(
-        listenable: app,
-        builder: (context, _) {
-          final docs = app.library.docs;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+      body: SafeArea(
+        bottom: false,
+        child: ListenableBuilder(
+          listenable: app,
+          builder: (context, _) {
+            final docs = app.library.docs;
+            final resume = docs.where((d) => d.progress > 0 && d.progress < 1).firstOrNull;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 104),
+              children: [
+                const _Masthead(),
+                const SizedBox(height: 18),
+                if (!app.hasAnyVoices || starterPacks.any((id) => app.models.status(id).state == PackState.downloading)) ...[
+                  _GetVoicesCard(onMore: onOpenVoices),
+                  const SizedBox(height: 20),
+                ],
+                if (resume != null) ...[
+                  const SectionLabel('Continue listening'),
+                  _ResumeCard(doc: resume),
+                  const SizedBox(height: 22),
+                ],
+                if (docs.isEmpty)
+                  _EmptyLibrary(onOpenWrite: onOpenWrite)
+                else ...[
+                  SectionLabel('Your library · ${docs.length}'),
+                  for (final d in docs) ...[_DocCard(doc: d), const SizedBox(height: 10)],
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _Masthead extends StatelessWidget {
+  const _Masthead();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hour = DateTime.now().hour;
+    final greeting = hour < 5
+        ? 'Late-night listening'
+        : hour < 12
+            ? 'Good morning'
+            : hour < 18
+                ? 'Good afternoon'
+                : 'Good evening';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!app.hasAnyVoices) ...[
-                _GetVoicesCard(onMore: onOpenVoices),
-                const SizedBox(height: 16),
-              ],
-              if (docs.isEmpty) _EmptyLibrary(onOpenWrite: onOpenWrite) else ...[
-                for (final d in docs) ...[_DocCard(doc: d), const SizedBox(height: 10)],
-              ],
+              Text(greeting, style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.secondary)),
+              const SizedBox(height: 2),
+              Text('Narrator Studio', style: theme.textTheme.headlineLarge),
             ],
-          );
-        },
+          ),
+        ),
+        IconButton(
+          tooltip: 'Settings',
+          icon: const Icon(Icons.tune_rounded),
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
+        ),
+      ],
+    );
+  }
+}
+
+String? coverStyle(Doc doc) => doc.style ?? (doc.kind == 'pdf' || doc.kind == 'txt' ? 'audiobook' : null);
+
+/// The episode you were listening to, big.
+class _ResumeCard extends StatelessWidget {
+  const _ResumeCard({required this.doc});
+  final Doc doc;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final p = paletteFor(doc.title);
+    final minutes = doc.words == 0 ? null : (doc.words / 150 * (1 - doc.progress)).ceil();
+    return Material(
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color.lerp(p.a, Colors.black, 0.15)!, Color.lerp(p.a, p.b, 0.5)!],
+          ),
+        ),
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(doc: doc))),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6))],
+                  ),
+                  child: CoverArt(seed: doc.title, style: coverStyle(doc), size: 92, radius: 18),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        doc.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(color: Colors.white),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        [
+                          '${(doc.progress * 100).round()}% listened',
+                          if (minutes != null) '~$minutes min left',
+                        ].join(' · '),
+                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.white.withValues(alpha: 0.82)),
+                      ),
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: doc.progress,
+                          color: p.glow,
+                          backgroundColor: Colors.white.withValues(alpha: 0.2),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                  child: Icon(Icons.play_arrow_rounded, color: p.a, size: 30),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
 Future<void> showAddSheet(BuildContext context, {required VoidCallback onOpenWrite}) {
+  Widget item(BuildContext sheet, IconData icon, String seed, String title, String? subtitle, VoidCallback onTap) => ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        leading: IconTile(icon: icon, seed: seed, size: 42),
+        title: Text(title),
+        subtitle: subtitle == null ? null : Text(subtitle),
+        onTap: () {
+          Navigator.pop(sheet);
+          onTap();
+        },
+      );
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     builder: (sheet) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.file_open_outlined),
-            title: const Text('Open a file'),
-            subtitle: const Text('.txt, .md or .pdf'),
-            onTap: () {
-              Navigator.pop(sheet);
-              openFile(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.content_paste),
-            title: const Text('Paste a script or text'),
-            subtitle: const Text('For example, Claude\'s reply'),
-            onTap: () {
-              Navigator.pop(sheet);
-              Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const EditTextScreen()));
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.auto_awesome_outlined),
-            title: const Text('Write a script with Claude'),
-            subtitle: const Text('Copy a ready-made prompt for any style'),
-            onTap: () {
-              Navigator.pop(sheet);
-              onOpenWrite();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.podcasts),
-            title: const Text('Sample: two-host podcast'),
-            onTap: () {
-              Navigator.pop(sheet);
-              addSample(context, podcast: true);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.menu_book_outlined),
-            title: const Text('Sample: audiobook chapter'),
-            onTap: () {
-              Navigator.pop(sheet);
-              addSample(context, podcast: false);
-            },
-          ),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            item(sheet, Icons.file_open_rounded, 'open', 'Open a file', '.txt, .md or .pdf', () => openFile(context)),
+            item(sheet, Icons.content_paste_rounded, 'paste', 'Paste a script or text', 'For example, Claude\'s reply',
+                () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const EditTextScreen()))),
+            item(sheet, Icons.auto_awesome_rounded, 'claude-write', 'Write a script with Claude',
+                'Copy a ready-made prompt for any style', onOpenWrite),
+            item(sheet, Icons.podcasts_rounded, 'Why Is the Sky Blue?', 'Sample: two-host podcast', null,
+                () => addSample(context, podcast: true)),
+            item(sheet, Icons.menu_book_rounded, 'The Library That Remembered Everything', 'Sample: audiobook chapter', null,
+                () => addSample(context, podcast: false)),
+          ],
+        ),
       ),
     ),
   );
@@ -148,6 +252,17 @@ Future<void> addSample(BuildContext context, {required bool podcast}) async {
   await nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(doc: doc)));
 }
 
+/// The best-quality set, in the order they become useful.
+const starterPacks = ['supertonic', 'kokoro'];
+
+Future<void> installStarterPacks(BuildContext context) async {
+  final models = context.app.models;
+  for (final id in starterPacks) {
+    if (!models.isInstalled(id)) await models.install(id);
+    if (!models.isInstalled(id)) return; // failed or paused: stop here
+  }
+}
+
 class _GetVoicesCard extends StatelessWidget {
   const _GetVoicesCard({required this.onMore});
   final VoidCallback onMore;
@@ -155,63 +270,78 @@ class _GetVoicesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.app;
-    final pack = voicePacks['kokoro']!;
-    final status = app.models.status('kokoro');
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      color: scheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.record_voice_over, color: scheme.onPrimaryContainer),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'First, download the voices',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(color: scheme.onPrimaryContainer),
-                  ),
+    final missing = starterPacks.where((id) => !app.models.isInstalled(id)).toList();
+    final total = missing.fold<int>(0, (a, id) => a + voicePacks[id]!.bytes);
+    final active = starterPacks.where((id) => app.models.status(id).state == PackState.downloading).firstOrNull;
+    final failed = starterPacks.where((id) => app.models.status(id).state == PackState.failed).firstOrNull;
+    final status = app.models.status(active ?? failed ?? missing.firstOrNull ?? 'kokoro');
+    final theme = Theme.of(context);
+    const p = CoverPalette(Color(0xFF231E6B), Color(0xFF5B6CD6), Color(0xFFFFC28A));
+    const onCard = Colors.white;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [p.a, p.b]),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Equalizer(playing: true, color: amber, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  active != null ? 'Downloading the studio voices' : 'First, download the voices',
+                  style: theme.textTheme.titleLarge?.copyWith(color: onCard),
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Narrator Studio speaks entirely on your phone: no account, no internet once downloaded. '
+            'The studio set has the 10 crispest voices (Supertonic HD, full 44 kHz) and 54 more with accents '
+            '(Kokoro): ${formatBytes(total)}. Use Wi-Fi if you can.',
+            style: theme.textTheme.bodyMedium?.copyWith(color: onCard.withValues(alpha: 0.88)),
+          ),
+          const SizedBox(height: 16),
+          if (active != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(value: status.progress, color: amber, backgroundColor: Colors.white24),
             ),
             const SizedBox(height: 8),
             Text(
-              'Narrator Studio speaks entirely on your phone: no account, no internet once downloaded. '
-              'The Kokoro pack has 54 natural voices (${formatBytes(pack.bytes)}). Use Wi-Fi if you can.',
-              style: TextStyle(color: scheme.onPrimaryContainer),
+              '${voicePacks[active]!.title} · ${formatBytes(status.received)} of ${formatBytes(status.total)}',
+              style: theme.textTheme.bodySmall?.copyWith(color: onCard.withValues(alpha: 0.85)),
             ),
-            const SizedBox(height: 12),
-            if (status.state == PackState.downloading) ...[
-              LinearProgressIndicator(value: status.progress),
-              const SizedBox(height: 6),
-              Text(
-                '${formatBytes(status.received)} of ${formatBytes(status.total)}',
-                style: TextStyle(color: scheme.onPrimaryContainer),
+          ] else ...[
+            if (status.state == PackState.failed)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(status.error ?? 'Download failed', style: const TextStyle(color: Color(0xFFFFB4A8))),
               ),
-            ] else ...[
-              if (status.state == PackState.failed)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(status.error ?? 'Download failed', style: TextStyle(color: scheme.error)),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: amber, foregroundColor: const Color(0xFF2A1A00)),
+                  onPressed: () => installStarterPacks(context),
+                  icon: const Icon(Icons.download_rounded),
+                  label: Text(failed != null ? 'Resume download' : 'Download voices'),
                 ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: () => app.models.install('kokoro'),
-                    icon: const Icon(Icons.download),
-                    label: Text(status.state == PackState.failed ? 'Resume download' : 'Download voices'),
-                  ),
-                  TextButton(onPressed: onMore, child: const Text('More voice packs')),
-                ],
-              ),
-            ],
+                TextButton(
+                  style: TextButton.styleFrom(foregroundColor: onCard),
+                  onPressed: onMore,
+                  child: const Text('More voice packs'),
+                ),
+              ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -225,12 +355,30 @@ class _EmptyLibrary extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
+      padding: const EdgeInsets.symmetric(vertical: 20),
       child: Column(
         children: [
-          Icon(Icons.auto_stories_outlined, size: 56, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: 12),
-          Text('Your library is empty', style: text.titleLarge),
+          SizedBox(
+            height: 120,
+            width: 260,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Transform.translate(
+                  offset: const Offset(-56, 10),
+                  child: Transform.rotate(angle: -0.18, child: const CoverArt(seed: 'story', style: 'story', size: 84)),
+                ),
+                Transform.translate(
+                  offset: const Offset(56, 10),
+                  child: Transform.rotate(angle: 0.18, child: const CoverArt(seed: 'lecture', style: 'lecture', size: 84)),
+                ),
+                const CoverArt(seed: 'Why Is the Sky Blue?', style: 'podcast', size: 100),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text('Your library is empty', style: text.headlineSmall),
           const SizedBox(height: 6),
           Text(
             'Open a book or article, paste a script from Claude, or start with a sample.',
@@ -243,9 +391,9 @@ class _EmptyLibrary extends StatelessWidget {
             runSpacing: 8,
             alignment: WrapAlignment.center,
             children: [
-              FilledButton.tonalIcon(
+              FilledButton.icon(
                 onPressed: () => addSample(context, podcast: true),
-                icon: const Icon(Icons.podcasts),
+                icon: const Icon(Icons.podcasts_rounded),
                 label: const Text('Sample podcast'),
               ),
               OutlinedButton.icon(
@@ -270,21 +418,21 @@ class _DocCard extends StatelessWidget {
   const _DocCard({required this.doc});
   final Doc doc;
 
-  IconData get _icon => switch (doc.kind) {
-        'pdf' => Icons.picture_as_pdf_outlined,
-        'md' => Icons.description_outlined,
-        'shared' || 'pasted' => Icons.auto_awesome_outlined,
-        'sample' => Icons.star_outline,
-        _ => Icons.article_outlined,
+  String get _kind => switch (doc.kind) {
+        'pdf' => 'PDF',
+        'md' => 'Notes',
+        'shared' || 'pasted' => 'Script',
+        'sample' => 'Sample',
+        _ => 'Text',
       };
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     final minutes = doc.words == 0 ? null : (doc.words / 150).ceil();
     final style = doc.style == null ? null : styleById(doc.style).name;
     final details = [
-      ?style,
+      style ?? _kind,
       if (minutes != null) '~$minutes min',
       if (doc.progress > 0) '${(doc.progress * 100).round()}% listened',
     ].join(' · ');
@@ -293,29 +441,28 @@ class _DocCard extends StatelessWidget {
       child: InkWell(
         onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(doc: doc))),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
+          padding: const EdgeInsets.fromLTRB(12, 12, 0, 12),
           child: Row(
             children: [
-              CircleAvatar(backgroundColor: scheme.secondaryContainer, child: Icon(_icon, color: scheme.onSecondaryContainer)),
+              CoverArt(seed: doc.title, style: coverStyle(doc), size: 60, radius: 14),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(doc.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium),
-                    if (details.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(details, style: Theme.of(context).textTheme.bodySmall),
-                    ],
+                    Text(doc.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 3),
+                    Text(details, style: theme.textTheme.bodySmall),
                     if (doc.progress > 0) ...[
                       const SizedBox(height: 8),
-                      LinearProgressIndicator(value: doc.progress, borderRadius: BorderRadius.circular(4)),
+                      LinearProgressIndicator(value: doc.progress, borderRadius: BorderRadius.circular(4), minHeight: 3),
                     ],
                   ],
                 ),
               ),
               PopupMenuButton<String>(
                 tooltip: 'More',
+                icon: const Icon(Icons.more_vert_rounded),
                 onSelected: (v) => _menu(context, v),
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'rename', child: Text('Rename')),

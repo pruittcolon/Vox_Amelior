@@ -15,6 +15,7 @@ import 'package:narrator_studio/core/audio/player.dart';
 import 'package:narrator_studio/core/models/model_store.dart';
 import 'package:narrator_studio/core/render/audio.dart';
 import 'package:narrator_studio/core/samples.dart';
+import 'package:narrator_studio/core/tts/clarity.dart';
 import 'package:narrator_studio/core/tts/sherpa_synth.dart';
 import 'package:narrator_studio/core/tts/voices.dart';
 import 'package:narrator_studio/main.dart';
@@ -52,7 +53,9 @@ void main() {
           supertonicDir: a.models.packDir('supertonic').path,
           pocketDir: a.models.packDir('pocket').path,
           kokoroVoicesFile: a.kokoroVoicesFile,
+          clarityDir: a.clarityDir,
           threads: a.settings.threads,
+          best: a.settings.bestQuality,
         ),
       ),
     );
@@ -66,7 +69,7 @@ void main() {
     await shot(tester, '01_first_launch');
 
     // 1. Downloads through the app's own downloader (sha256-checked).
-    for (final pack in ['kokoro', 'pocket']) {
+    for (final pack in ['kokoro', 'supertonic', 'pocket', 'clarity']) {
       final watch = Stopwatch()..start();
       await models.install(pack);
       final st = models.status(pack);
@@ -88,6 +91,31 @@ void main() {
           '(${(secs / (watch.elapsedMilliseconds / 1000)).toStringAsFixed(2)}x real time)');
       expect(secs, greaterThan(2));
     }
+    // Clarity leaves Kokoro alone: it already reaches the 12 kHz limit.
+    const line = 'Light from the sun looks white, but it is really a mixture of every colour.';
+    app.settings.clarity = false;
+    final plain = await app.synth.speak(heart, line);
+    app.settings.clarity = true;
+    final same = await app.synth.speak(heart, line);
+    var diff = 0.0;
+    for (var i = 0; i < plain.length && i < same.length; i++) {
+      diff = diff > (plain[i] - same[i]).abs() ? diff : (plain[i] - same[i]).abs();
+    }
+    log('clarity on Kokoro: max change $diff');
+    expect(same.length, plain.length);
+    expect(diff, lessThan(1e-4), reason: 'Kokoro has its top end; Clarity must not touch it');
+    var w = Stopwatch();
+
+    // The Supertonic studio voices at full precision.
+    final fiona = supertonicVoices.first;
+    await app.synth.speak(fiona, 'Warm up.');
+    w = Stopwatch()..start();
+    final studio = await app.synth.speak(fiona, 'Light from the sun looks white, but it is really a mixture of every colour.');
+    final studioSecs = studio.length / outputRate;
+    log('supertonic HD: ${studioSecs.toStringAsFixed(2)}s audio in ${w.elapsedMilliseconds}ms '
+        '(${(studioSecs / (w.elapsedMilliseconds / 1000)).toStringAsFixed(2)}x real time)');
+    expect(studioSecs, greaterThan(2));
+
     // British voices use espeak-ng's British English.
     for (final id in ['kokoro:bm_george', 'kokoro:bf_emma']) {
       final v = kokoroVoices.firstWhere((x) => x.id == id);
@@ -106,6 +134,15 @@ void main() {
     final cloned = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
     log('pocket clone: ${(cloned.length / outputRate).toStringAsFixed(2)}s audio in ${watch.elapsedMilliseconds}ms');
     expect(cloned.length / outputRate, greaterThan(1.5));
+    // Cloned voices stop at ~8 kHz; Clarity rebuilds the top end.
+    app.settings.clarity = false;
+    final dull = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
+    app.settings.clarity = true;
+    w = Stopwatch()..start();
+    final crisp = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
+    log('clarity on a cloned voice: ${w.elapsedMilliseconds}ms; air ${airDb(dull, outputRate).toStringAsFixed(1)} dB -> '
+        '${airDb(crisp, outputRate).toStringAsFixed(1)} dB');
+    expect(airDb(crisp, outputRate), greaterThan(airDb(dull, outputRate) + 6), reason: 'Clarity adds the top end');
 
     // 3. The sample podcast in the reader, playing through the real speaker.
     final doc = await app.library.add(title: 'Why Is the Sky Blue?', kind: 'sample', text: samplePodcast);

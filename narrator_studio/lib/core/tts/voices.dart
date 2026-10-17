@@ -162,8 +162,8 @@ final List<Voice> supertonicVoices = [
     Voice(
       id: 'supertonic:${supertonicStyles[i]}',
       name: _supertonicInfo[supertonicStyles[i]]!.$1,
-      group: 'Fast',
-      blurb: '${_supertonicInfo[supertonicStyles[i]]!.$2} Very fast to generate.',
+      group: 'Studio',
+      blurb: '${_supertonicInfo[supertonicStyles[i]]!.$2} Studio quality, full 44 kHz.',
       engine: Engine.supertonic,
       sid: i,
       license: 'OpenRAIL',
@@ -208,60 +208,70 @@ class Character {
       );
 }
 
+/// Voices chosen with the voice lab (tool/lab/voicelab.py: UTMOS and NISQA
+/// scores): the Supertonic studio voices first, with the best-scoring Kokoro
+/// voice for the part as the stand-in when Supertonic isn't downloaded.
 const builtInCharacters = <Character>[
   Character(
     id: 'narrator',
     name: 'The Narrator',
-    voiceId: 'kokoro:af_heart',
+    voiceId: 'supertonic:F1',
+    fallbackVoiceId: 'kokoro:af_heart',
     blurb: 'Warm and clear. Reads books beautifully.',
     speed: 0.97,
   ),
   Character(
     id: 'storyteller',
     name: 'The Storyteller',
-    voiceId: 'kokoro:bm_fable',
+    voiceId: 'kokoro:bf_isabella',
     blurb: 'A British storyteller by the fire.',
     speed: 0.93,
   ),
   Character(
     id: 'professor',
     name: 'The Professor',
-    voiceId: 'kokoro:bm_george',
+    voiceId: 'supertonic:M3',
+    fallbackVoiceId: 'kokoro:bm_george',
     blurb: 'Distinguished and thoughtful. Explains big ideas slowly.',
     speed: 0.92,
   ),
   Character(
     id: 'sage',
     name: 'The Old Sage',
-    voiceId: 'kokoro:am_onyx',
+    voiceId: 'supertonic:M5',
+    fallbackVoiceId: 'kokoro:am_adam',
     blurb: 'Deep, unhurried, a little gravelly. For a wise guest.',
     speed: 0.88,
   ),
   Character(
     id: 'host',
     name: 'Radio Host',
-    voiceId: 'kokoro:am_michael',
+    voiceId: 'supertonic:M1',
+    fallbackVoiceId: 'kokoro:am_fenrir',
     blurb: 'Friendly, upbeat podcast host.',
     speed: 1.02,
   ),
   Character(
     id: 'cohost',
     name: 'Co-Host',
-    voiceId: 'kokoro:af_bella',
+    voiceId: 'supertonic:F2',
+    fallbackVoiceId: 'kokoro:af_sarah',
     blurb: 'Bright and curious; asks the questions listeners would.',
     speed: 1.02,
   ),
   Character(
     id: 'explorer',
     name: 'The Explorer',
-    voiceId: 'kokoro:am_fenrir',
+    voiceId: 'supertonic:M4',
+    fallbackVoiceId: 'kokoro:am_fenrir',
     blurb: 'Bold and adventurous. Documentaries and expeditions.',
     speed: 0.98,
   ),
   Character(
     id: 'anchor',
     name: 'News Anchor',
-    voiceId: 'kokoro:bf_emma',
+    voiceId: 'supertonic:F5',
+    fallbackVoiceId: 'kokoro:af_kore',
     blurb: 'Polished and precise.',
     speed: 1.04,
   ),
@@ -275,7 +285,8 @@ const builtInCharacters = <Character>[
   Character(
     id: 'night',
     name: 'Night Reader',
-    voiceId: 'kokoro:af_nicole',
+    voiceId: 'supertonic:F3',
+    fallbackVoiceId: 'kokoro:af_aoede',
     blurb: 'Soft and close. For winding down.',
     speed: 0.9,
   ),

@@ -33,6 +33,14 @@ void main() {
       final kokoro = voicePacks['kokoro']!.files.map((f) => f.path).toSet();
       expect(kokoro, containsAll(['model.onnx', 'voices.bin', 'tokens.txt', 'lexicon-us-en.txt', 'espeak-ng-data']));
       expect(voicePacks['kokoro-lite']!.files.map((f) => f.path), contains('model.int8.onnx'));
+      // Best quality: full-precision Supertonic and Pocket TTS (no int8 files), and Clarity.
+      final supertonic = voicePacks['supertonic']!.files.map((f) => f.path).toSet();
+      expect(supertonic, containsAll(['vocoder.onnx', 'vector_estimator.onnx', 'tts.json', 'voice.bin', 'unicode_indexer.bin']));
+      expect(supertonic.where((f) => f.contains('int8')), isEmpty);
+      final pocket = voicePacks['pocket']!.files.map((f) => f.path).toSet();
+      expect(pocket, containsAll(['lm_main.onnx', 'lm_flow.onnx', 'decoder.onnx', 'encoder.onnx', 'text_conditioner.onnx']));
+      expect(pocket.where((f) => f.contains('int8')), isEmpty);
+      expect(voicePacks['clarity']!.files.map((f) => f.path), containsAll(['enhancer_backbone.onnx', 'enhancer_spec_head.onnx.data']));
     });
 
     test('voice tables line up with the models', () {
@@ -43,7 +51,12 @@ void main() {
       }
       expect(supertonicVoices, hasLength(10));
       for (final c in builtInCharacters) {
-        expect(c.voiceId, anyOf(startsWith('kokoro:'), startsWith('gallery:')), reason: c.id);
+        expect(c.voiceId, anyOf(startsWith('kokoro:'), startsWith('gallery:'), startsWith('supertonic:')), reason: c.id);
+        // Every Supertonic or Gallery character has a Kokoro stand-in.
+        if (!c.voiceId.startsWith('kokoro:')) expect(c.fallbackVoiceId, startsWith('kokoro:'), reason: c.id);
+        for (final id in [c.voiceId, ?c.fallbackVoiceId]) {
+          if (!id.startsWith('gallery:')) expect([...kokoroVoices, ...supertonicVoices].any((v) => v.id == id), isTrue, reason: id);
+        }
       }
     });
   });
@@ -124,7 +137,8 @@ void main() {
       expect(s.castRefs['HOST'], 'char:host');
       expect(s.castRefs['CO-HOST'], 'char:cohost');
       expect(s.castRefs['GUEST'], 'char:professor');
-      expect(s.cast['GUEST']!.voice.id, 'kokoro:bm_george');
+      expect(s.cast['GUEST']!.voice.id, 'kokoro:bm_george', reason: 'Kokoro stand-in without Supertonic');
+      expect(s.cast['HOST']!.voice.id, 'kokoro:am_fenrir');
 
       final doc2 = await app.library.add(
         title: 'y',
@@ -149,7 +163,11 @@ void main() {
 
     test('missing packs fall back, and no packs at all is a clear error', () async {
       final (app, _, _, _) = await makeApp(packs: ['supertonic']);
-      expect(app.resolve('char:professor').voice.id, 'supertonic:F1');
+      expect(app.resolve('char:professor').voice.id, 'supertonic:M3');
+      expect(app.resolve('char:storyteller').voice.id, 'supertonic:F1', reason: 'a Kokoro-only character falls back');
+      final (both, _, _, _) = await makeApp(packs: ['kokoro', 'supertonic']);
+      expect(both.resolve('char:host').voice.id, 'supertonic:M1');
+      expect(both.resolve('char:storyteller').voice.id, 'kokoro:bf_isabella');
       final (bare, _, _, _) = await makeApp(packs: []);
       expect(() => bare.resolve('char:narrator'), throwsA(isA<NoVoicesError>()));
     });
