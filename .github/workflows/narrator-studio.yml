@@ -7,8 +7,9 @@ on:
       - 'narrator_studio/**'
       - '.github/workflows/narrator-studio.yml'
       - '!narrator_studio/tool/models/**'
+      - '!narrator_studio/tool/lab/**'
   pull_request:
-    paths: ['narrator_studio/**', '.github/workflows/narrator-studio.yml']
+    paths: ['narrator_studio/**', '!narrator_studio/tool/lab/**', '.github/workflows/narrator-studio.yml']
 permissions:
   contents: write
 concurrency:
