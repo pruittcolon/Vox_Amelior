@@ -147,15 +147,28 @@ class VibeVoice {
   }
 
   /// The speech frames, [frames][64].
+  ///
+  /// The TTS LM runs the voice (row 0) and its guidance branch (row 1) as one
+  /// batch, so its weights are read once per frame: one cache, the shorter row
+  /// left-padded and masked out by `keep`; during text windows the guidance
+  /// row takes masked filler.
   List<Float32List> generate(String voiceName, String text, {int seed = 7, Float32List Function(int frame)? noise}) {
     final v = voice(voiceName);
     final rng = _Gauss(seed);
     noise ??= (_) => rng.vector(_latent);
     final ids = tokens(text);
-    var lmKv = [for (final (k, vv) in v.lm) _kv(k, vv, v.length(v.lm))];
-    var ttsKv = [for (final (k, vv) in v.tts) _kv(k, vv, v.length(v.tts))];
-    var negKv = [for (final (k, vv) in v.neg) _kv(k, vv, v.length(v.neg))];
     var lmPos = v.length(v.lm), ttsPos = v.length(v.tts), negPos = v.length(v.neg);
+    var lmKv = [for (final (k, vv) in v.lm) _kv(1, lmPos, k, vv)];
+    final width = math.max(ttsPos, negPos);
+    var kv = [
+      for (var l = 0; l < v.tts.length; l++)
+        _kv(2, width, _rows(v.tts[l].$1, ttsPos, v.neg[l].$1, negPos, width), _rows(v.tts[l].$2, ttsPos, v.neg[l].$2, negPos, width)),
+    ];
+    // keep[row][position]: 1 for real positions, 0 for padding and filler.
+    final keep = [
+      [for (var i = 0; i < width; i++) i >= width - ttsPos ? 1.0 : 0.0],
+      [for (var i = 0; i < width; i++) i >= width - negPos ? 1.0 : 0.0],
+    ];
     var negH = Float32List.fromList(v.negLast);
     Float32List? ttsH;
     final latents = <Float32List>[];
@@ -168,19 +181,21 @@ class VibeVoice {
         w++;
         if (win.isNotEmpty) {
           final n = win.length;
-          final (h, kv) = _lm(_textLm, _embedRows(win), n, lmPos, lmKv);
-          lmKv = kv;
+          final (h, lkv) = _lm(_textLm, _embedRows(win), 1, n, [for (var i = 0; i < n; i++) lmPos + i], [List.filled(lmPos + n, 1.0)], lmKv);
+          lmKv = lkv;
           lmPos += n;
-          final x = Float32List.fromList(h);
+          final x = Float32List(2 * n * _hidden); // row 1 stays zero filler
           for (var t = 0; t < n; t++) {
             for (var i = 0; i < _hidden; i++) {
-              x[t * _hidden + i] += _types[_hidden + i]; // "text" type
+              x[t * _hidden + i] = h[t * _hidden + i] + _types[_hidden + i]; // "text" type
             }
           }
-          final (th, tkv) = _lm(_ttsLm, x, n, ttsPos, ttsKv);
-          ttsKv = tkv;
+          keep[0].addAll(List.filled(n, 1.0));
+          keep[1].addAll(List.filled(n, 0.0));
+          final (th, tkv) = _lm(_ttsLm, x, 2, n, [for (var i = 0; i < n; i++) ttsPos + i, for (var i = 0; i < n; i++) negPos], keep, kv);
+          kv = tkv;
           ttsPos += n;
-          ttsH = Float32List.sublistView(th, (n - 1) * _hidden);
+          ttsH = Float32List.sublistView(th, (n - 1) * _hidden, n * _hidden);
         } else if (ttsH == null) {
           break;
         }
@@ -195,26 +210,41 @@ class VibeVoice {
             done = true;
             break;
           }
-          final (th, tkv) = _lm(_ttsLm, e, 1, ttsPos, ttsKv);
-          ttsKv = tkv;
+          keep[0].add(1.0);
+          keep[1].add(1.0);
+          final (th, tkv) = _lm(_ttsLm, Float32List(2 * _hidden)..setAll(0, e)..setAll(_hidden, e), 2, 1, [ttsPos, negPos], keep, kv);
+          kv = tkv;
           ttsPos++;
-          ttsH = th;
-          final (nh, nkv) = _lm(_ttsLm, e, 1, negPos, negKv);
-          negKv = nkv;
           negPos++;
-          negH = nh;
-          if (_eos(th)) {
+          ttsH = Float32List.sublistView(th, 0, _hidden);
+          negH = Float32List.sublistView(th, _hidden, 2 * _hidden);
+          if (_eos(ttsH)) {
             done = true;
             break;
           }
         }
       }
     } finally {
-      for (final kv in [...lmKv, ...ttsKv, ...negKv]) {
-        kv.free();
+      for (final c in [...lmKv, ...kv]) {
+        c.free();
       }
     }
     return latents;
+  }
+
+  /// Two cache rows of one layer, each left-padded to [width]: [2, 2, width, 64].
+  static Float32List _rows(Float32List a, int la, Float32List b, int lb, int width) {
+    final out = Float32List(2 * _kvHeads * width * _headDim);
+    void put(Float32List src, int len, int row) {
+      for (var h = 0; h < _kvHeads; h++) {
+        final to = ((row * _kvHeads + h) * width + (width - len)) * _headDim;
+        out.setRange(to, to + len * _headDim, src, h * len * _headDim);
+      }
+    }
+
+    put(a, la, 0);
+    put(b, lb, 1);
+    return out;
   }
 
   /// All frames to 24 kHz audio at once.
@@ -242,22 +272,33 @@ class VibeVoice {
     }
   }
 
-  _Kv _kv(Float32List k, Float32List v, int length) => _Kv(
-        _ttsLm.tensor(k, [1, _kvHeads, length, _headDim]),
-        _ttsLm.tensor(v, [1, _kvHeads, length, _headDim]),
+  _Kv _kv(int rows, int length, Float32List k, Float32List v) => _Kv(
+        _ttsLm.tensor(k, [rows, _kvHeads, length, _headDim]),
+        _ttsLm.tensor(v, [rows, _kvHeads, length, _headDim]),
       );
 
-  /// One pass of a language model over [n] new positions; returns the hidden
-  /// states [n][896] (a copy) and the grown cache (the old one is freed).
-  (Float32List, List<_Kv>) _lm(OrtSession s, Float32List x, int n, int pos, List<_Kv> past) {
-    final xs = s.tensor(x, [1, n, _hidden]);
-    final ps = s.tensor(Float32List.fromList([for (var i = 0; i < n; i++) (pos + i).toDouble()]), [1, n]);
+  /// One pass of a language model over [n] new positions in each of [rows]
+  /// rows; returns the hidden states [rows][n][896] (a copy) and the grown
+  /// cache (the old one is freed). [keep] covers every position, old and new.
+  (Float32List, List<_Kv>) _lm(
+    OrtSession s,
+    Float32List x,
+    int rows,
+    int n,
+    List<int> pos,
+    List<List<double>> keep,
+    List<_Kv> past,
+  ) {
+    final xs = s.tensor(x, [rows, n, _hidden]);
+    final ps = s.tensor(Float32List.fromList([for (final p in pos) p.toDouble()]), [rows, n]);
+    final ks = s.tensor(Float32List.fromList([for (final r in keep) ...r]), [rows, keep.first.length]);
     List<OrtTensor> out;
     try {
-      out = s.run([xs, ps, for (final kv in past) ...[kv.k, kv.v]]);
+      out = s.run([xs, ps, ks, for (final kv in past) ...[kv.k, kv.v]]);
     } finally {
       xs.free();
       ps.free();
+      ks.free();
     }
     final h = Float32List.fromList(out.first.data);
     out.first.free();

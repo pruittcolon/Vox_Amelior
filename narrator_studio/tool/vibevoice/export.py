@@ -67,34 +67,38 @@ class Layers(torch.nn.Module):
         inv = 1.0 / (theta ** (torch.arange(0, vv_pack.HEAD_DIM, 2, dtype=torch.float64) / vv_pack.HEAD_DIM))
         self.register_buffer("inv", inv.float(), persistent=False)
 
-    def forward(self, x, pos, *past):
-        s = x.shape[1]
+    def forward(self, x, pos, keep, *past):
+        """x [B,S,896], pos [B,S], keep [B,P+S] (1 = a real position, 0 = padding);
+        past/present k,v [B,2,P,64] per layer. Rows are independent sequences
+        (the voice and its guidance branch), left-padded to one cache length."""
+        b, s = x.shape[0], x.shape[1]
         p = past[0].shape[2]
-        f = pos[0][:, None] * self.inv[None, :]
+        f = pos[:, :, None] * self.inv[None, None, :]
         emb = torch.cat([f, f], dim=-1)
-        cos, sin = emb.cos()[None, None], emb.sin()[None, None]
+        cos, sin = emb.cos()[:, None], emb.sin()[:, None]
         i = torch.arange(s, dtype=torch.float32)[:, None] + p
         j = torch.arange(p + s, dtype=torch.float32)[None, :]
-        mask = torch.where(j <= i, 0.0, float("-inf"))
+        causal = torch.where(j <= i, 0.0, -1e9)
+        bias = causal[None, None] + (1.0 - keep)[:, None, None, :] * -1e9
         nh = 14
         rep = nh // vv_pack.KV_HEADS
         present = []
         for n, layer in enumerate(self.layers):
             a = layer.self_attn
             h = rms(x, layer.input_layernorm.weight, self.eps)
-            q = a.q_proj(h).view(1, s, nh, vv_pack.HEAD_DIM).transpose(1, 2)
-            k = a.k_proj(h).view(1, s, vv_pack.KV_HEADS, vv_pack.HEAD_DIM).transpose(1, 2)
-            v = a.v_proj(h).view(1, s, vv_pack.KV_HEADS, vv_pack.HEAD_DIM).transpose(1, 2)
+            q = a.q_proj(h).view(b, s, nh, vv_pack.HEAD_DIM).transpose(1, 2)
+            k = a.k_proj(h).view(b, s, vv_pack.KV_HEADS, vv_pack.HEAD_DIM).transpose(1, 2)
+            v = a.v_proj(h).view(b, s, vv_pack.KV_HEADS, vv_pack.HEAD_DIM).transpose(1, 2)
             q = q * cos + rotate(q) * sin
             k = k * cos + rotate(k) * sin
             k = torch.cat([past[2 * n], k], dim=2)
             v = torch.cat([past[2 * n + 1], v], dim=2)
             present += [k, v]
             t = k.shape[2]
-            kk = k[:, :, None].expand(1, vv_pack.KV_HEADS, rep, t, vv_pack.HEAD_DIM).reshape(1, nh, t, vv_pack.HEAD_DIM)
-            vv = v[:, :, None].expand(1, vv_pack.KV_HEADS, rep, t, vv_pack.HEAD_DIM).reshape(1, nh, t, vv_pack.HEAD_DIM)
-            w = torch.softmax(q @ kk.transpose(-1, -2) / math.sqrt(vv_pack.HEAD_DIM) + mask, dim=-1)
-            o = (w @ vv).transpose(1, 2).reshape(1, s, nh * vv_pack.HEAD_DIM)
+            kk = k[:, :, None].expand(b, vv_pack.KV_HEADS, rep, t, vv_pack.HEAD_DIM).reshape(b, nh, t, vv_pack.HEAD_DIM)
+            vv = v[:, :, None].expand(b, vv_pack.KV_HEADS, rep, t, vv_pack.HEAD_DIM).reshape(b, nh, t, vv_pack.HEAD_DIM)
+            w = torch.softmax(q @ kk.transpose(-1, -2) / math.sqrt(vv_pack.HEAD_DIM) + bias, dim=-1)
+            o = (w @ vv).transpose(1, 2).reshape(b, s, nh * vv_pack.HEAD_DIM)
             x = x + a.o_proj(o)
             h = rms(x, layer.post_attention_layernorm.weight, self.eps)
             m = layer.mlp
@@ -157,8 +161,8 @@ def compare(name, a, b, tol):
         raise SystemExit(f"{name} does not match (tolerance {tol})")
 
 
-def lm_feeds(x, pos, kv):
-    feeds = {"x": x, "pos": np.asarray(pos, np.float32)[None]}
+def lm_feeds(x, pos, keep, kv):
+    feeds = {"x": x, "pos": np.asarray(pos, np.float32), "keep": np.asarray(keep, np.float32)}
     for i, (k, v) in enumerate(kv):
         feeds[f"past_k{i}"], feeds[f"past_v{i}"] = k, v
     return feeds
@@ -211,27 +215,44 @@ def main():
         ):
             ref = hf(inputs_embeds=x, position_ids=pos.long(), use_cache=False).last_hidden_state
             empty = [torch.zeros(1, vv_pack.KV_HEADS, 0, vv_pack.HEAD_DIM)] * (2 * layers)
-            got = mine(x, pos, *empty)[0]
+            got = mine(x, pos, torch.ones(1, 9), *empty)[0]
             compare(f"{name} vs transformers", got, ref, 1e-4)
             # In two pieces through the cache: the same as all at once.
-            first = mine(x[:, :5], pos[:, :5], *empty)
-            second = mine(x[:, 5:], pos[:, 5:], *first[1:])[0]
+            first = mine(x[:, :5], pos[:, :5], torch.ones(1, 5), *empty)
+            second = mine(x[:, 5:], pos[:, 5:], torch.ones(1, 9), *first[1:])[0]
             compare(f"{name} through its cache", second, ref[:, 5:], 1e-4)
+            # Two sequences in one batch, the shorter one left-padded: each row
+            # comes out as if it were alone. Row 0: x after 5 positions; row 1:
+            # y after 2 positions (3 of padding in front).
+            y = torch.randn(1, 3, vv_pack.HIDDEN) * 0.1
+            alone = mine(y, torch.arange(3, dtype=torch.float32)[None], torch.ones(1, 3), *empty)
+            short = mine(y[:, :2], torch.arange(2, dtype=torch.float32)[None], torch.ones(1, 2), *empty)
+            joint = [
+                torch.cat([a0[:, :, :5], torch.cat([torch.zeros_like(a1[:, :, :1]).expand(1, vv_pack.KV_HEADS, 3, vv_pack.HEAD_DIM), a1], dim=2)], dim=0)
+                for a0, a1 in zip(first[1:], short[1:])
+            ]
+            keep = torch.tensor([[1.0] * 5 + [1.0], [0.0] * 3 + [1.0] * 2 + [1.0]])
+            step = torch.cat([x[:, 5:6], y[:, 2:3]], dim=0)
+            both = mine(step, torch.tensor([[5.0], [2.0]]), keep, *joint)[0]
+            compare(f"{name} batched row 0", both[0, 0], ref[0, 5], 1e-4)
+            compare(f"{name} batched row 1", both[1, 0], alone[0][0, 2], 1e-4)
 
     # ---- 2. export ------------------------------------------------------------
     import onnxruntime as ort
 
     def lm_export(mod, layers, path):
-        names = ["x", "pos"] + [f"past_{kv}{i}" for i in range(layers) for kv in "kv"]
+        names = ["x", "pos", "keep"] + [f"past_{kv}{i}" for i in range(layers) for kv in "kv"]
         outs = ["h"] + [f"present_{kv}{i}" for i in range(layers) for kv in "kv"]
-        dyn = {"x": {1: "s"}, "pos": {1: "s"}, "h": {1: "s"}}
+        dyn = {"x": {0: "b", 1: "s"}, "pos": {0: "b", 1: "s"}, "keep": {0: "b", 1: "t"}, "h": {0: "b", 1: "s"}}
         for i in range(layers):
             for kv in "kv":
-                dyn[f"past_{kv}{i}"] = {2: "p"}
-                dyn[f"present_{kv}{i}"] = {2: "t"}
-        ex = (torch.zeros(1, 3, vv_pack.HIDDEN), torch.arange(4, 7, dtype=torch.float32)[None]) + tuple(
-            torch.zeros(1, vv_pack.KV_HEADS, 4, vv_pack.HEAD_DIM) for _ in range(2 * layers)
-        )
+                dyn[f"past_{kv}{i}"] = {0: "b", 2: "p"}
+                dyn[f"present_{kv}{i}"] = {0: "b", 2: "t"}
+        ex = (
+            torch.zeros(2, 3, vv_pack.HIDDEN),
+            torch.arange(4, 7, dtype=torch.float32)[None].expand(2, 3).contiguous(),
+            torch.ones(2, 7),
+        ) + tuple(torch.zeros(2, vv_pack.KV_HEADS, 4, vv_pack.HEAD_DIM) for _ in range(2 * layers))
         export(mod, ex, names, outs, dyn, path)
 
     lm_export(text_lm, 4, os.path.join(a.out, "text_lm.onnx"))
@@ -279,11 +300,12 @@ def main():
     sess = {n: ort.InferenceSession(os.path.join(a.out, n + ".onnx"), o) for n in ("text_lm", "tts_lm", "head", "decoder")}
     with torch.no_grad():
         for name, mine, layers in (("text_lm", text_lm, 4), ("tts_lm", tts_lm, 20)):
-            past = [torch.randn(1, vv_pack.KV_HEADS, 7, vv_pack.HEAD_DIM) for _ in range(2 * layers)]
-            x = torch.randn(1, 5, vv_pack.HIDDEN) * 0.1
-            pos = torch.arange(7, 12, dtype=torch.float32)[None]
-            ref = mine(x, pos, *past)
-            got = sess[name].run(None, lm_feeds(x.numpy(), pos[0].numpy(), [(past[2 * i].numpy(), past[2 * i + 1].numpy()) for i in range(layers)]))
+            past = [torch.randn(2, vv_pack.KV_HEADS, 7, vv_pack.HEAD_DIM) for _ in range(2 * layers)]
+            x = torch.randn(2, 5, vv_pack.HIDDEN) * 0.1
+            pos = torch.tensor([[7.0, 8, 9, 10, 11], [3.0, 4, 5, 6, 7]])
+            keep = torch.tensor([[1.0] * 12, [0.0] * 4 + [1.0] * 8])
+            ref = mine(x, pos, keep, *past)
+            got = sess[name].run(None, lm_feeds(x.numpy(), pos.numpy(), keep.numpy(), [(past[2 * i].numpy(), past[2 * i + 1].numpy()) for i in range(layers)]))
             compare(f"{name}.onnx hidden", got[0], ref[0], 1e-4)
             compare(f"{name}.onnx cache", got[-1], ref[-1], 1e-4)
         noisy, t, cond = torch.randn(2, vv_pack.LATENT), torch.tensor([799.0, 799.0]), torch.randn(2, vv_pack.HIDDEN)

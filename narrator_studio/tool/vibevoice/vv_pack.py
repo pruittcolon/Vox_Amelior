@@ -123,8 +123,9 @@ class Pack:
     def tokens(self, text):
         return self.tok.encode(text.strip() + "\n", add_special_tokens=False).ids
 
-    def lm(self, sess, x, pos, kv):
-        feeds = {"x": x.astype(np.float32), "pos": np.asarray(pos, np.float32)[None, :]}
+    def lm(self, sess, x, pos, keep, kv):
+        """x [B,S,896], pos [B,S], keep [B,P+S]; kv per layer (k, v) [B,2,P,64]."""
+        feeds = {"x": x.astype(np.float32), "pos": np.asarray(pos, np.float32), "keep": np.asarray(keep, np.float32)}
         for i, (k, v) in enumerate(kv):
             feeds[f"past_k{i}"] = k
             feeds[f"past_v{i}"] = v
@@ -156,9 +157,26 @@ class Pack:
         return x
 
     def generate(self, voice, text, noise):
-        """noise(i) -> the i-th Gaussian [64] vector. Returns (latents [T,64], audio)."""
+        """noise(i) -> the i-th Gaussian [64] vector. Returns (latents [T,64], audio).
+
+        The TTS LM runs the voice (row 0) and its guidance branch (row 1) in
+        one batch: one cache, the shorter row left-padded and masked out by
+        `keep`. During text windows the guidance row takes masked filler."""
         lm_kv, tts_kv, neg_kv, neg_h = voice
-        lm_pos, tts_pos, neg_pos = lm_kv[0][0].shape[2], tts_kv[0][0].shape[2], neg_kv[0][0].shape[2]
+        lm_pos = lm_kv[0][0].shape[2]
+        tts_pos, neg_pos = tts_kv[0][0].shape[2], neg_kv[0][0].shape[2]
+        width = max(tts_pos, neg_pos)
+
+        def padded(t, n):
+            return np.concatenate([np.zeros((1, KV_HEADS, width - n, HEAD_DIM), np.float32), t], axis=2)
+
+        kv = [
+            (np.concatenate([padded(pk, tts_pos), padded(nk, neg_pos)]), np.concatenate([padded(pv, tts_pos), padded(nv, neg_pos)]))
+            for (pk, pv), (nk, nv) in zip(tts_kv, neg_kv)
+        ]
+        keep = np.zeros((2, width), np.float32)
+        keep[0, width - tts_pos :] = 1
+        keep[1, width - neg_pos :] = 1
         types = self.small["types"]
         ids = self.tokens(text)
         latents, w, done, tts_h = [], 0, False, None
@@ -168,11 +186,14 @@ class Pack:
             if win:
                 n = len(win)
                 x = np.asarray(self.embed[win], np.float32)[None]
-                h, lm_kv = self.lm(self.text_lm, x, range(lm_pos, lm_pos + n), lm_kv)
+                h, lm_kv = self.lm(self.text_lm, x, [list(range(lm_pos, lm_pos + n))], np.ones((1, lm_pos + n)), lm_kv)
                 lm_pos += n
-                h, tts_kv = self.lm(self.tts_lm, h + types[1], range(tts_pos, tts_pos + n), tts_kv)
+                x2 = np.concatenate([h + types[1], np.zeros_like(h)])
+                pos2 = [list(range(tts_pos, tts_pos + n)), [neg_pos] * n]
+                keep = np.concatenate([keep, np.array([[1.0] * n, [0.0] * n], np.float32)], axis=1)
+                h2, kv = self.lm(self.tts_lm, x2, pos2, keep, kv)
                 tts_pos += n
-                tts_h = h[0, -1]
+                tts_h = h2[0, -1]
             elif tts_h is None:
                 break
             for _ in range(SPEECH_WINDOW):
@@ -182,12 +203,11 @@ class Pack:
                 if tts_pos >= MAX_POSITIONS:
                     done = True
                     break
-                h, tts_kv = self.lm(self.tts_lm, e, [tts_pos], tts_kv)
+                keep = np.concatenate([keep, np.ones((2, 1), np.float32)], axis=1)
+                h2, kv = self.lm(self.tts_lm, np.concatenate([e, e]), [[tts_pos], [neg_pos]], keep, kv)
                 tts_pos += 1
-                tts_h = h[0, -1]
-                h, neg_kv = self.lm(self.tts_lm, e, [neg_pos], neg_kv)
                 neg_pos += 1
-                neg_h = h[0, -1]
+                tts_h, neg_h = h2[0, -1], h2[1, -1]
                 if self.eos(tts_h):
                     done = True
                     break
