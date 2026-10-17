@@ -50,8 +50,10 @@ def slug(s):
 
 
 def mono(x):
-    x = np.asarray(x, dtype=np.float32)
-    return x[:, 0] if x.ndim > 1 else x.reshape(-1)
+    x = np.squeeze(np.asarray(x, dtype=np.float32))
+    if x.ndim > 1:  # (channels, samples) or (samples, channels)
+        x = x[0] if x.shape[0] < x.shape[-1] else x[:, 0]
+    return x.reshape(-1)
 
 
 def level(x):
@@ -364,7 +366,15 @@ def run_vibevoice(a, out):
             )
         total += time.time() - t1
         pieces.append(got.speech_outputs[0].float().cpu().numpy())
-    out.save("VibeVoice Realtime 0.5B", "vibevoice", pieces, 24000, total, "Microsoft. Carter, Emma, Frank.", setup)
+    out.save(
+        "VibeVoice Realtime 0.5B",
+        "vibevoice",
+        pieces,
+        24000,
+        total,
+        "Microsoft, MIT. Carter, Emma, Frank (about 6 English voices, no cloning). PyTorch on CPU, unoptimised.",
+        setup,
+    )
 
 
 def main():
