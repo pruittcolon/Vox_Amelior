@@ -91,8 +91,9 @@ final voicePacks = <String, VoicePack>{
   'clarity': VoicePack(
     id: 'clarity',
     title: 'Clarity (HD sound)',
-    summary: 'Cloned voices stop at 8 kHz, which sounds dull. Clarity rebuilds their crisp top end '
-        'for full 48 kHz sound. Small download; get it with voice cloning.',
+    summary: 'A cloned voice is only as crisp as its clip: one cloned from an old or phone-quality '
+        'recording sounds muffled. Clarity rebuilds the missing top end (full 48 kHz sound) and leaves '
+        'voices that already have it alone. Small download.',
     license: 'Apache-2.0 (LavaSR by ysharma3501; ONNX export by Topping1)',
     files: _files('clarity'),
   ),

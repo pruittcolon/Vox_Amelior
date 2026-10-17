@@ -133,20 +133,21 @@ void main() {
     final cloned = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
     log('pocket clone: ${(cloned.length / outputRate).toStringAsFixed(2)}s audio in ${watch.elapsedMilliseconds}ms');
     expect(cloned.length / outputRate, greaterThan(1.5));
-    // Cloned voices stop at ~8 kHz; Clarity rebuilds the top end.
+    // A clone is as crisp as its clip. This one reaches 12 kHz, so Clarity
+    // leaves it alone; a muffled copy (as from an old or phone-quality clip,
+    // cut at 8 kHz) gets its top end rebuilt.
     app.settings.clarity = false;
-    final dull = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
+    final clone = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
     app.settings.clarity = true;
+    log('clarity on this clone: voice reaches ${voiceEdge(Stft().forward(clone)).round()} Hz; '
+        '${identical(clarity.enhance(clone), clone) ? 'left as it is' : 'changed'}');
+    final dull = resample(resample(clone, outputRate, 16000), 16000, outputRate);
     w = Stopwatch()..start();
     final crisp = clarity.enhance(dull);
     log('clarity on a cloned voice: voice reaches ${voiceEdge(Stft().forward(dull)).round()} Hz; '
         '${w.elapsedMilliseconds}ms for ${(dull.length / outputRate).toStringAsFixed(1)}s; '
         'air ${airDb(dull, outputRate).toStringAsFixed(1)} dB -> ${airDb(crisp, outputRate).toStringAsFixed(1)} dB');
     expect(airDb(crisp, outputRate), greaterThan(airDb(dull, outputRate) + 6), reason: 'Clarity adds the top end');
-    // And through the app's own speech worker.
-    final viaApp = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
-    log('clarity in the speech worker: air ${airDb(viaApp, outputRate).toStringAsFixed(1)} dB');
-    expect(airDb(viaApp, outputRate), greaterThan(airDb(dull, outputRate) + 6));
     clarity.free();
 
     // 3. The sample podcast in the reader, playing through the real speaker.

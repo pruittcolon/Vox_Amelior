@@ -92,9 +92,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               SwitchListTile(
                 title: const Text('Clarity (HD sound)'),
                 subtitle: Text(app.models.isInstalled('clarity')
-                    ? 'Rebuilds the crisp top end that cloned voices leave out (full 48 kHz sound). '
-                        'Voices that already have it are left as they are.'
-                    : 'Download Clarity in the Voices tab to make cloned voices crisper.'),
+                    ? 'Rebuilds the crisp top end of muffled voices, like ones cloned from old or phone-quality '
+                        'clips (full 48 kHz sound). Voices that already have it are left as they are.'
+                    : 'Download Clarity in the Voices tab to make muffled cloned voices crisper.'),
                 value: s.clarity,
                 onChanged: (v) => s.update((x) => x.clarity = v),
               ),

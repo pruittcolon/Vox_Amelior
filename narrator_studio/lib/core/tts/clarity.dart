@@ -43,8 +43,9 @@ class Clarity {
   final _mel = MelFilters(sampleRate: 44100, nFft: 2048, bands: 80, fMax: 8000);
 
   /// [x] is 48 kHz audio from a 24 kHz voice. Only a voice whose spectrum
-  /// stops short is touched (Pocket TTS falls off a cliff at about 7.8 kHz;
-  /// Kokoro reaches the 12 kHz limit and is left alone). The crossover ends at
+  /// stops short is touched (a Pocket TTS clone of a band-limited clip falls
+  /// off a cliff around 7.8 kHz; Kokoro reaches the 12 kHz limit and is left
+  /// alone). The crossover ends at
   /// the cliff; in the crossfade, magnitudes blend under the voice's own
   /// phase, so the two never cancel into a notch, and the added band is
   /// level-matched, frame by frame, to the real voice just below it.
