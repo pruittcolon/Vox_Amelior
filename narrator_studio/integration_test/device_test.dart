@@ -182,10 +182,19 @@ void main() {
     final paused = await native.playerPosition();
     await Future<void>.delayed(const Duration(seconds: 1));
     // (What was already in the speaker's buffer, a few ms, may still play out.)
-    expect(await native.playerPosition() - paused, lessThan(outputRate ~/ 10), reason: 'pause stops the speaker');
+    final held = await native.playerPosition();
+    expect(held - paused, lessThan(outputRate ~/ 10), reason: 'pause stops the speaker');
     await player.resume();
-    await Future<void>.delayed(const Duration(seconds: 1));
-    expect(await native.playerPosition(), greaterThan(paused));
+    final resumeWatch = Stopwatch()..start();
+    var now = held;
+    while (resumeWatch.elapsedMilliseconds < 5000) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      now = await native.playerPosition();
+      if (now > held + outputRate ~/ 10) break;
+    }
+    log('resume: speaker moving again after ${resumeWatch.elapsedMilliseconds}ms '
+        '(state=${player.state}, error=${player.error}, position $held -> $now)');
+    expect(now, greaterThan(held + outputRate ~/ 10), reason: 'resume restarts the speaker');
     await player.stop();
 
     // 4. Export the whole episode to M4A, then decode it back.
