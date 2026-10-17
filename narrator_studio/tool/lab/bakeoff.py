@@ -299,7 +299,11 @@ def run_neutts(a, out):
     voices = {"HOST": "dave", "CO-HOST": "jo", "GUEST": "paul"}
     for backbone in a.backbones.split(","):
         t0 = time.time()
-        tts = NeuTTS(backbone_repo=backbone, backbone_device="cpu", codec_repo="neuphonic/neucodec", codec_device="cpu")
+        try:
+            tts = NeuTTS(backbone_repo=backbone, backbone_device="cpu", codec_repo="neuphonic/neucodec", codec_device="cpu")
+        except Exception as e:  # e.g. a gated repo: no use for a free in-app download either
+            print("SKIPPED", backbone, repr(e)[:300], flush=True)
+            continue
         refs = {}
         for spk, v in voices.items():
             text = open(os.path.join(samples, v + ".txt")).read().strip()
@@ -369,7 +373,8 @@ def main():
     ap.add_argument("--models", default="")
     ap.add_argument("--out", required=True)
     ap.add_argument("--dtypes", default="fp32,q4")  # q8 ran 8x slower than q4 on CPU and rambled
-    ap.add_argument("--backbones", default="neuphonic/neutts-air,neuphonic/neutts-nano")
+    # neutts-air is gated on Hugging Face (needs an account that accepted its terms).
+    ap.add_argument("--backbones", default="neuphonic/neutts-nano,neuphonic/neutts-air")
     ap.add_argument("--neutts-samples", default="")
     ap.add_argument("--vibevoice-voices", default="")
     a = ap.parse_args()
