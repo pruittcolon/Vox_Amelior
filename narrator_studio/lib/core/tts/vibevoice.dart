@@ -406,11 +406,11 @@ double halfToDouble(int h) {
   final frac = h & 0x3FF;
   double v;
   if (exp == 0) {
-    v = frac * math.pow(2, -24);
+    v = frac * math.pow(2, -24).toDouble();
   } else if (exp == 31) {
     v = frac == 0 ? double.infinity : double.nan;
   } else {
-    v = (1 + frac / 1024) * math.pow(2, exp - 15);
+    v = (1 + frac / 1024) * math.pow(2, exp - 15).toDouble();
   }
   return sign == 1 ? -v : v;
 }
