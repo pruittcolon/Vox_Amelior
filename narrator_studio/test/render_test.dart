@@ -47,7 +47,7 @@ void main() {
       final cues = plan.steps.whereType<CueStep>().map((c) => c.cue).toList();
       expect(cues.first, 'music:intro');
       expect(cues, contains('music:outro'));
-      expect(cues, contains('sound:whoosh'));
+      expect(cues, contains('sound:sweep'));
       expect(plan.utterances.any((u) => u.heading), isFalse, reason: 'podcast headings are not read');
       expect(plan.steps.whereType<GapStep>().map((g) => g.ms), contains(260));
       for (var i = 0; i < plan.utterances.length; i++) {
@@ -101,8 +101,8 @@ void main() {
       final r = Renderer(plan: plan, synth: FakeSynth(), voiceFor: anyVoice, theme: musicThemes.first);
       final intro = (await r.next())!;
       expect(intro.utterance, isNull);
-      expect(intro.samples.length / outputRate, closeTo(4.8, 0.01));
-      final soloLevel = rms(intro.samples, outputRate * 2, outputRate * 3);
+      expect(intro.samples.length / outputRate, closeTo(introSeconds, 0.01));
+      final soloLevel = rms(intro.samples, outputRate ~/ 2, outputRate * 3 ~/ 2);
       expect(soloLevel, greaterThan(0.02));
       // The first gap after a sentence has only (ducked) music in it.
       RenderChunk? gap;
@@ -119,7 +119,7 @@ void main() {
         last = c;
       }
       expect(last!.utterance, isNull);
-      expect(last.samples.length / outputRate, closeTo(7.0, 0.01));
+      expect(last.samples.length / outputRate, closeTo(outroSeconds, 0.01));
       final tail = Float32List.sublistView(last.samples, last.samples.length - outputRate ~/ 10);
       expect(rms(tail), lessThan(0.01), reason: 'outro fades to silence');
     });

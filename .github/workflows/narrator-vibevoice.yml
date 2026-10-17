@@ -51,9 +51,12 @@ jobs:
           flutter pub get
           dart run tool/vibevoice_check.dart --pack "$RUNNER_TEMP/pack" --check "$RUNNER_TEMP/check"
       - name: Shrink for the phone, measuring what each saving costs
-        run: >
-          python3 narrator_studio/tool/vibevoice/shrink.py --pack "$RUNNER_TEMP/pack" --check "$RUNNER_TEMP/check"
-          --out "$RUNNER_TEMP/ship" --work "$RUNNER_TEMP/variants"
+        run: |
+          pip install --quiet sherpa-onnx==1.13.8
+          mkdir -p "$RUNNER_TEMP/asr" && (cd "$RUNNER_TEMP/asr" && curl -sSL \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2 | tar xj)
+          python3 narrator_studio/tool/vibevoice/shrink.py --pack "$RUNNER_TEMP/pack" --check "$RUNNER_TEMP/check" \
+            --out "$RUNNER_TEMP/ship" --work "$RUNNER_TEMP/variants" --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en"
       - name: The Dart port on the pack the phone gets (and how fast)
         working-directory: narrator_studio
         run: dart run tool/vibevoice_check.dart --pack "$RUNNER_TEMP/ship" --check "$RUNNER_TEMP/check" --loose
@@ -66,7 +69,11 @@ jobs:
           gh release download narrator-models -p manifest.json -D "$RUNNER_TEMP/m" -R "$GITHUB_REPOSITORY"
           python3 narrator_studio/tool/vibevoice/publish.py --pack "$RUNNER_TEMP/ship" --manifest "$RUNNER_TEMP/m/manifest.json" --out "$RUNNER_TEMP/stage"
           cd "$RUNNER_TEMP/stage"
-          for f in vibevoice--*; do gh release upload narrator-models --clobber "$f" -R "$GITHUB_REPOSITORY"; done
+          have=$(gh release view narrator-models -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          for f in vibevoice--*; do
+            if echo "$have" | grep -qx "$f"; then echo "already there: $f"; continue; fi
+            gh release upload narrator-models "$f" -R "$GITHUB_REPOSITORY"
+          done
           gh release upload narrator-models --clobber manifest.json -R "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
         if: always()

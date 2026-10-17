@@ -4,7 +4,7 @@ into the release's manifest.json (the app's download catalog).
 
   publish.py --pack DIR --manifest manifest.json --out STAGE
 
-Every file becomes an asset named vibevoice--<path with / as -->; STAGE then
+Every file becomes an asset named vibevoice--<hash>--<path with / as -->; STAGE then
 holds the assets and the updated manifest.json, ready for `gh release upload`.
 """
 
@@ -42,10 +42,13 @@ def main():
             rel = os.path.relpath(src, a.pack).replace(os.sep, "/")
             if rel in SKIP:
                 continue
-            asset = "vibevoice--" + rel.replace("/", "--")
+            # The content hash is in the name: a new version never replaces
+            # a file an installed app may be downloading.
+            digest = sha256(src)
+            asset = f"vibevoice--{digest[:10]}--" + rel.replace("/", "--")
             dest = os.path.join(a.out, asset)
             shutil.copyfile(src, dest)
-            files.append({"asset": asset, "path": rel, "size": os.path.getsize(dest), "sha256": sha256(dest), "unzip": False})
+            files.append({"asset": asset, "path": rel, "size": os.path.getsize(dest), "sha256": digest, "unzip": False})
     files.sort(key=lambda f: f["path"])
     manifest = json.load(open(a.manifest))
     manifest["packs"]["vibevoice"] = {

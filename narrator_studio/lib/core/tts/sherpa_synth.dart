@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -250,10 +251,12 @@ class _Worker {
     if (engine == 'vibevoice') {
       final dir = (m['vibevoiceDir'] as String?) ?? '';
       if (!VibeVoice.installedIn(dir)) throw StateError('Download the Lifelike voices (VibeVoice) first.');
-      final key = '$dir|$threads';
+      // Its large matrices gain from more cores than the small voices do.
+      final cores = math.max(threads, math.min(6, Platform.numberOfProcessors));
+      final key = '$dir|$cores';
       if (vibevoiceKey != key) {
         vibevoice?.free();
-        vibevoice = VibeVoice(dir, threads: threads);
+        vibevoice = VibeVoice(dir, threads: cores);
         vibevoiceKey = key;
       }
       // VibeVoice has no speed control; it speaks at its own natural pace.

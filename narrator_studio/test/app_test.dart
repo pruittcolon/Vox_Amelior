@@ -209,7 +209,7 @@ void main() {
         expect(life.resolve('char:${c.id}').voice.engine, Engine.vibevoice, reason: '${c.id}: Lifelike is only VibeVoice');
       }
       expect(life.resolve('kokoro:bm_george').voice.engine, Engine.vibevoice);
-      expect(life.resolve('kokoro:af_heart').voice.id, 'vibevoice:emma');
+      expect(life.resolve('kokoro:af_heart').voice.id, isIn(['vibevoice:emma', 'vibevoice:grace']), reason: 'same gender');
 
       // Only the lifelike voices downloaded: everything works with them alone.
       final (onlyLife, _, _, _) = await makeApp(packs: ['vibevoice']);

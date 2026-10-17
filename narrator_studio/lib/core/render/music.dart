@@ -276,7 +276,7 @@ double _softClip(double x) {
 }
 
 /// Short sound cues: chime, ding, whoosh, pop.
-const soundNames = ['chime', 'ding', 'whoosh', 'pop'];
+const soundNames = ['chime', 'ding', 'whoosh', 'pop', 'sweep', 'science'];
 
 Float32List soundEffect(String name, {int sampleRate = outputRate}) {
   final sr = sampleRate.toDouble();
@@ -299,6 +299,45 @@ Float32List soundEffect(String name, {int sampleRate = outputRate}) {
       return bell([(1318.5, 0, 0.32), (987.8, 0.16, 0.3)], 1.6);
     case 'ding':
       return bell([(1174.7, 0, 0.35)], 1.2);
+    case 'science' || 'lab':
+      // The intro sting: a quick rising arpeggio of clean "data" blips
+      // (E5 G5 B5 E6) over a soft, shimmering high partial.
+      final out = Float32List((1.4 * sr).round());
+      const notes = [659.3, 784.0, 987.8, 1318.5];
+      for (var k = 0; k < notes.length; k++) {
+        final s0 = (k * 0.075 * sr).round();
+        for (var i = s0; i < out.length; i++) {
+          final t = (i - s0) / sr;
+          final env = math.min(1.0, t / 0.004) * math.exp(-t / 0.2);
+          out[i] += 0.17 * env * math.sin(2 * math.pi * notes[k] * t);
+        }
+      }
+      for (var i = 0; i < out.length; i++) {
+        final t = i / sr;
+        final env = math.sin(math.pi * math.min(1.0, t / 1.4));
+        out[i] += 0.035 * env * math.sin(2 * math.pi * 2637 * t) * (0.6 + 0.4 * math.sin(2 * math.pi * 7 * t));
+      }
+      return out;
+    case 'sweep':
+      // A section change: a soft tonal glide up (320 to 960 Hz) that lands
+      // on a light two-note mallet.
+      final out = Float32List((0.75 * sr).round());
+      final glide = (0.4 * sr).round();
+      var ph = 0.0;
+      for (var i = 0; i < glide; i++) {
+        final x = i / glide;
+        ph += 2 * math.pi * 320 * math.pow(3.0, x) / sr;
+        out[i] += 0.13 * math.sin(math.pi * x) * math.sin(ph);
+      }
+      for (final (freq, start, amp) in const [(1046.5, 0.3, 0.15), (1568.0, 0.36, 0.11)]) {
+        final s0 = (start * sr).round();
+        for (var i = s0; i < out.length; i++) {
+          final t = (i - s0) / sr;
+          final env = math.min(1.0, t / 0.003) * math.exp(-t / 0.12);
+          out[i] += amp * env * math.sin(2 * math.pi * freq * t);
+        }
+      }
+      return out;
     case 'pop':
       final out = Float32List((0.12 * sr).round());
       for (var i = 0; i < out.length; i++) {

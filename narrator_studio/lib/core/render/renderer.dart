@@ -21,6 +21,10 @@ class RenderChunk {
   final int? utterance;
 }
 
+/// Length of the intro (sting and music) and of the outro tail.
+const introSeconds = 2.2;
+const outroSeconds = 5.0;
+
 /// Music levels (linear gain on the bed).
 const _solo = 0.62;
 const _duck = 0.13;
@@ -106,18 +110,20 @@ class Renderer {
         _introBed = true;
         _introSamples = 0;
         _gain = 0;
-        // 1 s fade in, ~3.3 s solo, then duck under the first words.
-        final n = (4.8 * sampleRate).round();
+        // A short science sting over the music: in fast, 1.5 s solo, then
+        // duck under the first words (2.2 s in all).
+        final n = (introSeconds * sampleRate).round();
         final out = Float32List(n);
         final bed = _bed!.render(n);
+        final sting = soundEffect('science', sampleRate: sampleRate);
         for (var i = 0; i < n; i++) {
           final t = i / sampleRate;
-          final g = t < 1.0
-              ? _solo * t
-              : t < 4.0
+          final g = t < 0.15
+              ? _solo * t / 0.15
+              : t < 1.6
                   ? _solo
-                  : _solo + (_duck - _solo) * ((t - 4.0) / 0.8);
-          out[i] = bed[i] * g;
+                  : _solo + (_duck - _solo) * ((t - 1.6) / 0.6);
+          out[i] = bed[i] * g + (i < sting.length ? sting[i] * 0.5 : 0);
         }
         _gain = _duck;
         _target = _duck;
@@ -155,8 +161,8 @@ class Renderer {
     if (bed == null) return x;
     if (_introBed) {
       _introSamples += x.length;
-      // A long intro bed gets in the way; fade it after ~20 s of speech.
-      if (_introSamples > 20 * sampleRate) {
+      // A long intro bed gets in the way; fade it after ~8 s of speech.
+      if (_introSamples > 8 * sampleRate) {
         _introBed = false;
         _fadeTo(0, 3.0);
       }
@@ -173,19 +179,19 @@ class Renderer {
     return out;
   }
 
-  /// After the last words: music swells, plays a few seconds, fades out.
+  /// After the last words: music swells, plays a moment, fades out.
   Float32List _outroTail() {
-    final n = (7.0 * sampleRate).round();
+    final n = (outroSeconds * sampleRate).round();
     final music = _bed!.render(n);
     final out = Float32List(n);
     final start = _gain;
     for (var i = 0; i < n; i++) {
       final t = i / sampleRate;
-      final g = t < 1.5
-          ? start + (_solo - start) * (t / 1.5)
-          : t < 4.5
+      final g = t < 1.0
+          ? start + (_solo - start) * t
+          : t < 3.0
               ? _solo
-              : _solo * (1 - (t - 4.5) / 2.5);
+              : _solo * (1 - (t - 3.0) / 2.0);
       out[i] = music[i] * math.max(0, g);
     }
     _bed = null;

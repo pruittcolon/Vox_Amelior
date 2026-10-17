@@ -78,7 +78,7 @@ const readingStyles = <ReadingStyle>[
     headingAfterMs: 400,
     readHeadings: false,
     music: 'curious',
-    sectionSound: 'whoosh',
+    sectionSound: 'sweep',
     defaultCast: {
       'HOST': 'host',
       'HOST 1': 'host',

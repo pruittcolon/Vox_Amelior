@@ -844,6 +844,14 @@ class _PlayerBarState extends State<_PlayerBar> {
                     ),
                   ],
                 ),
+              if (widget.mine && player.preparing != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(value: player.preparing, minHeight: 6),
+                  ),
+                ),
               if (total > 1)
                 ChapterSeekBar(
                   session: session,
@@ -860,7 +868,8 @@ class _PlayerBarState extends State<_PlayerBar> {
                       child: Text(
                         buffering && _preview == null
                             ? (widget.mine && player.preparing != null
-                                ? 'Getting ahead: ${(player.preparing! * 100).round()}%, then it plays to the end'
+                                ? 'Getting ahead${player.preparingLeft == null ? '' : ': about ${formatClock(player.preparingLeft!)} left'}, '
+                                    'then it plays to the end'
                                 : 'Preparing the voice…')
                             : total == 0
                                 ? 'Nothing to read'

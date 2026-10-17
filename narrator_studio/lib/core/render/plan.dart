@@ -5,6 +5,7 @@ library;
 import '../script/script.dart';
 import '../script/sentences.dart';
 import '../script/text_cleaner.dart';
+import 'renderer.dart' show outroSeconds;
 import 'styles.dart';
 
 /// One sentence (or heading) the voice says; [start]/[end] index into the
@@ -168,14 +169,14 @@ class Plan {
           if (cue == 'music:outro') outro = true;
       }
     }
-    if (outro) t += 7000; // the music plays out after the last words
+    if (outro) t += outroSeconds * 1000; // the music plays out after the last words
     return PlanTimes(starts, t.round());
   }
 }
 
 /// How long each cue takes in the renderer.
 const _cueMs = {
-  'music:intro': 4800,
+  'music:intro': 2200,
   'sound:chime': 1600,
   'sound:bell': 1600,
   'sound:transition-chime': 1600,
@@ -184,6 +185,8 @@ const _cueMs = {
   'sound:whoosh': 900,
   'sound:transition': 900,
   'sound:swoosh': 900,
+  'sound:sweep': 750,
+  'sound:science': 1400,
 };
 
 Plan buildPlan(Script script, ReadingStyle style, {bool music = true}) {

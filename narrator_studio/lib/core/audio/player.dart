@@ -41,6 +41,9 @@ class Player extends ChangeNotifier {
   /// it is ready (0..1), or null while nothing is being prepared.
   double? preparing;
 
+  /// About how long until the head start is ready (while [preparing]).
+  Duration? preparingLeft;
+
   int _gen = 0;
   Renderer? _renderer;
   // Queued audio is kept as 16-bit PCM: a long head start stays small.
@@ -161,12 +164,21 @@ class Player extends ChangeNotifier {
   /// slower than real time never runs dry: what is still to render, times
   /// the extra time it takes (0 for voices that keep up).
   double _headStart() {
+    final left = _leftToRender();
+    if (left == null) return 0;
+    return left * _extra() + 2;
+  }
+
+  /// The extra render time per second of audio, with a margin.
+  double _extra() => (1 / speedRatio - 1) * 1.15;
+
+  /// Seconds of audio still to render (estimated), or null for voices that keep up.
+  double? _leftToRender() {
     final s = session;
-    if (s == null || speedRatio <= 0 || speedRatio >= 1.05 || _renderedUtterance == null) return 0;
+    if (s == null || speedRatio <= 0 || speedRatio >= 1.05 || _renderedUtterance == null) return null;
     final times = s.plan.times(s.cast[null]?.speed ?? 1.0);
     final next = math.min(_renderedUtterance! + 1, times.starts.length - 1);
-    final left = math.max(0, times.total - times.starts[next]) / 1000;
-    return left * (1 / speedRatio - 1) * 1.15 + 2;
+    return math.max(0, times.total - times.starts[next]) / 1000;
   }
 
   /// True while waiting for the head start (and [preparing] shows how far).
@@ -175,6 +187,7 @@ class Player extends ChangeNotifier {
     if (need <= 0) {
       if (preparing != null) {
         preparing = null;
+        preparingLeft = null;
         notifyListeners();
       }
       return false;
@@ -186,13 +199,19 @@ class Player extends ChangeNotifier {
     if (ready >= need || !idle) {
       if (preparing != null) {
         preparing = null;
+        preparingLeft = null;
         notifyListeners();
       }
       return false;
     }
     final p = (ready / need).clamp(0.0, 1.0);
-    if (preparing == null || (p - preparing!).abs() >= 0.01) {
+    // Rendering adds audio at speedRatio while the need shrinks by
+    // speedRatio * extra: they meet after (need - ready) / (r * (1 + extra)).
+    final secs = (need - ready) / (speedRatio * (1 + _extra()));
+    final left = Duration(seconds: secs.ceil());
+    if (preparing == null || (p - preparing!).abs() >= 0.01 || preparingLeft?.inSeconds != left.inSeconds) {
       preparing = p;
+      preparingLeft = left;
       notifyListeners();
     }
     await Future<void>.delayed(const Duration(milliseconds: 250));

@@ -17,7 +17,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _speedReport;
   bool _measuring = false;
 
-  /// Times a fixed paragraph with 2, 4 and 6 threads and keeps the fastest.
+  /// Times a fixed paragraph with 2, 4, 6 and 8 threads and keeps the fastest.
   Future<void> _measure() async {
     final app = context.app;
     if (!app.hasAnyVoices) {
@@ -35,7 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final results = <int, double>{};
     final before = app.settings.threads;
     try {
-      for (final threads in [2, 4, 6]) {
+      for (final threads in [2, 4, 6, 8]) {
         app.settings.threads = threads;
         await app.synth.speak(voice, 'Warm up.'); // loads the model with these threads
         final watch = Stopwatch()..start();
