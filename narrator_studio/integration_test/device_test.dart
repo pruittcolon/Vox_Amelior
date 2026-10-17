@@ -181,7 +181,8 @@ void main() {
     await player.pause();
     final paused = await native.playerPosition();
     await Future<void>.delayed(const Duration(seconds: 1));
-    expect(await native.playerPosition(), paused, reason: 'pause stops the speaker');
+    // (What was already in the speaker's buffer, a few ms, may still play out.)
+    expect(await native.playerPosition() - paused, lessThan(outputRate ~/ 10), reason: 'pause stops the speaker');
     await player.resume();
     await Future<void>.delayed(const Duration(seconds: 1));
     expect(await native.playerPosition(), greaterThan(paused));

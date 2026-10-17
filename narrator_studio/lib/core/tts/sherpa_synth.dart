@@ -42,8 +42,10 @@ class EngineSetup {
   final bool best;
 }
 
-// Refinement settings for "best quality", chosen with tool/lab/voicelab.py.
-const supertonicBestSteps = 16;
+// Refinement settings for "best quality", chosen with tool/lab/voicelab.py:
+// Supertonic scores the same at 8, 16 and 32 steps (5 is a little lower), so
+// 8 is best quality at half the work of 16.
+const supertonicBestSteps = 8;
 const pocketBestSteps = 10;
 const pocketBestTemperature = 0.7;
 
@@ -300,7 +302,7 @@ class _Worker {
           config: so.OfflineTtsGenerationConfig(
             sid: sid,
             speed: speed,
-            numSteps: best ? supertonicBestSteps : 8,
+            numSteps: best ? supertonicBestSteps : 5,
             extra: const {'lang': 'en', 'seed': 7},
           ),
         );
