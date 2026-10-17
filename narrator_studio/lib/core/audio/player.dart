@@ -138,7 +138,12 @@ class Player extends ChangeNotifier {
         await Future<void>.delayed(const Duration(milliseconds: 40));
         continue;
       }
-      if (!_producerDone && await _waitForHeadStart(gen)) continue;
+      if (!_producerDone && (_headStart() > 0 || preparing != null)) {
+        final wait = await _waitForHeadStart(gen);
+        // Stopped, restarted or emptied while we looked: start over.
+        if (gen != _gen) return;
+        if (wait || _queue.isEmpty) continue;
+      }
       final (pcm, frames, utterance) = _queue.removeFirst();
       _queuedFrames -= frames;
       if (utterance != null) _timeline.add((_written, utterance));
