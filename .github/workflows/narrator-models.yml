@@ -1,0 +1,74 @@
+name: Narrator Studio voice models
+# Republishes the free voice models unpacked (one file per asset) to the
+# `narrator-models` release, after checking that every voice really speaks,
+# and builds the Voice Gallery (CC0 / CC-BY reference voices for Pocket TTS).
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload to the narrator-models release
+        type: boolean
+        default: true
+      all_kokoro:
+        description: Test all 54 Kokoro voices (slower)
+        type: boolean
+        default: false
+  push:
+    branches: [narrator-studio]
+    paths: ['.github/workflows/narrator-models.yml', 'narrator_studio/tool/models/**']
+permissions:
+  contents: write
+concurrency:
+  group: narrator-models
+  cancel-in-progress: false
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio/tool
+      - name: Work folders
+        run: |
+          echo "WORK=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          echo "OUT=$RUNNER_TEMP/stage" >> "$GITHUB_ENV"
+          echo "SAMPLES=$RUNNER_TEMP/samples" >> "$GITHUB_ENV"
+          echo "GALLERY=$RUNNER_TEMP/gallery" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Python packages
+        run: pip install --quiet sherpa-onnx==1.13.8 numpy soundfile onnx
+      - name: Download and unpack the voice packs
+        run: python3 narrator_studio/tool/models/republish.py fetch --work "$WORK"
+      - name: Whisper (to listen to the results)
+        run: |
+          mkdir -p "$WORK/asr" && cd "$WORK/asr"
+          curl -sSL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2
+          tar xf sherpa-onnx-whisper-tiny.en.tar.bz2 && rm sherpa-onnx-whisper-tiny.en.tar.bz2
+      - name: Smoke test every voice + speed test
+        run: >
+          python3 narrator_studio/tool/models/smoke.py --work "$WORK"
+          --asr "$WORK/asr/sherpa-onnx-whisper-tiny.en" --out "$SAMPLES" --bench
+          ${{ inputs.all_kokoro && '--all-kokoro' || '' }}
+      - name: Build the Voice Gallery
+        run: python3 narrator_studio/tool/models/gallery.py --out "$GALLERY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: narrator-voice-samples
+          path: ${{ runner.temp }}/samples
+          if-no-files-found: ignore
+      - name: Stage files and manifest
+        run: python3 narrator_studio/tool/models/republish.py stage --work "$WORK" --out "$OUT" --gallery "$GALLERY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: narrator-manifest
+          path: |
+            ${{ runner.temp }}/stage/manifest.json
+            ${{ runner.temp }}/stage/gallery.json
+      - name: Publish to the narrator-models release
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 narrator_studio/tool/models/republish.py publish --out "$OUT"

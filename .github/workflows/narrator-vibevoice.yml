@@ -1,0 +1,92 @@
+name: Narrator Studio VibeVoice pack
+# Converts Microsoft's VibeVoice-Realtime-0.5B to the app's ONNX pack
+# (tool/vibevoice/export.py), checks every network and the whole generation
+# loop against the original, and keeps the pack and the comparison audio as
+# the run's artifacts.
+on:
+  workflow_dispatch:
+  push:
+    branches: [narrator-studio]
+    paths:
+      - 'narrator_studio/tool/vibevoice/**'
+      - 'narrator_studio/tool/vibevoice_check.dart'
+      - 'narrator_studio/lib/core/tts/vibevoice.dart'
+      - 'narrator_studio/lib/core/tts/bpe.dart'
+      - '.github/workflows/narrator-vibevoice.yml'
+permissions:
+  contents: write
+concurrency:
+  group: narrator-vibevoice
+  cancel-in-progress: true
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Room on disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h / | tail -1
+      - name: VibeVoice and tools
+        run: |
+          git clone --depth 1 https://github.com/microsoft/VibeVoice "$RUNNER_TEMP/VibeVoice"
+          pip install --quiet --extra-index-url https://download.pytorch.org/whl/cpu torch \
+            -e "$RUNNER_TEMP/VibeVoice[streamingtts]" onnx onnxruntime==1.22.1 onnxscript tokenizers soundfile
+          python3 -c "import torch, transformers, onnxruntime; print(torch.__version__, transformers.__version__, onnxruntime.__version__)"
+      - name: Export and check
+        run: >
+          python3 narrator_studio/tool/vibevoice/export.py
+          --voices "$RUNNER_TEMP/VibeVoice/demo/voices/streaming_model"
+          --out "$RUNNER_TEMP/pack" --check-dir "$RUNNER_TEMP/check"
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.47.5', channel: stable, cache: true }
+      - name: The app's Dart port gives the same speech
+        working-directory: narrator_studio
+        run: |
+          flutter pub get
+          dart run tool/vibevoice_check.dart --pack "$RUNNER_TEMP/pack" --check "$RUNNER_TEMP/check"
+      - name: Shrink for the phone, measuring what each saving costs
+        run: |
+          pip install --quiet sherpa-onnx==1.13.8
+          mkdir -p "$RUNNER_TEMP/asr" && (cd "$RUNNER_TEMP/asr" && curl -sSL \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2 | tar xj)
+          python3 narrator_studio/tool/vibevoice/shrink.py --pack "$RUNNER_TEMP/pack" --check "$RUNNER_TEMP/check" \
+            --out "$RUNNER_TEMP/ship" --work "$RUNNER_TEMP/variants" --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en"
+      - name: The Dart port on the pack the phone gets (and how fast)
+        working-directory: narrator_studio
+        run: dart run tool/vibevoice_check.dart --pack "$RUNNER_TEMP/ship" --check "$RUNNER_TEMP/check" --loose
+      - name: Publish to the app's download release
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/narrator-studio'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf "$RUNNER_TEMP/pack" "$RUNNER_TEMP/variants"
+          gh release download narrator-models -p manifest.json -D "$RUNNER_TEMP/m" -R "$GITHUB_REPOSITORY"
+          python3 narrator_studio/tool/vibevoice/publish.py --pack "$RUNNER_TEMP/ship" --manifest "$RUNNER_TEMP/m/manifest.json" --out "$RUNNER_TEMP/stage"
+          cd "$RUNNER_TEMP/stage"
+          have=$(gh release view narrator-models -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          for f in vibevoice--*; do
+            if echo "$have" | grep -qx "$f"; then echo "already there: $f"; continue; fi
+            gh release upload narrator-models "$f" -R "$GITHUB_REPOSITORY"
+          done
+          gh release upload narrator-models --clobber manifest.json -R "$GITHUB_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vibevoice-manifest
+          path: ${{ runner.temp }}/stage/manifest.json
+          if-no-files-found: ignore
+      - name: Sizes
+        if: always()
+        run: du -ah "$RUNNER_TEMP/ship" | sort -h | tail -30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vibevoice-check
+          path: ${{ runner.temp }}/check
+          if-no-files-found: ignore

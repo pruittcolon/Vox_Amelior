@@ -1,0 +1,57 @@
+name: Narrator Studio voice lab
+# Compares every free on-device voice candidate and the Clarity upscaler with
+# automatic judges (UTMOS, NISQA, Whisper, bandwidth). Clips, spectrograms and
+# the results table are kept as the run's artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      quick:
+        description: A few voices per engine only
+        type: boolean
+        default: false
+      focus:
+        description: "'clarity' (the app's voices, Clarity versions) or 'all'"
+        type: string
+        default: all
+  push:
+    branches: [narrator-studio]
+    paths: ['narrator_studio/tool/lab/**', '!narrator_studio/tool/lab/bakeoff*.py', '.github/workflows/narrator-voicelab.yml']
+concurrency:
+  group: narrator-voicelab
+  cancel-in-progress: true
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio/tool
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Python packages
+        run: |
+          pip install --quiet torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet sherpa-onnx==1.13.8 onnxruntime onnx numpy scipy soundfile matplotlib pyyaml librosa requests torchmetrics
+      - name: Models (cached)
+        uses: actions/cache@v4
+        with:
+          path: ~/lab-models
+          key: narrator-lab-${{ hashFiles('narrator_studio/tool/lab/fetch_lab.sh') }}
+      - name: Download the candidates
+        run: bash narrator_studio/tool/lab/fetch_lab.sh ~/lab-models
+      - name: Whisper (the listener)
+        run: |
+          mkdir -p "$RUNNER_TEMP/asr" && cd "$RUNNER_TEMP/asr"
+          curl -sSL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2 | tar xj
+      - name: Run the lab
+        run: >
+          python3 narrator_studio/tool/lab/voicelab.py --models ~/lab-models
+          --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en" --out "$RUNNER_TEMP/lab"
+          --focus "${{ inputs.focus || 'clarity' }}" ${{ inputs.quick && '--quick' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: narrator-voicelab
+          path: ${{ runner.temp }}/lab
+          if-no-files-found: ignore
