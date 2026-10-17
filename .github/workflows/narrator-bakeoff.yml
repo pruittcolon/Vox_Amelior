@@ -1,0 +1,113 @@
+name: Narrator Studio voice bake-off
+# The same podcast lines in every candidate voice model, published as M4A
+# files to listen to (release narrator-voice-bakeoff), with how much work each
+# needs. People choose by ear; the automatic judges once got it wrong.
+on:
+  workflow_dispatch:
+    inputs:
+      engines:
+        description: 'JSON list of engines to run; the others keep their last results'
+        type: string
+        default: '["sherpa","chatterbox","soprano","neutts"]'
+  push:
+    branches: [narrator-studio]
+    paths: ['narrator_studio/tool/lab/bakeoff*.py', '.github/workflows/narrator-bakeoff.yml']
+permissions:
+  contents: write
+concurrency:
+  group: narrator-bakeoff
+  cancel-in-progress: true
+jobs:
+  render:
+    strategy:
+      fail-fast: false
+      matrix:
+        # (vibevoice also works, but needs ~1.5 s of CPU per 0.13 s of speech: no use on a phone)
+        engine: ${{ fromJSON(inputs.engines || '["sherpa","chatterbox","soprano","neutts"]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio/tool
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Reference voices (the app's Gallery, CC0)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bake/refs"
+          for v in unmute-prod-website-developer-1 unmute-prod-website-default-voice voice-zero-bill-boerst; do
+            curl -sSfL --retry 4 -o "$RUNNER_TEMP/bake/refs/$v.wav" \
+              "https://github.com/pruittcolon/Vox_Amelior/releases/download/narrator-models/voice--$v.wav"
+          done
+      - name: Packages and models
+        env:
+          CPU_TORCH: https://download.pytorch.org/whl/cpu
+        run: |
+          case "${{ matrix.engine }}" in
+            sherpa)
+              pip install --quiet sherpa-onnx==1.13.8 onnx numpy scipy soundfile librosa
+              bash narrator_studio/tool/lab/fetch_lab.sh "$RUNNER_TEMP/bake" ;;
+            chatterbox)
+              pip install --quiet onnxruntime transformers huggingface_hub numpy soundfile librosa ;;
+            soprano)
+              pip install --quiet --extra-index-url "$CPU_TORCH" torch soprano-tts soundfile librosa ;;
+            neutts)
+              sudo apt-get install -y -qq espeak-ng > /dev/null
+              pip install --quiet --extra-index-url "$CPU_TORCH" torch neutts soundfile librosa
+              # neucodec imports torchtune, which needs a torchao that still has nf4tensor.
+              for v in 0.13.0 0.12.0 0.11.0 0.10.0; do
+                python3 -c "import torchao.dtypes.nf4tensor" 2> /dev/null && break
+                pip install --quiet --no-deps "torchao==$v" || true
+              done
+              python3 -c "import torchao, torchao.dtypes.nf4tensor; print('torchao', torchao.__version__)"
+              git clone --depth 1 https://github.com/neuphonic/neutts "$RUNNER_TEMP/neutts" ;;
+            vibevoice)
+              git clone --depth 1 https://github.com/microsoft/VibeVoice "$RUNNER_TEMP/VibeVoice"
+              pip install --quiet --extra-index-url "$CPU_TORCH" torch -e "$RUNNER_TEMP/VibeVoice[streamingtts]" soundfile librosa ;;
+          esac
+          df -h / | tail -1
+      - name: Render
+        run: >
+          python3 narrator_studio/tool/lab/bakeoff.py --engine ${{ matrix.engine }}
+          --models "$RUNNER_TEMP/bake" --out "$RUNNER_TEMP/out"
+          --neutts-samples "$RUNNER_TEMP/neutts/samples"
+          --vibevoice-voices "$RUNNER_TEMP/VibeVoice/demo/voices/streaming_model"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bakeoff-${{ matrix.engine }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  publish:
+    needs: render
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: narrator_studio/tool
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bakeoff-*
+          path: ${{ runner.temp }}/all
+      - name: M4A files and the results table
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          pip install --quiet sherpa-onnx==1.13.8 numpy soundfile
+          mkdir -p "$RUNNER_TEMP/asr" && (cd "$RUNNER_TEMP/asr" && curl -sSL \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2 | tar xj)
+          gh release download narrator-voice-bakeoff -D "$RUNNER_TEMP/previous" -R "$GITHUB_REPOSITORY" || true
+          python3 narrator_studio/tool/lab/bakeoff_report.py --in "$RUNNER_TEMP/all" --out "$RUNNER_TEMP/release" \
+            --previous "$RUNNER_TEMP/previous" --asr "$RUNNER_TEMP/asr/sherpa-onnx-whisper-tiny.en"
+      - name: Publish (listen from your phone)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete narrator-voice-bakeoff --cleanup-tag --yes || true
+          gh release create narrator-voice-bakeoff "$RUNNER_TEMP"/release/* --target "$GITHUB_SHA" --prerelease \
+            --title "Narrator Studio voice bake-off" --notes-file "$RUNNER_TEMP/release/results.md"
