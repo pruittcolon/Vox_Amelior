@@ -268,10 +268,13 @@ class _ChapterSeekBarState extends State<ChapterSeekBar> {
     final bounds = [
       for (final c in widget.session.plan.chapters.skip(1)) times.starts[c.first] / total,
     ];
+    String clockAt(int u) => formatClock(Duration(milliseconds: n == 0 ? 0 : times.starts[u.clamp(0, n - 1)]));
     return Semantics(
       slider: true,
       label: 'Position',
-      value: formatClock(Duration(milliseconds: n == 0 ? 0 : times.starts[cur])),
+      value: clockAt(cur),
+      increasedValue: clockAt(cur + 1),
+      decreasedValue: clockAt(cur - 1),
       onIncrease: () => widget.onSeek((cur + 1).clamp(0, n - 1)),
       onDecrease: () => widget.onSeek((cur - 1).clamp(0, n - 1)),
       child: LayoutBuilder(

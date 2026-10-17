@@ -142,8 +142,9 @@ void main() {
       expect(s.castRefs['HOST'], 'char:host');
       expect(s.castRefs['CO-HOST'], 'char:cohost');
       expect(s.castRefs['GUEST'], 'char:professor');
-      expect(s.cast['GUEST']!.voice.id, 'kokoro:bm_george', reason: 'Kokoro stand-in without Supertonic');
-      expect(s.cast['HOST']!.voice.id, 'kokoro:am_fenrir');
+      expect(s.cast['GUEST']!.voice.id, 'kokoro:bm_george');
+      expect(s.cast['HOST']!.voice.id, 'kokoro:am_michael');
+      expect(s.cast['CO-HOST']!.voice.id, 'kokoro:af_bella');
 
       final doc2 = await app.library.add(
         title: 'y',
