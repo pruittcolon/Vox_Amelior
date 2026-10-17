@@ -14,6 +14,7 @@ import 'package:narrator_studio/core/audio/native.dart';
 import 'package:narrator_studio/core/audio/player.dart';
 import 'package:narrator_studio/core/models/model_store.dart';
 import 'package:narrator_studio/core/render/audio.dart';
+import 'package:narrator_studio/core/render/spectral.dart';
 import 'package:narrator_studio/core/samples.dart';
 import 'package:narrator_studio/core/tts/clarity.dart';
 import 'package:narrator_studio/core/tts/sherpa_synth.dart';
@@ -91,19 +92,17 @@ void main() {
           '(${(secs / (watch.elapsedMilliseconds / 1000)).toStringAsFixed(2)}x real time)');
       expect(secs, greaterThan(2));
     }
-    // Clarity leaves Kokoro alone: it already reaches the 12 kHz limit.
+    // Clarity leaves Kokoro alone: it already reaches the 12 kHz limit. (Asked
+    // directly: Kokoro on Android isn't bit-identical from one call to the next.)
     const line = 'Light from the sun looks white, but it is really a mixture of every colour.';
     app.settings.clarity = false;
     final plain = await app.synth.speak(heart, line);
     app.settings.clarity = true;
-    final same = await app.synth.speak(heart, line);
-    var diff = 0.0;
-    for (var i = 0; i < plain.length && i < same.length; i++) {
-      diff = diff > (plain[i] - same[i]).abs() ? diff : (plain[i] - same[i]).abs();
-    }
-    log('clarity on Kokoro: max change $diff');
-    expect(same.length, plain.length);
-    expect(diff, lessThan(1e-4), reason: 'Kokoro has its top end; Clarity must not touch it');
+    final clarity = Clarity(models.packDir('clarity').path, threads: 2);
+    final kept = clarity.enhance(plain);
+    log('clarity on Kokoro: voice reaches ${voiceEdge(Stft().forward(plain)).round()} Hz; '
+        '${identical(kept, plain) ? 'left as it is' : 'changed'}');
+    expect(identical(kept, plain), isTrue, reason: 'Kokoro has its top end; Clarity must not touch it');
     var w = Stopwatch();
 
     // The Supertonic studio voices at full precision.
@@ -139,10 +138,16 @@ void main() {
     final dull = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
     app.settings.clarity = true;
     w = Stopwatch()..start();
-    final crisp = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
-    log('clarity on a cloned voice: ${w.elapsedMilliseconds}ms; air ${airDb(dull, outputRate).toStringAsFixed(1)} dB -> '
-        '${airDb(crisp, outputRate).toStringAsFixed(1)} dB');
+    final crisp = clarity.enhance(dull);
+    log('clarity on a cloned voice: voice reaches ${voiceEdge(Stft().forward(dull)).round()} Hz; '
+        '${w.elapsedMilliseconds}ms for ${(dull.length / outputRate).toStringAsFixed(1)}s; '
+        'air ${airDb(dull, outputRate).toStringAsFixed(1)} dB -> ${airDb(crisp, outputRate).toStringAsFixed(1)} dB');
     expect(airDb(crisp, outputRate), greaterThan(airDb(dull, outputRate) + 6), reason: 'Clarity adds the top end');
+    // And through the app's own speech worker.
+    final viaApp = await app.synth.speak(bria, 'This voice was cloned from a short sample clip.');
+    log('clarity in the speech worker: air ${airDb(viaApp, outputRate).toStringAsFixed(1)} dB');
+    expect(airDb(viaApp, outputRate), greaterThan(airDb(dull, outputRate) + 6));
+    clarity.free();
 
     // 3. The sample podcast in the reader, playing through the real speaker.
     final doc = await app.library.add(title: 'Why Is the Sky Blue?', kind: 'sample', text: samplePodcast);
