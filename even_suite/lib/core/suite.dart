@@ -732,7 +732,10 @@ class Suite extends ChangeNotifier {
     if (!await system.termuxInstalled()) return 'Termux is not installed on this phone.';
     final granted = await system.permissions(['termux']);
     if (granted['termux'] != true) {
-      return 'Allow “Run commands in Termux” for Even Suite (Settings › Apps › Even Suite › Permissions), then try again.';
+      // Android only asks twice; after that it has to be switched on by hand.
+      await system.openAppSettings();
+      return 'Tap Permissions › Additional permissions › “Run commands in Termux environment” › Allow. '
+          'Or just type even in Termux.';
     }
     final r = await system.runTermux(command);
     if (r == 'ok') {
@@ -745,7 +748,10 @@ class Suite extends ChangeNotifier {
       chat.state = BridgeState.offline;
       return 'Started it, but Claude is not answering yet. In Termux, type: even log';
     }
-    if (r == 'no-permission') return 'Allow “Run commands in Termux” for Even Suite first.';
+    if (r == 'no-permission') {
+      await system.openAppSettings();
+      return 'Tap Permissions › Additional permissions › “Run commands in Termux environment” › Allow.';
+    }
     if (r == 'not-installed') return 'Termux is not installed on this phone.';
     return 'Could not start Termux: $r. In Termux, type: even';
   }
