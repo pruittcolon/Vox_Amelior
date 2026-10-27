@@ -138,6 +138,14 @@ class VoiceController extends ChangeNotifier {
 
   /// A finished message is being handed over (between "send" and [onSubmit]).
   bool sending = false;
+
+  /// This message goes as soon as you pause (a TouchBar press: the glasses
+  /// do not say when it is let go while our screen is up).
+  bool pauseSends = false;
+
+  /// With [pauseSends]: quiet this long after the last words sends anyway
+  /// (in case the recognizer never closes the sentence).
+  Duration pauseGrace = const Duration(seconds: 4);
   bool get dictating => mode == VoiceMode.dictating;
 
   // ------------------------------------------------------------- controls
@@ -165,9 +173,12 @@ class VoiceController extends ChangeNotifier {
   /// Talk button: start a message, or stop taking it down (keeping the text).
   Future<void> toggleTalk() => dictating ? stopDictation() : startDictation();
 
-  Future<void> startDictation({bool hold = false, String source = 'phone', bool followUp = false}) async {
+  Future<void> startDictation(
+      {bool hold = false, String source = 'phone', bool followUp = false, bool pauseSends = false, bool fresh = false}) async {
     _followTimer?.cancel();
     this.followUp = followUp;
+    this.pauseSends = pauseSends;
+    if (fresh) draft = '';
     suspended = false;
     _wakeStarted = false;
     _draftTyped = false;
@@ -256,6 +267,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> stopDictation() async {
     _followTimer?.cancel();
     followUp = false;
+    pauseSends = false;
     if (!dictating) return;
     holding = false;
     _idleTimer?.cancel();
@@ -288,6 +300,7 @@ class VoiceController extends ChangeNotifier {
     _offset = _session.length;
     _awaitingRelease = false;
     holding = false;
+    pauseSends = false;
     _idleTimer?.cancel();
     if (dictating) {
       mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
@@ -446,7 +459,7 @@ class VoiceController extends ChangeNotifier {
       return;
     }
     final ending = VoiceCommands.splitEnding(_committed);
-    final auto = (_wakeStarted ? wakeAutoSend : autoSend) && !holding;
+    final auto = pauseSends || ((_wakeStarted ? wakeAutoSend : autoSend) && !holding);
     if (ending.command == VoiceCommand.send) {
       _submit(ending.body);
     } else if (ending.command == VoiceCommand.cancel) {
@@ -539,6 +552,7 @@ class VoiceController extends ChangeNotifier {
     _awaitingRelease = false;
     _wakeStarted = false;
     followUp = false;
+    pauseSends = false;
     _followTimer?.cancel();
     _releaseTimer?.cancel();
     _idleTimer?.cancel();
@@ -578,6 +592,15 @@ class VoiceController extends ChangeNotifier {
 
   void _armIdle() {
     _idleTimer?.cancel();
+    if (pauseSends) {
+      // TouchBar: nothing said for a while sends what there is ("Didn't
+      // catch that" when it is nothing), never a screen left listening.
+      final empty = draft.trim().isEmpty;
+      _idleTimer = Timer(empty ? const Duration(seconds: 7) : pauseGrace, () {
+        if (dictating && pauseSends) _submit(draft);
+      });
+      return;
+    }
     // Said the wake word and then nothing: give up soon, not after half a minute.
     final wait = draft.trim().isEmpty && !holding && !followUp ? const Duration(seconds: 8) : dictationIdle;
     _idleTimer = Timer(wait, () {

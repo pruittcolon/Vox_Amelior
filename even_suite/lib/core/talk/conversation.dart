@@ -70,6 +70,7 @@ class Conversation extends ChangeNotifier {
 
   String _header = 'Termux-Claude listening';
   String _footer = '';
+  String _prompt = 'Say your question';
 
   /// Sent away with a double tap while Claude works: it carries on without
   /// putting its screens back up.
@@ -106,11 +107,13 @@ class Conversation extends ChangeNotifier {
       bool followUp = false,
       bool ai = false,
       String header = 'Termux-Claude listening',
-      String footer = ''}) {
+      String footer = '',
+      String prompt = 'Say your question'}) {
     draft = text;
     this.level = level;
     _header = header;
     _footer = footer;
+    _prompt = prompt;
     if (followUp && text.trim().isEmpty) {
       _set(TalkStage.followUp);
       return;
@@ -123,7 +126,7 @@ class Conversation extends ChangeNotifier {
     _startTick(const Duration(milliseconds: 600));
     if (first && _canShow) {
       // At once: this is what replaces the glasses' own listening screen.
-      display.showStatus(listeningScreen(draft, level, _frame, header: _header, footer: _footer),
+      display.showStatus(listeningScreen(draft, level, _frame, header: _header, footer: _footer, prompt: _prompt),
           title: 'Listening', ai: _listenAi, immediate: true);
     } else {
       _draw();
@@ -282,7 +285,7 @@ class Conversation extends ChangeNotifier {
     if (!_canShow || quiet) return;
     switch (stage) {
       case TalkStage.listening:
-        display.showStatus(listeningScreen(draft, level, _frame, header: _header, footer: _footer),
+        display.showStatus(listeningScreen(draft, level, _frame, header: _header, footer: _footer, prompt: _prompt),
             title: 'Listening', ai: _listenAi);
       case TalkStage.sent:
       case TalkStage.working:
@@ -298,13 +301,13 @@ class Conversation extends ChangeNotifier {
   /// last lines you said. Plain text: it is redrawn a few times a second.
   @visibleForTesting
   static String listeningScreen(String draft, double level, int frame,
-      {String header = 'Termux-Claude listening', String footer = ''}) {
+      {String header = 'Termux-Claude listening', String footer = '', String prompt = 'Say your question'}) {
     final said = GlassesText.wrap(GlassesText.clean(draft));
     final room = footer.isEmpty ? 4 : 3;
     final tail = said.length > room ? said.sublist(said.length - room) : said;
     return [
       '$header${_dots[frame % _dots.length]}',
-      if (tail.isEmpty && footer.isEmpty) 'Say your question' else ...tail,
+      if (tail.isEmpty) ...[if (prompt.isNotEmpty) prompt] else ...tail,
       if (footer.isNotEmpty) footer,
     ].join('\n');
   }

@@ -89,7 +89,9 @@ class VoiceStatus extends StatelessWidget {
         } else if (voice.dictating) {
           text = voice.holding
               ? 'Listening... let go of the TouchBar to send'
-              : 'Listening... say “send” when done';
+              : voice.pauseSends
+                  ? 'Listening... it sends when you pause (tap the glasses to send now)'
+                  : 'Listening... say “send” when done';
           color = AppColors.claude;
         } else if (voice.mode == VoiceMode.waiting) {
           text = 'Say “${voice.wake.label}”, your message, then “send”';

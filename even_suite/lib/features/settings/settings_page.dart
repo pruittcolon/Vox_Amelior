@@ -80,7 +80,7 @@ class SettingsPage extends StatelessWidget {
               ),
               _Switch(
                 'Hold left TouchBar to talk',
-                'Long-press on the glasses records a message; let go to send.',
+                'Long-press on the glasses, then talk: it sends when you pause. Tap to send at once, double tap to cancel.',
                 s.holdToTalk,
                 (v) => s.set('holdToTalk', v),
               ),

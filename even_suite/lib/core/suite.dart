@@ -43,7 +43,9 @@ class Suite extends ChangeNotifier {
     settings = Settings(system.setPref);
     ble = BleManager(transport, control: control);
     proto = Proto(ble);
-    display = GlassesDisplay(proto);
+    // Screens go out as fast as the glasses take them (one in flight, the
+    // newest waiting), so what you say shows up without lag.
+    display = GlassesDisplay(proto, liveGap: const Duration(milliseconds: 150));
     this.client = client ?? BridgeClient(settings.bridgeUrl);
     chat = ChatController(this.client);
     work = WorkController(this.client);
@@ -379,7 +381,10 @@ class Suite extends ChangeNotifier {
   void _onGlassesEvent(GlassesEvent e) {
     switch (e.code) {
       case GlassesEvent.tap:
-        if (narrator.speaking && e.lr == 'L') {
+        if (voice.dictating && conversation.stage == TalkStage.listening) {
+          // Tap while it listens: send it now (nothing said: "Didn't catch that").
+          unawaited(voice.send());
+        } else if (narrator.speaking && e.lr == 'L') {
           // Left tap while it talks: stop, and it is your turn.
           unawaited(stopSpeaking());
         } else if (conversation.stage == TalkStage.error && e.lr == 'R') {
@@ -393,6 +398,10 @@ class Suite extends ChangeNotifier {
         }
       case GlassesEvent.exit:
         // Double tap: done with this - quiet, and no follow-up.
+        if (voice.dictating && !voice.followUp) {
+          _aiSession = false;
+          unawaited(voice.cancel()); // throw away what was being said
+        }
         display.onGlassesExit();
         terminal.onGlassesExit();
         unawaited(narrator.stop());
@@ -419,12 +428,19 @@ class Suite extends ChangeNotifier {
 
   /// Left TouchBar held (the glasses' Even AI gesture): talk to Claude.
   /// Uses the glasses' own microphone when the phone supports it.
+  /// Left TouchBar held (the glasses' Even AI gesture): talk to Claude.
+  ///
+  /// The glasses tell us when the hold starts, but once our screen is up
+  /// they never say when it is let go (firmware: the "released" event only
+  /// comes while their own Even AI screen is showing with its microphone
+  /// on). So what you say goes when you pause; a tap sends it at once and a
+  /// double tap throws it away.
   Future<void> _glassesTalk() async {
     _aiSession = true;
     // The glasses put up their own "Even AI listening" the moment the
     // TouchBar is held (firmware, it cannot be skipped). Ours replaces it
     // first thing, before anything that takes time.
-    if (settings.wordsWhileHolding) _showListening('', ai: true, hold: true);
+    if (settings.wordsWhileHolding) _showListening('', ai: true, touch: true);
     if (!await _micAllowed()) {
       _aiSession = false;
       conversation.listeningStopped();
@@ -438,20 +454,28 @@ class Suite extends ChangeNotifier {
       _micOpen = true;
       unawaited(proto.micOn(true));
     }
-    await voice.startDictation(hold: true, source: useGlassesMic ? 'glasses' : 'phone');
-    // Same 30 s cap as the demo, in case the release never arrives.
+    await voice.startDictation(
+        pauseSends: true, fresh: true, source: useGlassesMic ? 'glasses' : 'phone');
+    // A cap on one message, so it can never listen on and on.
     _holdLimit?.cancel();
-    _holdLimit = Timer(const Duration(seconds: 30), _glassesRelease);
+    _holdLimit = Timer(const Duration(seconds: 45), () {
+      if (voice.dictating && voice.pauseSends) unawaited(voice.send());
+    });
   }
 
+  /// The glasses said the TouchBar was let go (only while their own screen
+  /// shows): send it now.
   void _glassesRelease() {
     _holdLimit?.cancel();
     _holdLimit = null;
-    if (voice.holding) voice.releaseHold();
-    if (_micOpen) {
-      _micOpen = false;
-      unawaited(proto.micOn(false));
-    }
+    if (voice.dictating && voice.pauseSends) unawaited(voice.send());
+    _closeGlassesMic();
+  }
+
+  void _closeGlassesMic() {
+    if (!_micOpen) return;
+    _micOpen = false;
+    unawaited(proto.micOn(false));
   }
 
   /// Instructions sent with every message (as Claude's system prompt): this
@@ -543,15 +567,16 @@ class Suite extends ChangeNotifier {
     // While the TouchBar is held the glasses show their own listening screen;
     // writing to the display then could interrupt the microphone (unless
     // the test setting asks for it).
-    if (voice.holding && !settings.wordsWhileHolding) return;
-    _showListening(draft, ai: voice.holding || _aiSession, hold: voice.holding);
+    final touch = _aiSession && voice.pauseSends;
+    if (touch && !settings.wordsWhileHolding) return;
+    _showListening(draft, ai: _aiSession, touch: touch);
   }
 
   /// The listening screen: "Termux-Claude listening" and your words, or in
   /// terminal mode "Terminal - say "start"" / "Terminal [start]" with
   /// "send" as the way to type it.
-  void _showListening(String draft, {bool ai = false, bool hold = false}) {
-    final followUp = !hold && voice.followUp;
+  void _showListening(String draft, {bool ai = false, bool touch = false}) {
+    final followUp = !touch && voice.followUp;
     if (settings.target == Target.terminal) {
       final line = terminalWords(draft, _startWord);
       conversation.listening(line.text,
@@ -559,10 +584,12 @@ class Suite extends ChangeNotifier {
           followUp: followUp,
           ai: ai,
           header: line.started || voice.wakeStarted ? 'Terminal [start]' : 'Terminal - say "start"',
-          footer: hold ? 'say "send" or let go' : 'say "send" to type it');
+          footer: touch ? 'say "send", pause or tap' : 'say "send" to type it',
+          prompt: '');
       return;
     }
-    conversation.listening(draft, level: voice.level.value, followUp: followUp, ai: ai);
+    conversation.listening(draft,
+        level: voice.level.value, followUp: followUp, ai: ai, footer: touch ? 'pause or tap to send' : '');
   }
 
   /// What goes to the terminal: without a leading "start" (the word that
@@ -592,6 +619,10 @@ class Suite extends ChangeNotifier {
     _lastHandsFree = voice.handsFree;
     _lastAutoOffAt = voice.autoOffAt;
     if (changed) _updateService();
+    if (!voice.dictating) {
+      _closeGlassesMic();
+      _holdLimit?.cancel();
+    }
     // Left dictation without sending: take "Listening" off the glasses.
     // Checked a moment later, because a send replaces it with "Got it".
     if (!voice.dictating && (display.mode == DisplayMode.live || conversation.stage == TalkStage.listening)) {

@@ -387,7 +387,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(suite.voice.dictating, isTrue);
-    expect(suite.voice.holding, isTrue);
+    expect(suite.voice.pauseSends, isTrue, reason: 'a pause (or the release, when reported) sends it');
     expect(w.speech.lastSource, 'phone');
     // (The test font is wider than the glasses' font, so the header may wrap here.)
     expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('Termux-Claude listening'));
@@ -449,13 +449,11 @@ void main() {
     await tester.pump();
     String last() => w.glasses.screens().last.replaceAll('\n', ' ');
 
-    // Hold, say "terminal", let go: messages now go to Claude Code in Termux.
+    // Hold and say "terminal" (the pause after it sends it): messages now go to Claude Code in Termux.
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
-    w.glasses.touch(24, 'L');
-    await tester.pump();
-    w.speech.say('terminal', finishing: true);
+    w.speech.say('terminal');
     await tester.pump();
     await tester.pump();
     expect(suite.settings.target, Target.terminal);
@@ -511,6 +509,68 @@ void main() {
     expect(suite.settings.target, Target.claude);
     expect(w.bridge.sentTexts, isEmpty);
     await tester.pump(const Duration(seconds: 20));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('TouchBar: what you say goes when you pause; tap sends, double tap cancels', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+
+    // The glasses never say the TouchBar was let go while our screen is up: a pause sends it.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('pause or tap to send'));
+    w.speech.say('what time is it');
+    await tester.pump();
+    await tester.pump();
+    expect(w.bridge.sentTexts, ['what time is it']);
+    w.bridge.addReply('Noon.');
+    await tester.pump();
+    await tester.pump();
+
+    // Tap: sent at once, mid-sentence. Every press starts fresh.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    expect(suite.voice.draft, isEmpty);
+    w.speech.partial('turn on the lights');
+    await tester.pump();
+    w.glasses.touch(1, 'R');
+    await tester.pump();
+    await tester.pump();
+    expect(w.bridge.sentTexts.last, 'turn on the lights');
+    w.bridge.addReply('Done.');
+    await tester.pump();
+    await tester.pump();
+
+    // Double tap: thrown away, now and later.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    w.speech.partial('never mind');
+    await tester.pump();
+    w.glasses.touch(0, 'L');
+    await tester.pump();
+    await tester.pump();
+    expect(suite.voice.dictating, isFalse);
+    await tester.pump(const Duration(seconds: 10));
+    expect(w.bridge.sentTexts.length, 2);
+
+    // Nothing said: "Didn't catch that", then the glasses are given back.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pump();
+    expect(w.glasses.screens().last, contains("Didn't catch that"));
+    await tester.pump(const Duration(seconds: 3));
+    expect(suite.display.mode, DisplayMode.idle);
+    expect(w.bridge.sentTexts.length, 2);
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
