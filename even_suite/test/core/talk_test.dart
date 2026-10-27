@@ -304,6 +304,7 @@ void main() {
 
     test('notes come from the sources you pick', () {
       final d = Dashboard(Proto(BleManager(FakeGlasses())))
+        ..claudePanel = false
         ..slots = ['work', 'reply', 'custom', 'off']
         ..custom = 'Groceries\nmilk, eggs'
         ..lastReply = 'Sunny and **22** degrees.'
@@ -321,6 +322,7 @@ void main() {
     test('Claude\'s work note is live while it runs', () {
       final started = DateTime.now().subtract(const Duration(minutes: 4, seconds: 10));
       final d = Dashboard(Proto(BleManager(FakeGlasses())))
+        ..claudePanel = false
         ..slots = ['work', 'off', 'off', 'off']
         ..jobs = [
           WorkJob(

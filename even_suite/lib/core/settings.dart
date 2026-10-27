@@ -86,8 +86,8 @@ class Settings extends ChangeNotifier {
   bool workGlasses = true; // short notification on the glasses
   // Look up (the glasses dashboard)
   bool dashSync = true;
-  String dashMode = 'dual'; // full, dual, minimal
-  String dashPane = 'notes'; // notes, calendar, stocks, news, map
+  String dashMode = 'dual'; // full, dual, minimal (Claude on the right always uses dual)
+  String dashRight = 'claude'; // right side: claude (live panel), notes, calendar, news, stocks, map
   bool dash24h = false;
   bool dashFahrenheit = true;
   bool dashWeather = true;
@@ -192,7 +192,7 @@ class Settings extends ChangeNotifier {
     workGlasses = _b(m['workGlasses'], workGlasses);
     dashSync = _b(m['dashSync'], dashSync);
     dashMode = _s(m['dashMode'], dashMode);
-    dashPane = _s(m['dashPane'], dashPane);
+    dashRight = _s(m['dashRight'], dashRight);
     dash24h = _b(m['dash24h'], dash24h);
     dashFahrenheit = _b(m['dashFahrenheit'], dashFahrenheit);
     dashWeather = _b(m['dashWeather'], dashWeather);
@@ -362,8 +362,8 @@ class Settings extends ChangeNotifier {
         dashSync = value as bool;
       case 'dashMode':
         dashMode = value as String;
-      case 'dashPane':
-        dashPane = value as String;
+      case 'dashRight':
+        dashRight = value as String;
       case 'dash24h':
         dash24h = value as bool;
       case 'dashFahrenheit':

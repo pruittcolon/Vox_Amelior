@@ -5,11 +5,13 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:even_suite/core/bridge/bridge_client.dart';
+import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/features/flicker/flicker_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
 import 'package:even_suite/main.dart';
+import 'package:even_suite/widgets/glasses_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -303,6 +305,78 @@ void main() {
       suite.dispose();
     }, timeout: const Timeout(Duration(minutes: 3)));
   }
+
+  testWidgets('look-up screen: Claude on the right, drawn as the glasses lay it out', (tester) async {
+    // 576 x 136 glasses pixels, drawn at 2x; each state twice: with the
+    // firmware's boxes outlined (to check spacing) and as you would see it.
+    tester.view.physicalSize = const Size(1152, 272);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    final now = DateTime(2026, 10, 27, 14, 20);
+    double ago(int s) => now.subtract(Duration(seconds: s)).millisecondsSinceEpoch / 1000;
+    final states = <String, ClaudePanel>{
+      'working': ClaudePanel.build(now: now, jobs: [
+        WorkJob(
+            session: 'a',
+            project: 'vox_mobile',
+            prompt: 'add mood charts to the Insights tab and make the colors work in dark mode too',
+            step: 'Running flutter test --coverage',
+            steps: 14,
+            started: ago(250)),
+      ]),
+      'done': ClaudePanel.build(
+          now: now,
+          last: WorkItem(
+              id: 'w',
+              ts: ago(360),
+              project: 'even-suite',
+              summary: 'Pushed the fix; CI is green and the APK is published.',
+              prompt: 'fix the failing screenshot test',
+              ms: 134000,
+              tools: 6)),
+      'answering': ClaudePanel.build(
+          now: now, asking: ('Searching the web: boston', 'what will the weather be in boston tomorrow')),
+      'longest': ClaudePanel.build(now: now, jobs: [
+        WorkJob(
+            session: 'a',
+            project: 'a-really-long-project-folder-name-that-goes-on',
+            prompt: 'W' * 30 + ' mmmm wwww MMMM ' * 6,
+            step: 'Searching the web: ' + 'wide words ' * 8,
+            steps: 120,
+            started: ago(7300)),
+        const WorkJob(session: 'b'),
+      ]),
+    };
+    for (final e in states.entries) {
+      for (final guides in [true, false]) {
+        final key = GlobalKey();
+        await tester.pumpWidget(MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: RepaintBoundary(
+            key: key,
+            child: GlassesDashboardView(
+              now: now,
+              temp: '68°F',
+              title: e.value.title,
+              bright: e.value.bright,
+              dim: e.value.dim,
+              guides: guides,
+            ),
+          ),
+        ));
+        await tester.pump();
+        final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(key));
+        await tester.runAsync(() async {
+          final image = await boundary.toImage(pixelRatio: 2);
+          final png = await image.toByteData(format: ui.ImageByteFormat.png);
+          File('test/screenshots/out/16_lookup_${e.key}${guides ? '_guides' : ''}.png')
+            ..createSync(recursive: true)
+            ..writeAsBytesSync(png!.buffer.asUint8List());
+        });
+      }
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('glasses TouchBar taps page the reply; hold left to talk', (tester) async {
     final w = _World();

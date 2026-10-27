@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../ble/proto.dart';
 import '../bridge/bridge_client.dart';
 import '../log.dart';
+import 'claude_panel.dart';
 import 'glasses_text.dart';
 
 /// Current weather for the look-up screen.
@@ -110,6 +111,10 @@ class Dashboard extends ChangeNotifier {
   bool enabled = true;
   int mode = 1; // 0 full, 1 dual, 2 minimal
   int pane = 0; // 0 notes, 1 stocks, 2 news, 3 calendar, 4 map
+
+  /// The right side is Claude's panel: dual layout (time left, Claude right),
+  /// one note only, so there is no "1/3" counter and nothing to page through.
+  bool claudePanel = true;
   bool h24 = false;
   bool fahrenheit = true;
   bool weatherOn = true;
@@ -202,7 +207,7 @@ class Dashboard extends ChangeNotifier {
   /// Claude's work moved on: send it soon if you are looking up, otherwise
   /// now and then (it is sent anyway the moment you look up).
   void workChanged() {
-    if (!slots.contains('work')) return;
+    if (!claudePanel && !slots.contains('work')) return;
     if (lookingUp) {
       markDirty(delay: const Duration(milliseconds: 800), notesOnly: true);
       return;
@@ -231,8 +236,19 @@ class Dashboard extends ChangeNotifier {
     if (slots.contains('phone')) markDirty();
   }
 
+  /// Claude's panel as it is now (title, bright and dim lines).
+  ClaudePanel get panel => ClaudePanel.build(jobs: jobs, asking: asking, last: lastWork, h24: h24);
+
+  /// The layout actually sent: Claude's panel always uses the dual layout and the notes pane.
+  int get sentMode => claudePanel ? 1 : mode;
+  int get sentPane => claudePanel ? 0 : pane;
+
   /// The four notes as (title, text); empty ones are deleted on the glasses.
   List<(String, String)> buildNotes() {
+    if (claudePanel) {
+      final p = panel;
+      return [(p.title, p.body), ('', ''), ('', ''), ('', '')];
+    }
     String clock(DateTime t) {
       final h = h24 ? t.hour : (t.hour % 12 == 0 ? 12 : t.hour % 12);
       final m = t.minute.toString().padLeft(2, '0');
@@ -332,9 +348,9 @@ class Dashboard extends ChangeNotifier {
     final w = weatherOn ? weather : null;
     await proto.sendTimeWeather(DateTime.now(),
         icon: w?.icon ?? 0, tempC: w?.tempC ?? 0, fahrenheit: fahrenheit, h24: h24);
-    final layout = '$mode/$pane';
+    final layout = '$sentMode/$sentPane';
     if (force || layout != _sentLayout) {
-      if (await proto.sendDashboardMode(mode, pane)) _sentLayout = layout;
+      if (await proto.sendDashboardMode(sentMode, sentPane)) _sentLayout = layout;
     }
     await _sendNotes(force);
     lastSync = DateTime.now();

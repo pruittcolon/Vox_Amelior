@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../app/shell.dart';
 import '../../app/theme.dart';
-import '../../core/glasses/dashboard.dart';
+import '../../core/glasses/claude_panel.dart';
+import '../../core/glasses/g1_font.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
+import '../../widgets/glasses_widgets.dart';
 
 /// What the glasses show when you look up: clock, weather, layout, and four
 /// notes you pick - Claude's finished jobs, the last answer, your phone's
@@ -93,29 +95,42 @@ class _LookUpPageState extends State<LookUpPage> {
               ]),
               const SizedBox(height: 12),
               SectionCard(
-                title: 'Layout',
+                title: 'Right side',
                 icon: Icons.dashboard_customize_rounded,
                 iconColor: AppColors.hud,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Keep it up to date', style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: const Text('Clock, weather and notes are sent on connect, every 10 min and when you look up.',
+                    subtitle: const Text('Sent on connect, every 10 min, and the moment you look up.',
                         style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                     value: s.dashSync,
                     onChanged: (v) => s.set('dashSync', v),
                   ),
-                  _Choices('dashMode', s.dashMode, const [('full', 'Full'), ('dual', 'Dual'), ('minimal', 'Minimal')]),
-                  const SizedBox(height: 12),
-                  const Text('Side panel', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  _Choices('dashPane', s.dashPane, const [
-                    ('notes', 'Notes'),
+                  _Choices('dashRight', s.dashRight, const [
+                    ('claude', 'Claude (live)'),
+                    ('notes', 'My notes'),
                     ('calendar', 'Calendar'),
                     ('news', 'News'),
                     ('stocks', 'Stocks'),
                     ('map', 'Map'),
                   ]),
+                  const SizedBox(height: 8),
+                  Text(
+                    switch (s.dashRight) {
+                      'claude' => 'Time on the left, Claude on the right: what it is doing now, what you asked, '
+                          'then the result. Updates every few seconds while you look up.',
+                      'notes' => 'Up to four notes you pick below; tap on the glasses to page through them.',
+                      _ => 'The glasses’ own panel, filled by the Even app.',
+                    },
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+                  ),
+                  if (s.dashRight != 'claude') ...[
+                    const SizedBox(height: 12),
+                    const Text('Layout', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    _Choices('dashMode', s.dashMode, const [('dual', 'Dual'), ('full', 'Full'), ('minimal', 'Minimal')]),
+                  ],
                 ]),
               ),
               const SizedBox(height: 12),
@@ -174,6 +189,7 @@ class _LookUpPageState extends State<LookUpPage> {
                 ]),
               ),
               const SizedBox(height: 12),
+              if (s.dashRight == 'notes')
               SectionCard(
                 title: 'Notes',
                 icon: Icons.sticky_note_2_rounded,
@@ -294,7 +310,7 @@ class _Choices extends StatelessWidget {
   }
 }
 
-/// A sketch of the look-up screen with what will be sent.
+/// The look-up screen as the glasses will draw it (dual layout, G1 font widths).
 class _Preview extends StatelessWidget {
   const _Preview({required this.suite});
   final Suite suite;
@@ -303,62 +319,36 @@ class _Preview extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = suite.settings;
     final dash = suite.dashboard;
-    final now = DateTime.now();
-    final h = s.dash24h ? now.hour : (now.hour % 12 == 0 ? 12 : now.hour % 12);
-    final time = '${s.dash24h ? h.toString().padLeft(2, '0') : h}:${now.minute.toString().padLeft(2, '0')}';
     final w = dash.weather;
-    final temp = w == null ? '' : (s.dashFahrenheit ? '${(w.tempC * 9 / 5 + 32).round()}°F' : '${w.tempC}°C');
-    final notes = dash.buildNotes().where((n) => n.$1.isNotEmpty || n.$2.isNotEmpty).toList();
-    const style = TextStyle(color: AppColors.hud, fontSize: 13, height: 1.35);
-    return MediaQuery.withNoTextScaling(
-      child: Container(
-        height: 168,
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        decoration: BoxDecoration(
-          color: AppColors.hudBg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.hud.withOpacity(0.18)),
-        ),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SizedBox(
-            width: 92,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(time, style: style.copyWith(fontSize: 24, fontWeight: FontWeight.w700)),
-              if (s.dashWeather)
-                Text(w == null ? 'weather…' : '$temp ${_weatherWord(w.icon)}', style: style),
-              const SizedBox(height: 6),
-              Text(s.dashMode, style: style.copyWith(color: AppColors.hud.withOpacity(0.5), fontSize: 11)),
-            ]),
-          ),
-          Container(width: 1, color: AppColors.hud.withOpacity(0.2), margin: const EdgeInsets.symmetric(horizontal: 10)),
-          Expanded(
-            child: s.dashPane != 'notes'
-                ? Text('${s.dashPane[0].toUpperCase()}${s.dashPane.substring(1)} panel', style: style)
-                : notes.isEmpty
-                    ? Text('No notes', style: style.copyWith(color: AppColors.hud.withOpacity(0.5)))
-                    : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        for (final (t, x) in notes.take(3))
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text('$t  ${x.replaceAll('\n', ' · ')}',
-                                maxLines: 2, overflow: TextOverflow.ellipsis, style: style),
-                          ),
-                      ]),
-          ),
-        ]),
+    final temp = !s.dashWeather || w == null
+        ? ''
+        : (s.dashFahrenheit ? '${(w.tempC * 9 / 5 + 32).round()}°F' : '${w.tempC}°C');
+    String title = '';
+    List<String> bright = const [], dim = const [];
+    String? label;
+    if (s.dashRight == 'claude') {
+      final p = dash.panel;
+      (title, bright, dim) = (p.title, p.bright, p.dim);
+    } else if (s.dashRight == 'notes') {
+      final notes = dash.buildNotes().where((n) => n.$1.isNotEmpty || n.$2.isNotEmpty).toList();
+      if (notes.isNotEmpty) {
+        title = G1Font.fit(notes.first.$1, DashLayout.titleMaxPx);
+        bright = G1Font.wrapMax(notes.first.$2, DashLayout.bodyMaxPx, DashLayout.bodyLines);
+      }
+    } else {
+      label = '${s.dashRight[0].toUpperCase()}${s.dashRight.substring(1)} (from the Even app)';
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: GlassesDashboardView(
+        now: DateTime.now(),
+        h24: s.dash24h,
+        temp: temp,
+        title: title,
+        bright: bright,
+        dim: dim,
+        paneLabel: label,
       ),
     );
   }
-
-  static String _weatherWord(int icon) => switch (icon) {
-        G1Icon.sunny => 'sunny',
-        G1Icon.night => 'clear',
-        G1Icon.clouds => 'cloudy',
-        G1Icon.fog || G1Icon.mist => 'fog',
-        G1Icon.drizzle || G1Icon.heavyDrizzle => 'drizzle',
-        G1Icon.rain || G1Icon.heavyRain || G1Icon.freezingRain => 'rain',
-        G1Icon.snow => 'snow',
-        G1Icon.thunder || G1Icon.thunderstorm => 'storm',
-        _ => '',
-      };
 }

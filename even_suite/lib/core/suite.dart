@@ -227,19 +227,20 @@ class Suite extends ChangeNotifier {
           pitch: settings.ttsPitch / 100));
     }
     work.minDuration = Duration(seconds: settings.workMinSec);
-    final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.h24}|${dashboard.fahrenheit}|'
+    final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.h24}|${dashboard.fahrenheit}|'
         '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
     dashboard
       ..enabled = settings.dashSync
       ..mode = const ['full', 'dual', 'minimal'].indexOf(settings.dashMode).clamp(0, 2)
-      ..pane = const ['notes', 'stocks', 'news', 'calendar', 'map'].indexOf(settings.dashPane).clamp(0, 4)
+      ..pane = const ['notes', 'stocks', 'news', 'calendar', 'map'].indexOf(settings.dashRight).clamp(0, 4)
+      ..claudePanel = settings.dashRight == 'claude'
       ..h24 = settings.dash24h
       ..fahrenheit = settings.dashFahrenheit
       ..weatherOn = settings.dashWeather
       ..city = settings.dashCity
       ..slots = settings.noteSlots
       ..custom = settings.dashCustom;
-    final newDashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.h24}|${dashboard.fahrenheit}|'
+    final newDashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.h24}|${dashboard.fahrenheit}|'
         '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
     if (newDashKey != dashKey && ble.isConnected) dashboard.markDirty(delay: const Duration(seconds: 3));
     phone
