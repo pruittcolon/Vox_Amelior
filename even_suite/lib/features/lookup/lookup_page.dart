@@ -359,8 +359,14 @@ class _Preview extends StatelessWidget {
     } else {
       label = '${s.dashRight[0].toUpperCase()}${s.dashRight.substring(1)} (from the Even app)';
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
+    return Container(
+      // A margin inside the rounded frame, so its corners do not cut the glasses' edges.
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: AppColors.hudBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.hud.withOpacity(0.18)),
+      ),
       child: GlassesDashboardView(
         now: DateTime.now(),
         h24: s.dash24h,
