@@ -326,6 +326,9 @@ class BridgeClient {
 
   Future<void> stop() => _send('POST', '/api/bridge/stop', body: const {});
 
+  /// Turn Agent Hub off (`even stop`).
+  Future<void> quit() => _send('POST', '/api/quit', body: const {});
+
   /// Upload diagnostics events (written to ~/.agent-hub/logs/ in Termux).
   Future<void> log(List<Map<String, Object?>> events, {String session = '', int dropped = 0}) =>
       _send('POST', '/api/log',

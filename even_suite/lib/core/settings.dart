@@ -13,7 +13,12 @@ class Settings extends ChangeNotifier {
   final Future<void> Function(String key, Object? value)? _save;
 
   static const defaultBridgeUrl = 'http://127.0.0.1:8787';
-  static const defaultStartCommand =
+  /// The one-word Termux command (termux/even): starts Agent Hub and Claude
+  /// Code in Ubuntu in the background; `even stop`, `even restart`, `even log`.
+  static const defaultStartCommand = 'even';
+
+  /// What the app used to run before `even` existed.
+  static const legacyStartCommand =
       "proot-distro login ubuntu -- env HUB_NO_BROWSER=1 bash -lc '~/agent-hub/start.sh'";
 
   String bridgeUrl = defaultBridgeUrl;
@@ -121,6 +126,7 @@ class Settings extends ChangeNotifier {
   void load(Map<String, Object?> m) {
     bridgeUrl = _s(m['bridgeUrl'], bridgeUrl);
     startCommand = _s(m['startCommand'], startCommand);
+    if (startCommand == legacyStartCommand) startCommand = defaultStartCommand;
     final words = _s(m['wakeWords'], '');
     if (words.trim().isNotEmpty) {
       wakeWords = words.split(',').map((w) => w.trim()).where((w) => w.isNotEmpty).toList();

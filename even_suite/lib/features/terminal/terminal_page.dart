@@ -164,7 +164,7 @@ class _TerminalPageState extends State<TerminalPage> {
         title: term.error == null ? 'Connecting to Termux…' : 'Termux bridge is offline',
         lines: [
           if (term.error != null) term.error!,
-          'Start Agent Hub from the Glasses tab (or type `all` in Termux).',
+          'Tap Start on the Glasses tab, or type even in Termux.',
         ],
       );
     }

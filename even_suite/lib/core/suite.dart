@@ -700,27 +700,54 @@ class Suite extends ChangeNotifier {
 
   // --------------------------------------------------------------- termux
 
-  /// Start Agent Hub in Termux. Returns a message for the user.
-  Future<String> startBridge() async {
+  /// Start Agent Hub in Termux (runs the one-word `even`, the same as typing
+  /// it in Termux). Returns a message for the user.
+  Future<String> startBridge() => _termux(settings.startCommand, 'Claude is ready.');
+
+  /// Stop and start Agent Hub again (`even restart`), e.g. after an update.
+  Future<String> restartBridge() async {
+    final cmd = settings.startCommand == Settings.defaultStartCommand ? 'even restart' : settings.startCommand;
+    if (cmd != 'even restart') {
+      try {
+        await client.quit();
+        await Future.delayed(const Duration(seconds: 2));
+      } catch (_) {}
+    }
+    return _termux(cmd, 'Restarted. Claude is ready.');
+  }
+
+  /// Turn Agent Hub off (`even stop`).
+  Future<String> stopBridge() async {
+    try {
+      await client.quit();
+    } catch (e) {
+      return '$e';
+    }
+    await Future.delayed(const Duration(milliseconds: 600));
+    await chat.check();
+    return 'Stopped. Tap Start (or type even in Termux) to turn it on again.';
+  }
+
+  Future<String> _termux(String command, String done) async {
     if (!await system.termuxInstalled()) return 'Termux is not installed on this phone.';
     final granted = await system.permissions(['termux']);
     if (granted['termux'] != true) {
       return 'Allow “Run commands in Termux” for Even Suite (Settings › Apps › Even Suite › Permissions), then try again.';
     }
-    final r = await system.runTermux(settings.startCommand);
+    final r = await system.runTermux(command);
     if (r == 'ok') {
       chat.markStarting();
-      for (var i = 0; i < 20; i++) {
+      // Ubuntu and Claude Code take a while to start on a phone.
+      for (var i = 0; i < 60; i++) {
         await Future.delayed(const Duration(seconds: 1));
-        if (await chat.check()) return 'Termux bridge is running.';
+        if (await chat.check()) return done;
       }
       chat.state = BridgeState.offline;
-      return 'Started the command, but the bridge did not answer. In Termux, make sure '
-          '~/.termux/termux.properties has allow-external-apps = true.';
+      return 'Started it, but Claude is not answering yet. In Termux, type: even log';
     }
     if (r == 'no-permission') return 'Allow “Run commands in Termux” for Even Suite first.';
     if (r == 'not-installed') return 'Termux is not installed on this phone.';
-    return 'Could not start Termux: $r';
+    return 'Could not start Termux: $r. In Termux, type: even';
   }
 
   @override

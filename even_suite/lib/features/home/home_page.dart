@@ -275,13 +275,15 @@ class _BridgeCard extends StatefulWidget {
 class _BridgeCardState extends State<_BridgeCard> {
   bool _starting = false;
 
-  Future<void> _start() async {
+  Future<void> _run(Future<String> Function() action) async {
     setState(() => _starting = true);
-    final msg = await widget.suite.startBridge();
+    final msg = await action();
     if (!mounted) return;
     setState(() => _starting = false);
     showToast(context, msg);
   }
+
+  Future<void> _start() => _run(widget.suite.startBridge);
 
   @override
   Widget build(BuildContext context) {
@@ -305,7 +307,7 @@ class _BridgeCardState extends State<_BridgeCard> {
             Text(
               online
                   ? 'Connected to Agent Hub on this phone. Claude Code runs in Termux with your own login - no API key.'
-                  : 'Agent Hub runs Claude Code in Termux. Start it here, or type `all` in Termux.',
+                  : 'Agent Hub runs Claude Code in Termux. Tap Start, or type even in Termux.',
               style: const TextStyle(color: AppColors.muted, fontSize: 13.5),
             ),
             const SizedBox(height: 14),
@@ -336,7 +338,23 @@ class _BridgeCardState extends State<_BridgeCard> {
                 onPressed: chat.check,
                 icon: const Icon(Icons.refresh_rounded),
               ),
+              if (online)
+                PopupMenuButton<String>(
+                  tooltip: 'Start, restart or stop',
+                  enabled: !_starting,
+                  icon: _starting
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.more_vert_rounded),
+                  onSelected: (v) => _run(v == 'restart' ? widget.suite.restartBridge : widget.suite.stopBridge),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'restart', child: Text('Restart (even restart)')),
+                    PopupMenuItem(value: 'stop', child: Text('Stop (even stop)')),
+                  ],
+                ),
             ]),
+            const SizedBox(height: 8),
+            const Text('In Termux it is one word: even  ·  even stop  ·  even restart  ·  even log',
+                style: TextStyle(color: AppColors.muted, fontSize: 12)),
           ]),
         );
       },

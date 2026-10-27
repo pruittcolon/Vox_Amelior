@@ -1,0 +1,54 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# even - Claude for the Even Suite app, in one word (type it in Termux, or
+# tap Start in the app, which runs the same thing).
+#   even           start it (Agent Hub + Claude Code in Ubuntu), or say it is running
+#   even stop      turn it off
+#   even restart   stop, then start (after an update)
+#   even log       what it printed last time
+#   even web       start it and open the web page
+#   even setup     let Claude Code tell the app what it is doing (Work tab, look-up screen)
+URL=http://127.0.0.1:8787
+LOG="$HOME/.agent-hub.log"
+
+up() { curl -fs -m 2 "$URL/api/ping" >/dev/null 2>&1; }
+
+stop() {
+  if curl -fs -m 3 -X POST "$URL/api/quit" >/dev/null 2>&1; then
+    for _ in $(seq 20); do up || break; sleep 0.5; done
+    echo "Stopped."
+  else
+    echo "It was not running."
+  fi
+}
+
+start() {
+  termux-wake-lock 2>/dev/null
+  if up; then
+    echo "✓ Ready (already running). Open Even Suite."
+    return 0
+  fi
+  printf 'Starting Claude for Even Suite'
+  nohup proot-distro login ubuntu -- env HUB_NO_BROWSER="${1:-1}" bash -lc '~/agent-hub/start.sh' >"$LOG" 2>&1 &
+  disown 2>/dev/null
+  for _ in $(seq 90); do
+    sleep 1
+    printf '.'
+    if up; then
+      printf '\n✓ Ready. Open Even Suite.\n'
+      return 0
+    fi
+  done
+  printf '\n✗ It did not start. Type: even log\n'
+  return 1
+}
+
+case "$1" in
+  "" | start) start 1 ;;
+  stop) stop ;;
+  restart) stop; start 1 ;;
+  log) tail -n 40 "$LOG" ;;
+  web) start 0 && termux-open-url "$URL/" 2>/dev/null ;;
+  setup) proot-distro login ubuntu -- python3 /root/agent-hub/install_hook.py ;;
+  help | -h | --help) sed -n '2,10p' "$0" ;;
+  *) echo "even: no '$1' (type: even help)"; exit 1 ;;
+esac

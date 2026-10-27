@@ -147,7 +147,8 @@ class SettingsPage extends StatelessWidget {
               ),
               _TextSetting(
                 label: 'Start command (run by Termux)',
-                help: 'Needs “allow-external-apps = true” in ~/.termux/termux.properties.',
+                help: 'even = start. In Termux also: even stop, even restart, even log, even setup. '
+                    'Needs “allow-external-apps = true” in ~/.termux/termux.properties.',
                 value: s.startCommand,
                 maxLines: 3,
                 onSave: (v) => s.set('startCommand', v.trim().isEmpty ? Settings.defaultStartCommand : v.trim()),
