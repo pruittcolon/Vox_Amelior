@@ -189,7 +189,9 @@ class _DashPainter extends CustomPainter {
 
   void _text(Canvas c, String s, double x, double y, double size, Color color, {FontWeight? weight}) {
     final tp = TextPainter(
-      text: TextSpan(text: s, style: TextStyle(fontSize: size, color: color, height: 1.0, fontWeight: weight)),
+      text: TextSpan(
+          text: s,
+          style: TextStyle(fontFamily: 'Roboto', fontSize: size, color: color, height: 1.0, fontWeight: weight)),
       textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(c, Offset(x, y));
