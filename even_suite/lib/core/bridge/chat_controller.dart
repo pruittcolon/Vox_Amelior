@@ -7,12 +7,14 @@ import 'bridge_client.dart';
 
 enum BridgeState { unknown, online, offline, starting }
 
-/// Conversation with Claude through the bridge (`claude -p` with one ongoing
-/// session). The bridge keeps the history, so the web page and this app see
-/// the same conversation.
+/// Conversation with Claude through the bridge (one Claude Code session that
+/// Agent Hub keeps running). The bridge keeps the history, so the web page and
+/// this app see the same conversation.
 ///
 /// Efficient: one long poll that returns only when something changes, and
-/// only while a screen shows the chat or a reply is still on its way.
+/// only while a screen shows the chat or a reply is still on its way. While
+/// Claude answers, [onProgress] reports each step (thinking, a tool, the text
+/// so far) and [onReply] the finished answer.
 class ChatController extends ChangeNotifier {
   ChatController(this.client);
 
@@ -23,11 +25,23 @@ class ChatController extends ChangeNotifier {
   bool busy = false;
   String? error;
 
+  /// What the running Agent Hub supports (null until checked).
+  HubInfo? hub;
+
   /// Sent with every message as Claude's system prompt (glasses formatting).
   String? system;
 
+  /// Model, effort and access, sent with every message.
+  Map<String, String>? options;
+
   /// A finished reply to something sent from this app.
   void Function(BridgeMessage reply)? onReply;
+
+  /// The reply on its way changed (stage, tool step, or more text).
+  void Function(BridgeMessage reply)? onProgress;
+
+  /// The reply currently being worked on, if any.
+  BridgeMessage? active;
 
   int _version = -1;
   bool _looping = false;
@@ -35,9 +49,13 @@ class ChatController extends ChangeNotifier {
   final Set<String> _pending = {};
   DateTime? _awaitingSince;
   bool _primed = false;
+  String _activeKey = '';
 
   bool get _awaiting =>
-      _awaitingSince != null && DateTime.now().difference(_awaitingSince!) < const Duration(minutes: 15);
+      _awaitingSince != null && DateTime.now().difference(_awaitingSince!) < const Duration(minutes: 30);
+
+  /// A question is out and its answer has not arrived yet.
+  bool get waiting => _awaitingSince != null;
 
   BridgeMessage? get lastReply {
     for (final m in messages.reversed) {
@@ -46,12 +64,17 @@ class ChatController extends ChangeNotifier {
     return null;
   }
 
-  /// Is the bridge reachable? Updates [state].
+  /// Is the bridge reachable? Updates [state] and [hub].
   Future<bool> check() async {
     try {
       await client.status();
       state = BridgeState.online;
       error = null;
+      try {
+        hub = await client.ping();
+      } catch (_) {
+        hub = const HubInfo(1, {});
+      }
       notifyListeners();
       return true;
     } catch (e) {
@@ -81,11 +104,20 @@ class ChatController extends ChangeNotifier {
 
   bool get _shouldRun => _owners.isNotEmpty || busy || _awaiting;
 
+  /// Start Claude early (the user started talking). Errors are ignored.
+  Future<void> warm() async {
+    try {
+      await client.warm(system: system, options: options);
+    } catch (_) {}
+  }
+
   Future<void> send(String text) async {
     final t = text.trim();
     if (t.isEmpty) return;
     _awaitingSince = DateTime.now();
-    EventLog.add('chat', 'send', {'chars': t.length, 'system': system?.length ?? 0});
+    active = null;
+    _activeKey = '';
+    EventLog.add('chat', 'send', {'chars': t.length, 'system': system?.length ?? 0, ...?options});
     // Show the bubble straight away; the next poll replaces it.
     messages = [
       ...messages,
@@ -94,7 +126,7 @@ class ChatController extends ChangeNotifier {
     busy = true;
     notifyListeners();
     try {
-      await client.send(t, to: 'claude', system: system);
+      await client.send(t, to: 'claude', system: system, options: options);
       state = BridgeState.online;
       error = null;
     } catch (e) {
@@ -107,6 +139,14 @@ class ChatController extends ChangeNotifier {
       rethrow;
     }
     _loop();
+  }
+
+  /// Give up waiting for the answer (it may still arrive in the chat).
+  void forget() {
+    _awaitingSince = null;
+    active = null;
+    _activeKey = '';
+    notifyListeners();
   }
 
   Future<void> stopReply() async {
@@ -122,6 +162,7 @@ class ChatController extends ChangeNotifier {
     await client.reset();
     _pending.clear();
     _awaitingSince = null;
+    active = null;
     messages = const [];
     notifyListeners();
   }
@@ -160,11 +201,13 @@ class ChatController extends ChangeNotifier {
     _version = snap.version;
     state = BridgeState.online;
     error = null;
-    busy = snap.busy.contains('claude');
+    busy = snap.busy.contains('claude') || snap.messages.any((m) => m.who == 'claude' && m.isQueued);
+    BridgeMessage? progress;
     for (final m in snap.messages) {
       if (m.who != 'claude') continue;
       if (m.isPending) {
         _pending.add(m.id);
+        if (_awaiting && !firstLook) progress = m;
       } else if (_pending.remove(m.id) ||
           (!firstLook && _awaiting && m.time.isAfter(_awaitingSince!.subtract(const Duration(seconds: 5))) &&
               !messages.any((old) => old.id == m.id && !old.isPending))) {
@@ -172,12 +215,27 @@ class ChatController extends ChangeNotifier {
           'chars': m.text.length,
           'ok': !m.isError,
           'ms': _awaitingSince == null ? null : DateTime.now().difference(_awaitingSince!).inMilliseconds,
+          'claudeMs': m.ms,
+          'steps': m.steps.length,
         });
         if (!busy) _awaitingSince = null;
+        if (active?.id == m.id) {
+          active = null;
+          _activeKey = '';
+        }
         onReply?.call(m);
       }
     }
     messages = snap.messages;
+    if (progress != null) {
+      final key = '${progress.id}|${progress.status}|${progress.stage}|${progress.tool}|${progress.block}|'
+          '${progress.live.length}';
+      active = progress;
+      if (key != _activeKey) {
+        _activeKey = key;
+        onProgress?.call(progress);
+      }
+    }
     notifyListeners();
   }
 }

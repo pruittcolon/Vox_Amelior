@@ -137,6 +137,16 @@ class VoiceCommands {
     return t;
   }
 
+  static const _endPhrases = {
+    'thanks', 'thank you', 'thanks claude', 'thank you claude', "that's all", 'thats all', 'that is all',
+    "that's it", 'thats it', 'no', 'no thanks', 'no thank you', 'nope', 'nothing', 'never mind',
+    'nevermind', 'all good', "i'm good", 'im good', 'done', 'ok', 'okay', 'got it', 'cool', 'great',
+    'perfect', 'awesome', 'goodbye', 'good bye', 'bye', 'stop listening',
+  };
+
+  /// "Thanks", "that's all", "no": the end of a back-and-forth, not a question.
+  static bool endsConversation(String text) => _endPhrases.contains(normalize(text));
+
   /// A whole utterance that is exactly a command ("scroll down", "send").
   static VoiceCommand? parse(String text) {
     final t = normalize(text);

@@ -6,6 +6,7 @@ import 'package:even_suite/core/ble/ble_receive.dart';
 import 'package:even_suite/core/bridge/bridge_client.dart';
 import 'package:even_suite/core/screen/screen_mirror.dart';
 import 'package:even_suite/core/system.dart';
+import 'package:even_suite/core/voice/speaker.dart';
 import 'package:even_suite/core/voice/speech.dart';
 
 /// Simulated G1: acknowledges commands the way the real arms do and records
@@ -163,6 +164,7 @@ class FakeSpeech implements SpeechEngine {
     bool quiet = true,
     String engine = 'auto',
     String audioSource = 'phone',
+    int silenceMs = 1500,
   }) async {
     starts++;
     running = true;
@@ -235,12 +237,79 @@ class FakeBridgeClient extends BridgeClient {
   }
 
   String? lastSystem;
+  Map<String, String>? lastOptions;
+  int warms = 0;
 
   @override
-  Future<void> send(String text, {String to = 'claude', int turns = 0, String? system}) async {
+  Future<void> send(String text,
+      {String to = 'claude', int turns = 0, String? system, Map<String, String>? options}) async {
     sentTexts.add(text);
     lastSystem = system;
+    lastOptions = options;
     messages.add(BridgeMessage(id: 'u$version', who: 'you', text: text, status: 'done'));
+    _bump();
+  }
+
+  /// Claude's reply on its way: a stage, a tool step, or text so far.
+  void progress({String stage = 'thinking', String tool = '', String live = '', int block = 0}) {
+    messages.removeWhere((m) => m.id == 'p$_turn');
+    messages.add(BridgeMessage(
+        id: 'p$_turn',
+        who: 'claude',
+        text: '',
+        status: 'pending',
+        stage: stage,
+        tool: tool,
+        live: live,
+        block: block,
+        steps: [if (tool.isNotEmpty) tool],
+        ts: DateTime.now().millisecondsSinceEpoch / 1000));
+    _bump();
+  }
+
+  /// Finish the reply started with [progress].
+  void finish(String text, {int block = 1}) {
+    messages.removeWhere((m) => m.id == 'p$_turn');
+    messages.add(BridgeMessage(
+        id: 'p$_turn', who: 'claude', text: text, status: 'done', stage: 'done', block: block,
+        ts: DateTime.now().millisecondsSinceEpoch / 1000));
+    _turn++;
+    _bump();
+  }
+
+  int _turn = 0;
+
+  @override
+  Future<void> warm({String? system, Map<String, String>? options}) async => warms++;
+
+  bool hook = true;
+
+  @override
+  Future<HubInfo> ping() async => HubInfo(3, const {'live', 'warm', 'work'}, hook: hook);
+
+  @override
+  Future<bool> installHook() async => hook = true;
+
+  final workItems = <WorkItem>[];
+  int workVersion = 1;
+
+  void addWork(WorkItem item) {
+    workItems.add(item);
+    workVersion++;
+    _bump();
+  }
+
+  @override
+  Future<WorkSnapshot> work({int version = -1, int waitSec = 0}) async {
+    if (!online) throw const BridgeException('Termux bridge is not running');
+    if (version == workVersion && waitSec > 0) await _changed.future;
+    return WorkSnapshot(workVersion, List.of(workItems));
+  }
+
+  @override
+  Future<void> clearWork() async {
+    workItems.clear();
+    workVersion++;
     _bump();
   }
 
@@ -320,6 +389,76 @@ class FakeSystem extends SystemBridge {
 
   @override
   Future<void> volumeKeys(bool enabled) async => volumeKeysOn = enabled;
+
+  final notifications = StreamController<Map>.broadcast();
+  final posted = <String>[];
+  bool noteAccess = false;
+
+  @override
+  Stream<Map> get phoneNotifications => notifications.stream;
+
+  @override
+  Future<void> notify(int id, String title, String text, {String tab = 'work'}) async => posted.add('$title|$text');
+
+  @override
+  Future<bool> notificationAccess() async => noteAccess;
+
+  @override
+  Future<void> openNotificationAccess() async => noteAccess = true;
+
+  @override
+  Future<(double, double)?> location() async => null;
+
+  @override
+  Future<String?> launchTab() async => null;
+}
+
+/// Text-to-speech stand-in: records what was said; finishes each piece at
+/// once (or when [finishAll] is called, with [manual]).
+class FakeSpeaker implements Speaker {
+  final _events = StreamController<SpeakerEvent>.broadcast();
+  final said = <String>[];
+  final _open = <String>[];
+  bool manual = false;
+  int stops = 0;
+  Map<String, Object> config = {};
+
+  @override
+  Stream<SpeakerEvent> get events => _events.stream;
+
+  @override
+  Future<void> speak(String text, String id, {bool flush = false}) async {
+    said.add(text);
+    if (manual) {
+      _open.add(id);
+    } else {
+      scheduleMicrotask(() => _events.add(SpeakerEvent('done', id: id)));
+    }
+  }
+
+  void finishAll() {
+    for (final id in _open) {
+      _events.add(SpeakerEvent('done', id: id));
+    }
+    _open.clear();
+  }
+
+  @override
+  Future<void> stop() async {
+    stops++;
+    _open.clear();
+  }
+
+  @override
+  Future<void> configure({String engine = '', String voice = '', double rate = 1, double pitch = 1}) async =>
+      config = {'engine': engine, 'voice': voice, 'rate': rate, 'pitch': pitch};
+
+  @override
+  Future<List<TtsVoice>> voices() async =>
+      const [TtsVoice('en-us-x-iom-local', 'en-US', 400, false), TtsVoice('en-gb-x-rjs-network', 'en-GB', 500, true)];
+
+  @override
+  Future<List<TtsEngineInfo>> engines() async => const [TtsEngineInfo('com.google.android.tts', 'Speech Services by Google')];
 }
 
 /// Screen capture stand-in: tests push grayscale frames.

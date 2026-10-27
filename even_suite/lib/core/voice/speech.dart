@@ -53,6 +53,7 @@ abstract class SpeechEngine {
     bool quiet = true,
     String engine = 'auto',
     String audioSource = 'phone',
+    int silenceMs = 1500,
   });
 
   Future<void> stop();
@@ -88,6 +89,7 @@ class PlatformSpeech implements SpeechEngine {
     bool quiet = true,
     String engine = 'auto',
     String audioSource = 'phone',
+    int silenceMs = 1500,
   }) =>
       _methods.invokeMethod('start', {
         'continuous': continuous,
@@ -96,6 +98,7 @@ class PlatformSpeech implements SpeechEngine {
         'quiet': quiet,
         'engine': engine,
         'audioSource': audioSource,
+        'silenceMs': silenceMs,
       });
 
   @override

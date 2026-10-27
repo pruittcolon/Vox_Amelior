@@ -189,6 +189,9 @@ class GlassesPager {
     }
   }
 
+  /// Go to [p] (clamped), e.g. to stay on the same page after new text.
+  void jumpTo(int p) => _go(p);
+
   bool up() => _go(_page - 1);
   bool down() => _go(_page + 1);
   bool top() => _go(0);

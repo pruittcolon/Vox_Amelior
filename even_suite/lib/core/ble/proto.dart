@@ -92,6 +92,84 @@ class Proto {
   static Uint8List positionPacket(int seq, {required int height, required int depth, bool preview = false}) =>
       Uint8List.fromList([0x26, 0x08, 0x00, seq & 0xff, 0x02, preview ? 1 : 0, height.clamp(0, 8), depth.clamp(0, 9)]);
 
+  // --------------------------------------------- dashboard (0x06, 0x1E)
+  //
+  // What you see when you look up. Formats from the decompiled firmware
+  // (ble_process_put_req.c, cases 0x06 and 0x1E) and the community G1 apps.
+
+  int _dashSeq = 0;
+
+  /// Clock and weather: `06 15 00 <seq> 01 <seconds u32> <ms u64> <icon>
+  /// <temp °C> <°F?> <24h?>`. The glasses have no time zone, so the time is
+  /// local time written as if it were UTC.
+  static Uint8List timeWeatherPacket(int seq, DateTime now,
+      {int icon = 0, int tempC = 0, bool fahrenheit = false, bool h24 = false}) {
+    final localMs = now.millisecondsSinceEpoch + now.timeZoneOffset.inMilliseconds;
+    final b = ByteData(21)
+      ..setUint8(0, 0x06)
+      ..setUint8(1, 21)
+      ..setUint8(2, 0)
+      ..setUint8(3, seq & 0xff)
+      ..setUint8(4, 0x01)
+      ..setUint32(5, localMs ~/ 1000, Endian.little)
+      ..setUint32(9, localMs & 0xffffffff, Endian.little)
+      ..setUint32(13, (localMs ~/ 0x100000000) & 0xffffffff, Endian.little)
+      ..setUint8(17, icon & 0xff)
+      ..setInt8(18, tempC.clamp(-128, 127))
+      ..setUint8(19, fahrenheit ? 1 : 0)
+      ..setUint8(20, h24 ? 1 : 0);
+    return b.buffer.asUint8List();
+  }
+
+  /// Dashboard layout: [mode] 0 full, 1 dual, 2 minimal; [pane] (the side
+  /// panel) 0 notes, 1 stocks, 2 news, 3 calendar, 4 map.
+  static Uint8List dashboardModePacket(int seq, {required int mode, required int pane}) =>
+      Uint8List.fromList([0x06, 0x07, 0x00, seq & 0xff, 0x06, mode & 0xff, pane & 0xff]);
+
+  /// Quick note [slot] 1..4 on the dashboard's notes panel; an empty [title]
+  /// and [text] deletes it. `1E <len u16> <seq> 03 01 00 01 00 <slot> <1=set>
+  /// <title len> <title> <text len u16> <text>` (title up to 40 bytes, text 280).
+  static Uint8List notePacket(int seq, int slot, String title, String text) {
+    List<int> cut(String s, int max) {
+      var bytes = utf8.encode(s);
+      while (bytes.length > max) {
+        s = s.substring(0, s.length - 1);
+        bytes = utf8.encode(s);
+      }
+      return bytes;
+    }
+
+    final t = cut(title, 40);
+    final x = cut(text, 280);
+    final delete = t.isEmpty && x.isEmpty;
+    final body = <int>[
+      0x03, 0x01, 0x00, 0x01, 0x00, slot.clamp(1, 4), delete ? 0x00 : 0x01,
+      if (!delete) ...[t.length, ...t, x.length & 0xff, (x.length >> 8) & 0xff, ...x],
+    ];
+    final len = 4 + body.length;
+    return Uint8List.fromList([0x1E, len & 0xff, (len >> 8) & 0xff, seq & 0xff, ...body]);
+  }
+
+  Future<bool> _toBoth(Uint8List packet, String what) async {
+    var ok = true;
+    for (final lr in const ['L', 'R']) {
+      final r = await ble.request(packet, lr: lr, timeoutMs: 1500);
+      if (r.isTimeout) ok = false;
+    }
+    EventLog.add('glasses', what, {'ok': ok, 'bytes': packet.length});
+    return ok;
+  }
+
+  Future<bool> sendTimeWeather(DateTime now, {int icon = 0, int tempC = 0, bool fahrenheit = false, bool h24 = false}) =>
+      _toBoth(timeWeatherPacket(_dashSeq++, now, icon: icon, tempC: tempC, fahrenheit: fahrenheit, h24: h24),
+          'dashTime');
+
+  Future<bool> sendDashboardMode(int mode, int pane) =>
+      _toBoth(dashboardModePacket(_dashSeq++, mode: mode, pane: pane), 'dashMode');
+
+  Future<bool> sendNote(int slot, String title, String text) =>
+      _toBoth(notePacket(_dashSeq++, slot, title, text), 'dashNote');
+
   // ------------------------------------------------------- microphone (0x0E)
 
   /// Glasses microphone on/off (the demo turns it on at the right arm when the

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -5,10 +7,12 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../core/bridge/bridge_client.dart';
 import '../../core/bridge/chat_controller.dart';
+import '../../core/bridge/work_controller.dart';
 import '../../core/settings.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/voice_widgets.dart';
+import 'claude_settings_sheet.dart';
 
 class ClaudePage extends StatefulWidget {
   const ClaudePage({super.key, required this.active});
@@ -78,12 +82,21 @@ class _ClaudePageState extends State<ClaudePage> {
     await suite.voice.send(text);
   }
 
+  Future<void> _talk() async {
+    if (suite.narrator.speaking) {
+      await suite.stopSpeaking();
+      return;
+    }
+    await suite.toggleTalk();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(children: [
       _Header(suite: suite),
-      Expanded(child: _Messages(suite: suite)),
-      _VoiceDock(suite: suite, draft: _draft, focus: _focus, onSend: _send),
+      StageStrip(talk: suite.conversation, voice: suite.voice, narrator: suite.narrator),
+      Expanded(child: _Console(suite: suite)),
+      _VoiceDock(suite: suite, draft: _draft, focus: _focus, onSend: _send, onTalk: _talk),
     ]);
   }
 }
@@ -95,22 +108,39 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 4, 4),
+      padding: const EdgeInsets.fromLTRB(16, 8, 0, 4),
       child: ListenableBuilder(
         listenable: suite.settings,
         builder: (context, _) => Row(children: [
           Expanded(
-            child: Text('Claude',
-                style: Theme.of(context).textTheme.headlineSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Claude',
+                  style: Theme.of(context).textTheme.headlineSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(
+                suite.settings.target == Target.terminal
+                    ? 'Typing into ${suite.terminal.agent == 'claude' ? 'Claude Code' : 'the terminal'}'
+                    : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)} · '
+                        '${accessLabel(suite.settings.claudeAccess)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+              ),
+            ]),
           ),
           SegmentedButton<Target>(
             showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
             segments: const [
               ButtonSegment(value: Target.claude, label: Text('Chat')),
-              ButtonSegment(value: Target.terminal, label: Text('Terminal')),
+              ButtonSegment(value: Target.terminal, label: Text('Term')),
             ],
             selected: {suite.settings.target},
             onSelectionChanged: (s) => suite.settings.set('target', s.first),
+          ),
+          IconButton(
+            tooltip: 'Model, voice and conversation',
+            onPressed: () => ClaudeSettingsSheet.show(context),
+            icon: const Icon(Icons.tune_rounded),
           ),
           PopupMenuButton<String>(
             tooltip: 'More',
@@ -119,6 +149,7 @@ class _Header extends StatelessWidget {
               switch (v) {
                 case 'stop':
                   await suite.chat.stopReply();
+                  await suite.stopSpeaking();
                 case 'new':
                   final ok = await showDialog<bool>(
                     context: context,
@@ -149,10 +180,14 @@ class _Header extends StatelessWidget {
       ),
     );
   }
+
+  static String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 }
 
-class _Messages extends StatelessWidget {
-  const _Messages({required this.suite});
+/// The conversation as a terminal: your questions, Claude's steps as it
+/// works, and the answer typing out live.
+class _Console extends StatelessWidget {
+  const _Console({required this.suite});
   final Suite suite;
 
   @override
@@ -174,27 +209,37 @@ class _Messages extends StatelessWidget {
         if (chat.messages.isEmpty) {
           return EmptyHint(
             icon: Icons.auto_awesome_rounded,
-            title: chat.state == BridgeState.offline ? 'Termux bridge is offline' : 'Ask Claude anything',
+            title: chat.state == BridgeState.offline ? 'Termux bridge is offline' : 'Talk to Claude',
             lines: chat.state == BridgeState.offline
                 ? ['Start Agent Hub from the Glasses tab, then come back.']
                 : [
-                    'Tap the mic and speak, or type below.',
-                    'Hands-free: turn it on, say “Claude”, your question, then “send”.',
-                    'Replies show on your glasses. Tap the TouchBar (or ▲ ▼) to page.',
+                    'Tap the mic and just talk. It sends when you pause, answers on your glasses and out loud, then listens for a follow-up.',
+                    'Or hold the left TouchBar, or turn on hands-free and say “Claude…”.',
                   ],
           );
         }
         final items = chat.messages.reversed.toList();
-        return ListView.builder(
-          reverse: true,
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          itemCount: items.length,
-          itemBuilder: (context, i) => _Bubble(
-            message: items[i],
-            onShow: () {
-              suite.display.showText(items[i].text, title: items[i].isMine ? 'You' : 'Claude');
-              showToast(context, suite.ble.isConnected ? 'Showing on your glasses' : 'Glasses are not connected');
-            },
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF070B14),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.outline),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: ListView.builder(
+              reverse: true,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              itemCount: items.length,
+              itemBuilder: (context, i) => _Entry(
+                message: items[i],
+                onShow: () {
+                  suite.display.showText(items[i].text, title: items[i].isMine ? 'You' : 'Claude');
+                  showToast(context, suite.ble.isConnected ? 'Showing on your glasses' : 'Glasses are not connected');
+                },
+              ),
+            ),
           ),
         );
       },
@@ -202,121 +247,140 @@ class _Messages extends StatelessWidget {
   }
 }
 
-class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.onShow});
+class _Entry extends StatelessWidget {
+  const _Entry({required this.message, required this.onShow});
   final BridgeMessage message;
   final VoidCallback onShow;
 
+  static const _mono = TextStyle(fontFamily: 'monospace', fontSize: 13.5, height: 1.45, color: Color(0xFFD7E0EE));
+
   @override
   Widget build(BuildContext context) {
-    final mine = message.isMine;
-    final color = mine
-        ? AppColors.glasses.withOpacity(0.16)
-        : (message.isError ? AppColors.error.withOpacity(0.12) : AppColors.surface);
-    final border = mine ? AppColors.glasses.withOpacity(0.3) : AppColors.outline;
-    final who = switch (message.who) { 'you' => 'You', 'agy' => 'Antigravity', _ => 'Claude' };
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.86),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Material(
-            color: color,
-            shape: RoundedRectangleBorder(
-              side: BorderSide(color: border),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(18),
-                topRight: const Radius.circular(18),
-                bottomLeft: Radius.circular(mine ? 18 : 6),
-                bottomRight: Radius.circular(mine ? 6 : 18),
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: message.isPending ? null : onShow,
-              onLongPress: () {
-                Clipboard.setData(ClipboardData(text: message.text));
-                showToast(context, 'Copied');
-              },
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  if (!mine)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.auto_awesome_rounded,
-                            size: 14, color: message.isError ? AppColors.error : AppColors.claude),
-                        const SizedBox(width: 6),
-                        Text(who,
-                            style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
-                                color: message.isError ? AppColors.error : AppColors.claude)),
-                      ]),
-                    ),
-                  if (message.isPending)
-                    const _Thinking()
-                  else
-                    SelectableText(message.text, style: const TextStyle(fontSize: 15, height: 1.42)),
-                ]),
-              ),
+    final m = message;
+    final Widget body;
+    if (m.isMine) {
+      body = Text.rich(
+        TextSpan(children: [
+          const TextSpan(text: '❯ ', style: TextStyle(color: AppColors.glasses, fontWeight: FontWeight.w700)),
+          TextSpan(text: m.text, style: const TextStyle(color: Color(0xFFBFD3FF))),
+        ]),
+        style: _mono,
+      );
+    } else if (m.isPending) {
+      body = _Working(message: m);
+    } else {
+      final who = m.who == 'agy' ? 'Antigravity' : 'Claude';
+      body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (final s in m.steps)
+          Text('  ⎿ $s', style: _mono.copyWith(color: AppColors.muted, fontSize: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+        Text.rich(
+          TextSpan(children: [
+            TextSpan(
+                text: '● ',
+                style: TextStyle(color: m.isError ? AppColors.error : AppColors.claude, fontWeight: FontWeight.w700)),
+            TextSpan(text: m.text, style: TextStyle(color: m.isError ? AppColors.error : null)),
+          ]),
+          style: _mono,
+        ),
+        if (m.ms > 0 || m.note.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              [
+                if (who != 'Claude') who,
+                if (m.ms > 0) formatDuration(Duration(milliseconds: m.ms)),
+                if (m.steps.isNotEmpty) '${m.steps.length} step${m.steps.length == 1 ? '' : 's'}',
+                if (m.note.isNotEmpty) m.note,
+              ].join(' · '),
+              style: _mono.copyWith(color: AppColors.muted, fontSize: 11.5),
             ),
           ),
-        ),
-      ),
+      ]);
+    }
+    return InkWell(
+      onTap: m.isPending ? null : onShow,
+      onLongPress: () {
+        Clipboard.setData(ClipboardData(text: m.text));
+        showToast(context, 'Copied');
+      },
+      child: Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: body),
     );
   }
 }
 
-class _Thinking extends StatefulWidget {
-  const _Thinking();
+/// A reply on its way: the stage with a spinner and the time, the steps so
+/// far, and the text as it is written with a blinking cursor.
+class _Working extends StatefulWidget {
+  const _Working({required this.message});
+  final BridgeMessage message;
   @override
-  State<_Thinking> createState() => _ThinkingState();
+  State<_Working> createState() => _WorkingState();
 }
 
-class _ThinkingState extends State<_Thinking> with SingleTickerProviderStateMixin {
+class _WorkingState extends State<_Working> with SingleTickerProviderStateMixin {
   late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+  Timer? _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
     _c.dispose();
+    _clock?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final m = widget.message;
+    final started = m.started > 0 ? DateTime.fromMillisecondsSinceEpoch((m.started * 1000).round()) : m.time;
+    final secs = DateTime.now().difference(started).inSeconds.clamp(0, 99999);
+    final stage = switch (m.stage) {
+      'queued' => 'Waiting for the last answer',
+      'starting' => 'Starting Claude',
+      '' => 'Thinking',
+      'thinking' => 'Thinking',
+      'tool' => m.tool.isEmpty ? 'Working' : m.tool,
+      'writing' => 'Writing',
+      _ => m.stage,
+    };
     return AnimatedBuilder(
       animation: _c,
-      builder: (context, _) => Row(mainAxisSize: MainAxisSize.min, children: [
-        const Text('Thinking', style: TextStyle(color: AppColors.muted)),
-        const SizedBox(width: 6),
-        for (var i = 0; i < 3; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Opacity(
-              opacity: ((_c.value * 3 - i) % 3) < 1 ? 1 : 0.3,
-              child: Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(color: AppColors.claude, shape: BoxShape.circle),
-              ),
-            ),
-          ),
-      ]),
+      builder: (context, _) {
+        const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        final spin = frames[(_c.value * frames.length).floor() % frames.length];
+        final cursor = _c.value < 0.5 ? '▌' : ' ';
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (final s in m.steps)
+            Text('  ⎿ $s',
+                style: _Entry._mono.copyWith(color: AppColors.muted, fontSize: 12.5),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          Text('$spin $stage · ${secs}s',
+              style: _Entry._mono.copyWith(color: AppColors.claude, fontWeight: FontWeight.w700)),
+          if (m.live.isNotEmpty) Text('${m.live}$cursor', style: _Entry._mono),
+        ]);
+      },
     );
   }
 }
 
 class _VoiceDock extends StatelessWidget {
-  const _VoiceDock({required this.suite, required this.draft, required this.focus, required this.onSend});
+  const _VoiceDock(
+      {required this.suite, required this.draft, required this.focus, required this.onSend, required this.onTalk});
 
   final Suite suite;
   final TextEditingController draft;
   final FocusNode focus;
   final VoidCallback onSend;
+  final VoidCallback onTalk;
 
   @override
   Widget build(BuildContext context) {
@@ -326,7 +390,7 @@ class _VoiceDock extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(top: BorderSide(color: AppColors.outline)),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListenableBuilder(
           listenable: suite.settings,
@@ -336,7 +400,7 @@ class _VoiceDock extends StatelessWidget {
             onChanged: suite.setHandsFree,
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
           Expanded(
             child: TextField(
@@ -364,17 +428,24 @@ class _VoiceDock extends StatelessWidget {
             ),
           ),
         ]),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
           _DockButton(icon: Icons.keyboard_arrow_up_rounded, label: 'Up', onTap: suite.display.up),
-          MicButton(voice: suite.voice, onTap: suite.toggleTalk),
+          TalkButton(
+            voice: suite.voice,
+            talk: suite.conversation,
+            narrator: suite.narrator,
+            onTap: onTalk,
+          ),
           _DockButton(icon: Icons.keyboard_arrow_down_rounded, label: 'Down', onTap: suite.display.down),
         ]),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         ListenableBuilder(
           listenable: suite.settings,
-          builder: (context, _) => VoiceStatus(
+          builder: (context, _) => TalkStatus(
             voice: suite.voice,
+            talk: suite.conversation,
+            narrator: suite.narrator,
             target: suite.settings.target == Target.terminal ? 'the terminal' : 'Claude',
           ),
         ),
@@ -393,17 +464,16 @@ class _DockButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       SizedBox(
-        width: 56,
-        height: 56,
+        width: 52,
+        height: 52,
         child: IconButton.filledTonal(
           tooltip: 'Glasses: page ${label.toLowerCase()}',
           onPressed: onTap,
-          icon: Icon(icon, size: 32),
+          icon: Icon(icon, size: 30),
         ),
       ),
       const SizedBox(height: 4),
-      Text('Glasses ${label.toLowerCase()}',
-          style: const TextStyle(color: AppColors.muted, fontSize: 11.5)),
+      Text('Glasses ${label.toLowerCase()}', style: const TextStyle(color: AppColors.muted, fontSize: 11.5)),
     ]);
   }
 }

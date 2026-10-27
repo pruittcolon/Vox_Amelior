@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../core/talk/conversation.dart';
+import '../core/voice/speaker.dart';
 import '../core/voice/voice_controller.dart';
 
 String clockTime(DateTime t) =>
@@ -222,5 +224,284 @@ class _HandsFreeBannerState extends State<HandsFreeBanner> {
         );
       },
     );
+  }
+}
+
+/// The talk button with the whole back-and-forth on it: listening (glow that
+/// follows your voice), Claude working (spinning ring), the phone speaking
+/// (tap to stop), and "your turn" for a follow-up.
+class TalkButton extends StatelessWidget {
+  const TalkButton({
+    super.key,
+    required this.voice,
+    required this.talk,
+    required this.narrator,
+    required this.onTap,
+    this.size = 84,
+  });
+
+  final VoiceController voice;
+  final Conversation talk;
+  final Narrator narrator;
+  final VoidCallback onTap;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([voice, talk, narrator]),
+      builder: (context, _) {
+        final speaking = narrator.speaking;
+        final followUp = voice.followUp && voice.dictating && voice.draft.isEmpty;
+        final listening = voice.dictating && !followUp;
+        final working = talk.busy && !speaking && !listening;
+        final waiting = voice.mode == VoiceMode.waiting;
+        Color color;
+        IconData icon;
+        String label;
+        if (speaking) {
+          (color, icon, label) = (AppColors.claude, Icons.volume_up_rounded, 'Stop talking');
+        } else if (followUp) {
+          (color, icon, label) = (AppColors.glasses, Icons.mic_rounded, 'Your turn: ask a follow-up');
+        } else if (listening) {
+          (color, icon, label) = (AppColors.claude, Icons.stop_rounded, 'Stop talking');
+        } else if (waiting) {
+          (color, icon, label) = (AppColors.glasses, Icons.mic_rounded, 'Talk to Claude');
+        } else {
+          (color, icon, label) = (AppColors.surfaceHigh, Icons.mic_rounded, 'Talk to Claude');
+        }
+        final dark = speaking || listening || followUp;
+        return Semantics(
+          button: true,
+          label: label,
+          child: SizedBox(
+            width: size + 16,
+            height: size + 16,
+            child: Stack(alignment: Alignment.center, children: [
+              if (working || followUp)
+                SizedBox(
+                  width: size + 12,
+                  height: size + 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: working ? AppColors.claude : AppColors.glasses,
+                  ),
+                ),
+              if (speaking) _Ripple(size: size, color: AppColors.claude),
+              ValueListenableBuilder<double>(
+                valueListenable: voice.level,
+                builder: (context, level, child) {
+                  final glow = listening ? 6 + level * 18 : (waiting || followUp ? 4.0 : 0.0);
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: color,
+                      border: Border.all(color: dark ? Colors.white24 : AppColors.outline, width: 1.5),
+                      boxShadow: [
+                        if (glow > 0)
+                          BoxShadow(color: color.withOpacity(0.45), blurRadius: glow * 2, spreadRadius: glow / 2),
+                      ],
+                    ),
+                    child: child,
+                  );
+                },
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onTap,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),
+                      child: Icon(icon,
+                          key: ValueKey(icon),
+                          size: size * 0.42,
+                          color: dark ? const Color(0xFF1F0E08) : AppColors.text),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Soft rings spreading out while the phone talks.
+class _Ripple extends StatefulWidget {
+  const _Ripple({required this.size, required this.color});
+  final double size;
+  final Color color;
+  @override
+  State<_Ripple> createState() => _RippleState();
+}
+
+class _RippleState extends State<_Ripple> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) => Container(
+          width: widget.size * (1 + 0.18 * _c.value),
+          height: widget.size * (1 + 0.18 * _c.value),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: widget.color.withOpacity(0.6 * (1 - _c.value)), width: 3),
+          ),
+        ),
+      );
+}
+
+/// One line saying where the back-and-forth is.
+class TalkStatus extends StatelessWidget {
+  const TalkStatus({super.key, required this.voice, required this.talk, required this.narrator, this.target = 'Claude'});
+
+  final VoiceController voice;
+  final Conversation talk;
+  final Narrator narrator;
+  final String target;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([voice, talk, narrator]),
+      builder: (context, _) {
+        String? text;
+        var color = AppColors.claude;
+        final secs = talk.elapsed.inSeconds;
+        if (voice.error != null) {
+          // the voice line below says it
+        } else if (narrator.speaking) {
+          text = 'Speaking… tap the button to stop';
+        } else if (voice.followUp && voice.dictating) {
+          text = voice.draft.isEmpty ? 'Your turn: ask a follow-up, or say “thanks”' : 'Listening…';
+          color = AppColors.glasses;
+        } else if (talk.stage == TalkStage.sent) {
+          text = 'Got it · sending';
+        } else if (talk.stage == TalkStage.working) {
+          text = '${talk.step.isEmpty ? 'Thinking' : talk.step} · $secs s';
+        } else if (talk.stage == TalkStage.answering) {
+          text = 'Answering · $secs s';
+        } else if (talk.stage == TalkStage.error) {
+          text = 'Claude did not answer: ${talk.error}';
+          color = AppColors.warn;
+        }
+        if (text == null) return VoiceStatus(voice: voice, target: target);
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Text(text,
+              key: ValueKey(text.split('·').first),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontSize: 13.5, fontWeight: FontWeight.w600)),
+        );
+      },
+    );
+  }
+}
+
+/// Listening → Got it → Working → Answer → Speaking, lit up in turn.
+class StageStrip extends StatelessWidget {
+  const StageStrip({super.key, required this.talk, required this.voice, required this.narrator});
+
+  final Conversation talk;
+  final VoiceController voice;
+  final Narrator narrator;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([talk, voice, narrator]),
+      builder: (context, _) {
+        final s = talk.stage;
+        int current;
+        if (voice.dictating && !(voice.followUp && voice.draft.isEmpty)) {
+          current = 0;
+        } else if (s == TalkStage.sent) {
+          current = 1;
+        } else if (s == TalkStage.working) {
+          current = 2;
+        } else if (s == TalkStage.answering) {
+          current = 3;
+        } else if (narrator.speaking || s == TalkStage.speaking) {
+          current = 4;
+        } else if (s == TalkStage.followUp) {
+          current = 5;
+        } else {
+          current = -1;
+        }
+        final show = current >= 0 || s == TalkStage.error;
+        const labels = ['Listen', 'Got it', 'Work', 'Answer', 'Speak', 'Your turn'];
+        return AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          child: !show
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                  child: Row(children: [
+                    for (var i = 0; i < labels.length; i++) ...[
+                      if (i > 0)
+                        Expanded(
+                          child: Container(
+                            height: 2,
+                            color: i <= current ? AppColors.claude.withOpacity(0.7) : AppColors.outline,
+                          ),
+                        ),
+                      _StageDot(label: labels[i], state: s == TalkStage.error && i == 2 ? -2 : (i < current ? 1 : (i == current ? 0 : -1))),
+                    ],
+                  ]),
+                ),
+        );
+      },
+    );
+  }
+}
+
+class _StageDot extends StatelessWidget {
+  const _StageDot({required this.label, required this.state});
+  final String label;
+
+  /// 1 done, 0 now, -1 not yet, -2 failed.
+  final int state;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (state) {
+      1 => AppColors.claude,
+      0 => AppColors.claude,
+      -2 => AppColors.error,
+      _ => AppColors.muted,
+    };
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        width: state == 0 ? 14 : 10,
+        height: state == 0 ? 14 : 10,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: state >= 0 || state == -2 ? color : Colors.transparent,
+          border: Border.all(color: color, width: 1.5),
+          boxShadow: [if (state == 0) BoxShadow(color: color.withOpacity(0.6), blurRadius: 8)],
+        ),
+      ),
+      const SizedBox(height: 3),
+      Text(label,
+          style: TextStyle(
+              fontSize: 10, color: state == 0 ? AppColors.text : AppColors.muted, fontWeight: FontWeight.w600)),
+    ]);
   }
 }

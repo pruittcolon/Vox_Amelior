@@ -61,8 +61,62 @@ class Settings extends ChangeNotifier {
   bool volumeKeysScroll = false;
   bool holdToTalk = true; // glasses long press = talk to Claude
   Map<String, String>? lastGlasses;
+  // Claude (Claude Code in Termux, through Agent Hub)
+  String claudeModel = 'opus'; // opus, sonnet, haiku
+  String claudeEffort = 'medium'; // low, medium, high, xhigh, max
+  String claudeAccess = 'auto'; // read (only looks), edit (files), auto (can run commands)
+  String answerLength = 'brief'; // brief (~50 characters), normal (~150), long (screens)
+  // Talking back and forth
+  String speakReplies = 'voice'; // off, voice (answers to spoken questions), always
+  String ttsEngine = ''; // text-to-speech app ('' = the phone's default)
+  String ttsVoice = ''; // '' = the engine's default voice
+  int ttsRate = 100; // percent
+  int ttsPitch = 100; // percent
+  bool conversation = true; // after an answer, listen for a follow-up without the wake word
+  int followUpSec = 8;
+  bool autoSend = true; // send when you pause (mic button, TouchBar, follow-ups)
+  bool wakeAutoSend = false; // same after "Claude…" (off: say "send")
+  int pauseMs = 1500; // the pause that ends what you say
+  String wakeStrict = 'normal'; // relaxed, normal, strict
+  bool wordsWhileHolding = false; // test: show your words while the TouchBar is held
+  // Work: when Claude Code finishes a job
+  bool workAlerts = true;
+  int workMinSec = 30; // only jobs that took at least this long
+  bool workPhone = true; // phone notification
+  bool workGlasses = true; // short notification on the glasses
+  // Look up (the glasses dashboard)
+  bool dashSync = true;
+  String dashMode = 'dual'; // full, dual, minimal
+  String dashPane = 'notes'; // notes, calendar, stocks, news, map
+  bool dash24h = false;
+  bool dashFahrenheit = true;
+  bool dashWeather = true;
+  String dashCity = ''; // '' = the phone's location
+  String dashNotes = 'work,reply,custom'; // up to 4: work, reply, phone, custom, off
+  String dashCustom = 'Note\nAnything you want to see when you look up.';
+  // Phone notifications on the glasses
+  bool notifyForward = false;
+  bool notifyPrivate = false; // title only, no message text
+  String notifyApps = ''; // allowed packages, comma separated ('' = all)
 
   static const autoOffChoices = [2, 5, 10, 15, 30, 60];
+
+  /// Model, effort and access for Agent Hub.
+  Map<String, String> get claudeOptions => {'model': claudeModel, 'effort': claudeEffort, 'access': claudeAccess};
+
+  WakeStrictness get wakeStrictness =>
+      WakeStrictness.values.firstWhere((w) => w.name == wakeStrict, orElse: () => WakeStrictness.normal);
+
+  /// Look-up screen note slots (up to 4).
+  List<String> get noteSlots {
+    final list = dashNotes.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toList();
+    while (list.length < 4) {
+      list.add('off');
+    }
+    return list.take(4).toList();
+  }
+
+  Set<String> get allowedApps => notifyApps.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toSet();
 
   void load(Map<String, Object?> m) {
     bridgeUrl = _s(m['bridgeUrl'], bridgeUrl);
@@ -116,6 +170,38 @@ class Settings extends ChangeNotifier {
     terminalAgent = _s(m['terminalAgent'], terminalAgent);
     volumeKeysScroll = _b(m['volumeKeysScroll'], volumeKeysScroll);
     holdToTalk = _b(m['holdToTalk'], holdToTalk);
+    claudeModel = _s(m['claudeModel'], claudeModel);
+    claudeEffort = _s(m['claudeEffort'], claudeEffort);
+    claudeAccess = _s(m['claudeAccess'], claudeAccess);
+    answerLength = _s(m['answerLength'], answerLength);
+    speakReplies = _s(m['speakReplies'], speakReplies);
+    ttsEngine = _s(m['ttsEngine'], ttsEngine);
+    ttsVoice = _s(m['ttsVoice'], ttsVoice);
+    ttsRate = _i(m['ttsRate'], ttsRate).clamp(50, 200);
+    ttsPitch = _i(m['ttsPitch'], ttsPitch).clamp(50, 200);
+    conversation = _b(m['conversation'], conversation);
+    followUpSec = _i(m['followUpSec'], followUpSec).clamp(3, 30);
+    autoSend = _b(m['autoSend'], autoSend);
+    wakeAutoSend = _b(m['wakeAutoSend'], wakeAutoSend);
+    pauseMs = _i(m['pauseMs'], pauseMs).clamp(700, 4000);
+    wakeStrict = _s(m['wakeStrict'], wakeStrict);
+    wordsWhileHolding = _b(m['wordsWhileHolding'], wordsWhileHolding);
+    workAlerts = _b(m['workAlerts'], workAlerts);
+    workMinSec = _i(m['workMinSec'], workMinSec).clamp(0, 3600);
+    workPhone = _b(m['workPhone'], workPhone);
+    workGlasses = _b(m['workGlasses'], workGlasses);
+    dashSync = _b(m['dashSync'], dashSync);
+    dashMode = _s(m['dashMode'], dashMode);
+    dashPane = _s(m['dashPane'], dashPane);
+    dash24h = _b(m['dash24h'], dash24h);
+    dashFahrenheit = _b(m['dashFahrenheit'], dashFahrenheit);
+    dashWeather = _b(m['dashWeather'], dashWeather);
+    dashCity = _s(m['dashCity'], dashCity);
+    dashNotes = _s(m['dashNotes'], dashNotes);
+    dashCustom = _s(m['dashCustom'], dashCustom);
+    notifyForward = _b(m['notifyForward'], notifyForward);
+    notifyPrivate = _b(m['notifyPrivate'], notifyPrivate);
+    notifyApps = _s(m['notifyApps'], notifyApps);
     final g = _s(m['lastGlasses'], '');
     if (g.isNotEmpty) {
       final parts = g.split('|');
@@ -232,6 +318,70 @@ class Settings extends ChangeNotifier {
         volumeKeysScroll = value as bool;
       case 'holdToTalk':
         holdToTalk = value as bool;
+      case 'claudeModel':
+        claudeModel = value as String;
+      case 'claudeEffort':
+        claudeEffort = value as String;
+      case 'claudeAccess':
+        claudeAccess = value as String;
+      case 'answerLength':
+        answerLength = value as String;
+      case 'speakReplies':
+        speakReplies = value as String;
+      case 'ttsEngine':
+        ttsEngine = value as String;
+      case 'ttsVoice':
+        ttsVoice = value as String;
+      case 'ttsRate':
+        ttsRate = value as int;
+      case 'ttsPitch':
+        ttsPitch = value as int;
+      case 'conversation':
+        conversation = value as bool;
+      case 'followUpSec':
+        followUpSec = value as int;
+      case 'autoSend':
+        autoSend = value as bool;
+      case 'wakeAutoSend':
+        wakeAutoSend = value as bool;
+      case 'pauseMs':
+        pauseMs = value as int;
+      case 'wakeStrict':
+        wakeStrict = value as String;
+      case 'wordsWhileHolding':
+        wordsWhileHolding = value as bool;
+      case 'workAlerts':
+        workAlerts = value as bool;
+      case 'workMinSec':
+        workMinSec = value as int;
+      case 'workPhone':
+        workPhone = value as bool;
+      case 'workGlasses':
+        workGlasses = value as bool;
+      case 'dashSync':
+        dashSync = value as bool;
+      case 'dashMode':
+        dashMode = value as String;
+      case 'dashPane':
+        dashPane = value as String;
+      case 'dash24h':
+        dash24h = value as bool;
+      case 'dashFahrenheit':
+        dashFahrenheit = value as bool;
+      case 'dashWeather':
+        dashWeather = value as bool;
+      case 'dashCity':
+        dashCity = value as String;
+      case 'dashNotes':
+        dashNotes = value as String;
+      case 'dashCustom':
+        dashCustom = value as String;
+      case 'notifyForward':
+        notifyForward = value as bool;
+      case 'notifyPrivate':
+        notifyPrivate = value as bool;
+      case 'notifyApps':
+        notifyApps = value as String;
       case 'lastGlasses':
         final g = value as Map<String, String>;
         lastGlasses = g;
@@ -249,6 +399,7 @@ class Settings extends ChangeNotifier {
       'lastGlasses', 'mirrorX', 'mirrorY', 'mirrorW', 'mirrorH', 'mirrorStrip', //
       'flickTop', 'flickBottom', 'flickTopMs', 'flickBottomMs', 'flickTopPos', 'flickBottomPos',
       'flickDepth', 'flickHomePos', 'flickHomeDepth', 'flickClearMs', 'flickRedrawMs', 'flickPreviewMs',
+      'ttsRate', 'ttsPitch', 'dashCustom', 'dashCity',
     };
     if (!quiet.contains(key)) EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
     notifyListeners();

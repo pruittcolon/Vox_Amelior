@@ -43,6 +43,7 @@ class SpeechEngine(
     private var lastLevelAt = 0L
     private var finishing = false
     private var usingGlasses = false
+    private var silenceMs = 1500L
 
     // Diagnostics
     private var statSessions = 0
@@ -65,6 +66,7 @@ class SpeechEngine(
         preferOffline = args?.get("preferOffline") as? Boolean ?: true
         quiet = args?.get("quiet") as? Boolean ?: true
         audioSource = args?.get("audioSource") as? String ?: "phone"
+        silenceMs = ((args?.get("silenceMs") as? Number)?.toLong() ?: 1500L).coerceIn(500L, 5000L)
         val newEngine = args?.get("engine") as? String ?: "auto"
         if (newEngine != engine) {
             destroyRecognizer()
@@ -125,9 +127,9 @@ class SpeechEngine(
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             if (preferOffline) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             language?.let { putExtra(RecognizerIntent.EXTRA_LANGUAGE, it) }
-            // Give dictation room to breathe between sentences.
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            // How long a pause ends what you are saying (the app's "send after a pause").
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silenceMs)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, (silenceMs - 400L).coerceAtLeast(400L))
         }
         // Glasses microphone: decoded G1 audio through a pipe. A recognizer that
         // does not support this simply uses the phone's microphone instead.

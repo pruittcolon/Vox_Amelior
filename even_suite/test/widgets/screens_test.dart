@@ -4,6 +4,8 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:even_suite/core/bridge/bridge_client.dart';
+import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/features/flicker/flicker_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
@@ -63,6 +65,7 @@ class _World {
   final speech = FakeSpeech();
   final bridge = FakeBridgeClient();
   final screen = FakeScreen();
+  final speaker = FakeSpeaker();
   late final Suite suite = Suite(
     system: system,
     transport: glasses,
@@ -70,6 +73,8 @@ class _World {
     speech: speech,
     client: bridge,
     screen: screen,
+    speaker: speaker,
+    weather: WeatherService(location: () async => null),
   );
 }
 
@@ -121,9 +126,45 @@ void main() {
       await tester.pump();
       expect(w.bridge.sentTexts.last, 'remind me about the dentist at noon');
       expect(w.bridge.lastSystem, contains('characters'), reason: 'glasses formatting goes with every message');
-      w.bridge.addReply('Done. I will remind you at 12:00.');
+      expect(w.bridge.lastOptions, {'model': 'opus', 'effort': 'medium', 'access': 'auto'});
+      // Claude works on it: the steps show on the phone and the glasses.
+      w.bridge.progress(stage: 'tool', tool: 'Reading calendar.ics');
       await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      expect(w.glasses.screens().last, contains('Reading calendar.ics'));
+      await _shot(tester, '4a_claude_working$tag');
+      w.bridge.progress(stage: 'writing', live: 'Done. I will remind', block: 1);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(w.glasses.screens().last, contains('Done. I will remind'));
+      w.bridge.finish('Done. I will remind you at 12:00.');
+      await tester.pump();
+      await tester.pump();
+      expect(w.speaker.said.join(' '), contains('I will remind you at 12:00'), reason: 'asked by voice: read aloud');
+      await tester.pump();
+      expect(suite.voice.followUp, isTrue, reason: 'then your turn: a follow-up without the wake word');
       await _shot(tester, '4_claude_chat$tag');
+
+      // Claude Code finished a job in Termux: Work tab, phone and glasses notes.
+      final now = DateTime.now().millisecondsSinceEpoch / 1000;
+      suite.work.apply(const WorkSnapshot(1, []));
+      suite.work.apply(WorkSnapshot(2, [
+        WorkItem(
+            id: 'w1',
+            ts: now,
+            project: 'even-suite',
+            summary: 'Pushed the fix; CI is green.',
+            text: 'Pushed the fix; CI is green. The APK is published.',
+            ms: 134000,
+            tools: 6),
+      ]));
+      await tester.pump();
+      expect(w.system.posted.single, 'Claude finished · even-suite|Pushed the fix; CI is green.');
+      await tester.tap(find.byIcon(Icons.task_alt_outlined));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(w.glasses.sent['L']!.any((p) => p[0] == 0x4B), isTrue, reason: 'short note on the glasses');
+      await _shot(tester, '4b_work$tag');
 
       // Terminal tab.
       w.bridge.screen = 'pruitt@phone:~\$ claude\n'
@@ -154,9 +195,23 @@ void main() {
       await suite.mirror.stop();
       await tester.pump();
 
-      // Flicker tab, running: text and display height switch on the glasses.
-      await tester.tap(find.byIcon(Icons.swap_vert_outlined));
+      // Tools.
+      await tester.tap(find.byIcon(Icons.widgets_outlined));
       await tester.pump();
+      await _shot(tester, '6_tools$tag');
+      final toolsList = find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first;
+      Future<void> openTool(String label) async {
+        final tile = find.text(label);
+        await tester.scrollUntilVisible(tile, 150, scrollable: toolsList);
+        await tester.ensureVisible(tile);
+        await tester.pump();
+        await tester.tap(tile);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      // Flicker (lab), running: text and display height switch on the glasses.
+      await openTool('Flicker (lab)');
       await tester.tap(find.text('Start flicker'));
       await tester.pump();
       await _shot(tester, '5d_flicker$tag');
@@ -190,12 +245,13 @@ void main() {
       expect(suite.flicker.running, isFalse);
       await tester.drag(find.descendant(of: find.byType(FlickerPage), matching: find.byType(ListView)), const Offset(0, -900));
       await _shot(tester, '5e_flicker_tuning$tag');
-
-      // Tools, then each tool page.
-      await tester.tap(find.byIcon(Icons.widgets_outlined));
+      await tester.pageBack();
       await tester.pump();
-      await _shot(tester, '6_tools$tag');
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Each tool page.
       for (final (label, file) in [
+        ('Look up screen', '13_lookup'),
         ('Send text', '7_text'),
         ('Notifications', '8_notifications'),
         ('How to talk to it', '9_help'),
@@ -203,19 +259,21 @@ void main() {
         ('Diagnostics', '12_diagnostics'),
         ('Images', '11_images'),
       ]) {
-        final tile = find.text(label);
-        await tester.scrollUntilVisible(tile, 150,
-            scrollable: find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first);
-        await tester.ensureVisible(tile);
-        await tester.pump();
-        await tester.tap(tile);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
+        await openTool(label);
         await _shot(tester, '$file$tag');
         await tester.pageBack();
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
       }
+
+      // Claude and voice: a sheet over the Tools tab.
+      await openTool('Claude and voice');
+      await tester.pump(const Duration(milliseconds: 400));
+      await _shot(tester, '14_claude_settings$tag');
+      expect(find.text('Effort (how hard it thinks)'), findsOneWidget);
+      await tester.tapAt(const Offset(180, 30));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(tester.takeException(), isNull);
       await suite.setHandsFree(false);
@@ -266,7 +324,13 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(w.glasses.screens().last, contains('Sunny'));
-    expect(w.speech.running, isFalse, reason: 'mic off again (hands-free is off)');
+    expect(w.speaker.said.join(' '), contains('Sunny and 22 degrees.'), reason: 'read aloud (asked by voice)');
+    await tester.pump();
+    expect(suite.voice.followUp, isTrue, reason: 'then it listens for a follow-up');
+    expect(w.speech.running, isTrue);
+    await tester.pump(const Duration(seconds: 9));
+    expect(suite.voice.followUp, isFalse);
+    expect(w.speech.running, isFalse, reason: 'mic off again after the follow-up window (hands-free is off)');
 
     // Double tap: the glasses left our screen.
     w.glasses.touch(0, 'L');

@@ -6,6 +6,8 @@ import '../../core/glasses/glasses_text.dart';
 import '../../core/settings.dart';
 import '../../core/voice/wake_word.dart';
 import '../../widgets/common.dart';
+import '../claude/claude_settings_sheet.dart';
+import '../lookup/lookup_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -21,6 +23,29 @@ class SettingsPage extends StatelessWidget {
         builder: (context, _) => ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
           children: [
+            _Section('Claude, voice and look up', Icons.tune_rounded, AppColors.claude, [
+              const Text('Model and effort, what Claude may do, the speaking voice, follow-ups and trigger words.',
+                  style: TextStyle(color: AppColors.muted)),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => ClaudeSettingsSheet.show(context),
+                    icon: const Icon(Icons.tune_rounded),
+                    label: const Text('Claude and voice'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LookUpPage())),
+                    icon: const Icon(Icons.dashboard_customize_rounded),
+                    label: const Text('Look up'),
+                  ),
+                ),
+              ]),
+            ]),
             _Section('Voice', Icons.record_voice_over_rounded, AppColors.claude, [
               const _Label('Hands-free turns itself off after'),
               Wrap(spacing: 8, runSpacing: 8, children: [
@@ -58,6 +83,12 @@ class SettingsPage extends StatelessWidget {
                 'When holding the TouchBar, listen through the glasses (Android 13+; otherwise the phone mic).',
                 s.glassesMic,
                 (v) => s.set('glassesMic', v),
+              ),
+              _Switch(
+                'Show my words while holding (test)',
+                'Writes what you say on the glasses while the TouchBar is held. Turn off if the glasses stop hearing you.',
+                s.wordsWhileHolding,
+                (v) => s.set('wordsWhileHolding', v),
               ),
               const SizedBox(height: 8),
               const _Label('Speech recognizer'),

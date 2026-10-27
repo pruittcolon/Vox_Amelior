@@ -30,6 +30,17 @@ void main() {
       expect(wake.find('nothing to see here'), isNull);
     });
 
+    test('strictness: mid-sentence mentions only count when relaxed', () {
+      const talk = 'I asked Claude to fix the build';
+      expect(WakeWord(null, WakeStrictness.relaxed).find(talk)!.rest, 'to fix the build');
+      expect(WakeWord(null, WakeStrictness.normal).find(talk), isNull);
+      expect(WakeWord(null, WakeStrictness.normal).find('hey Claude what time is it')!.rest, 'what time is it');
+      final strict = WakeWord(null, WakeStrictness.strict);
+      expect(strict.find('Claude what time is it'), isNull, reason: 'needs "hey"');
+      expect(strict.find('OK Claude what time is it')!.rest, 'what time is it');
+      expect(strict.find('so hey Claude what'), isNull, reason: 'only at the start');
+    });
+
     test('custom word list', () {
       final w = WakeWord(['jarvis']);
       expect(w.find('Jarvis lights on')!.rest, 'lights on');
@@ -61,6 +72,15 @@ void main() {
       expect(VoiceCommands.splitEnding('what should I send').command, isNull);
       expect(VoiceCommands.splitEnding('how do I send it').command, isNull);
       expect(VoiceCommands.splitEnding('remind me to send').command, isNull);
+    });
+
+    test('the end of a back-and-forth', () {
+      for (final t in ['Thanks!', 'thank you', "that's all", 'no thanks', 'OK.', 'got it']) {
+        expect(VoiceCommands.endsConversation(t), isTrue, reason: t);
+      }
+      for (final t in ['thanks for the tip, what about tomorrow', 'no I meant the other one']) {
+        expect(VoiceCommands.endsConversation(t), isFalse, reason: t);
+      }
     });
 
     test('cancel phrases; a lone "cancel" inside a message is kept', () {
@@ -173,6 +193,7 @@ void main() {
     });
 
     test('talk button: stop keeps the text for the Send button', () async {
+      voice.autoSend = false;
       await voice.startDictation();
       speech.say('draft this for me');
       await flush();
@@ -181,6 +202,85 @@ void main() {
       expect(voice.mode, VoiceMode.off);
       await voice.send();
       expect(sent, ['draft this for me']);
+    });
+
+    test('talk button: it sends when you pause (no "send" needed)', () async {
+      await voice.startDictation();
+      speech.partial('what time');
+      await flush();
+      expect(sent, isEmpty);
+      speech.say('what time is it in Tokyo');
+      await flush();
+      expect(sent, ['what time is it in Tokyo']);
+      expect(voice.lastSpoken, isTrue);
+    });
+
+    test('typed text is not "spoken" (no follow-up for it)', () async {
+      voice.setDraft('typed question');
+      await voice.send('typed question');
+      expect(sent, ['typed question']);
+      expect(voice.lastSpoken, isFalse);
+    });
+
+    test('hands-free still needs "send" by default (nothing goes by accident)', () async {
+      await voice.setHandsFree(true);
+      speech.say('Claude remind me to call mom');
+      await flush();
+      expect(sent, isEmpty);
+      expect(voice.draft, 'remind me to call mom');
+      voice.wakeAutoSend = true;
+      speech.say('Claude what is the weather');
+      await flush();
+      expect(sent, ['what is the weather']);
+    });
+
+    testWidgets('follow-up: listens right after, no wake word; silence ends it', (tester) async {
+      var ended = 0;
+      final v = VoiceController(speech, onSubmit: (t) async => sent.add(t), onCommand: commands.add)
+        ..onFollowUpEnd = () => ended++;
+      await v.startFollowUp(const Duration(seconds: 8));
+      expect(v.followUp, isTrue);
+      expect(v.dictating, isTrue);
+      expect(speech.running, isTrue);
+      await tester.pump(const Duration(seconds: 9));
+      expect(v.followUp, isFalse);
+      expect(ended, 1);
+      expect(speech.running, isFalse);
+
+      // A follow-up question is sent when you pause.
+      await v.startFollowUp(const Duration(seconds: 8));
+      speech.partial('and tomorrow');
+      await tester.pump(const Duration(seconds: 9));
+      expect(v.followUp, isTrue, reason: 'talking cancels the window');
+      speech.say('and tomorrow');
+      await tester.pump();
+      expect(sent, ['and tomorrow']);
+      expect(v.followUp, isFalse);
+
+      // "Thanks" ends it without sending.
+      await v.startFollowUp(const Duration(seconds: 8));
+      speech.say('thanks');
+      await tester.pump();
+      expect(sent, ['and tomorrow']);
+      expect(ended, 2);
+
+      // A command works without the wake word.
+      await v.startFollowUp(const Duration(seconds: 8));
+      speech.say('scroll down');
+      await tester.pump();
+      expect(commands, [VoiceCommand.scrollDown]);
+      await tester.pump(const Duration(seconds: 7));
+      expect(v.followUp, isFalse);
+      v.dispose();
+    });
+
+    test('suspend keeps the mic off while the phone talks', () async {
+      await voice.setHandsFree(true);
+      expect(speech.running, isTrue);
+      await voice.suspend();
+      expect(speech.running, isFalse);
+      await voice.resume();
+      expect(speech.running, isTrue);
     });
 
     test('glasses hold-to-talk: release sends what was said', () async {

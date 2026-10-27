@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../widgets/common.dart';
+import '../claude/claude_settings_sheet.dart';
+import '../flicker/flicker_page.dart';
+import '../lookup/lookup_page.dart';
 import '../settings/settings_page.dart';
 import 'diagnostics_page.dart';
 import 'help_page.dart';
@@ -39,6 +42,10 @@ class ToolsPage extends StatelessWidget {
         const Text('Everything from the Even Realities demo app',
             style: TextStyle(color: AppColors.muted)),
         const SizedBox(height: 16),
+        tile(Icons.dashboard_customize_rounded, AppColors.hud, 'Look up screen',
+            'Clock, weather, notes and phone notifications when you look up', () => push(const LookUpPage())),
+        tile(Icons.tune_rounded, AppColors.claude, 'Claude and voice',
+            'Model, effort, the speaking voice, follow-ups, trigger words', () => ClaudeSettingsSheet.show(context)),
         tile(Icons.notes_rounded, AppColors.ok, 'Send text', 'Type or paste text, page through it on the glasses',
             () => push(const TextPage())),
         tile(Icons.notifications_active_rounded, AppColors.warn, 'Notifications',
@@ -47,6 +54,8 @@ class ToolsPage extends StatelessWidget {
             () => push(const ImagesPage())),
         tile(Icons.layers_clear_rounded, AppColors.muted, 'Clear the glasses', 'Go back to the glasses dashboard',
             () => suite.display.clear()),
+        tile(Icons.swap_vert_rounded, AppColors.glasses, 'Flicker (lab)', 'Text at a high and a low spot, switching',
+            () => push(Scaffold(appBar: AppBar(), body: const SafeArea(top: false, child: FlickerPage())))),
         const SizedBox(height: 10),
         Text('App', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 10),

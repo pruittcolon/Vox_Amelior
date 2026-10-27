@@ -1,8 +1,15 @@
 package com.vox.evensuite
 
 import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.location.Location
+import android.location.LocationManager
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -12,6 +19,7 @@ import android.view.KeyEvent
 import com.vox.evensuite.ble.BleManager
 import com.vox.evensuite.speech.GlassesMic
 import com.vox.evensuite.speech.SpeechEngine
+import com.vox.evensuite.speech.TtsEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -25,6 +33,10 @@ class MainActivity : FlutterActivity() {
     private val bleEvents = Sink()
     private val speechEvents = Sink()
     private val screenEvents = Sink()
+    private val ttsEvents = Sink()
+    private val notifyEvents = Sink()
+    private var tts: TtsEngine? = null
+    private var launchTab: String? = null
     private var pendingScreen: MethodChannel.Result? = null
     private var pendingScreenConfig: Map<*, *>? = null
     private var speech: SpeechEngine? = null
@@ -77,6 +89,35 @@ class MainActivity : FlutterActivity() {
         }
         EventChannel(messenger, "suite/speechEvents").setStreamHandler(speechEvents)
 
+        val voice = TtsEngine(this) { event -> ttsEvents.send(event) }
+        tts = voice
+        MethodChannel(messenger, "suite/tts").setMethodCallHandler { call, result ->
+            val a = call.arguments as? Map<*, *>
+            when (call.method) {
+                "speak" -> {
+                    voice.speak(a?.get("text") as? String ?: "", a?.get("id") as? String ?: "",
+                        a?.get("flush") as? Boolean ?: false)
+                    result.success(null)
+                }
+                "stop" -> {
+                    voice.stop()
+                    result.success(null)
+                }
+                "configure" -> {
+                    voice.configure(a)
+                    result.success(null)
+                }
+                "voices" -> result.success(voice.voices())
+                "engines" -> result.success(voice.engines())
+                else -> result.notImplemented()
+            }
+        }
+        EventChannel(messenger, "suite/ttsEvents").setStreamHandler(ttsEvents)
+
+        EventChannel(messenger, "suite/notifications").setStreamHandler(notifyEvents)
+        NotifyListener.onPosted = { m -> runOnUiThread { notifyEvents.send(m) } }
+        launchTab = intent?.getStringExtra(EXTRA_TAB)
+
         MethodChannel(messenger, "suite/screen").setMethodCallHandler(::onScreenCall)
         EventChannel(messenger, "suite/screenFrames").setStreamHandler(screenEvents)
         SuiteService.onMirrorFrame = { frame -> runOnUiThread { screenEvents.send(frame) } }
@@ -91,10 +132,18 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val tab = intent.getStringExtra(EXTRA_TAB) ?: return
+        if (::systemChannel.isInitialized) systemChannel.invokeMethod("openTab", tab)
+    }
+
     override fun onDestroy() {
         if (isFinishing) {
             // Swiped away: nothing is left to drive the mic or the glasses.
             speech?.dispose()
+            tts?.dispose()
+            NotifyListener.onPosted = null
             BleManager.listener = null
             BleManager.disconnect()
             SuiteService.update(this, listening = false, glasses = false, text = "")
@@ -261,8 +310,95 @@ class MainActivity : FlutterActivity() {
                 volumeKeys = args?.get("enabled") as? Boolean ?: false
                 result.success(null)
             }
+            "notify" -> {
+                postNotification(
+                    (args?.get("id") as? Number)?.toInt() ?: 1,
+                    args?.get("title") as? String ?: "",
+                    args?.get("text") as? String ?: "",
+                    args?.get("tab") as? String ?: "",
+                )
+                result.success(null)
+            }
+            "notificationAccess" -> result.success(hasNotificationAccess())
+            "openNotificationAccess" -> {
+                try {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (_: Exception) {
+                    startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+                result.success(null)
+            }
+            "location" -> result.success(lastLocation())
+            "launchTab" -> {
+                result.success(launchTab)
+                launchTab = null
+            }
             else -> result.notImplemented()
         }
+    }
+
+    // --------------------------------------------------------- notifications
+
+    /** "Claude finished ..." on the phone; tapping it opens [tab] in the app. */
+    private fun postNotification(id: Int, title: String, text: String, tab: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val nm = getSystemService(NotificationManager::class.java)
+        if (nm.getNotificationChannel(DONE_CHANNEL) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(DONE_CHANNEL, "Claude finished", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "When Claude Code finishes a job in Termux"
+                }
+            )
+        }
+        val open = PendingIntent.getActivity(
+            this, 100 + (id % 1000),
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra(EXTRA_TAB, tab),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = Notification.Builder(this, DONE_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .build()
+        try {
+            nm.notify(DONE_BASE + (id % 1000), n)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    private fun hasNotificationAccess(): Boolean {
+        val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: return false
+        val me = ComponentName(this, NotifyListener::class.java)
+        return enabled.split(":").any { ComponentName.unflattenFromString(it) == me }
+    }
+
+    /** Last known position for the weather on the look-up screen (no GPS fix is requested). */
+    private fun lastLocation(): Map<String, Double>? {
+        val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) return null
+        val lm = getSystemService(LocationManager::class.java) ?: return null
+        var best: Location? = null
+        for (provider in listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)) {
+            val l = try {
+                lm.getLastKnownLocation(provider)
+            } catch (_: Exception) {
+                null
+            } ?: continue
+            if (best == null || l.time > best.time) best = l
+        }
+        return best?.let { mapOf("lat" to it.latitude, "lon" to it.longitude) }
     }
 
     private fun permissionsFor(kind: String): List<String> = when (kind) {
@@ -274,6 +410,7 @@ class MainActivity : FlutterActivity() {
         "microphone" -> listOf(Manifest.permission.RECORD_AUDIO)
         "notifications" -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()
         "termux" -> listOf(TERMUX_PERMISSION)
+        "location" -> listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
         else -> emptyList()
     }
 
@@ -364,5 +501,8 @@ class MainActivity : FlutterActivity() {
         private const val SCREEN_REQUEST = 42
         private const val TERMUX = "com.termux"
         private const val TERMUX_PERMISSION = "com.termux.permission.RUN_COMMAND"
+        private const val EXTRA_TAB = "tab"
+        private const val DONE_CHANNEL = "claude_done"
+        private const val DONE_BASE = 2000
     }
 }

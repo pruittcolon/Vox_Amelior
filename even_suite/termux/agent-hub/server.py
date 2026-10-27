@@ -12,11 +12,14 @@ import hashlib
 import json
 import os
 import pty
+import queue
+import re
 import select
 import shutil
 import signal
 import struct
 import subprocess
+import sys
 import termios
 import threading
 import time
@@ -197,6 +200,282 @@ INTRO = (
     "Keep replies focused and readable on a phone screen.\n\n"
 )
 
+# How much Claude may do on this phone when the app asks. "auto" lets it run
+# commands and edit files behind Claude Code's own safety checks; "read" only
+# looks. Nobody can click "allow" in print mode, so anything that would ask is
+# refused (--permission-prompts none).
+ACCESS_MODES = {"read": None, "edit": "acceptEdits", "auto": "auto"}
+EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+WORK_FILE = os.path.join(DATA_DIR, "work.json")
+# Claude jobs that finished while Agent Hub was not running (claude_done_hook.py).
+WORK_PENDING = os.path.join(DATA_DIR, "work-pending.jsonl")
+
+
+def clean_options(d):
+    """Model / effort / access sent by the app, checked."""
+    d = d if isinstance(d, dict) else {}
+    opts = {}
+    model = str(d.get("model") or "").strip()
+    if model and model != "default" and re.fullmatch(r"[A-Za-z0-9._\-\[\]]{1,60}", model):
+        opts["model"] = model
+    if d.get("effort") in EFFORTS:
+        opts["effort"] = d["effort"]
+    if d.get("access") in ACCESS_MODES:
+        opts["access"] = d["access"]
+    return opts
+
+
+def describe_tool(name, inp):
+    """A tool call as a few words for the glasses ("Reading server.py")."""
+    inp = inp if isinstance(inp, dict) else {}
+
+    def short(s, n=40):
+        s = " ".join(str(s).split())
+        return s if len(s) <= n else s[:n - 3] + "..."
+
+    def base(p):
+        p = str(p or "").rstrip("/")
+        return os.path.basename(p) or p
+
+    if name == "Bash":
+        return short(inp["description"]) if inp.get("description") else "Running " + short(inp.get("command", ""), 32)
+    if name == "Read":
+        return "Reading " + base(inp.get("file_path"))
+    if name in ("Edit", "MultiEdit", "NotebookEdit"):
+        return "Editing " + base(inp.get("file_path") or inp.get("notebook_path"))
+    if name == "Write":
+        return "Writing " + base(inp.get("file_path"))
+    if name == "Grep":
+        return "Searching for " + short(inp.get("pattern", ""), 28)
+    if name == "Glob":
+        return "Looking for " + short(inp.get("pattern", ""), 30)
+    if name == "WebSearch":
+        return "Searching the web: " + short(inp.get("query", ""), 26)
+    if name == "WebFetch":
+        return "Reading " + (urlparse(str(inp.get("url", ""))).netloc or "a web page")
+    if name in ("Task", "Agent"):
+        return "Helper: " + short(inp.get("description") or "working", 34)
+    if name == "TodoWrite":
+        return "Planning"
+    return "Using " + (name.split("__")[-1] if name else "a tool")
+
+
+class LiveClaude:
+    """One long-running `claude -p` in stream-json mode: a question does not
+    wait for Claude Code to start, and the reply streams in as it is written
+    (stage, tool steps and text), so the app can show what is happening."""
+
+    def __init__(self, bridge):
+        self.bridge = bridge
+        self.proc = None
+        self.key = None            # options the process was started with
+        self.events = None         # parsed stdout lines; None = the process ended
+        self.stderr = []
+        self.stopped = False
+        self.turn = threading.Lock()        # one question at a time
+        self.spawn_lock = threading.Lock()
+
+    @staticmethod
+    def args(opts, system, session, resume):
+        a = [CLAUDE_BIN, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+             "--verbose", "--include-partial-messages"]
+        if opts.get("model"):
+            a += ["--model", opts["model"]]
+        if opts.get("effort"):
+            a += ["--effort", opts["effort"]]
+        mode = ACCESS_MODES.get(opts.get("access", "read"))
+        if mode:
+            a += ["--permission-mode", mode]
+        a += ["--permission-prompts", "none"]
+        if system:
+            a += ["--append-system-prompt", system]
+        a += ["--resume", session] if resume else ["--session-id", session]
+        return a
+
+    def alive(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def ensure(self, opts, system):
+        """The Claude process for these options, started (or restarted) if needed."""
+        with self.spawn_lock:
+            key = json.dumps([opts, system], sort_keys=True)
+            if self.alive() and key == self.key:
+                return self.proc
+            self.close()
+            b = self.bridge
+            session = b.convo.get("claude")
+            resume = session is not None
+            if not resume:
+                session = b.convo["claude"] = str(uuid.uuid4())
+            # HUB_BRIDGE: the "Claude is done" hook skips these (the app shows them already).
+            env = dict(os.environ, HUB_BRIDGE="1")
+            proc = subprocess.Popen(self.args(opts, system, session, resume), cwd=WORKDIR, env=env,
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, encoding="utf-8", errors="replace", bufsize=1)
+            self.proc, self.key, self.events, self.stderr = proc, key, queue.Queue(), []
+            threading.Thread(target=self._read, args=(proc, self.events), daemon=True).start()
+            threading.Thread(target=self._read_err, args=(proc, self.stderr), daemon=True).start()
+            return proc
+
+    @staticmethod
+    def _read(proc, events):
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.put(json.loads(line))
+            except ValueError:
+                pass
+        events.put(None)
+
+    @staticmethod
+    def _read_err(proc, buf):
+        for line in proc.stderr:
+            buf.append(line)
+            del buf[:-40]
+
+    def err_tail(self):
+        return "".join(self.stderr).strip()[-1500:]
+
+    def close(self):
+        p, self.proc = self.proc, None
+        if p is not None and p.poll() is None:
+            try:
+                p.stdin.close()
+            except OSError:
+                pass
+            p.terminate()
+            try:
+                p.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                p.kill()
+
+    def warm(self, opts, system):
+        """Start Claude now (the user started talking), unless it is answering."""
+        if self.turn.locked():
+            return
+        try:
+            self.ensure(opts, system)
+        except OSError:
+            pass
+
+    def stop(self):
+        self.stopped = True
+        self.close()
+
+    def run(self, prompt, msg, opts, system):
+        """Ask one question; fills msg's stage/tool/live as the answer comes in."""
+        self.stopped = False
+        b = self.bridge
+        for attempt in (1, 2):
+            try:
+                proc = self.ensure(opts, system)
+            except OSError as e:
+                raise RuntimeError(f"Could not start Claude Code: {e}")
+            events = self.events
+            with b.cond:
+                b.busy["claude"] = proc
+            try:
+                proc.stdin.write(json.dumps({"type": "user",
+                                             "message": {"role": "user", "content": prompt}}) + "\n")
+                proc.stdin.flush()
+                got_any, result = self._consume(events, msg)
+            except (OSError, ValueError):
+                got_any, result = False, None
+            finally:
+                with b.cond:
+                    b.busy.pop("claude", None)
+            if result is not None:
+                return result
+            err = self.err_tail()
+            self.close()
+            if self.stopped:
+                raise RuntimeError("Stopped.")
+            if attempt == 1 and "No conversation found" in err:
+                b.convo["claude"] = None  # the old session is gone: start a new one
+                continue
+            if attempt == 1 and not got_any and opts.get("access") == "auto":
+                # Auto mode not available on this account: answer without it.
+                opts = dict(opts, access="read")
+                msg["note"] = "Auto mode was not available, so Claude could only look this time."
+                continue
+            raise RuntimeError(err or "Claude Code stopped without answering.")
+        raise RuntimeError("Claude Code stopped without answering.")
+
+    def _consume(self, events, msg):
+        """Read events until the turn's result. Returns (got anything, final text or None)."""
+        b = self.bridge
+        got_any = streamed = False
+        last_touch = 0.0
+        while True:
+            ev = events.get()
+            if ev is None:
+                return got_any, None
+            got_any = True
+            t = ev.get("type")
+            changed = False
+            if ev.get("parent_tool_use_id"):
+                pass  # a helper agent's own steps: the main one reports its progress
+            elif t == "system":
+                if msg["stage"] == "starting":
+                    msg["stage"], changed = "thinking", True
+            elif t == "stream_event":
+                e = ev.get("event") or {}
+                if e.get("type") == "content_block_start":
+                    kind = (e.get("content_block") or {}).get("type")
+                    if kind == "text":
+                        msg["block"] += 1
+                        msg["live"], msg["stage"] = "", "writing"
+                    elif kind == "tool_use":
+                        name = (e.get("content_block") or {}).get("name", "")
+                        msg["stage"], msg["tool"] = "tool", describe_tool(name, {})
+                    elif kind in ("thinking", "redacted_thinking") and msg["stage"] != "writing":
+                        msg["stage"] = "thinking"
+                    changed = True
+                elif e.get("type") == "content_block_delta":
+                    d = e.get("delta") or {}
+                    if d.get("type") == "text_delta":
+                        streamed = True
+                        msg["live"] += d.get("text", "")
+                        changed = True
+            elif t == "assistant":
+                for c in (ev.get("message") or {}).get("content") or []:
+                    if c.get("type") == "tool_use":
+                        desc = describe_tool(c.get("name", ""), c.get("input"))
+                        msg["stage"], msg["tool"] = "tool", desc
+                        msg["steps"] = (msg["steps"] + [desc])[-20:]
+                        changed = True
+                    elif c.get("type") == "text" and not streamed:
+                        # Older Claude Code without partial messages: whole blocks.
+                        msg["block"] += 1
+                        msg["live"], msg["stage"] = c.get("text", ""), "writing"
+                        changed = True
+            elif t == "user":
+                if msg["stage"] == "tool":
+                    msg["stage"], changed = "thinking", True
+            elif t == "result":
+                if ev.get("is_error") or ev.get("subtype") not in (None, "success"):
+                    raise ResultError(ev.get("result") or ev.get("subtype") or "Claude returned an error")
+                return True, (ev.get("result") or msg["live"] or "").strip()
+            now = time.time()
+            if changed and now - last_touch > 0.15:
+                last_touch = now
+                b.touch()
+
+
+class ResultError(RuntimeError):
+    """Claude answered with an error (the process itself is fine)."""
+
+
+def hook_installed():
+    """Is the "Claude is done" Stop hook (claude_done_hook.py) in Claude Code's settings?"""
+    try:
+        with open(os.path.expanduser("~/.claude/settings.json")) as f:
+            return "claude_done_hook.py" in f.read()
+    except OSError:
+        return False
+
 
 class Bridge:
     def __init__(self):
@@ -209,7 +488,15 @@ class Bridge:
         # Extra system prompt for Claude (the Even Suite app sends the glasses'
         # screen size so answers come in screen-sized chunks).
         self.system = ""
+        # Model / effort / access picked in the app.
+        self.options = {}
+        self.live = LiveClaude(self)
+        self.locks = {"claude": self.live.turn, "agy": threading.Lock()}
+        # Finished Claude Code jobs (from the Stop hook) for the app's Work tab.
+        self.work = []
+        self.work_version = 0
         self.load()
+        self.load_work()
 
     # ---- persistence & change notification
     def load(self):
@@ -219,9 +506,11 @@ class Bridge:
             self.messages = data.get("messages", [])
             self.convo.update(data.get("convo", {}))
             self.system = data.get("system", "")
+            self.options = clean_options(data.get("options"))
             for m in self.messages:  # anything mid-flight died with the old server
-                if m.get("status") == "pending":
+                if m.get("status") in ("pending", "queued"):
                     m["status"], m["text"] = "error", "Interrupted (server restarted)."
+                    m["stage"] = "error"
         except (OSError, ValueError):
             pass
 
@@ -232,8 +521,14 @@ class Bridge:
             tmp = STATE_FILE + ".tmp"
             with open(tmp, "w") as f:
                 json.dump({"messages": self.messages[-500:], "convo": self.convo,
-                           "system": self.system}, f)
+                           "system": self.system, "options": self.options}, f)
             os.replace(tmp, STATE_FILE)
+            self.cond.notify_all()
+
+    def touch(self):
+        """Something changed that is not worth saving yet (a reply streaming in)."""
+        with self.cond:
+            self.version += 1
             self.cond.notify_all()
 
     def snapshot(self, since, wait, tail=0):
@@ -242,7 +537,7 @@ class Bridge:
                 self.cond.wait(timeout=min(wait, 30))
             messages = self.messages[-tail:] if tail > 0 else self.messages
             return {"version": self.version, "messages": messages,
-                    "busy": sorted(self.busy)}
+                    "busy": sorted(self.busy), "options": self.options}
 
     def add(self, **msg):
         msg.update(id=uuid.uuid4().hex[:10], ts=time.time())
@@ -252,36 +547,31 @@ class Bridge:
         return msg
 
     # ---- talking to agents
-    def run_agent(self, agent, prompt):
+    def run_agent(self, agent, prompt, msg):
         """Blocking: send prompt to agent's bridge conversation, return reply."""
         first = self.convo.get(agent) is None
         if first:
             prompt = INTRO + prompt
         if agent == "claude":
-            args = [CLAUDE_BIN, "-p", "--output-format", "json"]
-            if first:
-                self.convo["claude"] = str(uuid.uuid4())
-                args += ["--session-id", self.convo["claude"]]
-            else:
-                args += ["--resume", self.convo["claude"]]
-            if self.system:
-                args += ["--append-system-prompt", self.system]
-            proc = subprocess.Popen(args, cwd=WORKDIR, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdin = prompt
-        else:
-            args = [AGY_BIN, "--output-format", "json"]
-            if not first:
-                args += ["--conversation", self.convo["agy"]]
-            args.append("--print=" + prompt)
-            proc = subprocess.Popen(args, cwd=WORKDIR, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdin = None
+            try:
+                return self.live.run(prompt, msg, dict(self.options), self.system)
+            except ResultError:
+                raise
+            except RuntimeError:
+                if first:
+                    self.convo["claude"] = None
+                raise
+        args = [AGY_BIN, "--output-format", "json"]
+        if not first:
+            args += ["--conversation", self.convo["agy"]]
+        args.append("--print=" + prompt)
+        proc = subprocess.Popen(args, cwd=WORKDIR, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         with self.cond:
             self.busy[agent] = proc
         self.changed()
         try:
-            out, err = proc.communicate(stdin)
+            out, err = proc.communicate()
         finally:
             with self.cond:
                 self.busy.pop(agent, None)
@@ -293,10 +583,6 @@ class Bridge:
             if first:
                 self.convo[agent] = None
             raise RuntimeError((err or out or "No output").strip()[-1500:])
-        if agent == "claude":
-            if data.get("is_error"):
-                raise RuntimeError(data.get("result") or "Claude returned an error")
-            return (data.get("result") or "").strip()
         if data.get("conversation_id"):
             self.convo["agy"] = data["conversation_id"]
         if data.get("status") not in (None, "SUCCESS"):
@@ -304,18 +590,29 @@ class Bridge:
         return (data.get("response") or "").strip()
 
     def ask(self, agent, prompt, src):
-        """Post a pending bubble for agent, fill it with the reply."""
-        msg = self.add(who=agent, status="pending", text="", src=src)
-        try:
-            msg["text"], msg["status"] = self.run_agent(agent, prompt), "done"
-        except Exception as e:  # noqa: BLE001 - shown to the user
-            msg["text"], msg["status"] = str(e), "error"
-        self.changed()
+        """Post a bubble for agent (queued behind an answer in progress), fill it with the reply."""
+        lock = self.locks[agent]
+        waiting = lock.locked()
+        msg = self.add(who=agent, status="queued" if waiting else "pending", text="", src=src,
+                       stage="queued" if waiting else "starting", tool="", live="", block=0,
+                       steps=[], started=0, ms=0, note="")
+        with lock:
+            msg["status"], msg["stage"], msg["started"] = "pending", "starting", time.time()
+            self.touch()
+            try:
+                text = self.run_agent(agent, prompt, msg)
+                msg["text"], msg["status"], msg["stage"] = text, "done", "done"
+            except Exception as e:  # noqa: BLE001 - shown to the user
+                msg["text"], msg["status"], msg["stage"] = str(e), "error", "error"
+            msg["live"], msg["ms"] = "", int((time.time() - msg["started"]) * 1000)
+            self.changed()
         return msg
 
-    def send(self, text, to, turns, system=None):
+    def send(self, text, to, turns, system=None, options=None):
         if system is not None:
             self.system = system[:4000]
+        if options is not None:
+            self.options = clean_options(options)
         with self.cond:
             self.relay_token += 1
             token = self.relay_token
@@ -336,10 +633,18 @@ class Bridge:
         for agent in targets:
             threading.Thread(target=worker, args=(agent,), daemon=True).start()
 
+    def warm(self, system=None, options=None):
+        if system is not None:
+            self.system = system[:4000]
+        if options is not None:
+            self.options = clean_options(options)
+        threading.Thread(target=self.live.warm, args=(dict(self.options), self.system), daemon=True).start()
+
     def stop(self):
         with self.cond:
             self.relay_token += 1
-            procs = list(self.busy.values())
+            procs = [p for a, p in self.busy.items() if a != "claude"]
+        self.live.stop()
         for p in procs:
             p.terminate()
 
@@ -348,6 +653,76 @@ class Bridge:
         with self.cond:
             self.messages, self.convo = [], {"claude": None, "agy": None}
         self.changed()
+
+    # ---- finished Claude Code jobs (the app's Work tab)
+    def load_work(self):
+        try:
+            with open(WORK_FILE) as f:
+                self.work = json.load(f).get("items", [])[-100:]
+        except (OSError, ValueError, AttributeError):
+            self.work = []
+        try:
+            with open(WORK_PENDING) as f:
+                lines = f.readlines()
+            os.remove(WORK_PENDING)
+        except OSError:
+            return
+        for line in lines[-50:]:
+            try:
+                self.add_work(json.loads(line), save=False)
+            except (ValueError, TypeError, AttributeError):
+                pass
+        self.save_work()
+
+    def save_work(self):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = WORK_FILE + ".tmp"
+        with self.cond:
+            items = list(self.work)
+        with open(tmp, "w") as f:
+            json.dump({"items": items}, f)
+        os.replace(tmp, WORK_FILE)
+
+    def add_work(self, d, save=True):
+        def num(v):
+            try:
+                return max(0, int(float(v)))
+            except (TypeError, ValueError):
+                return 0
+
+        item = {"id": uuid.uuid4().hex[:10],
+                "ts": float(d.get("ts") or time.time()),
+                "project": str(d.get("project") or "")[:60],
+                "where": str(d.get("where") or "")[:60],
+                "session": str(d.get("session") or "")[:40],
+                "summary": str(d.get("summary") or "")[:240],
+                "text": str(d.get("text") or "")[:6000],
+                "ms": num(d.get("ms")),
+                "tools": num(d.get("tools"))}
+        with self.cond:
+            self.work = (self.work + [item])[-100:]
+            self.work_version += 1
+            self.cond.notify_all()
+        if save:
+            self.save_work()
+        return item
+
+    def clear_work(self):
+        with self.cond:
+            self.work = []
+            self.work_version += 1
+            self.cond.notify_all()
+        self.save_work()
+
+    def work_snapshot(self, since, wait, tail=30):
+        deadline = time.time() + max(0.0, min(wait, 30))
+        with self.cond:
+            while self.work_version == since:
+                left = deadline - time.time()
+                if left <= 0:
+                    break
+                self.cond.wait(timeout=left)
+            return {"version": self.work_version, "items": self.work[-max(1, min(tail, 100)):]}
 
 
 bridge = Bridge()
@@ -394,8 +769,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(bridge.snapshot(int(q.get("v", -1)), float(q.get("wait", 0)),
                                                   int(q.get("tail", 0))))
         if url.path == "/api/ping":
-            return self.send_json({"ok": True, "name": "agent-hub", "api": 2,
-                                   "sessions": sorted(SESSIONS)})
+            return self.send_json({"ok": True, "name": "agent-hub", "api": 3, "hook": hook_installed(),
+                                   "features": ["live", "warm", "work"], "sessions": sorted(SESSIONS)})
+        if url.path == "/api/work":
+            return self.send_json(bridge.work_snapshot(int(q.get("v", -1)), float(q.get("wait", 0)),
+                                                       int(q.get("tail", 30))))
         if url.path == "/api/status":
             return self.send_json({a: tmux("has-session", "-t", f"={s['session']}").returncode == 0
                                    for a, s in SESSIONS.items()})
@@ -442,8 +820,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "bad request"}, 400)
             system = d.get("system")
             bridge.send(text, to, max(0, min(int(d.get("turns", 0)), 10)),
-                        system if isinstance(system, str) else None)
+                        system if isinstance(system, str) else None, d.get("options"))
             return self.send_json({"ok": True})
+        if parts == ["api", "bridge", "warm"]:
+            d = self.json_body()
+            system = d.get("system")
+            bridge.warm(system if isinstance(system, str) else None, d.get("options"))
+            return self.send_json({"ok": True})
+        if parts == ["api", "work", "done"]:
+            d = self.json_body()
+            if not isinstance(d, dict):
+                return self.send_json({"error": "bad request"}, 400)
+            return self.send_json({"ok": True, "id": bridge.add_work(d)["id"]})
+        if parts == ["api", "work", "clear"]:
+            bridge.clear_work()
+            return self.send_json({"ok": True})
+        if parts == ["api", "work", "install"]:
+            r = subprocess.run([sys.executable, os.path.join(HERE, "install_hook.py"), "--quiet"],
+                               capture_output=True, text=True, timeout=30)
+            return self.send_json({"ok": r.returncode == 0, "hook": hook_installed(),
+                                   "error": (r.stdout + r.stderr).strip()[-500:]})
         if parts == ["api", "log"]:
             d = self.json_body()
             events = d.get("events")

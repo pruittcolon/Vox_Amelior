@@ -3,13 +3,27 @@ import 'dart:convert';
 import 'dart:io';
 
 /// A chat bubble from the Termux bridge (Agent Hub).
+///
+/// While Claude answers, a newer Agent Hub streams its progress into the
+/// bubble: [stage] (queued, starting, thinking, tool, writing, done, error),
+/// the current [tool] step, every step so far, and [live] - the text being
+/// written right now ([block] counts text blocks, so a new one can be told
+/// apart from a longer old one).
 class BridgeMessage {
   final String id;
   final String who; // you, claude, agy
   final String to;
   final String text;
-  final String status; // pending, done, error
+  final String status; // queued, pending, done, error
   final double ts;
+  final String stage;
+  final String tool;
+  final String live;
+  final int block;
+  final List<String> steps;
+  final double started;
+  final int ms;
+  final String note;
 
   const BridgeMessage({
     required this.id,
@@ -18,6 +32,14 @@ class BridgeMessage {
     required this.text,
     required this.status,
     this.ts = 0,
+    this.stage = '',
+    this.tool = '',
+    this.live = '',
+    this.block = 0,
+    this.steps = const [],
+    this.started = 0,
+    this.ms = 0,
+    this.note = '',
   });
 
   factory BridgeMessage.fromMap(Map m) => BridgeMessage(
@@ -27,11 +49,23 @@ class BridgeMessage {
         text: '${m['text'] ?? ''}',
         status: '${m['status'] ?? 'done'}',
         ts: (m['ts'] as num?)?.toDouble() ?? 0,
+        stage: '${m['stage'] ?? ''}',
+        tool: '${m['tool'] ?? ''}',
+        live: '${m['live'] ?? ''}',
+        block: (m['block'] as num?)?.toInt() ?? 0,
+        steps: [for (final s in (m['steps'] as List? ?? const [])) '$s'],
+        started: (m['started'] as num?)?.toDouble() ?? 0,
+        ms: (m['ms'] as num?)?.toInt() ?? 0,
+        note: '${m['note'] ?? ''}',
       );
 
   bool get isMine => who == 'you';
-  bool get isPending => status == 'pending';
+
+  /// Still on its way (waiting its turn, or being written).
+  bool get isPending => status == 'pending' || status == 'queued';
+  bool get isQueued => status == 'queued';
   bool get isError => status == 'error';
+  bool get isDone => status == 'done';
 
   DateTime get time => DateTime.fromMillisecondsSinceEpoch((ts * 1000).round());
 }
@@ -48,6 +82,63 @@ class BridgeSnapshot {
         [for (final x in (m['messages'] as List? ?? const [])) BridgeMessage.fromMap(x as Map)],
         [for (final x in (m['busy'] as List? ?? const [])) '$x'],
       );
+}
+
+/// A finished Claude Code job, reported by the Stop hook (Work tab).
+class WorkItem {
+  final String id;
+  final double ts;
+  final String project;
+  final String summary;
+  final String text;
+  final int ms;
+  final int tools;
+
+  const WorkItem({
+    required this.id,
+    required this.ts,
+    this.project = '',
+    this.summary = '',
+    this.text = '',
+    this.ms = 0,
+    this.tools = 0,
+  });
+
+  factory WorkItem.fromMap(Map m) => WorkItem(
+        id: '${m['id'] ?? ''}',
+        ts: (m['ts'] as num?)?.toDouble() ?? 0,
+        project: '${m['project'] ?? ''}',
+        summary: '${m['summary'] ?? ''}',
+        text: '${m['text'] ?? ''}',
+        ms: (m['ms'] as num?)?.toInt() ?? 0,
+        tools: (m['tools'] as num?)?.toInt() ?? 0,
+      );
+
+  DateTime get time => DateTime.fromMillisecondsSinceEpoch((ts * 1000).round());
+  Duration get took => Duration(milliseconds: ms);
+}
+
+class WorkSnapshot {
+  final int version;
+  final List<WorkItem> items;
+  const WorkSnapshot(this.version, this.items);
+
+  factory WorkSnapshot.fromMap(Map m) => WorkSnapshot(
+        (m['version'] as num?)?.toInt() ?? 0,
+        [for (final x in (m['items'] as List? ?? const [])) WorkItem.fromMap(x as Map)],
+      );
+}
+
+/// What a running Agent Hub can do (older ones lack live answers and the Work feed).
+class HubInfo {
+  final int api;
+  final Set<String> features;
+
+  /// The "Claude is done" hook is set up in Claude Code.
+  final bool hook;
+  const HubInfo(this.api, this.features, {this.hook = false});
+  bool get live => features.contains('live');
+  bool get work => features.contains('work');
 }
 
 class TermScreen {
@@ -139,20 +230,52 @@ class BridgeClient {
     return {for (final e in m.entries) e.key: e.value == true};
   }
 
-  Future<BridgeSnapshot> snapshot({int version = -1, int waitSec = 0, int tail = 60}) async {
+  Future<BridgeSnapshot> snapshot({int version = -1, int waitSec = 0, int tail = 40}) async {
     final m = await _send('GET', '/api/bridge?v=$version&wait=$waitSec&tail=$tail',
         timeout: Duration(seconds: waitSec + 8));
     return BridgeSnapshot.fromMap(m);
   }
 
-  /// [system] becomes Claude's system prompt (an older bridge ignores it).
-  Future<void> send(String text, {String to = 'claude', int turns = 0, String? system}) =>
+  /// Version and features of the running Agent Hub.
+  Future<HubInfo> ping() async {
+    final m = await _send('GET', '/api/ping', timeout: const Duration(seconds: 3));
+    return HubInfo((m['api'] as num?)?.toInt() ?? 1, {for (final f in (m['features'] as List? ?? const [])) '$f'},
+        hook: m['hook'] == true);
+  }
+
+  /// Set up Claude Code's "Claude is done" hook (Work tab). True when it is in place.
+  Future<bool> installHook() async {
+    final m = await _send('POST', '/api/work/install', body: const {}, timeout: const Duration(seconds: 20));
+    return m['hook'] == true;
+  }
+
+  /// [system] becomes Claude's system prompt; [options] picks the model,
+  /// effort and access (an older bridge ignores both).
+  Future<void> send(String text,
+          {String to = 'claude', int turns = 0, String? system, Map<String, String>? options}) =>
       _send('POST', '/api/bridge/send', body: {
         'text': text,
         'to': to,
         'turns': turns,
         if (system != null) 'system': system,
+        if (options != null) 'options': options,
       });
+
+  /// Start Claude now (the user started talking), so the question does not
+  /// wait for Claude Code to start.
+  Future<void> warm({String? system, Map<String, String>? options}) => _send('POST', '/api/bridge/warm', body: {
+        if (system != null) 'system': system,
+        if (options != null) 'options': options,
+      });
+
+  /// Finished Claude Code jobs; with [waitSec] it waits for a new one.
+  Future<WorkSnapshot> work({int version = -1, int waitSec = 0}) async {
+    final m = await _send('GET', '/api/work?v=$version&wait=$waitSec&tail=50',
+        timeout: Duration(seconds: waitSec + 8));
+    return WorkSnapshot.fromMap(m);
+  }
+
+  Future<void> clearWork() => _send('POST', '/api/work/clear', body: const {});
 
   Future<void> stop() => _send('POST', '/api/bridge/stop', body: const {});
 

@@ -5,13 +5,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 H="$(mktemp -d)"
 mkdir -p "$H/.local/bin"
-cat > "$H/.local/bin/claude" <<'PY'
-#!/usr/bin/env python3
-import json, sys
-prompt = sys.stdin.read().strip().splitlines()
-mark = " [glasses]" if "--append-system-prompt" in sys.argv else ""
-print(json.dumps({"result": "echo: " + (prompt[-1] if prompt else "") + mark, "is_error": False}))
-PY
+cp "$HERE/fake_claude.py" "$H/.local/bin/claude"
 chmod +x "$H/.local/bin/claude"
 cp "$H/.local/bin/claude" "$H/.local/bin/agy"
 env -u TMUX HOME="$H" HUB_PORT=8799 HUB_NO_BROWSER=1 TMUX_TMPDIR="$H" HUB_WORKDIR="$H" \

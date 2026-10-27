@@ -49,6 +49,9 @@ class VoiceController extends ChangeNotifier {
   /// Hands-free switched itself off.
   final void Function()? onAutoOff;
 
+  /// A follow-up window closed without a question (or with "thanks").
+  void Function()? onFollowUpEnd;
+
   StreamSubscription<SpeechEvent>? _sub;
 
   // Settings
@@ -59,6 +62,17 @@ class VoiceController extends ChangeNotifier {
   bool quiet = true;
   String language = '';
   String engineName = 'auto';
+
+  /// Send when you stop talking (mic button, TouchBar, follow-ups) instead
+  /// of waiting for "send".
+  bool autoSend = true;
+
+  /// Same for hands-free messages that start with the wake word. Off by
+  /// default: then a stray "Claude" never sends anything without "send".
+  bool wakeAutoSend = false;
+
+  /// How long a pause ends what you are saying.
+  int silenceMs = 1500;
 
   // State
   VoiceMode mode = VoiceMode.off;
@@ -76,12 +90,23 @@ class VoiceController extends ChangeNotifier {
 
   /// The recognizer confirmed it is hearing the glasses' microphone.
   bool glassesMic = false;
+
+  /// Listening for a follow-up right after Claude answered (no wake word).
+  bool followUp = false;
+
+  /// The phone is talking: the microphone stays off so it does not hear itself.
+  bool suspended = false;
+
+  /// The last message sent was spoken (not typed in the box).
+  bool lastSpoken = false;
+  bool _draftTyped = false;
   final level = ValueNotifier<double>(0);
 
   // Per recognition session
   String _session = ''; // latest text of the current utterance
   int _offset = 0; // where the message starts inside it
   bool _wakeSession = false; // dictation began with the wake word in this utterance
+  bool _wakeStarted = false; // the message being taken down began with the wake word
   String _draftBeforeWake = '';
   String _committed = ''; // message text from finished utterances
   bool _awaitingRelease = false;
@@ -89,6 +114,7 @@ class VoiceController extends ChangeNotifier {
   Timer? _autoOffTimer;
   Timer? _idleTimer;
   Timer? _releaseTimer;
+  Timer? _followTimer;
 
   bool get active => mode != VoiceMode.off;
   bool get dictating => mode == VoiceMode.dictating;
@@ -118,7 +144,12 @@ class VoiceController extends ChangeNotifier {
   /// Talk button: start a message, or stop taking it down (keeping the text).
   Future<void> toggleTalk() => dictating ? stopDictation() : startDictation();
 
-  Future<void> startDictation({bool hold = false, String source = 'phone'}) async {
+  Future<void> startDictation({bool hold = false, String source = 'phone', bool followUp = false}) async {
+    _followTimer?.cancel();
+    this.followUp = followUp;
+    suspended = false;
+    _wakeStarted = false;
+    _draftTyped = false;
     if (listening && this.source != source) await _stopListening();
     this.source = source;
     error = null;
@@ -137,8 +168,54 @@ class VoiceController extends ChangeNotifier {
     await _ensureListening();
   }
 
+  /// Right after an answer: listen for a follow-up question for [window],
+  /// without the wake word. Saying nothing (or "thanks") ends it.
+  Future<void> startFollowUp(Duration window) async {
+    if (dictating) return;
+    await startDictation(followUp: true);
+    _followTimer?.cancel();
+    _followTimer = Timer(window, () {
+      if (followUp && draft.trim().isEmpty) endFollowUp();
+    });
+    notifyListeners();
+  }
+
+  /// Close the follow-up window (nothing to send).
+  Future<void> endFollowUp() async {
+    if (!followUp) return;
+    followUp = false;
+    _followTimer?.cancel();
+    _idleTimer?.cancel();
+    draft = '';
+    _committed = '';
+    _offset = _session.length;
+    if (dictating) mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
+    EventLog.add('voice', 'followUpEnd', {});
+    await _afterMessage();
+    notifyListeners();
+    onFollowUpEnd?.call();
+  }
+
+  /// Turn the microphone off while the phone speaks (it would hear itself).
+  Future<void> suspend() async {
+    if (suspended) return;
+    suspended = true;
+    await _stopListening();
+    notifyListeners();
+  }
+
+  /// The phone stopped speaking: listen again if anything needs it.
+  Future<void> resume() async {
+    if (!suspended) return;
+    suspended = false;
+    if (handsFree || dictating) await _ensureListening();
+    notifyListeners();
+  }
+
   /// Stop taking down the message but keep it (tap Send to send it).
   Future<void> stopDictation() async {
+    _followTimer?.cancel();
+    followUp = false;
     if (!dictating) return;
     holding = false;
     _idleTimer?.cancel();
@@ -165,6 +242,7 @@ class VoiceController extends ChangeNotifier {
 
   /// Throw the message away.
   Future<void> cancel() async {
+    _wakeStarted = false;
     draft = '';
     _committed = '';
     _offset = _session.length;
@@ -180,6 +258,7 @@ class VoiceController extends ChangeNotifier {
 
   /// The user typed in the message box.
   void setDraft(String text) {
+    _draftTyped = true;
     draft = text;
     _committed = text;
     _offset = _session.length;
@@ -237,12 +316,15 @@ class VoiceController extends ChangeNotifier {
 
   void _onPartial(String text) {
     _session = text;
+    if (followUp) _followTimer?.cancel(); // they are answering
     if (mode == VoiceMode.waiting) {
       final m = wake.find(text);
       if (m == null) return;
       // Show "listening" right away; a command is sorted out on the final text.
       _draftBeforeWake = draft;
       _wakeSession = true;
+      _wakeStarted = true;
+      _draftTyped = false;
       _committed = '';
       _offset = m.restStart;
       mode = VoiceMode.dictating;
@@ -293,6 +375,23 @@ class VoiceController extends ChangeNotifier {
         return;
       }
     }
+    if (followUp && _committed.isEmpty) {
+      if (VoiceCommands.endsConversation(piece)) {
+        _endSession();
+        endFollowUp();
+        return;
+      }
+      // "scroll down", "repeat", "stop" work without the wake word here.
+      final cmd = VoiceCommands.parse(piece);
+      if (cmd != null && cmd != VoiceCommand.send && cmd != VoiceCommand.cancel) {
+        _endSession();
+        _runCommand(cmd);
+        _followTimer?.cancel();
+        if (followUp) _followTimer = Timer(const Duration(seconds: 6), () => endFollowUp());
+        notifyListeners();
+        return;
+      }
+    }
     _committed = _join(_committed, piece);
     _endSession();
     if (_awaitingRelease) {
@@ -300,10 +399,13 @@ class VoiceController extends ChangeNotifier {
       return;
     }
     final ending = VoiceCommands.splitEnding(_committed);
+    final auto = (_wakeStarted ? wakeAutoSend : autoSend) && !holding;
     if (ending.command == VoiceCommand.send) {
       _submit(ending.body);
     } else if (ending.command == VoiceCommand.cancel) {
       cancel();
+    } else if (auto && _committed.trim().isNotEmpty) {
+      _submit(_committed);
     } else {
       _setDraft(_committed);
     }
@@ -321,10 +423,14 @@ class VoiceController extends ChangeNotifier {
     // A new message. It may already end with "send" (said in one breath).
     _committed = rest;
     mode = VoiceMode.dictating;
+    _wakeStarted = true;
+    _draftTyped = false;
     _armIdle();
     final ending = VoiceCommands.splitEnding(rest);
     if (ending.command == VoiceCommand.send && ending.body.isNotEmpty) {
       _submit(ending.body);
+    } else if (wakeAutoSend && rest.trim().isNotEmpty && ending.command == null) {
+      _submit(rest);
     } else {
       _setDraft(rest);
     }
@@ -364,6 +470,7 @@ class VoiceController extends ChangeNotifier {
   }
 
   void _setDraft(String text) {
+    _draftTyped = false;
     draft = text;
     notifyListeners();
     onDraft?.call(text);
@@ -371,8 +478,14 @@ class VoiceController extends ChangeNotifier {
 
   Future<void> _submit(String text) async {
     final t = text.trim();
-    EventLog.add('voice', 'submit', {'chars': t.length, 'src': source, 'hold': holding || _awaitingRelease});
+    lastSpoken = !_draftTyped;
+    _draftTyped = false;
+    EventLog.add('voice', 'submit',
+        {'chars': t.length, 'src': source, 'hold': holding || _awaitingRelease, 'followUp': followUp});
     _awaitingRelease = false;
+    _wakeStarted = false;
+    followUp = false;
+    _followTimer?.cancel();
     _releaseTimer?.cancel();
     _idleTimer?.cancel();
     holding = false;
@@ -428,15 +541,16 @@ class VoiceController extends ChangeNotifier {
   }
 
   Future<void> _ensureListening() async {
-    if (listening) return;
+    if (listening || suspended) return;
     listening = true;
     try {
       await engine.start(
           continuous: true,
           language: language,
-          quiet: quiet && source == 'phone',
+          quiet: quiet && source == 'phone' && !followUp,
           engine: engineName,
-          audioSource: source);
+          audioSource: source,
+          silenceMs: silenceMs);
     } catch (e) {
       listening = false;
       error = 'Could not start the microphone: $e';
@@ -462,6 +576,7 @@ class VoiceController extends ChangeNotifier {
     _autoOffTimer?.cancel();
     _idleTimer?.cancel();
     _releaseTimer?.cancel();
+    _followTimer?.cancel();
     level.dispose();
     super.dispose();
   }

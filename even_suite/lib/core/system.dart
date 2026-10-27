@@ -1,3 +1,4 @@
+
 import 'package:flutter/services.dart';
 
 /// Android bits without extra packages: saved settings, permissions, the
@@ -11,6 +12,9 @@ class SystemBridge {
   /// Volume key pressed while the app is open ('up' / 'down').
   void Function(String dir)? onVolumeKey;
 
+  /// A notification of ours was tapped: open this tab ('work', ...).
+  void Function(String tab)? onOpenTab;
+
   void init() {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -18,9 +22,37 @@ class SystemBridge {
           onStopListening?.call();
         case 'volumeKey':
           onVolumeKey?.call('${call.arguments}');
+        case 'openTab':
+          onOpenTab?.call('${call.arguments}');
       }
     });
   }
+
+  /// Notifications posted by other apps (needs notification access).
+  Stream<Map> get phoneNotifications => const EventChannel('suite/notifications')
+      .receiveBroadcastStream()
+      .map((e) => e as Map)
+      .handleError((_) {});
+
+  /// Show a notification on the phone; tapping it opens [tab].
+  Future<void> notify(int id, String title, String text, {String tab = 'work'}) =>
+      _invoke('notify', {'id': id, 'title': title, 'text': text, 'tab': tab});
+
+  /// Has Even Suite been given notification access?
+  Future<bool> notificationAccess() async => await _invoke<bool>('notificationAccess') ?? false;
+
+  Future<void> openNotificationAccess() => _invoke('openNotificationAccess');
+
+  /// The phone's last known position (for the weather), or null.
+  Future<(double, double)?> location() async {
+    final m = await _invoke<Map>('location');
+    final lat = m?['lat'], lon = m?['lon'];
+    if (lat is num && lon is num) return (lat.toDouble(), lon.toDouble());
+    return null;
+  }
+
+  /// The tab a tapped notification asked for when the app was started by it.
+  Future<String?> launchTab() => _invoke<String>('launchTab');
 
   Future<T?> _invoke<T>(String method, [Object? args]) async {
     try {
@@ -40,7 +72,7 @@ class SystemBridge {
   Future<void> setPref(String key, Object? value) =>
       _invoke('prefsSet', {'key': key, 'value': value});
 
-  /// kinds: bluetooth, microphone, notifications, termux. Returns kind -> granted.
+  /// kinds: bluetooth, microphone, notifications, termux, location. Returns kind -> granted.
   Future<Map<String, bool>> permissions(List<String> kinds) async {
     final m = await _invoke<Map>('permissions', {'kinds': kinds});
     if (m == null) return {for (final k in kinds) k: true};

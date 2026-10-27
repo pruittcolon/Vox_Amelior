@@ -59,8 +59,8 @@ class HelpPage extends StatelessWidget {
             iconColor: AppColors.claude,
             child: Column(children: [
               step('1', 'Turn on “Hands-free”', 'On the Claude tab. It turns itself off after the minutes you pick in Settings, and the notification has a Stop button.'),
-              step('2', 'Say “Claude”', '“Clod”, “Claud” and “Cloud” at the start also work. Say it more than once if it did not hear you.'),
-              step('3', 'Say your message, then “send”', '“Claude, what’s on my calendar… send.” Say “cancel” or “never mind” to drop it.'),
+              step('2', 'Say “Claude”', 'At the start of what you say (or “Hey Claude”). Mentions mid-sentence are ignored, so talk around you does not wake it. Stricter or looser: Tools › Claude and voice.'),
+              step('3', 'Say your message, then “send”', '“Claude, what’s on my calendar… send.” Say “cancel” or “never mind” to drop it. Nothing is sent without “send” (unless you turn that on).'),
             ]),
           ),
           const SizedBox(height: 12),
@@ -69,9 +69,21 @@ class HelpPage extends StatelessWidget {
             icon: Icons.touch_app_rounded,
             iconColor: AppColors.glasses,
             child: Column(children: [
-              step('•', 'Tap the mic', 'Speak, then say “send” or tap the arrow. Tap the mic again to stop and edit first.'),
+              step('•', 'Tap the mic and talk', 'It sends when you pause. Tap again to stop early and edit. While Claude talks, tap to stop it.'),
               step('•', 'Hold the left TouchBar', 'Like Even AI, but it goes to Claude: talk while holding (through the glasses’ microphone on Android 13+), let go to send.'),
+              step('•', 'Watch it work', 'The glasses show “Got it” with your question, then what Claude is doing (“Searching the web 4s”), then the answer as it is written.'),
               step('•', 'Read replies like a teleprompter', 'Pages turn on their own at reading speed. Right tap = next and keep going; left tap = back and pause. Or use ▲ ▼, the volume keys, or your voice.'),
+            ]),
+          ),
+          const SizedBox(height: 12),
+          SectionCard(
+            title: 'Back and forth',
+            icon: Icons.forum_rounded,
+            iconColor: AppColors.claude,
+            child: Column(children: [
+              step('1', 'It answers out loud', 'Answers to spoken questions are read aloud on the phone while they show on the glasses. Pick the voice and speed in Tools › Claude and voice.'),
+              step('2', 'Then it is your turn', 'Right after, just keep talking - no button, no “Claude”. Say “thanks” or stay quiet to finish.'),
+              step('3', 'Interrupt any time', 'Hold the TouchBar or tap the mic to cut in. Double-tap the glasses to stop everything.'),
             ]),
           ),
           const SizedBox(height: 12),

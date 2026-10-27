@@ -7,7 +7,7 @@ import '../ble/proto.dart';
 import '../log.dart';
 import 'glasses_text.dart';
 
-enum DisplayMode { idle, reply, live, mirror }
+enum DisplayMode { idle, reply, live, mirror, status }
 
 /// Everything the app shows on the glasses goes through here.
 ///
@@ -44,6 +44,7 @@ class GlassesDisplay extends ChangeNotifier {
   bool ai = false;
 
   bool _manual = false;
+  bool _streaming = false;
   bool _sending = false;
   bool _dirty = false;
   String _shownKey = '';
@@ -84,6 +85,7 @@ class GlassesDisplay extends ChangeNotifier {
   /// scrolls at reading speed when [wpm] is set.
   void showText(String text, {String title = 'Text', bool ai = false}) {
     _stopAuto();
+    _streaming = false;
     mode = DisplayMode.reply;
     this.title = title;
     this.ai = ai;
@@ -94,9 +96,44 @@ class GlassesDisplay extends ChangeNotifier {
     _armAuto(first: true);
   }
 
+  /// A reply that is still being written: the pages grow as text arrives,
+  /// and the teleprompter carries on into new pages. The page you are on
+  /// stays put. [done] marks the finished answer (the last page then uses
+  /// the "complete" screen state).
+  void updateReply(String text, {String title = 'Claude', bool ai = false, bool done = false}) {
+    if (mode != DisplayMode.reply || !_streaming || pager == null) {
+      showText(text, title: title, ai: ai);
+      _streaming = !done;
+      return;
+    }
+    final page = pager!.page;
+    final wasAtEnd = pager!.atEnd;
+    pager = GlassesPager.fromText(text)..jumpTo(page);
+    this.title = title;
+    this.ai = ai;
+    _streaming = !done;
+    // The teleprompter had run out of pages: keep going now that there are more.
+    if (_auto == null && wasAtEnd && !pager!.atEnd && !paused) _armAuto();
+    _schedule(immediate: done);
+  }
+
+  /// A short screen that keeps changing (listening, "Claude is thinking"):
+  /// shown as given, at most one screen, updates throttled like live text.
+  void showStatus(String text, {String title = 'Claude', bool ai = false}) {
+    _stopAuto();
+    _streaming = false;
+    final lines = GlassesText.wrap(GlassesText.clean(text));
+    mode = DisplayMode.status;
+    pager = GlassesPager(lines.take(GlassesText.linesPerScreen).toList());
+    this.title = title;
+    this.ai = ai;
+    _schedule();
+  }
+
   /// Text that keeps changing (what you are saying): newest lines shown.
   void showLive(String text, {String title = 'Listening'}) {
     _stopAuto();
+    _streaming = false;
     final lines = GlassesText.wrap(GlassesText.clean(text));
     if (mode != DisplayMode.live || pager == null) {
       mode = DisplayMode.live;
@@ -113,6 +150,7 @@ class GlassesDisplay extends ChangeNotifier {
   /// user scrolled back.
   void showMirror(List<String> lines, {String title = 'Terminal'}) {
     _stopAuto();
+    _streaming = false;
     if (mode != DisplayMode.mirror || pager == null) {
       mode = DisplayMode.mirror;
       pager = GlassesPager(lines, followTail: true);
@@ -217,11 +255,12 @@ class GlassesDisplay extends ChangeNotifier {
   void _armAuto({bool first = false}) {
     _stopAuto();
     if (!canScroll || paused) return;
-    final p = pager!;
-    if (p.atEnd) return;
+    if (pager!.atEnd) return;
     _auto = Timer(pageTime(first: first), () {
       _auto = null;
-      if (mode != DisplayMode.reply || paused) return;
+      // The pager may have been rebuilt meanwhile (a reply still streaming in).
+      final p = pager;
+      if (p == null || mode != DisplayMode.reply || paused) return;
       if (p.down()) {
         _schedule(immediate: true);
         _armAuto();
@@ -252,6 +291,7 @@ class GlassesDisplay extends ChangeNotifier {
     title = '';
     ai = false;
     paused = false;
+    _streaming = false;
     _shownKey = '';
   }
 
@@ -305,10 +345,12 @@ class GlassesDisplay extends ChangeNotifier {
 
   /// 0x4E screen status for what is shown.
   int get _status {
-    if (!ai || mode != DisplayMode.reply) return Proto.textShow;
+    if (!ai) return Proto.textShow;
+    if (mode == DisplayMode.status) return Proto.aiShowing;
+    if (mode != DisplayMode.reply) return Proto.textShow;
     final p = pager!;
     if (_manual || paused) return Proto.aiManual;
-    if (p.atEnd && p.pageCount > 1) return Proto.aiComplete;
+    if (p.atEnd && p.pageCount > 1 && !_streaming) return Proto.aiComplete;
     return Proto.aiShowing;
   }
 
@@ -321,7 +363,7 @@ class GlassesDisplay extends ChangeNotifier {
     if (key == _shownKey) return;
     _lastSend = DateTime.now();
     // Live screens are replaced soon anyway; a finished reply gets retries.
-    final tries = mode == DisplayMode.reply ? 3 : 1;
+    final tries = mode == DisplayMode.reply && !_streaming ? 3 : 1;
     var ok = false;
     var tried = 0;
     final sw = Stopwatch()..start();

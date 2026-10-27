@@ -26,6 +26,8 @@ class BleReceive {
 class GlassesEvent {
   static const int exit = 0; // double tap: back to the dashboard
   static const int tap = 1; // single tap: left = up, right = down
+  static const int headUp = 2; // looked up: the glasses show their dashboard
+  static const int headDown = 3; // looked down again
   static const int evenAiStart = 23; // long press left: start talking
   static const int evenAiEnd = 24; // long press released
 

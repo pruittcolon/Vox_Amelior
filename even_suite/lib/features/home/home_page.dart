@@ -7,6 +7,7 @@ import '../../core/bridge/chat_controller.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
+import '../lookup/lookup_page.dart';
 import '../settings/settings_page.dart';
 import '../tools/images_page.dart';
 import '../tools/notify_page.dart';
@@ -71,6 +72,20 @@ class HomePage extends StatelessWidget {
               caption: 'Claude Code and your Termux shell',
               color: AppColors.glasses,
               onTap: () => Shell.goTo(context, Shell.terminal),
+            ),
+            ActionTile(
+              icon: Icons.dashboard_customize_rounded,
+              label: 'Look up screen',
+              caption: 'Clock, weather, notes, notifications',
+              color: AppColors.hud,
+              onTap: () => _push(context, const LookUpPage()),
+            ),
+            ActionTile(
+              icon: Icons.task_alt_rounded,
+              label: 'Work',
+              caption: 'Told when Claude Code is done',
+              color: AppColors.claude,
+              onTap: () => Shell.goTo(context, Shell.work),
             ),
             ActionTile(
               icon: Icons.notes_rounded,
@@ -289,7 +304,7 @@ class _BridgeCardState extends State<_BridgeCard> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text(
               online
-                  ? 'Connected to Agent Hub on this phone. Messages go to Claude Code running in Termux.'
+                  ? 'Connected to Agent Hub on this phone. Claude Code runs in Termux with your own login - no API key.'
                   : 'Agent Hub runs Claude Code in Termux. Start it here, or type `all` in Termux.',
               style: const TextStyle(color: AppColors.muted, fontSize: 13.5),
             ),

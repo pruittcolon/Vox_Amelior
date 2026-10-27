@@ -9,14 +9,19 @@ import 'ble/proto.dart';
 import 'bridge/bridge_client.dart';
 import 'bridge/chat_controller.dart';
 import 'bridge/terminal_controller.dart';
+import 'bridge/work_controller.dart';
+import 'glasses/dashboard.dart';
 import 'glasses/flicker.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
 import 'log.dart';
+import 'phone_notifications.dart';
 import 'screen/picture_lab.dart';
 import 'screen/screen_mirror.dart';
 import 'settings.dart';
 import 'system.dart';
+import 'talk/conversation.dart';
+import 'voice/speaker.dart';
 import 'voice/speech.dart';
 import 'voice/voice_commands.dart';
 import 'voice/voice_controller.dart';
@@ -31,6 +36,8 @@ class Suite extends ChangeNotifier {
     required SpeechEngine speech,
     BridgeClient? client,
     ScreenSource? screen,
+    Speaker? speaker,
+    WeatherService? weather,
   }) {
     settings = Settings(system.setPref);
     ble = BleManager(transport, control: control);
@@ -38,15 +45,22 @@ class Suite extends ChangeNotifier {
     display = GlassesDisplay(proto);
     this.client = client ?? BridgeClient(settings.bridgeUrl);
     chat = ChatController(this.client);
+    work = WorkController(this.client);
     terminal = TerminalController(this.client, display);
     mirror = ScreenMirror(screen ?? PlatformScreen(), proto)..onFallback = _toast;
+    this.speaker = speaker ?? PlatformSpeaker();
+    narrator = Narrator(this.speaker);
+    conversation = Conversation(display)..canShow = _glassesFree;
+    dashboard = Dashboard(proto, weatherService: weather ?? WeatherService(location: system.location))
+      ..paused = () => mirror.running || flicker.running;
+    phone = PhoneNotifications(proto)..onForwarded = dashboard.addPhoneNote;
     voice = VoiceController(
       speech,
       onSubmit: submit,
       onCommand: runCommand,
       onDraft: _showDraft,
       onAutoOff: () => _toast('Hands-free is off (no use for ${settings.autoOffMinutes} min)'),
-    );
+    )..onFollowUpEnd = _onFollowUpEnd;
 
     ble.onConnected = (pair) {
       settings.set('lastGlasses', pair.toMap());
@@ -54,9 +68,15 @@ class Suite extends ChangeNotifier {
     };
     ble.addListener(_onLinkChanged);
     voice.addListener(_onVoiceChanged);
+    voice.level.addListener(() => conversation.setLevel(voice.level.value));
     chat.onReply = _onReply;
+    chat.onProgress = _onProgress;
+    work.onDone = _onWorkDone;
+    narrator.onDone = _onSpoken;
     _events = ble.events.listen(_onGlassesEvent);
+    _phoneNotes = system.phoneNotifications.listen((m) => phone.onPosted(PhoneNote.fromMap(m)));
     system.onStopListening = () => voice.setHandsFree(false);
+    system.onOpenTab = tabRequests.add;
     system.onVolumeKey = (dir) {
       if (dir == 'up') {
         display.up();
@@ -69,7 +89,12 @@ class Suite extends ChangeNotifier {
   /// Real phone wiring.
   factory Suite.platform() {
     final ble = PlatformBle();
-    return Suite(system: SystemBridge()..init(), transport: ble, control: ble, speech: PlatformSpeech());
+    return Suite(
+        system: SystemBridge()..init(),
+        transport: ble,
+        control: ble,
+        speech: PlatformSpeech(),
+        speaker: PlatformSpeaker());
   }
 
   final SystemBridge system;
@@ -79,7 +104,13 @@ class Suite extends ChangeNotifier {
   late final GlassesDisplay display;
   late final BridgeClient client;
   late final ChatController chat;
+  late final WorkController work;
   late final TerminalController terminal;
+  late final Speaker speaker;
+  late final Narrator narrator;
+  late final Conversation conversation;
+  late final Dashboard dashboard;
+  late final PhoneNotifications phone;
   late final VoiceController voice;
   late final ScreenMirror mirror;
   late final PictureLab lab = PictureLab(proto);
@@ -109,6 +140,7 @@ class Suite extends ChangeNotifier {
   }
 
   StreamSubscription<GlassesEvent>? _events;
+  StreamSubscription<Map>? _phoneNotes;
   Timer? _heartbeat;
   Timer? _liveCleanup;
   Timer? _holdLimit;
@@ -118,9 +150,21 @@ class Suite extends ChangeNotifier {
   bool _lastConnected = false;
   bool _lastHandsFree = false;
   DateTime? _lastAutoOffAt;
+  bool _spokenQuestion = false; // the question on its way was spoken (a follow-up makes sense)
+  bool _speakThis = false; // read this answer aloud
+  String _lastQuestion = '';
+  String _voiceKey = '';
+  int _workNotice = 0;
 
   /// Short messages for the UI (shown as a snackbar).
   final toasts = StreamController<String>.broadcast();
+
+  /// Tabs to switch to ('work' when a "Claude finished" notification is tapped).
+  final tabRequests = StreamController<String>.broadcast();
+
+  /// The glasses are free for Claude's screens (not sharing the phone screen,
+  /// not running Flicker, replies switched on).
+  bool _glassesFree() => ble.isConnected && settings.repliesOnGlasses && !mirror.running && !flicker.running;
 
   void _toast(String msg) => toasts.add(msg);
 
@@ -142,6 +186,10 @@ class Suite extends ChangeNotifier {
       'recognizer': settings.recognizer,
     });
     unawaited(log.flush());
+    work.start();
+    unawaited(system.launchTab().then((t) {
+      if (t != null && t.isNotEmpty) tabRequests.add(t);
+    }));
     // Reconnect the glasses used last time, without scanning.
     final last = settings.lastGlasses;
     if (last != null) {
@@ -154,11 +202,45 @@ class Suite extends ChangeNotifier {
   void applySettings() {
     if (client.baseUrl != settings.bridgeUrl) client.baseUrl = settings.bridgeUrl;
     voice
-      ..wake = WakeWord(settings.wakeWords)
+      ..wake = WakeWord(settings.wakeWords, settings.wakeStrictness)
       ..autoOff = Duration(minutes: settings.autoOffMinutes)
       ..quiet = settings.quietChime
       ..language = settings.language
-      ..engineName = settings.recognizer;
+      ..engineName = settings.recognizer
+      ..autoSend = settings.autoSend
+      ..wakeAutoSend = settings.wakeAutoSend
+      ..silenceMs = settings.pauseMs;
+    chat.options = settings.claudeOptions;
+    narrator.enabled = settings.speakReplies != 'off';
+    final voiceKey = '${settings.ttsEngine}|${settings.ttsVoice}|${settings.ttsRate}|${settings.ttsPitch}';
+    if (voiceKey != _voiceKey) {
+      _voiceKey = voiceKey;
+      unawaited(speaker.configure(
+          engine: settings.ttsEngine,
+          voice: settings.ttsVoice,
+          rate: settings.ttsRate / 100,
+          pitch: settings.ttsPitch / 100));
+    }
+    work.minDuration = Duration(seconds: settings.workMinSec);
+    final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.h24}|${dashboard.fahrenheit}|'
+        '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
+    dashboard
+      ..enabled = settings.dashSync
+      ..mode = const ['full', 'dual', 'minimal'].indexOf(settings.dashMode).clamp(0, 2)
+      ..pane = const ['notes', 'stocks', 'news', 'calendar', 'map'].indexOf(settings.dashPane).clamp(0, 4)
+      ..h24 = settings.dash24h
+      ..fahrenheit = settings.dashFahrenheit
+      ..weatherOn = settings.dashWeather
+      ..city = settings.dashCity
+      ..slots = settings.noteSlots
+      ..custom = settings.dashCustom;
+    final newDashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.h24}|${dashboard.fahrenheit}|'
+        '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
+    if (newDashKey != dashKey && ble.isConnected) dashboard.markDirty(delay: const Duration(seconds: 3));
+    phone
+      ..forward = settings.notifyForward
+      ..private = settings.notifyPrivate
+      ..allowed = settings.allowedApps;
     if (display.wpm != settings.readingWpm) display.setWpm(settings.readingWpm);
     EventLog.instance.enabled = settings.diagnostics;
     if (proto.bmpGapMs != settings.bmpGapMs) proto.bmpGapMs = settings.bmpGapMs;
@@ -241,6 +323,12 @@ class Suite extends ChangeNotifier {
     _heartbeat?.cancel();
     if (!connected && flicker.running) flicker.stop(reason: 'link', restore: false);
     if (connected) {
+      dashboard.onConnected();
+    } else {
+      dashboard.onDisconnected();
+      phone.onDisconnected();
+    }
+    if (connected) {
       // Same 8 s heartbeat as the demo keeps the link from idling out - but
       // not while other traffic (pictures, screens) already does, so it never
       // cuts into a transfer.
@@ -255,7 +343,9 @@ class Suite extends ChangeNotifier {
   void _onGlassesEvent(GlassesEvent e) {
     switch (e.code) {
       case GlassesEvent.tap:
-        if (display.mode == DisplayMode.idle) {
+        if (conversation.stage == TalkStage.error && e.lr == 'R') {
+          retry();
+        } else if (display.mode == DisplayMode.idle) {
           _showLastReply();
         } else if (e.lr == 'L') {
           display.tapLeft();
@@ -263,8 +353,14 @@ class Suite extends ChangeNotifier {
           display.tapRight();
         }
       case GlassesEvent.exit:
+        // Double tap: done with this - quiet, and no follow-up.
         display.onGlassesExit();
         terminal.onGlassesExit();
+        unawaited(narrator.stop());
+        unawaited(voice.endFollowUp());
+        conversation.ended();
+      case GlassesEvent.headUp:
+        dashboard.onHeadUp();
       case GlassesEvent.evenAiStart:
         if (settings.holdToTalk) _glassesTalk();
       case GlassesEvent.evenAiEnd:
@@ -276,6 +372,9 @@ class Suite extends ChangeNotifier {
   /// Uses the glasses' own microphone when the phone supports it.
   Future<void> _glassesTalk() async {
     if (!await _micAllowed()) return;
+    // Holding the TouchBar interrupts whatever is being said.
+    await narrator.stop();
+    unawaited(chat.warm());
     _aiSession = true;
     final useGlassesMic = settings.glassesMic;
     if (useGlassesMic) {
@@ -298,41 +397,74 @@ class Suite extends ChangeNotifier {
     }
   }
 
-  /// Instructions sent with every message (as Claude's system prompt) so
-  /// answers come in chunks that fit the glasses screen.
-  String glassesPrimer() {
-    final size = GlassesText.screenSize();
+  /// Instructions sent with every message (as Claude's system prompt): this
+  /// goes straight to the glasses, how long to be, and how to split longer
+  /// answers into screens.
+  String glassesPrimer() => buildPrimer(
+        size: GlassesText.screenSize(),
+        length: settings.answerLength,
+        spoken: settings.speakReplies != 'off',
+      );
+
+  static String buildPrimer({required ScreenSize size, String length = 'brief', bool spoken = false}) {
     final chars = size.chars;
-    return 'You are talking to the user through Even Realities G1 smart glasses '
-        '(the Even Suite app, built on Even\'s open-source demo). The user speaks; the '
-        'speech-to-text may contain mistakes, so read generously.\n'
-        'The glasses show ${size.lines} lines of about ${size.charsPerLine} characters: one '
-        'screen holds about $chars characters. The app shows your answer one screen at a '
-        'time, like a teleprompter.\n'
+    final aim = switch (length) {
+      'normal' => 'Aim for about 150 characters. Go up to $chars (one screen) only if it needs it.',
+      'long' => 'Answer fully, but keep each screen-sized chunk tight.',
+      _ => 'Aim for about 50 characters (one short line). Use up to 100-150 characters only when '
+          'the answer needs that to make sense.',
+    };
+    return 'Your reply goes straight to Even Realities G1 smart glasses, where the user reads it in '
+        'front of their eyes (the Even Suite app). The user usually speaks; speech-to-text may contain '
+        'mistakes, so read generously.\n'
+        'The display shows ${size.lines} lines of about ${size.charsPerLine} characters: one screen '
+        'holds about $chars characters, shown like a teleprompter.\n'
         'For every reply:\n'
-        '- Plain text only: no Markdown, headings, tables, code blocks or emoji. Use "-" for lists.\n'
-        '- Put the answer first. Fit it in one screen (under $chars characters) when you can.\n'
-        '- If it needs more, write chunks of at most $chars characters separated by a blank '
-        'line; each chunk becomes one screen. At most 3 chunks unless asked for more.\n'
-        '- Short sentences, no filler, no preamble.';
+        '- Be concise and brief. $aim\n'
+        '- Answer first. No preamble, no filler, no restating the question.\n'
+        '- Plain text only: no Markdown, headings, tables, code blocks, links or emoji. Use "-" for lists.\n'
+        '- If more is truly needed (or asked for), split it into chunks of at most $chars characters '
+        'separated by a blank line; each chunk becomes one screen.\n'
+        '${spoken ? '- Your reply is also read aloud: write it to sound natural spoken, no symbols or abbreviations that read badly.\n' : ''}'
+        '- You run as Claude Code on the user\'s phone (Termux). You can use your tools to do what '
+        'they ask; then report the result in one short line.';
   }
 
-  void _showLastReply() {
+  void _showLastReply({bool speak = false}) {
     final r = chat.lastReply;
-    if (r != null) display.showText(r.text, title: 'Claude');
+    if (r == null) return;
+    display.showText(r.text, title: 'Claude');
+    if (speak && narrator.enabled) {
+      unawaited(voice.suspend());
+      _speakThis = true;
+      narrator.finish('again-${DateTime.now().millisecondsSinceEpoch}', 0, r.text);
+    }
   }
 
   // ---------------------------------------------------------------- voice
 
-  /// Talk button / glasses long press.
+  /// Talk button / glasses long press. Interrupts the phone if it is talking.
   Future<void> startTalking({bool hold = false}) async {
     if (!await _micAllowed()) return;
+    await narrator.stop();
+    unawaited(chat.warm());
     await voice.startDictation(hold: hold);
   }
 
   Future<void> toggleTalk() async {
-    if (voice.dictating) return voice.stopDictation();
+    if (voice.dictating && !voice.followUp) return voice.stopDictation();
     await startTalking();
+  }
+
+  /// Stop the phone talking (the answer stays on the screen).
+  Future<void> stopSpeaking() async {
+    await narrator.stop();
+    _onSpoken();
+  }
+
+  /// Ask the last question again (after an error).
+  Future<void> retry() async {
+    if (_lastQuestion.isNotEmpty) await submit(_lastQuestion, spoken: _spokenQuestion);
   }
 
   Future<void> setHandsFree(bool on) async {
@@ -351,13 +483,17 @@ class Suite extends ChangeNotifier {
   }
 
   void _showDraft(String draft) {
-    if (!ble.isConnected && display.mode == DisplayMode.idle) return;
     // While the TouchBar is held the glasses show their own listening screen;
-    // writing to the display then could interrupt the microphone.
-    if (voice.source == 'glasses') return;
-    final target = settings.target == Target.terminal ? 'Terminal' : 'Claude';
-    display.showLive(draft.isEmpty ? 'Listening...\nSay your message, then "send".' : draft,
-        title: 'To $target');
+    // writing to the display then could interrupt the microphone (unless
+    // the test setting asks for it).
+    if (voice.source == 'glasses' && !settings.wordsWhileHolding) return;
+    if (settings.target == Target.terminal) {
+      if (!ble.isConnected && display.mode == DisplayMode.idle) return;
+      display.showLive(draft.isEmpty ? 'Listening...\nSay your message, then "send".' : draft,
+          title: 'To Terminal');
+      return;
+    }
+    conversation.listening(draft, level: voice.level.value, followUp: voice.followUp);
   }
 
   void _onVoiceChanged() {
@@ -365,12 +501,14 @@ class Suite extends ChangeNotifier {
     _lastHandsFree = voice.handsFree;
     _lastAutoOffAt = voice.autoOffAt;
     if (changed) _updateService();
-    // Left dictation without sending: take the live text off the glasses.
-    // Checked a moment later, because a send replaces it with "thinking".
-    if (!voice.dictating && display.mode == DisplayMode.live) {
+    // Left dictation without sending: take "Listening" off the glasses.
+    // Checked a moment later, because a send replaces it with "Got it".
+    if (!voice.dictating && (display.mode == DisplayMode.live || conversation.stage == TalkStage.listening)) {
       _liveCleanup?.cancel();
       _liveCleanup = Timer(const Duration(milliseconds: 600), () {
-        if (!voice.dictating && display.mode == DisplayMode.live) display.clear();
+        if (voice.dictating) return;
+        if (display.mode == DisplayMode.live) display.clear();
+        conversation.listeningStopped();
       });
     }
   }
@@ -391,37 +529,86 @@ class Suite extends ChangeNotifier {
 
   // ------------------------------------------------------------- messages
 
-  /// Send a message to Claude, or type it into the terminal.
-  Future<void> submit(String text) async {
+  /// Send a message to Claude, or type it into the terminal. [spoken]: it
+  /// was said (the answer is read aloud and a follow-up is listened for).
+  Future<void> submit(String text, {bool? spoken}) async {
     final t = text.trim();
     if (t.isEmpty) return;
     HapticFeedback.lightImpact();
+    await narrator.stop();
     try {
       if (settings.target == Target.terminal) {
         await terminal.sendLine(t);
         if (settings.repliesOnGlasses && ble.isConnected) terminal.setMirror(true);
       } else {
-        chat.system ??= glassesPrimer();
-        if (ble.isConnected && settings.repliesOnGlasses && !mirror.running) {
-          display.showText('You: $t\n\nClaude is thinking...', title: 'Claude', ai: _aiSession);
-        }
+        _lastQuestion = t;
+        _spokenQuestion = spoken ?? voice.lastSpoken;
+        _speakThis = settings.speakReplies == 'always' || (settings.speakReplies == 'voice' && _spokenQuestion);
+        chat.system = glassesPrimer();
+        chat.options = settings.claudeOptions;
+        conversation.asked(t, ai: _aiSession);
         await chat.send(t);
       }
     } catch (e) {
       _toast('$e');
-      if (display.mode != DisplayMode.idle && ble.isConnected) {
-        display.showText('Could not send:\n$e', title: 'Error');
-      }
+      conversation.failed('$e');
+      _aiSession = false;
+    }
+  }
+
+  void _onProgress(BridgeMessage m) {
+    conversation.progress(m);
+    if (_speakThis && narrator.enabled && m.stage == 'writing' && m.live.isNotEmpty) {
+      unawaited(voice.suspend());
+      narrator.feed(m.id, m.block, m.live);
+      if (narrator.speaking) conversation.speaking();
     }
   }
 
   void _onReply(BridgeMessage m) {
     HapticFeedback.mediumImpact();
-    // While the phone screen or flicker is on the glasses, replies stay on the phone.
-    if (settings.repliesOnGlasses && ble.isConnected && !mirror.running && !flicker.running) {
-      display.showText(m.isError ? 'Error: ${m.text}' : m.text, title: 'Claude', ai: _aiSession);
+    conversation.answered(m);
+    if (!m.isError) {
+      dashboard.lastReply = m.text;
+      if (settings.noteSlots.contains('reply')) dashboard.markDirty();
     }
     _aiSession = false;
+    if (_speakThis && narrator.enabled && !m.isError) {
+      unawaited(voice.suspend());
+      conversation.speaking();
+      narrator.finish(m.id, m.block, m.text);
+    } else {
+      _onSpoken();
+    }
+  }
+
+  /// The answer has been said (or was not to be said): listen for a follow-up.
+  void _onSpoken() {
+    unawaited(voice.resume());
+    if (conversation.stage == TalkStage.error) return;
+    if (settings.conversation && _spokenQuestion && settings.target == Target.claude && !voice.dictating) {
+      _spokenQuestion = false; // one follow-up window per answer
+      conversation.followingUp();
+      unawaited(voice.startFollowUp(Duration(seconds: settings.followUpSec)));
+    } else {
+      conversation.ended();
+    }
+  }
+
+  void _onFollowUpEnd() => conversation.ended();
+
+  /// Claude Code finished a job (Work tab): say so briefly, only now.
+  void _onWorkDone(WorkItem item) {
+    dashboard.lastWork = item;
+    if (settings.noteSlots.contains('work')) dashboard.markDirty();
+    if (!settings.workAlerts) return;
+    final where = item.project.isEmpty ? '' : ' · ${item.project}';
+    if (settings.workPhone) {
+      unawaited(system.notify(_workNotice++, 'Claude finished$where', item.summary));
+    }
+    if (settings.workGlasses && ble.isConnected) {
+      unawaited(phone.send(PhoneNotifications.selfId, 'Claude', 'Claude finished$where', item.summary));
+    }
   }
 
   /// Spoken commands ("Claude, scroll down").
@@ -444,13 +631,18 @@ class Suite extends ChangeNotifier {
       case VoiceCommand.bottom:
         display.bottom();
       case VoiceCommand.repeat:
-        _showLastReply();
+        _showLastReply(speak: true);
       case VoiceCommand.hide:
         display.clear();
         terminal.setMirror(false);
+        unawaited(narrator.stop());
       case VoiceCommand.stop:
-        if (chat.busy) {
+        if (narrator.speaking) {
+          unawaited(stopSpeaking());
+        } else if (chat.busy) {
           chat.stopReply();
+        } else if (voice.followUp) {
+          unawaited(voice.endFollowUp());
         } else {
           voice.setHandsFree(false);
         }
@@ -517,6 +709,13 @@ class Suite extends ChangeNotifier {
   @override
   void dispose() {
     _events?.cancel();
+    _phoneNotes?.cancel();
+    work.dispose();
+    narrator.dispose();
+    conversation.dispose();
+    dashboard.dispose();
+    phone.dispose();
+    tabRequests.close();
     _heartbeat?.cancel();
     _liveCleanup?.cancel();
     _holdLimit?.cancel();
