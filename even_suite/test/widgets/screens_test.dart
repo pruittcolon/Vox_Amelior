@@ -75,7 +75,7 @@ class _World {
     screen: screen,
     speaker: speaker,
     weather: WeatherService(location: () async => null),
-  );
+  )..conversation.gotItTime = Duration.zero; // test time is not wall-clock time
 }
 
 const _reply = 'You have three things today:\n'

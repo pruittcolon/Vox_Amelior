@@ -228,6 +228,7 @@ void main() {
       await flush();
       expect(sent, isEmpty);
       expect(voice.draft, 'remind me to call mom');
+      await voice.cancel();
       voice.wakeAutoSend = true;
       speech.say('Claude what is the weather');
       await flush();

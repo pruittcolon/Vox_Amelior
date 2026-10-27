@@ -119,7 +119,7 @@ class GlassesDisplay extends ChangeNotifier {
 
   /// A short screen that keeps changing (listening, "Claude is thinking"):
   /// shown as given, at most one screen, updates throttled like live text.
-  void showStatus(String text, {String title = 'Claude', bool ai = false}) {
+  void showStatus(String text, {String title = 'Claude', bool ai = false, bool immediate = false}) {
     _stopAuto();
     _streaming = false;
     final lines = GlassesText.wrap(GlassesText.clean(text));
@@ -127,7 +127,7 @@ class GlassesDisplay extends ChangeNotifier {
     pager = GlassesPager(lines.take(GlassesText.linesPerScreen).toList());
     this.title = title;
     this.ai = ai;
-    _schedule();
+    _schedule(immediate: immediate);
   }
 
   /// Text that keeps changing (what you are saying): newest lines shown.

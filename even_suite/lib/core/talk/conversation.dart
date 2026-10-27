@@ -66,7 +66,8 @@ class Conversation extends ChangeNotifier {
   Timer? _tick;
   DateTime? _gotItUntil;
 
-  static const gotItTime = Duration(milliseconds: 1300);
+  /// How long "Got it" stays at the top before Claude's steps take over.
+  Duration gotItTime = const Duration(milliseconds: 1300);
 
   Duration get elapsed => sentAt == null ? Duration.zero : DateTime.now().difference(sentAt!);
 
@@ -116,7 +117,8 @@ class Conversation extends ChangeNotifier {
     draft = '';
     _set(TalkStage.sent);
     _startTick(const Duration(seconds: 1));
-    _draw();
+    // Straight away, not behind the live-text throttle: this is the "it heard you" moment.
+    if (_canShow) display.showStatus(workingScreen(), title: 'Claude', ai: ai, immediate: true);
   }
 
   /// Claude's progress on the answer.
