@@ -203,16 +203,17 @@ class Conversation extends ChangeNotifier {
     return ['Listening$dots', '|' * bars, if (tail.isEmpty) 'Say your question' else ...tail].join('\n');
   }
 
-  /// "Got it" / "Claude · Thinking 4s ..", your question, the current step.
+  /// "Got it" / "Claude · 4s ..", your question, then what Claude is doing
+  /// on a line of its own ("Searching the web: boston").
   @visibleForTesting
   String workingScreen({DateTime? now}) {
     final t = now ?? DateTime.now();
     final secs = sentAt == null ? 0 : t.difference(sentAt!).inSeconds;
     final dots = '.' * (1 + _frame % 3);
-    final header = _gotItUntil != null && t.isBefore(_gotItUntil!)
-        ? 'Got it'
-        : _fit('Claude · ${step.isEmpty ? 'Thinking' : step} ${secs}s $dots');
-    return [header, ...quoteLines(question)].join('\n');
+    if (_gotItUntil != null && t.isBefore(_gotItUntil!)) {
+      return ['Got it', ...quoteLines(question)].join('\n');
+    }
+    return ['Claude · ${secs}s $dots', ...quoteLines(question), _fit(step.isEmpty ? 'Thinking' : step)].join('\n');
   }
 
   /// Your question in quotes, at most two lines.
@@ -228,12 +229,14 @@ class Conversation extends ChangeNotifier {
     return [lines[0], '$second..."'];
   }
 
+  /// One glasses line at most ("..." when cut).
   static String _fit(String line) {
+    if (GlassesText.wrap(line).length <= 1) return line;
     var l = line;
-    while (GlassesText.wrap(l).length > 1 && l.length > 10) {
-      l = l.substring(0, l.length - 2);
+    while (l.length > 4 && GlassesText.wrap('$l...').length > 1) {
+      l = l.substring(0, l.length - 1);
     }
-    return l;
+    return '${l.trimRight()}...';
   }
 
   static String _short(String s, int n) {

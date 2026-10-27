@@ -202,7 +202,14 @@ void main() {
       talk.asked('build it');
       talk.progress(claude('c', stage: 'thinking'));
       final later = DateTime.now().add(const Duration(seconds: 5));
-      expect(talk.workingScreen(now: later), startsWith('Claude · Thinking 5s'));
+      final lines = talk.workingScreen(now: later).split('\n');
+      expect(lines.first, startsWith('Claude · 5s'));
+      expect(lines[1], '"build it"');
+      expect(lines.last, 'Thinking');
+      talk.progress(claude('c', stage: 'tool', tool: 'Searching the web: ${'very ' * 20}long query'));
+      final cut = talk.workingScreen(now: later).split('\n').last;
+      expect(cut, endsWith('...'), reason: 'a long step is cut to one line');
+      expect(GlassesText.wrap(cut).length, 1);
     });
   });
 
