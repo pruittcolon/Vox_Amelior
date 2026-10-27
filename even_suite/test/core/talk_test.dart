@@ -5,6 +5,7 @@ import 'package:even_suite/core/ble/proto.dart';
 import 'package:even_suite/core/bridge/bridge_client.dart';
 import 'package:even_suite/core/bridge/chat_controller.dart';
 import 'package:even_suite/core/bridge/work_controller.dart';
+import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/glasses/glasses_display.dart';
 import 'package:even_suite/core/glasses/glasses_text.dart';
@@ -99,9 +100,10 @@ void main() {
     test('listening shows a voice meter and the last lines said', () {
       final s = Conversation.listeningScreen('what is the weather', 0.5, 1);
       final lines = s.split('\n');
-      expect(lines[0], 'Termux-Claude listening..');
-      expect(lines[1], startsWith('|||'));
-      expect(lines.last, 'what is the weather');
+      expect(lines, ['Termux-Claude listening..', 'what is the weather'], reason: 'plain text, no meter');
+      expect([for (var f = 0; f < 5; f++) Conversation.listeningScreen('', 0, f).split('\n').first],
+          ['Termux-Claude listening...', 'Termux-Claude listening..', 'Termux-Claude listening.',
+           'Termux-Claude listening..', 'Termux-Claude listening...']);
       expect(Conversation.listeningScreen('', 0, 0), contains('Say your question'));
     });
 
@@ -196,6 +198,30 @@ void main() {
       final page = display.pager!.page;
       display.updateReply('$long And more.', done: true);
       expect(display.pager!.page, page);
+    });
+
+    test('the working screen follows your layout', () {
+      final rows = Conversation.workingRows(
+          layout: PanelLayout.parse('claude,asked:2,meta:0', base: PanelLayout.working),
+          status: 'Claude · 3s ...',
+          question: 'build it',
+          step: 'Editing a.dart',
+          steps: const ['Reading a.dart', 'Editing a.dart']);
+      expect([for (final r in rows) r.text], ['Editing a.dart', 'Reading a.dart', '"build it"']);
+      expect(rows.last.dim, isTrue);
+    });
+
+    test('Claude\'s screen closes by itself, but not while someone is talking', () async {
+      display.closeAfter = const Duration(milliseconds: 60);
+      var talking = true;
+      display.holdOpen = () => talking;
+      display.showStatus('Claude did not answer');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(display.mode, DisplayMode.status, reason: 'held open');
+      talking = false;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(display.mode, DisplayMode.idle, reason: 'closed by itself');
+      expect(glasses.sent['L']!.last[0], 0x18, reason: 'exit: back to the dashboard');
     });
 
     test('work timer: elapsed time on the working screen', () {

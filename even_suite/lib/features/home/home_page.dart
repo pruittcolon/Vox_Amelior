@@ -7,6 +7,7 @@ import '../../core/bridge/chat_controller.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
+import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
 import '../settings/settings_page.dart';
 import '../tools/images_page.dart';
@@ -79,6 +80,13 @@ class HomePage extends StatelessWidget {
               caption: 'Clock, weather, notes, notifications',
               color: AppColors.hud,
               onTap: () => _push(context, const LookUpPage()),
+            ),
+            ActionTile(
+              icon: Icons.drag_indicator_rounded,
+              label: 'Glasses layout',
+              caption: 'Drag and drop what Claude shows',
+              color: AppColors.claude,
+              onTap: () => _push(context, const LayoutPage()),
             ),
             ActionTile(
               icon: Icons.task_alt_rounded,

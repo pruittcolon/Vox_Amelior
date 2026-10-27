@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../bridge/bridge_client.dart';
+import '../glasses/claude_panel.dart';
 import '../glasses/glasses_display.dart';
 import '../glasses/glasses_text.dart';
 
@@ -71,8 +72,8 @@ class Conversation extends ChangeNotifier {
   /// screen states, so it replaces the glasses' own "Even AI listening".
   bool _listenAi = false;
 
-  /// Lines your question takes on the "Claude is working" screen (0-3).
-  int askLines = 1;
+  /// How the "Claude is working" screen is arranged (Glasses layout page).
+  PanelLayout layout = PanelLayout.working;
 
   /// How long "Got it" stays at the top before Claude's steps take over.
   Duration gotItTime = const Duration(milliseconds: 1300);
@@ -96,7 +97,7 @@ class Conversation extends ChangeNotifier {
     final first = stage != TalkStage.listening;
     _listenAi = ai;
     _set(TalkStage.listening);
-    _startTick(const Duration(milliseconds: 450));
+    _startTick(const Duration(milliseconds: 600));
     if (first && _canShow) {
       // At once: this is what replaces the glasses' own listening screen.
       display.showStatus(listeningScreen(draft, level, _frame), title: 'Listening', ai: _listenAi, immediate: true);
@@ -118,11 +119,8 @@ class Conversation extends ChangeNotifier {
     });
   }
 
-  /// The voice meter moved.
-  void setLevel(double v) {
-    level = v;
-    if (stage == TalkStage.listening) _draw();
-  }
+  /// The voice meter moved (shown on the phone; the glasses keep a calm screen).
+  void setLevel(double v) => level = v;
 
   /// Stopped listening without sending: take "Listening" off the glasses.
   void listeningStopped() {
@@ -224,14 +222,16 @@ class Conversation extends ChangeNotifier {
     }
   }
 
-  /// "Termux-Claude listening..." with a voice meter, then the last lines you said.
+  static const _dots = ['...', '..', '.', '..'];
+
+  /// "Termux-Claude listening..." (the dots go ... .. . .. ...), then the
+  /// last lines you said. Plain text: it is redrawn a few times a second.
   @visibleForTesting
   static String listeningScreen(String draft, double level, int frame) {
-    final dots = '.' * (1 + frame % 3);
-    final bars = (2 + level * 22).round().clamp(1, 24);
     final said = GlassesText.wrap(GlassesText.clean(draft));
-    final tail = said.length > 3 ? said.sublist(said.length - 3) : said;
-    return ['Termux-Claude listening$dots', '|' * bars, if (tail.isEmpty) 'Say your question' else ...tail].join('\n');
+    final tail = said.length > 4 ? said.sublist(said.length - 4) : said;
+    return ['Termux-Claude listening${_dots[frame % _dots.length]}', if (tail.isEmpty) 'Say your question' else ...tail]
+        .join('\n');
   }
 
   /// "Got it" / "Claude · 4s ..", your question, then what Claude is doing
@@ -240,12 +240,42 @@ class Conversation extends ChangeNotifier {
   String workingScreen({DateTime? now}) {
     final t = now ?? DateTime.now();
     final secs = sentAt == null ? 0 : t.difference(sentAt!).inSeconds;
-    final dots = '.' * (1 + _frame % 3);
     if (_gotItUntil != null && t.isBefore(_gotItUntil!)) {
       return ['Got it', ...quoteLines(question)].join('\n');
     }
-    final asked = askLines <= 0 ? const <String>[] : quoteLines(question, max: askLines);
-    return ['Claude · ${secs}s $dots', ...asked, _fit(step.isEmpty ? 'Thinking' : step)].join('\n');
+    return [
+      for (final r in workingRows(
+        layout: layout,
+        status: 'Claude · ${secs}s ${_dots[_frame % _dots.length]}',
+        question: question,
+        step: step,
+        steps: steps,
+      ))
+        r.text,
+    ].join('\n');
+  }
+
+  /// The "Claude is working" screen in [layout] order: the status line,
+  /// your question (dim on the phone's preview), then Claude - the step it
+  /// is on and the ones before.
+  static List<PanelLine> workingRows({
+    required PanelLayout layout,
+    required String status,
+    required String question,
+    required String step,
+    List<String> steps = const [],
+  }) {
+    final asked = layout.askLines <= 0 || question.isEmpty ? const <String>[] : quoteLines(question, max: layout.askLines);
+    final meta = layout.metaLines > 0 ? [_fit(status)] : const <String>[];
+    final room = (layout.total - asked.length - meta.length).clamp(1, layout.total);
+    final now = step.isEmpty ? 'Thinking' : step;
+    final claude = [now, ...steps.reversed.where((s) => s.isNotEmpty && s != now)].take(room).map(_fit).toList();
+    final blocks = {
+      'asked': [for (final l in asked) PanelLine(l, dim: true)],
+      'claude': [for (final l in claude) PanelLine(l)],
+      'meta': [for (final l in meta) PanelLine(l)],
+    };
+    return [for (final b in layout.order) ...?blocks[b]];
   }
 
   /// Your question in quotes, at most [max] lines (the last one cut with ...").

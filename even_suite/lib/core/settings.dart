@@ -98,6 +98,8 @@ class Settings extends ChangeNotifier {
   String dashMode = 'dual'; // full, dual, minimal (Claude on the right always uses dual)
   String dashRight = 'claude'; // right side: claude (live panel), notes, calendar, news, stocks, map
   String panelLayout = 'asked:1,claude,meta:0'; // Claude's panel: block order, lines for your question / the project
+  String screenLayout = 'meta:1,asked:1,claude'; // the screen in front of you while Claude works
+  int closeAfterSec = 15; // Claude's screen goes back to the dashboard after this long without changes (0 = never)
   bool dash24h = false;
   bool dashFahrenheit = true;
   bool dashWeather = true;
@@ -205,6 +207,8 @@ class Settings extends ChangeNotifier {
     dashMode = _s(m['dashMode'], dashMode);
     dashRight = _s(m['dashRight'], dashRight);
     panelLayout = _s(m['panelLayout'], panelLayout);
+    screenLayout = _s(m['screenLayout'], screenLayout);
+    closeAfterSec = _i(m['closeAfterSec'], closeAfterSec).clamp(0, 600);
     dash24h = _b(m['dash24h'], dash24h);
     dashFahrenheit = _b(m['dashFahrenheit'], dashFahrenheit);
     dashWeather = _b(m['dashWeather'], dashWeather);
@@ -378,6 +382,10 @@ class Settings extends ChangeNotifier {
         dashRight = value as String;
       case 'panelLayout':
         panelLayout = value as String;
+      case 'screenLayout':
+        screenLayout = value as String;
+      case 'closeAfterSec':
+        closeAfterSec = value as int;
       case 'dash24h':
         dash24h = value as bool;
       case 'dashFahrenheit':

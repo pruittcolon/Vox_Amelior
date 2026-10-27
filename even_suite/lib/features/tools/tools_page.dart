@@ -5,6 +5,7 @@ import '../../app/theme.dart';
 import '../../widgets/common.dart';
 import '../claude/claude_settings_sheet.dart';
 import '../flicker/flicker_page.dart';
+import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
 import '../settings/settings_page.dart';
 import 'diagnostics_page.dart';
@@ -42,6 +43,8 @@ class ToolsPage extends StatelessWidget {
         const Text('Everything from the Even Realities demo app',
             style: TextStyle(color: AppColors.muted)),
         const SizedBox(height: 16),
+        tile(Icons.drag_indicator_rounded, AppColors.claude, 'Glasses layout',
+            'Drag and drop Claude’s screens; when they close', () => push(const LayoutPage())),
         tile(Icons.dashboard_customize_rounded, AppColors.hud, 'Look up screen',
             'Clock, weather, notes and phone notifications when you look up', () => push(const LookUpPage())),
         tile(Icons.tune_rounded, AppColors.claude, 'Claude and voice',

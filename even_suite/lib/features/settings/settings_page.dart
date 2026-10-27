@@ -6,6 +6,7 @@ import '../../core/glasses/glasses_text.dart';
 import '../../core/settings.dart';
 import '../../widgets/common.dart';
 import '../claude/claude_settings_sheet.dart';
+import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -44,6 +45,12 @@ class SettingsPage extends StatelessWidget {
                   ),
                 ),
               ]),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LayoutPage())),
+                icon: const Icon(Icons.drag_indicator_rounded),
+                label: const Text('Glasses layout (drag and drop)'),
+              ),
             ]),
             _Section('Voice', Icons.record_voice_over_rounded, AppColors.claude, [
               const _Label('Hands-free turns itself off after'),

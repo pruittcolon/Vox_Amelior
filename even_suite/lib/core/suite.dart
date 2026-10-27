@@ -52,6 +52,8 @@ class Suite extends ChangeNotifier {
     this.speaker = speaker ?? PlatformSpeaker();
     narrator = Narrator(this.speaker);
     conversation = Conversation(display)..canShow = _glassesFree;
+    // Claude's screen closes by itself, but not while you or the phone are talking.
+    display.holdOpen = () => narrator.speaking || voice.dictating || conversation.busy;
     dashboard = Dashboard(proto, weatherService: weather ?? WeatherService(location: system.location))
       ..paused = () => mirror.running || flicker.running;
     phone = PhoneNotifications(proto)..onForwarded = dashboard.addPhoneNote;
@@ -232,7 +234,8 @@ class Suite extends ChangeNotifier {
           pitch: settings.ttsPitch / 100));
     }
     work.minDuration = Duration(seconds: settings.workMinSec);
-    conversation.askLines = PanelLayout.parse(settings.panelLayout).askLines;
+    conversation.layout = PanelLayout.parse(settings.screenLayout, base: PanelLayout.working);
+    display.closeAfter = settings.closeAfterSec == 0 ? null : Duration(seconds: settings.closeAfterSec);
     final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.layout}|${dashboard.h24}|${dashboard.fahrenheit}|'
         '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
     dashboard

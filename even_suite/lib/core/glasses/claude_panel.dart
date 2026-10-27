@@ -210,35 +210,42 @@ class ClaudePanel {
 /// take. Claude always gets the rest of the four lines. Saved as e.g.
 /// "asked:1,claude,meta:0".
 class PanelLayout {
-  const PanelLayout(this.order, {this.askLines = 1, this.metaLines = 0});
+  const PanelLayout(this.order, {this.askLines = 1, this.metaLines = 0, this.total = DashLayout.bodyLines});
 
   final List<String> order;
   final int askLines; // 0-3
   final int metaLines; // 0-1
 
+  /// Lines there are: 4 on the look-up panel, 5 on the screen in front of you.
+  final int total;
+
   static const blocks = ['asked', 'claude', 'meta'];
   static const standard = PanelLayout(['asked', 'claude', 'meta']);
 
-  /// Claude's share of the four lines.
-  int get claudeLines => DashLayout.bodyLines - askLines - metaLines;
+  /// The screen in front of you while Claude works: a status line
+  /// ("Claude · 12s"), one line of your question, Claude's steps below.
+  static const working = PanelLayout(['meta', 'asked', 'claude'], askLines: 1, metaLines: 1, total: 5);
+
+  /// Claude's share of the lines.
+  int get claudeLines => total - askLines - metaLines;
 
   PanelLayout copyWith({List<String>? order, int? askLines, int? metaLines}) {
     var ask = (askLines ?? this.askLines).clamp(0, 3);
     var meta = (metaLines ?? this.metaLines).clamp(0, 1);
     // Claude keeps at least one line.
-    if (ask + meta > DashLayout.bodyLines - 1) {
+    if (ask + meta > total - 1) {
       if (askLines != null) {
-        meta = (DashLayout.bodyLines - 1 - ask).clamp(0, 1);
+        meta = (total - 1 - ask).clamp(0, 1);
       } else {
-        ask = DashLayout.bodyLines - 1 - meta;
+        ask = total - 1 - meta;
       }
     }
-    return PanelLayout(order ?? this.order, askLines: ask, metaLines: meta);
+    return PanelLayout(order ?? this.order, askLines: ask, metaLines: meta, total: total);
   }
 
-  static PanelLayout parse(String s) {
+  static PanelLayout parse(String s, {PanelLayout base = standard}) {
     final order = <String>[];
-    var ask = standard.askLines, meta = standard.metaLines;
+    var ask = base.askLines, meta = base.metaLines;
     for (final part in s.split(',')) {
       final kv = part.trim().split(':');
       final name = kv.first;
@@ -248,10 +255,10 @@ class PanelLayout {
       if (name == 'asked' && n != null) ask = n;
       if (name == 'meta' && n != null) meta = n;
     }
-    for (final b in blocks) {
+    for (final b in base.order) {
       if (!order.contains(b)) order.add(b);
     }
-    return const PanelLayout(['asked', 'claude', 'meta']).copyWith(order: order, askLines: ask, metaLines: meta);
+    return base.copyWith(order: order, askLines: ask, metaLines: meta);
   }
 
   @override

@@ -39,6 +39,14 @@ class GlassesDisplay extends ChangeNotifier {
   /// Teleprompter paused (by a left tap, "pause", or the phone).
   bool paused = false;
 
+  /// Go back to the dashboard after this long without changes (after the
+  /// last page, plus the time to read it); null = stay until closed by hand.
+  Duration? closeAfter = const Duration(seconds: 15);
+
+  /// Something still needs the screen (you or the phone are talking, Claude
+  /// is working): it waits.
+  bool Function() holdOpen = () => false;
+
   /// The reply answers a TouchBar question: use the Even AI screen states
   /// (0x30 scrolling, 0x40 last page, 0x50 manual) like the demo.
   bool ai = false;
@@ -51,6 +59,7 @@ class GlassesDisplay extends ChangeNotifier {
   DateTime _lastSend = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _throttle;
   Timer? _auto;
+  Timer? _close;
   bool _wasConnected = false;
 
   static const wpmChoices = [0, 140, 180, 230];
@@ -284,6 +293,8 @@ class GlassesDisplay extends ChangeNotifier {
 
   void _reset() {
     _stopAuto();
+    _close?.cancel();
+    _close = null;
     _throttle?.cancel();
     _throttle = null;
     mode = DisplayMode.idle;
@@ -311,7 +322,28 @@ class GlassesDisplay extends ChangeNotifier {
     _wasConnected = now;
   }
 
+  /// (Re)start the countdown that gives the glasses back.
+  void _armClose() {
+    _close?.cancel();
+    _close = null;
+    final after = closeAfter;
+    if (after == null || mode == DisplayMode.idle || mode == DisplayMode.mirror || mode == DisplayMode.live) return;
+    var wait = after;
+    if (mode == DisplayMode.reply) wait += pageTime();
+    if (paused) wait *= 4;
+    _close = Timer(wait, () {
+      _close = null;
+      if (_streaming || _auto != null || holdOpen()) {
+        _armClose();
+        return;
+      }
+      EventLog.add('display', 'autoClose', {'mode': mode.name});
+      clear();
+    });
+  }
+
   void _schedule({bool immediate = false}) {
+    _armClose();
     notifyListeners();
     if (!_ble.isConnected) return;
     final wait = liveGap - DateTime.now().difference(_lastSend);
@@ -400,6 +432,7 @@ class GlassesDisplay extends ChangeNotifier {
     _ble.removeListener(_onLink);
     _throttle?.cancel();
     _auto?.cancel();
+    _close?.cancel();
     super.dispose();
   }
 }

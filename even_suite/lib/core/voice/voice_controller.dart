@@ -567,7 +567,9 @@ class VoiceController extends ChangeNotifier {
 
   void _armIdle() {
     _idleTimer?.cancel();
-    _idleTimer = Timer(dictationIdle, () {
+    // Said the wake word and then nothing: give up soon, not after half a minute.
+    final wait = draft.trim().isEmpty && !holding && !followUp ? const Duration(seconds: 8) : dictationIdle;
+    _idleTimer = Timer(wait, () {
       if (!dictating || holding) return;
       mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
       hint = draft.isEmpty ? null : 'Paused. Tap Send, or say “${wake.label}, send”.';

@@ -7,6 +7,7 @@ import '../../core/glasses/g1_font.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
+import 'layout_page.dart';
 
 /// What the glasses show when you look up: clock, weather, layout, and four
 /// notes you pick - Claude's finished jobs, the last answer, your phone's
@@ -148,9 +149,11 @@ class _LookUpPageState extends State<LookUpPage> {
               ),
               if (s.dashRight == 'claude') ...[
                 const SizedBox(height: 12),
-                _PanelEditor(
-                  layout: PanelLayout.parse(s.panelLayout),
-                  onChanged: (l) => s.set('panelLayout', l.toString()),
+                FilledButton.tonalIcon(
+                  onPressed: () =>
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LayoutPage())),
+                  icon: const Icon(Icons.drag_indicator_rounded),
+                  label: const Text('Arrange the layout (drag and drop)'),
                 ),
               ],
               const SizedBox(height: 12),
@@ -379,118 +382,3 @@ class _Preview extends StatelessWidget {
   }
 }
 
-/// Arrange Claude's panel: drag the blocks into the order you like, pick how
-/// many lines your question takes and whether the project line shows. Claude
-/// gets the rest of the glasses' four lines.
-class _PanelEditor extends StatelessWidget {
-  const _PanelEditor({required this.layout, required this.onChanged});
-  final PanelLayout layout;
-  final ValueChanged<PanelLayout> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      title: 'Arrange Claude’s panel',
-      icon: Icons.drag_indicator_rounded,
-      iconColor: AppColors.claude,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text(
-          'Drag to reorder. The glasses have 4 lines here: your question ${layout.askLines}, '
-          'project ${layout.metaLines}, Claude the rest (${layout.claudeLines}).',
-          style: const TextStyle(color: AppColors.muted, fontSize: 13),
-        ),
-        const SizedBox(height: 10),
-        ReorderableListView(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          buildDefaultDragHandles: false,
-          onReorder: (from, to) {
-            final order = List.of(layout.order);
-            if (to > from) to--;
-            order.insert(to, order.removeAt(from));
-            onChanged(layout.copyWith(order: order));
-          },
-          children: [
-            for (var i = 0; i < layout.order.length; i++)
-              _BlockTile(
-                key: ValueKey(layout.order[i]),
-                index: i,
-                block: layout.order[i],
-                layout: layout,
-                onChanged: onChanged,
-              ),
-          ],
-        ),
-      ]),
-    );
-  }
-}
-
-class _BlockTile extends StatelessWidget {
-  const _BlockTile(
-      {super.key, required this.index, required this.block, required this.layout, required this.onChanged});
-  final int index;
-  final String block;
-  final PanelLayout layout;
-  final ValueChanged<PanelLayout> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final (name, about, color) = switch (block) {
-      'asked' => ('What you asked', 'Your question, dim', AppColors.glasses),
-      'meta' => ('Project · time · steps', 'One dim line', AppColors.muted),
-      _ => ('Claude now', 'What it is writing, its steps, or the result', AppColors.claude),
-    };
-    return ReorderableDelayedDragStartListener(
-      index: index,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.fromLTRB(4, 8, 12, 8),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.35)),
-        ),
-        child: Row(children: [
-          ReorderableDragStartListener(
-            index: index,
-            child: const Padding(
-              padding: EdgeInsets.all(8),
-              child: Icon(Icons.drag_handle_rounded, color: AppColors.muted),
-            ),
-          ),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
-              Text(about, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-              const SizedBox(height: 6),
-              if (block == 'asked')
-                Wrap(spacing: 6, runSpacing: 6, children: [
-                  for (final n in const [0, 1, 2, 3])
-                    ChoiceChip(
-                      label: Text(n == 0 ? 'Hide' : '$n line${n == 1 ? '' : 's'}'),
-                      visualDensity: VisualDensity.compact,
-                      selected: layout.askLines == n,
-                      onSelected: (_) => onChanged(layout.copyWith(askLines: n)),
-                    ),
-                ])
-              else if (block == 'meta')
-                Wrap(spacing: 6, children: [
-                  for (final n in const [0, 1])
-                    ChoiceChip(
-                      label: Text(n == 0 ? 'Hide' : 'Show'),
-                      visualDensity: VisualDensity.compact,
-                      selected: layout.metaLines == n,
-                      onSelected: (_) => onChanged(layout.copyWith(metaLines: n)),
-                    ),
-                ])
-              else
-                Text('${layout.claudeLines} line${layout.claudeLines == 1 ? '' : 's'} - the rest',
-                    style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
-}
