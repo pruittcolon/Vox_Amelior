@@ -10,6 +10,9 @@ class StatusPill extends StatelessWidget {
   final Color color;
   final bool pulse;
 
+  /// Just the dot (pulsing while something is in progress).
+  static Widget dot(Color color, {bool pulse = false}) => pulse ? _PulseDot(color: color) : _Dot(color: color);
+
   @override
   Widget build(BuildContext context) {
     return Container(

@@ -4,15 +4,15 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../core/ble/ble_manager.dart';
 import '../../core/bridge/chat_controller.dart';
+import '../../core/settings.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
+import '../../widgets/voice_widgets.dart';
 import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
 import '../settings/settings_page.dart';
-import '../tools/images_page.dart';
-import '../tools/notify_page.dart';
-import '../tools/text_page.dart';
+import '../settings/touchbar_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -20,137 +20,339 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final suite = SuiteScope.of(context);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Even Suite', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 2),
-              const Text('Your G1, Claude and Termux in one place',
-                  style: TextStyle(color: AppColors.muted)),
-            ]),
-          ),
-          IconButton(
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
+    return ListenableBuilder(
+      listenable: Listenable.merge([suite.ble, suite.chat]),
+      builder: (context, _) {
+        final connected = suite.ble.isConnected;
+        final online = suite.chat.state == BridgeState.online;
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+          children: [
+            _Header(suite: suite),
+            const SizedBox(height: 16),
+            _TalkHero(suite: suite),
+            if (!connected) ...[const SizedBox(height: 12), _GlassesCard(suite: suite)],
+            if (!online) ...[const SizedBox(height: 12), _BridgeCard(suite: suite)],
+            const SizedBox(height: 12),
+            SectionCard(
+              title: 'On your glasses',
+              icon: Icons.crop_landscape_rounded,
+              iconColor: AppColors.hud,
+              child: GlassesPreview(display: suite.display, connected: connected),
             ),
-            icon: const Icon(Icons.settings_rounded),
-          ),
-        ]),
-        const SizedBox(height: 16),
-        _GlassesCard(suite: suite),
-        const SizedBox(height: 12),
-        _BridgeCard(suite: suite),
-        const SizedBox(height: 12),
-        SectionCard(
-          title: 'On your glasses',
-          icon: Icons.crop_landscape_rounded,
-          iconColor: AppColors.hud,
-          child: ListenableBuilder(
-            listenable: suite.ble,
-            builder: (context, _) => GlassesPreview(display: suite.display, connected: suite.ble.isConnected),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Text('Quick actions', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 10),
-        LayoutBuilder(builder: (context, c) {
-          final cols = c.maxWidth > 560 ? 3 : 2;
-          final tiles = [
-            ActionTile(
-              icon: Icons.auto_awesome_rounded,
-              label: 'Ask Claude',
-              caption: 'Talk or type; replies on your glasses',
-              color: AppColors.claude,
-              onTap: () => Shell.goTo(context, Shell.claude),
+            const SizedBox(height: 22),
+            Text('Make it yours', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            const Text('What you see, and what the TouchBar does', style: TextStyle(color: AppColors.muted)),
+            const SizedBox(height: 12),
+            LayoutBuilder(builder: (context, c) {
+              final cols = c.maxWidth > 560 ? 4 : 2;
+              final scale = MediaQuery.textScalerOf(context).scale(1);
+              return GridView(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  mainAxisExtent: 104 + 58 * scale,
+                ),
+                children: [
+                  _FeatureCard(
+                    icon: Icons.dashboard_customize_rounded,
+                    color: AppColors.hud,
+                    title: 'Look up screen',
+                    caption: 'Your own layout: clock, Claude, weather - drag anything',
+                    onTap: () => _push(context, const LookUpPage()),
+                  ),
+                  _FeatureCard(
+                    icon: Icons.touch_app_rounded,
+                    color: AppColors.glasses,
+                    title: 'TouchBar',
+                    caption: 'Choose what a hold and a double tap do',
+                    onTap: () => _push(context, const TouchBarPage()),
+                  ),
+                  _FeatureCard(
+                    icon: Icons.view_agenda_rounded,
+                    color: AppColors.claude,
+                    title: 'Claude screens',
+                    caption: 'Arrange the working screen; when it closes',
+                    onTap: () => _push(context, const LayoutPage()),
+                  ),
+                  _FeatureCard(
+                    icon: Icons.task_alt_rounded,
+                    color: AppColors.ok,
+                    title: 'Work',
+                    caption: 'Told the moment Claude Code is done',
+                    onTap: () => Shell.goTo(context, Shell.work),
+                  ),
+                ],
+              );
+            }),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: () => Shell.goTo(context, Shell.more),
+              icon: const Icon(Icons.apps_rounded),
+              label: const Text('Terminal, screen sharing and more'),
             ),
-            ActionTile(
-              icon: Icons.terminal_rounded,
-              label: 'Terminal',
-              caption: 'Claude Code and your Termux shell',
-              color: AppColors.glasses,
-              onTap: () => Shell.goTo(context, Shell.terminal),
-            ),
-            ActionTile(
-              icon: Icons.dashboard_customize_rounded,
-              label: 'Look up screen',
-              caption: 'Clock, weather, notes, notifications',
-              color: AppColors.hud,
-              onTap: () => _push(context, const LookUpPage()),
-            ),
-            ActionTile(
-              icon: Icons.drag_indicator_rounded,
-              label: 'Glasses layout',
-              caption: 'Drag and drop what Claude shows',
-              color: AppColors.claude,
-              onTap: () => _push(context, const LayoutPage()),
-            ),
-            ActionTile(
-              icon: Icons.task_alt_rounded,
-              label: 'Work',
-              caption: 'Told when Claude Code is done',
-              color: AppColors.claude,
-              onTap: () => Shell.goTo(context, Shell.work),
-            ),
-            ActionTile(
-              icon: Icons.notes_rounded,
-              label: 'Send text',
-              caption: 'Show any text on the glasses',
-              color: AppColors.ok,
-              onTap: () => _push(context, const TextPage()),
-            ),
-            ActionTile(
-              icon: Icons.notifications_active_rounded,
-              label: 'Notifications',
-              caption: 'Send a notification to the glasses',
-              color: AppColors.warn,
-              onTap: () => _push(context, const NotifyPage()),
-            ),
-            ActionTile(
-              icon: Icons.image_rounded,
-              label: 'Images',
-              caption: 'Show a picture on the display',
-              color: const Color(0xFFB794F6),
-              onTap: () => _push(context, const ImagesPage()),
-            ),
-            ActionTile(
-              icon: Icons.cast_rounded,
-              label: 'Phone screen',
-              caption: 'Mirror your screen to the glasses',
-              color: AppColors.hud,
-              onTap: () => Shell.goTo(context, Shell.screen),
-            ),
-            ActionTile(
-              icon: Icons.layers_clear_rounded,
-              label: 'Clear glasses',
-              caption: 'Back to the glasses dashboard',
-              color: AppColors.muted,
-              onTap: () => suite.display.clear(),
-            ),
-          ];
-          // Fixed height that grows with the phone's text size, so nothing clips.
-          final scale = MediaQuery.textScalerOf(context).scale(1);
-          return GridView(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: cols,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              mainAxisExtent: 92 + 62 * scale,
-            ),
-            children: tiles,
-          );
-        }),
-      ],
+          ],
+        );
+      },
     );
   }
 
   static void _push(BuildContext context, Widget page) =>
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+}
+
+/// Title, plus one tap to see (or fix) the glasses and Claude.
+class _Header extends StatelessWidget {
+  const _Header({required this.suite});
+  final Suite suite;
+
+  void _sheet(BuildContext context, Widget child) => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: AppColors.bg,
+        builder: (_) => SuiteScope(
+          suite: suite,
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), child: child),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final ble = suite.ble;
+    final chat = suite.chat;
+    final (gLabel, gColor) = switch (ble.state) {
+      LinkState.connected => ('Glasses', AppColors.ok),
+      LinkState.connecting => ('Connecting', AppColors.warn),
+      LinkState.scanning => ('Searching', AppColors.glasses),
+      LinkState.disconnected => ('No glasses', AppColors.muted),
+    };
+    final (cLabel, cColor) = switch (chat.state) {
+      BridgeState.online => ('Claude', AppColors.ok),
+      BridgeState.starting => ('Starting', AppColors.warn),
+      BridgeState.offline => ('Claude off', AppColors.error),
+      BridgeState.unknown => ('Checking', AppColors.muted),
+    };
+    return Row(children: [
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ShaderMask(
+            shaderCallback: (r) => const LinearGradient(colors: [AppColors.text, AppColors.glasses]).createShader(r),
+            child: Text('Even Suite',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.6,
+                      color: Colors.white,
+                    )),
+          ),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            _StatusChip(
+              icon: Icons.visibility_rounded,
+              label: gLabel,
+              color: gColor,
+              pulse: ble.state == LinkState.connecting || ble.state == LinkState.scanning,
+              onTap: () => _sheet(context, _GlassesCard(suite: suite)),
+            ),
+            _StatusChip(
+              icon: Icons.auto_awesome_rounded,
+              label: cLabel,
+              color: cColor,
+              pulse: chat.state == BridgeState.starting,
+              onTap: () => _sheet(context, _BridgeCard(suite: suite)),
+            ),
+          ]),
+        ]),
+      ),
+      IconButton.filledTonal(
+        tooltip: 'Settings',
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsPage())),
+        icon: const Icon(Icons.settings_rounded),
+      ),
+    ]);
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.icon, required this.label, required this.color, required this.onTap, this.pulse = false});
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  final bool pulse;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: color.withOpacity(0.12),
+        shape: StadiumBorder(side: BorderSide(color: color.withOpacity(0.35))),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 5, 12, 5),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              StatusPill.dot(color, pulse: pulse),
+              const SizedBox(width: 6),
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12.5)),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// The main thing: talk. Chat or terminal, the big button, where it is at.
+class _TalkHero extends StatelessWidget {
+  const _TalkHero({required this.suite});
+  final Suite suite;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = suite.settings;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) {
+        final terminal = s.target == Target.terminal;
+        final accent = terminal ? AppColors.glasses : AppColors.claude;
+        final hold = switch (s.holdAction) {
+          'chat' => 'Claude chat',
+          'terminal' => 'the terminal',
+          _ => terminal ? 'the terminal' : 'Claude',
+        };
+        return Container(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(26),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [accent.withOpacity(0.24), AppColors.surface, AppColors.surface],
+              stops: const [0, 0.55, 1],
+            ),
+            border: Border.all(color: accent.withOpacity(0.35)),
+            boxShadow: [BoxShadow(color: accent.withOpacity(0.10), blurRadius: 30, offset: const Offset(0, 10))],
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Expanded(
+                child: Text(terminal ? 'Terminal' : 'Ask Claude',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+              ),
+              SegmentedButton<Target>(
+                showSelectedIcon: false,
+                style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                segments: const [
+                  ButtonSegment(value: Target.claude, icon: Icon(Icons.chat_bubble_rounded, size: 16), label: Text('Chat')),
+                  ButtonSegment(value: Target.terminal, icon: Icon(Icons.terminal_rounded, size: 16), label: Text('Code')),
+                ],
+                selected: {s.target},
+                onSelectionChanged: (v) => s.set('target', v.first),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Text(
+              terminal
+                  ? 'What you say is typed into Claude Code in Termux; its steps and answer come back here.'
+                  : 'Ask anything. The answer shows on your glasses and can be read aloud.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 13.5),
+            ),
+            const SizedBox(height: 18),
+            Center(
+              child: TalkButton(
+                voice: suite.voice,
+                talk: suite.conversation,
+                narrator: suite.narrator,
+                size: 92,
+                onTap: () async {
+                  if (suite.narrator.speaking) return suite.stopSpeaking();
+                  await suite.toggleTalk();
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            TalkStatus(
+              voice: suite.voice,
+              talk: suite.conversation,
+              narrator: suite.narrator,
+              target: terminal ? 'the terminal' : 'Claude',
+            ),
+            const SizedBox(height: 14),
+            Row(children: [
+              Icon(Icons.touch_app_rounded, size: 16, color: accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('Or hold the left TouchBar to talk to $hold',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+              ),
+            ]),
+            const SizedBox(height: 10),
+            HandsFreeTile(voice: suite.voice, onChanged: suite.setHandsFree, autoOffMinutes: s.autoOffMinutes),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+class _FeatureCard extends StatelessWidget {
+  const _FeatureCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.caption,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String caption;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: const BorderSide(color: AppColors.outline),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [color.withOpacity(0.14), Colors.transparent],
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  IconBadge(icon, color: color, size: 42),
+                  const Spacer(),
+                  Icon(Icons.north_east_rounded, size: 18, color: color.withOpacity(0.8)),
+                ]),
+                const Spacer(),
+                Text(title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(caption,
+                    style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
+              ]),
+            ),
+          ),
+        ),
+      );
 }
 
 class _GlassesCard extends StatelessWidget {

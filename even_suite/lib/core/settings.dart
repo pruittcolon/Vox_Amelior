@@ -90,6 +90,12 @@ class Settings extends ChangeNotifier {
   bool wordsWhileHolding = true; // while the TouchBar is held: "Termux-Claude listening" and your words
   bool aiStyle = false; // Even AI screen states (the glasses animate every update); plain text when off
   bool doneBlink = true; // a tiny "*" on the glasses for 3 s when Claude is done
+  // Look up: 'custom' = your own layout (drawn by the app), 'dashboard' = the glasses' own
+  String lookMode = 'custom';
+  String lookLayout = ''; // LookLayout JSON ('' = the Split preset)
+  // TouchBar: what a hold and a double tap do
+  String holdAction = 'mode'; // mode (chat or terminal, whichever is on), chat, terminal
+  String doubleTapAction = 'close'; // close, switch (chat <-> terminal), repeat
   // Work: when Claude Code finishes a job
   bool workAlerts = true;
   int workMinSec = 30; // only jobs that took at least this long
@@ -203,6 +209,10 @@ class Settings extends ChangeNotifier {
     wordsWhileHolding = _b(m['wordsWhileHolding'], wordsWhileHolding);
     aiStyle = _b(m['aiStyle'], aiStyle);
     doneBlink = _b(m['doneBlink'], doneBlink);
+    lookMode = _s(m['lookMode'], lookMode);
+    lookLayout = _s(m['lookLayout'], lookLayout);
+    holdAction = _s(m['holdAction'], holdAction);
+    doubleTapAction = _s(m['doubleTapAction'], doubleTapAction);
     workAlerts = _b(m['workAlerts'], workAlerts);
     workMinSec = _i(m['workMinSec'], workMinSec).clamp(0, 3600);
     workPhone = _b(m['workPhone'], workPhone);
@@ -374,6 +384,14 @@ class Settings extends ChangeNotifier {
         aiStyle = value as bool;
       case 'doneBlink':
         doneBlink = value as bool;
+      case 'lookMode':
+        lookMode = value as String;
+      case 'lookLayout':
+        lookLayout = value as String;
+      case 'holdAction':
+        holdAction = value as String;
+      case 'doubleTapAction':
+        doubleTapAction = value as String;
       case 'workAlerts':
         workAlerts = value as bool;
       case 'workMinSec':

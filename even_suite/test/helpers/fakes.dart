@@ -412,6 +412,11 @@ class FakeSystem extends SystemBridge {
 
   @override
   Future<String?> launchTab() async => null;
+
+  int? batteryLevel = 82;
+
+  @override
+  Future<int?> battery() async => batteryLevel;
 }
 
 /// Text-to-speech stand-in: records what was said; finishes each piece at

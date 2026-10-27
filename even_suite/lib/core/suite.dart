@@ -15,6 +15,7 @@ import 'glasses/dashboard.dart';
 import 'glasses/flicker.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
+import 'glasses/look_layout.dart';
 import 'log.dart';
 import 'phone_notifications.dart';
 import 'screen/picture_lab.dart';
@@ -62,7 +63,7 @@ class Suite extends ChangeNotifier {
     // Claude's screen closes by itself, but not while you or the phone are talking.
     display.holdOpen = () => narrator.speaking || voice.dictating || conversation.busy;
     dashboard = Dashboard(proto, weatherService: weather ?? WeatherService(location: system.location))
-      ..paused = () => mirror.running || flicker.running;
+      ..paused = () => mirror.running || flicker.running || display.flashing;
     phone = PhoneNotifications(proto)..onForwarded = dashboard.addPhoneNote;
     voice = VoiceController(
       speech,
@@ -167,6 +168,16 @@ class Suite extends ChangeNotifier {
   Timer? _holdLimit;
   Timer? _mirrorTimer;
   Timer? _terminalWatch;
+  Timer? _lookTimer;
+  DateTime? _lookSince;
+  int? _battery;
+  LookLayout? _lookCache;
+  String _lookKey = '\u0000';
+
+  /// The TouchBar hold talks to this (chat or terminal) instead of the
+  /// current mode, for one message.
+  Target? _sessionTarget;
+  Target get _target => _sessionTarget ?? settings.target;
   bool _aiSession = false; // the current question came from the TouchBar
   bool _micOpen = false;
   bool _lastConnected = false;
@@ -398,10 +409,13 @@ class Suite extends ChangeNotifier {
         }
       case GlassesEvent.exit:
         // Double tap: done with this - quiet, and no follow-up.
-        if (voice.dictating && !voice.followUp) {
+        final wasListening = voice.dictating && !voice.followUp;
+        if (wasListening) {
           _aiSession = false;
+          _sessionTarget = null;
           unawaited(voice.cancel()); // throw away what was being said
         }
+        _stopLook();
         display.onGlassesExit();
         terminal.onGlassesExit();
         unawaited(narrator.stop());
@@ -410,10 +424,16 @@ class Suite extends ChangeNotifier {
         _speakThis = false;
         _spokenQuestion = false;
         conversation.dismiss();
+        if (!wasListening) _doubleTap();
       case GlassesEvent.headUp:
-        dashboard.onHeadUp();
+        if (settings.lookMode == 'custom') {
+          lookUp();
+        } else {
+          dashboard.onHeadUp();
+        }
       case GlassesEvent.headDown:
         dashboard.onHeadDown();
+        _stopLook(close: true);
       case GlassesEvent.evenAiStart:
         if (settings.holdToTalk) {
           _glassesTalk();
@@ -437,6 +457,12 @@ class Suite extends ChangeNotifier {
   /// double tap throws it away.
   Future<void> _glassesTalk() async {
     _aiSession = true;
+    _stopLook();
+    _sessionTarget = switch (settings.holdAction) {
+      'chat' => Target.claude,
+      'terminal' => Target.terminal,
+      _ => null,
+    };
     // The glasses put up their own "Even AI listening" the moment the
     // TouchBar is held (firmware, it cannot be skipped). Ours replaces it
     // first thing, before anything that takes time.
@@ -448,7 +474,7 @@ class Suite extends ChangeNotifier {
     }
     // Holding the TouchBar interrupts whatever is being said.
     await narrator.stop();
-    if (settings.target == Target.claude) unawaited(chat.warm());
+    if (_target == Target.claude) unawaited(chat.warm());
     final useGlassesMic = settings.glassesMic;
     if (useGlassesMic) {
       _micOpen = true;
@@ -577,7 +603,7 @@ class Suite extends ChangeNotifier {
   /// "send" as the way to type it.
   void _showListening(String draft, {bool ai = false, bool touch = false}) {
     final followUp = !touch && voice.followUp;
-    if (settings.target == Target.terminal) {
+    if (_target == Target.terminal) {
       final line = terminalWords(draft, _startWord);
       conversation.listening(line.text,
           level: voice.level.value,
@@ -611,6 +637,7 @@ class Suite extends ChangeNotifier {
   void _onNothingHeard() {
     final ai = _aiSession;
     _aiSession = false;
+    _sessionTarget = null;
     conversation.nothingHeard(ai: ai);
   }
 
@@ -668,8 +695,10 @@ class Suite extends ChangeNotifier {
     }
     _spokenQuestion = spoken ?? voice.lastSpoken;
     _speakThis = settings.speakReplies == 'always' || (settings.speakReplies == 'voice' && _spokenQuestion);
+    final target = _target;
+    _sessionTarget = null;
     try {
-      if (settings.target == Target.terminal) {
+      if (target == Target.terminal) {
         await _toTerminal(t);
       } else {
         _lastQuestion = t;
@@ -932,10 +961,97 @@ class Suite extends ChangeNotifier {
     }
   }
 
+  /// Double tap on the glasses (when nothing was being said): whatever you chose.
+  void _doubleTap() {
+    switch (settings.doubleTapAction) {
+      case 'switch':
+        runCommand(settings.target == Target.terminal ? VoiceCommand.toChat : VoiceCommand.toTerminal);
+      case 'repeat':
+        _showLastReply();
+      default:
+        break; // the glasses already closed the screen
+    }
+  }
+
   /// Where messages go now, shown briefly on the glasses.
   void _modeNotice(String text) {
     conversation.ended();
     if (_glassesFree()) display.notice(text, duration: const Duration(seconds: 4));
+  }
+
+  // -------------------------------------------------------------- look up
+
+  static const lookTitle = 'Look up';
+
+  /// Your layout (from Settings), parsed once per change.
+  LookLayout get lookLayout {
+    if (settings.lookLayout != _lookKey) {
+      _lookKey = settings.lookLayout;
+      _lookCache = LookLayout.parse(settings.lookLayout);
+    }
+    return _lookCache!;
+  }
+
+  /// What the look-up screen shows right now.
+  LookData lookData({DateTime? now}) {
+    final panel = dashboard.panel;
+    final work = dashboard.lastWork;
+    String ago(double ts) {
+      final d = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch((ts * 1000).round()));
+      if (d.inMinutes < 1) return 'just now';
+      if (d.inHours < 1) return '${d.inMinutes} min ago';
+      return '${d.inHours} h ago';
+    }
+
+    return LookData(
+      now: now ?? DateTime.now(),
+      h24: settings.dash24h,
+      fahrenheit: settings.dashFahrenheit,
+      weather: settings.dashWeather ? dashboard.weather : null,
+      claude: [
+        if (panel.title.trim().isNotEmpty) panel.title,
+        ...panel.lines.where((l) => l.trim().isNotEmpty),
+      ],
+      work: work == null ? const [] : ['Done ${ago(work.ts)}: ${work.summary}'],
+      phone: List.of(dashboard.phone),
+      battery: _battery,
+    );
+  }
+
+  bool get _lookShowing => display.mode == DisplayMode.status && display.title == lookTitle;
+
+  /// You looked up: your own layout replaces the glasses' dashboard, and
+  /// keeps the clock and Claude's work fresh while you look.
+  void lookUp({Duration lasts = const Duration(seconds: 45)}) {
+    if (!ble.isConnected || mirror.running || flicker.running) return;
+    // Never over something you are reading, saying or waiting for.
+    if (display.mode != DisplayMode.idle && !_lookShowing) return;
+    if (voice.dictating || conversation.busy) return;
+    _lookSince = DateTime.now();
+    _drawLook(immediate: true);
+    _lookTimer?.cancel();
+    _lookTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_lookShowing || DateTime.now().difference(_lookSince!) > lasts) {
+        _stopLook(close: true);
+        return;
+      }
+      _drawLook();
+    });
+    unawaited(system.battery().then((b) => _battery = b, onError: (_) => null));
+  }
+
+  /// Show your look-up screen now for a few seconds (from the phone).
+  void showLookNow() => lookUp(lasts: const Duration(seconds: 8));
+
+  void _drawLook({bool immediate = false}) {
+    final rows = LookRenderer.render(lookLayout, lookData());
+    display.showStatus(rows.join('\n'), title: lookTitle, raw: true, immediate: immediate);
+  }
+
+  void _stopLook({bool close = false}) {
+    _lookTimer?.cancel();
+    _lookTimer = null;
+    if (close && _lookShowing) unawaited(display.clear());
   }
 
   // --------------------------------------------------------------- termux
@@ -1012,6 +1128,7 @@ class Suite extends ChangeNotifier {
     _holdLimit?.cancel();
     _mirrorTimer?.cancel();
     _terminalWatch?.cancel();
+    _lookTimer?.cancel();
     settings.removeListener(applySettings);
     voice.dispose();
     mirror.dispose();

@@ -8,9 +8,12 @@ import 'package:even_suite/core/bridge/bridge_client.dart';
 import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/glasses/glasses_display.dart';
+import 'package:even_suite/core/glasses/look_layout.dart';
 import 'package:even_suite/core/settings.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/features/flicker/flicker_page.dart';
+import 'package:even_suite/features/lookup/look_designer.dart';
+import 'package:even_suite/features/screen/screen_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
 import 'package:even_suite/main.dart';
 import 'package:even_suite/widgets/glasses_widgets.dart';
@@ -193,36 +196,7 @@ void main() {
       expect(suite.dashboard.lastWork?.id, 'w1');
       await _shot(tester, '4b_work$tag');
 
-      // Terminal tab.
-      w.bridge.screen = 'pruitt@phone:~\$ claude\n'
-          '╭───────────────────────────────╮\n'
-          '│ ✻ Welcome to Claude Code!     │\n'
-          '╰───────────────────────────────╯\n'
-          '> fix the failing test in vox_mobile\n'
-          '● Reading test/search_test.dart…\n'
-          '● Found it: the index runs outside runAsync.\n'
-          '  ⎿ Updated 1 file\n';
-      await tester.tap(find.byIcon(Icons.terminal_outlined));
-      await tester.pump();
-      await _shot(tester, '5_terminal$tag');
-
-      // Screen tab, sharing, with a frame on the glasses.
-      await tester.tap(find.byIcon(Icons.cast_outlined));
-      await tester.pump();
-      await suite.mirror.start();
-      w.screen.frame((x, y) => (y ~/ 12).isOdd && (x ~/ 6) % 7 != 0 && x > 40 && x < 536);
-      await tester.pump();
-      await tester.runAsync(() => precacheImage(
-          MemoryImage(suite.mirror.preview!), tester.element(find.byType(EvenSuiteApp))));
-      await _shot(tester, '5b_screen$tag');
-      suite.settings.set('mirrorRegion', 'custom');
-      await tester.pump();
-      await tester.drag(find.byType(ListView).first, const Offset(0, -500));
-      await _shot(tester, '5c_screen_custom$tag');
-      await suite.mirror.stop();
-      await tester.pump();
-
-      // Tools.
+      // More: every tool, grouped.
       await tester.tap(find.byIcon(Icons.widgets_outlined));
       await tester.pump();
       await _shot(tester, '6_tools$tag');
@@ -239,6 +213,42 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
       }
+
+      Future<void> back() async {
+        await tester.pageBack();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      // Terminal (from More).
+      w.bridge.screen = 'pruitt@phone:~\$ claude\n'
+          '╭───────────────────────────────╮\n'
+          '│ ✻ Welcome to Claude Code!     │\n'
+          '╰───────────────────────────────╯\n'
+          '> fix the failing test in vox_mobile\n'
+          '● Reading test/search_test.dart…\n'
+          '● Found it: the index runs outside runAsync.\n'
+          '  ⎿ Updated 1 file\n';
+      await openTool('Terminal');
+      await _shot(tester, '5_terminal$tag');
+      await back();
+
+      // Phone screen, sharing, with a frame on the glasses.
+      await openTool('Phone screen');
+      await suite.mirror.start();
+      w.screen.frame((x, y) => (y ~/ 12).isOdd && (x ~/ 6) % 7 != 0 && x > 40 && x < 536);
+      await tester.pump();
+      await tester.runAsync(() => precacheImage(
+          MemoryImage(suite.mirror.preview!), tester.element(find.byType(EvenSuiteApp))));
+      await _shot(tester, '5b_screen$tag');
+      suite.settings.set('mirrorRegion', 'custom');
+      await tester.pump();
+      await tester.drag(
+          find.descendant(of: find.byType(ScreenPage), matching: find.byType(ListView)).first, const Offset(0, -500));
+      await _shot(tester, '5c_screen_custom$tag');
+      await suite.mirror.stop();
+      await tester.pump();
+      await back();
 
       // Flicker (lab), running: text and display height switch on the glasses.
       await openTool('Flicker (lab)');
@@ -283,6 +293,7 @@ void main() {
       for (final (label, file) in [
         ('Glasses layout', '15_layout'),
         ('Look up screen', '13_lookup'),
+        ('TouchBar', '17_touchbar'),
         ('Send text', '7_text'),
         ('Notifications', '8_notifications'),
         ('How to talk to it', '9_help'),
@@ -365,6 +376,86 @@ void main() {
     }
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('my look-up layouts, drawn as the glasses will (G1 font spacing)', (tester) async {
+    tester.view.physicalSize = const Size(1152, 272);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    final data = LookData.sample(DateTime(2026, 10, 27, 14, 20));
+    for (final e in LookLayout.presets.entries) {
+      final key = GlobalKey();
+      await tester.pumpWidget(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: RepaintBoundary(
+          key: key,
+          child: ColoredBox(color: const Color(0xFF050A08), child: LookScreen(layout: e.value, data: data)),
+        ),
+      ));
+      await tester.pump();
+      final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(key));
+      await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 2);
+        final png = await image.toByteData(format: ui.ImageByteFormat.png);
+        File('test/screenshots/out/18_look_${e.key}.png')
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(png!.buffer.asUint8List());
+      });
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('look up: my layout replaces the dashboard, looking down closes it', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+    expect(suite.settings.lookMode, 'custom');
+
+    w.glasses.touch(2, 'R'); // head up
+    await tester.pump();
+    await tester.pump();
+    final shown = w.glasses.screens().last;
+    expect(shown.split('\n').length, greaterThanOrEqualTo(5), reason: 'all five rows, laid out with spaces');
+    expect(shown, contains(LookRenderer.date(DateTime.now(), 'short')), reason: 'the Split layout has the date');
+    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x71, reason: 'plain text over the dashboard');
+    await tester.pump(const Duration(seconds: 3));
+    expect(suite.display.title, Suite.lookTitle, reason: 'kept up (and fresh) while you look');
+
+    w.glasses.touch(3, 'R'); // head down
+    await tester.pump();
+    await tester.pump();
+    expect(suite.display.mode, DisplayMode.idle);
+    expect(w.glasses.sent['L']!.last, [0x18]);
+
+    // Not over something you are reading.
+    suite.display.showText('An answer you are reading');
+    await tester.pump();
+    final before = w.glasses.screens().length;
+    w.glasses.touch(2, 'R');
+    await tester.pump();
+    expect(w.glasses.screens().length, before);
+    await suite.display.clear();
+
+    // The glasses' own dashboard instead: nothing of ours.
+    suite.settings.set('lookMode', 'dashboard');
+    final count = w.glasses.screens().length;
+    w.glasses.touch(2, 'R');
+    await tester.pump();
+    expect(w.glasses.screens().length, count);
+
+    // Double tap set to switch chat and terminal.
+    suite.settings.set('doubleTapAction', 'switch');
+    w.glasses.touch(0, 'R');
+    await tester.pump();
+    expect(suite.settings.target, Target.terminal);
+    w.glasses.touch(0, 'R');
+    await tester.pump();
+    expect(suite.settings.target, Target.claude);
+    await tester.pump(const Duration(seconds: 50));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   testWidgets('glasses TouchBar taps page the reply; hold left to talk', (tester) async {
     final w = _World();

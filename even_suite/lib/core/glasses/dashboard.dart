@@ -309,7 +309,12 @@ class Dashboard extends ChangeNotifier {
   /// Send what changed (everything with [force]); [notesOnly] skips the
   /// clock, weather and layout.
   Future<void> sync({bool force = false, bool notesOnly = false}) async {
-    if (!enabled || !_connected || paused()) return;
+    if (!enabled || !_connected) return;
+    if (paused()) {
+      // Something else has the glasses (a flash, sharing the screen): try again soon.
+      markDirty(delay: const Duration(seconds: 3), notesOnly: notesOnly && !force);
+      return;
+    }
     if (syncing) {
       _againNotesOnly = _again ? (_againNotesOnly && notesOnly) : notesOnly;
       _again = true;

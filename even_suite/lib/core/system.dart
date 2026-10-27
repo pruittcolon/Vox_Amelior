@@ -54,6 +54,9 @@ class SystemBridge {
   /// The tab a tapped notification asked for when the app was started by it.
   Future<String?> launchTab() => _invoke<String>('launchTab');
 
+  /// The phone's battery, 0-100 (null when unknown).
+  Future<int?> battery() => _invoke<int>('battery');
+
   Future<T?> _invoke<T>(String method, [Object? args]) async {
     try {
       return await _channel.invokeMethod<T>(method, args);

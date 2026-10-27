@@ -6,8 +6,6 @@ import '../core/log.dart';
 import '../core/suite.dart';
 import '../features/claude/claude_page.dart';
 import '../features/home/home_page.dart';
-import '../features/screen/screen_page.dart';
-import '../features/terminal/terminal_page.dart';
 import '../features/tools/tools_page.dart';
 import '../features/work/work_page.dart';
 import '../widgets/common.dart';
@@ -26,15 +24,16 @@ class SuiteScope extends InheritedWidget {
   bool updateShouldNotify(SuiteScope oldWidget) => suite != oldWidget.suite;
 }
 
-/// Bottom navigation: Home (glasses), Claude, Work, Terminal, Screen, Tools.
+/// Bottom navigation: Home (talk, your glasses), Claude, Work, More (the
+/// terminal, screen sharing and every other tool).
 class Shell extends StatefulWidget {
   const Shell({super.key});
 
   static void goTo(BuildContext context, int tab) =>
       context.findAncestorStateOfType<_ShellState>()?.select(tab);
 
-  static const home = 0, claude = 1, work = 2, terminal = 3, screen = 4, tools = 5;
-  static const names = {'home': home, 'claude': claude, 'work': work, 'terminal': terminal, 'screen': screen, 'tools': tools};
+  static const home = 0, claude = 1, work = 2, more = 3;
+  static const names = {'home': home, 'claude': claude, 'work': work, 'more': more, 'tools': more};
 
   @override
   State<Shell> createState() => _ShellState();
@@ -105,23 +104,20 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               const HomePage(),
               ClaudePage(active: _foreground && _tab == Shell.claude),
               WorkPage(active: _foreground && _tab == Shell.work),
-              TerminalPage(active: _foreground && _tab == Shell.terminal),
-              const ScreenPage(),
               const ToolsPage(),
             ]),
           ),
         ]),
       ),
-      // Six tabs share 360 dp: labels grow with the phone's text size only up
-      // to 1.1x so they stay on one line.
+      // Labels grow with the phone's text size only up to 1.2x so they stay on one line.
       bottomNavigationBar: MediaQuery.withClampedTextScaling(
-        maxScaleFactor: 1.1,
+        maxScaleFactor: 1.2,
         child: NavigationBar(
           selectedIndex: _tab,
           onDestinationSelected: select,
           destinations: [
             const NavigationDestination(
-                icon: Icon(Icons.visibility_outlined), selectedIcon: Icon(Icons.visibility), label: 'Glasses'),
+                icon: Icon(Icons.visibility_outlined), selectedIcon: Icon(Icons.visibility), label: 'Home'),
             const NavigationDestination(
                 icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Claude'),
             NavigationDestination(
@@ -137,10 +133,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               label: 'Work',
             ),
             const NavigationDestination(
-                icon: Icon(Icons.terminal_outlined), selectedIcon: Icon(Icons.terminal), label: 'Terminal'),
-            const NavigationDestination(icon: Icon(Icons.cast_outlined), selectedIcon: Icon(Icons.cast), label: 'Screen'),
-            const NavigationDestination(
-                icon: Icon(Icons.widgets_outlined), selectedIcon: Icon(Icons.widgets), label: 'Tools'),
+                icon: Icon(Icons.widgets_outlined), selectedIcon: Icon(Icons.widgets), label: 'More'),
           ],
         ),
       ),

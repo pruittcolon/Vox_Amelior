@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../ble/ble_manager.dart';
 import '../ble/proto.dart';
 import '../log.dart';
+import 'g1_font.dart';
 import 'glasses_text.dart';
 
 enum DisplayMode { idle, reply, live, mirror, status }
@@ -161,12 +162,24 @@ class GlassesDisplay extends ChangeNotifier {
     });
   }
 
-  /// A tiny sign (e.g. "*" when Claude is done) for [duration], only if the
-  /// glasses show nothing of ours right now.
+  /// A tiny sign (e.g. "*" when Claude is done) for [duration], in the
+  /// middle of the view, only if the glasses show nothing of ours right now.
   bool flash(String text, {Duration duration = const Duration(seconds: 3)}) {
     if (mode != DisplayMode.idle || !_ble.isConnected) return false;
-    notice(text, duration: duration, title: 'Done', raw: true);
+    notice(centered(text), duration: duration, title: flashTitle, raw: true);
     return true;
+  }
+
+  static const flashTitle = 'Done';
+
+  /// A flash is on the glasses right now.
+  bool get flashing => mode == DisplayMode.status && title == flashTitle;
+
+  /// [text] in the middle of the middle row (five lines, so the glasses
+  /// draw it exactly there).
+  static String centered(String text) {
+    final pad = ((576 - G1Font.width(text)) / 2 / 6).floor();
+    return ['', '', '${' ' * pad}$text', '', ''].join('\n');
   }
 
   /// Text that keeps changing (what you are saying): newest lines shown.

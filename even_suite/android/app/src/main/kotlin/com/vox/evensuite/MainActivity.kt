@@ -333,6 +333,11 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "location" -> result.success(lastLocation())
+            "battery" -> {
+                val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+                val level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                result.success(if (level in 0..100) level else null)
+            }
             "launchTab" -> {
                 result.success(launchTab)
                 launchTab = null

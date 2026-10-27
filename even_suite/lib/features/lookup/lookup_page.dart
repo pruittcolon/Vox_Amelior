@@ -8,6 +8,7 @@ import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
 import 'layout_page.dart';
+import 'look_designer.dart';
 
 /// What the glasses show when you look up: clock, weather, layout, and four
 /// notes you pick - Claude's finished jobs, the last answer, your phone's
@@ -68,10 +69,42 @@ class _LookUpPageState extends State<LookUpPage> {
         listenable: Listenable.merge([s, suite.dashboard, suite.phone]),
         builder: (context, _) {
           final slots = s.noteSlots;
-          final dash = suite.dashboard;
+          final custom = s.lookMode == 'custom';
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
             children: [
+              SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: 'custom', icon: Icon(Icons.dashboard_customize_rounded), label: Text('My layout')),
+                  ButtonSegment(value: 'dashboard', icon: Icon(Icons.view_quilt_rounded), label: Text('Built-in')),
+                ],
+                selected: {s.lookMode},
+                onSelectionChanged: (v) => s.set('lookMode', v.first),
+              ),
+              const SizedBox(height: 14),
+              if (custom) const LookDesigner() else ..._dashboard(context, suite),
+              const SizedBox(height: 12),
+              SectionCard(
+                title: 'Clock and weather',
+                icon: Icons.wb_sunny_rounded,
+                iconColor: AppColors.warn,
+                child: _clockAndWeather(context, suite),
+              ),
+              const SizedBox(height: 12),
+              if (!custom && s.dashRight == 'notes') ...[_notes(context, suite, slots), const SizedBox(height: 12)],
+              _notifications(context, suite),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  List<Widget> _dashboard(BuildContext context, Suite suite) {
+    final s = suite.settings;
+    final dash = suite.dashboard;
+    return [
               _Preview(suite: suite, sample: s.dashRight == 'claude' ? _sample : 'live'),
               if (s.dashRight == 'claude') ...[
                 const SizedBox(height: 8),
@@ -156,12 +189,12 @@ class _LookUpPageState extends State<LookUpPage> {
                   label: const Text('Arrange the layout (drag and drop)'),
                 ),
               ],
-              const SizedBox(height: 12),
-              SectionCard(
-                title: 'Clock and weather',
-                icon: Icons.wb_sunny_rounded,
-                iconColor: AppColors.warn,
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    ];
+  }
+
+  Widget _clockAndWeather(BuildContext context, Suite suite) {
+    final s = suite.settings;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Row(children: [
                     Expanded(
                       child: SegmentedButton<bool>(
@@ -209,11 +242,12 @@ class _LookUpPageState extends State<LookUpPage> {
                         FocusScope.of(context).unfocus();
                       },
                     ),
-                ]),
-              ),
-              const SizedBox(height: 12),
-              if (s.dashRight == 'notes')
-              SectionCard(
+                ]);
+  }
+
+  Widget _notes(BuildContext context, Suite suite, List<String> slots) {
+    final s = suite.settings;
+    return SectionCard(
                 title: 'Notes',
                 icon: Icons.sticky_note_2_rounded,
                 iconColor: AppColors.claude,
@@ -246,9 +280,12 @@ class _LookUpPageState extends State<LookUpPage> {
                     ),
                   ],
                 ]),
-              ),
-              const SizedBox(height: 12),
-              SectionCard(
+              );
+  }
+
+  Widget _notifications(BuildContext context, Suite suite) {
+    final s = suite.settings;
+    return SectionCard(
                 title: 'Phone notifications',
                 icon: Icons.notifications_rounded,
                 iconColor: AppColors.glasses,
@@ -306,12 +343,7 @@ class _LookUpPageState extends State<LookUpPage> {
                     ]),
                   ],
                 ]),
-              ),
-            ],
-          );
-        },
-      ),
-    );
+              );
   }
 
   static String _clock(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
