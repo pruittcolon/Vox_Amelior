@@ -261,7 +261,7 @@ class _Entry extends StatelessWidget {
     if (m.isMine) {
       body = Text.rich(
         TextSpan(children: [
-          const TextSpan(text: '❯ ', style: TextStyle(color: AppColors.glasses, fontWeight: FontWeight.w700)),
+          const TextSpan(text: '> ', style: TextStyle(color: AppColors.glasses, fontWeight: FontWeight.w700)),
           TextSpan(text: m.text, style: const TextStyle(color: Color(0xFFBFD3FF))),
         ]),
         style: _mono,
@@ -272,11 +272,11 @@ class _Entry extends StatelessWidget {
       final who = m.who == 'agy' ? 'Antigravity' : 'Claude';
       body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (final s in m.steps)
-          Text('  ⎿ $s', style: _mono.copyWith(color: AppColors.muted, fontSize: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text('   · $s', style: _mono.copyWith(color: AppColors.muted, fontSize: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
         Text.rich(
           TextSpan(children: [
             TextSpan(
-                text: '● ',
+                text: '• ',
                 style: TextStyle(color: m.isError ? AppColors.error : AppColors.claude, fontWeight: FontWeight.w700)),
             TextSpan(text: m.text, style: TextStyle(color: m.isError ? AppColors.error : null)),
           ]),
@@ -354,12 +354,13 @@ class _WorkingState extends State<_Working> with SingleTickerProviderStateMixin 
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
-        const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        // Plain characters every phone font has.
+        const frames = ['|', '/', '-', r'\'];
         final spin = frames[(_c.value * frames.length).floor() % frames.length];
-        final cursor = _c.value < 0.5 ? '▌' : ' ';
+        final cursor = _c.value < 0.5 ? '_' : ' ';
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           for (final s in m.steps)
-            Text('  ⎿ $s',
+            Text('   · $s',
                 style: _Entry._mono.copyWith(color: AppColors.muted, fontSize: 12.5),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
