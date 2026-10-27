@@ -9,6 +9,7 @@ import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
 import '../screen/screen_page.dart';
 import '../settings/settings_page.dart';
+import '../settings/speech_page.dart';
 import '../settings/touchbar_page.dart';
 import '../terminal/terminal_page.dart';
 import 'diagnostics_page.dart';
@@ -60,6 +61,8 @@ class ToolsPage extends StatelessWidget {
               () => pushBody('Terminal', const TerminalPage(active: true))),
           _Tool(Icons.tune_rounded, AppColors.claude, 'Claude and voice',
               'Model, effort, the speaking voice, follow-ups, trigger words', () => ClaudeSettingsSheet.show(context)),
+          _Tool(Icons.graphic_eq_rounded, AppColors.hud, 'Speech engine',
+              'Android, or Parakeet on the phone (fast, accurate, offline)', () => push(const SpeechPage())),
         ]),
         _Group('Labs', [
           _Tool(Icons.swap_vert_rounded, AppColors.glasses, 'Flicker (lab)', 'Text at a high and a low spot, switching',

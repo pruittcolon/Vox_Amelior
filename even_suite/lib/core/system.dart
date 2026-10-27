@@ -54,6 +54,9 @@ class SystemBridge {
   /// The tab a tapped notification asked for when the app was started by it.
   Future<String?> launchTab() => _invoke<String>('launchTab');
 
+  /// Where the app keeps its own files (downloaded speech models).
+  Future<String?> filesDir() => _invoke<String>('filesDir');
+
   /// The phone's battery, 0-100 (null when unknown).
   Future<int?> battery() => _invoke<int>('battery');
 

@@ -20,6 +20,8 @@ object GlassesMic {
     @Volatile private var out: OutputStream? = null
     private var readSide: ParcelFileDescriptor? = null
     @Volatile private var streaming = false
+    /** The app's own recognizer takes the decoded audio directly (no pipe). */
+    @Volatile private var pcmSink: ((ByteArray) -> Unit)? = null
 
     // Diagnostics
     private var statPackets = 0
@@ -65,8 +67,29 @@ object GlassesMic {
         return pipe[0]
     }
 
+    /** Hand decoded 16 kHz PCM to [sink] (Parakeet) until [closePcm]. */
+    fun openPcm(sink: (ByteArray) -> Unit) {
+        pcmSink = sink
+        worker.execute { if (handle == 0L) handle = Lc3.open() }
+    }
+
+    fun closePcm() {
+        pcmSink = null
+    }
+
     /** One 0xF1 packet's audio (200 bytes of LC3). */
     fun onPacket(lc3: ByteArray) {
+        val sink = pcmSink
+        if (sink != null) {
+            worker.execute {
+                if (handle == 0L) return@execute
+                val t0 = System.nanoTime()
+                val pcm = Lc3.decode(handle, lc3)
+                count((System.nanoTime() - t0) / 1000, pcm.size, false)
+                sink(pcm)
+            }
+            return
+        }
         if (!streaming) return
         val o = out ?: return
         worker.execute {

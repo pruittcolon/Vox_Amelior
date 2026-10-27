@@ -415,6 +415,11 @@ class FakeSystem extends SystemBridge {
 
   int? batteryLevel = 82;
 
+  String? files;
+
+  @override
+  Future<String?> filesDir() async => files;
+
   @override
   Future<int?> battery() async => batteryLevel;
 }

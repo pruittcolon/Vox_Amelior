@@ -23,6 +23,8 @@ import 'screen/screen_mirror.dart';
 import 'settings.dart';
 import 'system.dart';
 import 'talk/conversation.dart';
+import 'voice/parakeet_model.dart';
+import 'voice/parakeet_speech.dart';
 import 'voice/speaker.dart';
 import 'voice/speech.dart';
 import 'voice/voice_commands.dart';
@@ -40,8 +42,11 @@ class Suite extends ChangeNotifier {
     ScreenSource? screen,
     Speaker? speaker,
     WeatherService? weather,
-  }) {
+    SpeechModel? speechModel,
+  }) : _speech = speech {
     settings = Settings(system.setPref);
+    this.speechModel = speechModel ?? SpeechModel(system.filesDir);
+    this.speechModel.addListener(_applySpeech);
     ble = BleManager(transport, control: control);
     proto = Proto(ble);
     // Screens go out as fast as the glasses take them (one in flight, the
@@ -111,16 +116,36 @@ class Suite extends ChangeNotifier {
   /// Real phone wiring.
   factory Suite.platform() {
     final ble = PlatformBle();
+    final system = SystemBridge()..init();
+    final model = SpeechModel(system.filesDir);
     return Suite(
-        system: SystemBridge()..init(),
+        system: system,
         transport: ble,
         control: ble,
-        speech: PlatformSpeech(),
+        speech: SwitchableSpeech(PlatformSpeech(), ParakeetSpeech(model)),
+        speechModel: model,
         speaker: PlatformSpeaker());
   }
 
   final SystemBridge system;
+  final SpeechEngine _speech;
   late final Settings settings;
+
+  /// Parakeet's files (downloaded on the Speech engine page).
+  late final SpeechModel speechModel;
+
+  /// The Parakeet recognizer, when this phone can run it.
+  ParakeetSpeech? get parakeet {
+    final s = _speech;
+    if (s is SwitchableSpeech && s.parakeet is ParakeetSpeech) return s.parakeet as ParakeetSpeech;
+    return null;
+  }
+
+  /// Parakeet is the recognizer in use now.
+  bool get usingParakeet {
+    final s = _speech;
+    return s is SwitchableSpeech && s.useParakeet;
+  }
   late final BleManager ble;
   late final Proto proto;
   late final GlassesDisplay display;
@@ -215,6 +240,7 @@ class Suite extends ChangeNotifier {
   Future<void> start() async {
     settings.load(await system.prefs());
     applySettings();
+    unawaited(speechModel.check());
     settings.addListener(applySettings);
     final log = EventLog.instance
       ..client = client
@@ -351,7 +377,27 @@ class Suite extends ChangeNotifier {
     terminal.mirrorIdle = Duration(minutes: settings.autoOffMinutes);
     if (terminal.agent != settings.terminalAgent) terminal.setAgent(settings.terminalAgent);
     system.volumeKeys(settings.volumeKeysScroll);
+    _applySpeech();
     notifyListeners();
+  }
+
+  /// Android's recognizer or Parakeet (once downloaded and picked).
+  void _applySpeech() {
+    final s = _speech;
+    if (s is! SwitchableSpeech) return;
+    final want = settings.speechEngine == 'parakeet' && speechModel.ready;
+    if (want == s.useParakeet) return;
+    s.useParakeet = want;
+    EventLog.add('speech', 'engine', {'parakeet': want});
+    final p = parakeet;
+    if (p != null) {
+      if (want) {
+        unawaited(p.warm().catchError((Object e) => _toast('$e')));
+      } else {
+        unawaited(p.unload());
+      }
+    }
+    unawaited(voice.reconnect());
   }
 
   // -------------------------------------------------------------- glasses
@@ -1129,6 +1175,7 @@ class Suite extends ChangeNotifier {
     _mirrorTimer?.cancel();
     _terminalWatch?.cancel();
     _lookTimer?.cancel();
+    speechModel.removeListener(_applySpeech);
     settings.removeListener(applySettings);
     voice.dispose();
     mirror.dispose();

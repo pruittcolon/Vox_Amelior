@@ -648,6 +648,13 @@ class VoiceController extends ChangeNotifier {
     }
   }
 
+  /// The recognizer changed: listen again with the new one (if listening).
+  Future<void> reconnect() async {
+    if (!listening) return;
+    await _stopListening();
+    if (handsFree || dictating) await _ensureListening();
+  }
+
   Future<void> _stopListening() async {
     if (!listening) return;
     listening = false;

@@ -294,6 +294,7 @@ void main() {
         ('Glasses layout', '15_layout'),
         ('Look up screen', '13_lookup'),
         ('TouchBar', '17_touchbar'),
+        ('Speech engine', '19_speech'),
         ('Send text', '7_text'),
         ('Notifications', '8_notifications'),
         ('How to talk to it', '9_help'),

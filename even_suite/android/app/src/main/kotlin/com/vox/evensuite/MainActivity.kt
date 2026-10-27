@@ -18,6 +18,7 @@ import android.provider.Settings
 import android.view.KeyEvent
 import com.vox.evensuite.ble.BleManager
 import com.vox.evensuite.speech.GlassesMic
+import com.vox.evensuite.speech.PcmRecorder
 import com.vox.evensuite.speech.SpeechEngine
 import com.vox.evensuite.speech.TtsEngine
 import io.flutter.embedding.android.FlutterActivity
@@ -35,6 +36,8 @@ class MainActivity : FlutterActivity() {
     private val screenEvents = Sink()
     private val ttsEvents = Sink()
     private val notifyEvents = Sink()
+    private val pcmEvents = Sink()
+    private var pcm: PcmRecorder? = null
     private var tts: TtsEngine? = null
     private var launchTab: String? = null
     private var pendingScreen: MethodChannel.Result? = null
@@ -89,6 +92,21 @@ class MainActivity : FlutterActivity() {
         }
         EventChannel(messenger, "suite/speechEvents").setStreamHandler(speechEvents)
 
+        // Raw microphone audio for the app's own recognizer (Parakeet).
+        val recorder = PcmRecorder(this) { chunk -> pcmEvents.send(chunk) }
+        pcm = recorder
+        MethodChannel(messenger, "suite/pcm").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> result.success(recorder.start((call.arguments as? Map<*, *>)?.get("source") as? String ?: "phone"))
+                "stop" -> {
+                    recorder.stop()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        EventChannel(messenger, "suite/pcmEvents").setStreamHandler(pcmEvents)
+
         val voice = TtsEngine(this) { event -> ttsEvents.send(event) }
         tts = voice
         MethodChannel(messenger, "suite/tts").setMethodCallHandler { call, result ->
@@ -142,6 +160,7 @@ class MainActivity : FlutterActivity() {
         if (isFinishing) {
             // Swiped away: nothing is left to drive the mic or the glasses.
             speech?.dispose()
+            pcm?.stop()
             tts?.dispose()
             NotifyListener.onPosted = null
             BleManager.listener = null
@@ -333,6 +352,7 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "location" -> result.success(lastLocation())
+            "filesDir" -> result.success(filesDir.absolutePath)
             "battery" -> {
                 val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
                 val level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
