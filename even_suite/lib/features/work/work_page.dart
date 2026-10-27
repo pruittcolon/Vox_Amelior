@@ -133,8 +133,17 @@ class _WorkPageState extends State<WorkPage> {
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
+                  title: const Text('Tiny * on the glasses', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('A "*" for 3 seconds when Claude is done - easy to miss, easy to spot. '
+                      'Every finished job, however short.',
+                      style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                  value: s.doneBlink,
+                  onChanged: (v) => s.set('doneBlink', v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
                   title: const Text('Note on the glasses', style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: const Text('Pops up briefly; also kept for when you look up.',
+                  subtitle: const Text('Pops up briefly (not when the * already showed); also kept for when you look up.',
                       style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                   value: s.workGlasses,
                   onChanged: (v) => s.set('workGlasses', v),

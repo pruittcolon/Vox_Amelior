@@ -8,6 +8,7 @@ import 'package:even_suite/core/bridge/bridge_client.dart';
 import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/glasses/glasses_display.dart';
+import 'package:even_suite/core/settings.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/features/flicker/flicker_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
@@ -386,8 +387,8 @@ void main() {
     expect(w.speech.lastSource, 'phone');
     // (The test font is wider than the glasses' font, so the header may wrap here.)
     expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('Termux-Claude listening'));
-    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x31,
-        reason: 'Even AI screen state, so it takes over from "Even AI listening"');
+    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x71,
+        reason: 'plain text: no Even AI fade-in or scroll bar on every update');
     w.speech.partial('what is the weather');
     await tester.pump(const Duration(milliseconds: 500));
     expect(w.glasses.screens().last, contains('what is the weather'), reason: 'what you say, live');
@@ -398,8 +399,7 @@ void main() {
     expect(w.bridge.sentTexts, ['what is the weather']);
     expect(w.bridge.lastSystem, contains('G1'));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x31,
-        reason: 'thinking screen uses the Even AI state');
+    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x71, reason: 'thinking screen: plain text too');
     w.bridge.addReply('Sunny and 22 degrees.');
     await tester.pump();
     await tester.pump();
@@ -431,6 +431,129 @@ void main() {
     await tester.pump();
     expect(suite.display.pager, isNull);
 
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('say "terminal": Claude Code by voice, "start" and "send" on the glasses', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await suite.chat.check(); // Claude Code's hooks are set up
+    suite.work.apply(const WorkSnapshot(1, []));
+    await tester.pump();
+    String last() => w.glasses.screens().last.replaceAll('\n', ' ');
+
+    // Hold, say "terminal", let go: messages now go to Claude Code in Termux.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    w.glasses.touch(24, 'L');
+    await tester.pump();
+    w.speech.say('terminal', finishing: true);
+    await tester.pump();
+    await tester.pump();
+    expect(suite.settings.target, Target.terminal);
+    expect(last(), contains('Terminal mode'));
+    expect(w.bridge.sentTexts, isEmpty);
+    expect(w.bridge.pasted, isEmpty, reason: 'switching is not typed anywhere');
+    await tester.pump(const Duration(seconds: 5));
+    expect(suite.display.mode, DisplayMode.idle, reason: 'the notice goes away by itself');
+
+    // Hold again: the screen asks for "start", then shows it was heard.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    expect(last(), contains('say "start"'));
+    expect(last(), contains('"send"'));
+    w.speech.partial('start list the files');
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(last(), contains('Terminal [start]'));
+    expect(last(), contains('list the files'));
+    expect(last(), isNot(contains('start list')));
+    // "send" types it straight away.
+    w.speech.say('start list the files send');
+    await tester.pump();
+    await tester.pump();
+    expect(w.bridge.pasted, ['list the files']);
+    expect(last().toLowerCase(), contains('typed'));
+    expect(last(), contains('[send]'));
+    w.glasses.touch(24, 'L');
+    await tester.pump();
+
+    // Claude Code's steps (from its hooks), then its answer, like a chat answer.
+    suite.work.apply(const WorkSnapshot(2, [], [
+      WorkJob(session: 's1', prompt: 'fix the build', step: 'Editing a.dart', steps: 3),
+      WorkJob(session: 's2', prompt: 'list the files', step: 'Running ls', steps: 1),
+    ]));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(last(), contains('Running ls'));
+    expect(last(), isNot(contains('Editing a.dart')), reason: 'another session\'s job is not yours');
+    expect(last(), contains('Claude Code'));
+    suite.work.apply(const WorkSnapshot(3, [
+      WorkItem(id: 'j1', ts: 1, prompt: 'list the files', summary: '3 files', text: 'Three files: a, b, c.', ms: 4000),
+    ]));
+    await tester.pump();
+    await tester.pump();
+    expect(last(), contains('Three files'));
+    expect(w.speaker.said.join(' '), contains('Three files'), reason: 'read aloud, it was spoken');
+    expect(w.bridge.sentTexts, isEmpty, reason: 'nothing went to the chat');
+
+    // "chat" switches back.
+    await suite.submit('back to chat', spoken: true);
+    await tester.pump();
+    expect(suite.settings.target, Target.claude);
+    expect(w.bridge.sentTexts, isEmpty);
+    await tester.pump(const Duration(seconds: 20));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('a tiny "*" for 3 seconds when Claude is done (can be switched off)', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    suite.work.apply(const WorkSnapshot(1, []));
+    await tester.pump();
+
+    const a = WorkItem(id: 'a', ts: 1, prompt: 'fix the bug', summary: 'Fixed it', ms: 60000);
+    suite.work.apply(const WorkSnapshot(2, [a]));
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last.trim(), '*');
+    expect(w.glasses.sent['L']!.where((p) => p[0] == 0x4B), isEmpty, reason: 'no popup on top of the *');
+    expect(w.system.posted.join(), contains('Claude finished'), reason: 'the phone still says so');
+    await tester.pump(const Duration(milliseconds: 3100));
+    await tester.pump();
+    expect(suite.display.mode, DisplayMode.idle);
+    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E || p[0] == 0x18), [0x18],
+        reason: 'gone after 3 seconds');
+
+    // Sent away with a double tap while Claude works: no screens come back, the answer is a "*".
+    await suite.submit('what time is it', spoken: false);
+    await tester.pump();
+    expect(suite.conversation.busy, isTrue);
+    w.glasses.touch(0, 'L');
+    await tester.pump();
+    final shown = w.glasses.screens().length;
+    await tester.pump(const Duration(seconds: 3));
+    expect(w.glasses.screens().length, shown, reason: 'the working screen stays away');
+    w.bridge.addReply('It is noon.');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last.trim(), '*');
+    await tester.pump(const Duration(seconds: 4));
+
+    // Switched off: nothing.
+    suite.settings.set('doneBlink', false);
+    final before = w.glasses.screens().length;
+    suite.work.apply(const WorkSnapshot(3, [a, WorkItem(id: 'b', ts: 2, summary: 'Done again', ms: 1000)]));
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().length, before);
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));

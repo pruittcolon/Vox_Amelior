@@ -12,6 +12,8 @@ import 'package:even_suite/core/glasses/glasses_text.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/core/talk/conversation.dart';
 import 'package:even_suite/core/voice/speaker.dart';
+import 'package:even_suite/core/voice/voice_commands.dart';
+import 'package:even_suite/core/voice/wake_word.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
@@ -107,6 +109,22 @@ void main() {
       expect(Conversation.listeningScreen('', 0, 0), contains('Say your question'));
     });
 
+    test('terminal mode: "start" opens it, "send" types it, both show on screen', () {
+      final wake = WakeWord(const ['start', 'tart', 'starts']);
+      final said = Suite.terminalWords('Start, list the files send', wake);
+      expect(said.started, isTrue);
+      expect(said.text, 'list the files');
+      expect(Suite.terminalWords('git status', wake), (started: false, text: 'git status'));
+      final screen = Conversation.listeningScreen('list the files', 0, 0,
+          header: 'Terminal [start]', footer: 'say "send" to type it');
+      expect(screen.split('\n'), ['Terminal [start]...', 'list the files', 'say "send" to type it']);
+      expect(Suite.sameAsk('list the files', 'List the files.'), isTrue);
+      expect(Suite.sameAsk('list the files', 'fix the build'), isFalse);
+      expect(VoiceCommands.parse('terminal'), VoiceCommand.toTerminal);
+      expect(VoiceCommands.parse('talk to the terminal'), VoiceCommand.toTerminal);
+      expect(VoiceCommands.parse('back to chat'), VoiceCommand.toChat);
+    });
+
     test('a long question is cut to two lines with an ellipsis', () {
       final q = List.filled(40, 'word').join(' ');
       final lines = Conversation.quoteLines(q);
@@ -179,6 +197,23 @@ void main() {
       await settle();
       expect(glasses.screens().last, contains('Sunny and 22 degrees.'));
       expect(talk.stage, TalkStage.idle);
+    });
+
+    test('double tap while Claude works: its screens stay away until the answer', () async {
+      talk.asked('build it');
+      await settle();
+      display.onGlassesExit();
+      talk.dismiss();
+      expect(talk.quiet, isTrue);
+      final shown = glasses.screens().length;
+      talk.progress(claude('q', stage: 'tool', tool: 'Editing a.dart'));
+      await settle();
+      expect(glasses.screens().length, shown, reason: 'not put back up');
+      expect(talk.step, 'Editing a.dart', reason: 'still followed (phone, look-up screen)');
+      final shownOnGlasses = talk.answered(claude('q', status: 'done', stage: 'done', text: 'Built.'));
+      expect(shownOnGlasses, isFalse);
+      expect(talk.stage, TalkStage.idle);
+      expect(talk.quiet, isFalse);
     });
 
     test('an error says so and offers a retry', () async {

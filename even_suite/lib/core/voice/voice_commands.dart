@@ -81,11 +81,14 @@ class VoiceCommands {
       'stop the reply', 'stop that',
     ],
     VoiceCommand.toTerminal: [
-      'terminal', 'switch to terminal', 'terminal mode', 'go to terminal',
-      'use terminal', 'use the terminal',
+      'terminal', 'switch to terminal', 'terminal mode', 'go to terminal', 'go to the terminal',
+      'use terminal', 'use the terminal', 'talk to the terminal', 'talk to terminal', 'open terminal',
+      'open the terminal', 'claude code', 'use claude code', 'switch to claude code', 'termux',
+      'terminal please', 'the terminal',
     ],
     VoiceCommand.toChat: [
-      'chat', 'chat mode', 'switch to chat', 'go to chat', 'use chat',
+      'chat', 'chat mode', 'switch to chat', 'go to chat', 'use chat', 'back to chat', 'go back to chat',
+      'normal mode', 'talk to claude', 'claude chat', 'leave the terminal', 'exit terminal',
     ],
     VoiceCommand.enter: ['enter', 'press enter', 'hit enter', 'return'],
     VoiceCommand.escape: ['escape', 'press escape', 'hit escape'],

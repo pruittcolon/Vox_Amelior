@@ -60,6 +60,21 @@ class Conversation extends ChangeNotifier {
   bool ai = false;
   DateTime? sentAt;
 
+  /// Who is answering ("Claude", or "Claude Code" in terminal mode).
+  String who = 'Claude';
+  String _gotIt = 'Got it';
+  DateTime _lastProgress = DateTime.now();
+
+  /// No sign of life for this long while waiting: say so instead of waiting forever.
+  Duration giveUpAfter = const Duration(minutes: 10);
+
+  String _header = 'Termux-Claude listening';
+  String _footer = '';
+
+  /// Sent away with a double tap while Claude works: it carries on without
+  /// putting its screens back up.
+  bool quiet = false;
+
   /// The answer on its way (or the last one).
   BridgeMessage? reply;
 
@@ -68,8 +83,8 @@ class Conversation extends ChangeNotifier {
   Timer? _nothingTimer;
   DateTime? _gotItUntil;
 
-  /// The listening screen belongs to a TouchBar hold: keep the Even AI
-  /// screen states, so it replaces the glasses' own "Even AI listening".
+  /// The listening screen belongs to a TouchBar hold (Even AI screen states,
+  /// when those are switched on).
   bool _listenAi = false;
 
   /// How the "Claude is working" screen is arranged (Glasses layout page).
@@ -86,21 +101,30 @@ class Conversation extends ChangeNotifier {
 
   /// What you have said so far. In a follow-up the answer stays on the
   /// glasses until you actually start talking.
-  void listening(String text, {double level = 0, bool followUp = false, bool ai = false}) {
+  void listening(String text,
+      {double level = 0,
+      bool followUp = false,
+      bool ai = false,
+      String header = 'Termux-Claude listening',
+      String footer = ''}) {
     draft = text;
     this.level = level;
+    _header = header;
+    _footer = footer;
     if (followUp && text.trim().isEmpty) {
       _set(TalkStage.followUp);
       return;
     }
     _nothingTimer?.cancel();
+    quiet = false;
     final first = stage != TalkStage.listening;
     _listenAi = ai;
     _set(TalkStage.listening);
     _startTick(const Duration(milliseconds: 600));
     if (first && _canShow) {
       // At once: this is what replaces the glasses' own listening screen.
-      display.showStatus(listeningScreen(draft, level, _frame), title: 'Listening', ai: _listenAi, immediate: true);
+      display.showStatus(listeningScreen(draft, level, _frame, header: _header, footer: _footer),
+          title: 'Listening', ai: _listenAi, immediate: true);
     } else {
       _draw();
     }
@@ -132,13 +156,18 @@ class Conversation extends ChangeNotifier {
 
   // --------------------------------------------------------------- asking
 
-  void asked(String text, {bool ai = false}) {
+  void asked(String text,
+      {bool ai = false, String who = 'Claude', String gotIt = 'Got it', String firstStep = 'Sending'}) {
     _nothingTimer?.cancel();
     question = text.trim();
     this.ai = ai;
+    this.who = who;
+    _gotIt = gotIt;
     sentAt = DateTime.now();
+    _lastProgress = sentAt!;
     _gotItUntil = sentAt!.add(gotItTime);
-    step = 'Sending';
+    quiet = false;
+    step = firstStep;
     steps = const [];
     error = '';
     reply = null;
@@ -149,8 +178,32 @@ class Conversation extends ChangeNotifier {
     if (_canShow) display.showStatus(workingScreen(), title: 'Claude', ai: ai, immediate: true);
   }
 
+  /// Progress from a Claude Code job in the terminal (the Work hooks).
+  void externalProgress(String stepText, List<String> stepList) {
+    _lastProgress = DateTime.now();
+    step = stepText.isEmpty ? 'Thinking' : stepText;
+    steps = stepList;
+    _set(TalkStage.working);
+    _draw();
+    notifyListeners();
+  }
+
+  /// The answer of a Claude Code job in the terminal. False when it was not
+  /// put on the glasses (sent away with a double tap meanwhile).
+  bool externalAnswer(String text, {String title = 'Claude Code'}) {
+    _stopTick();
+    step = 'Done';
+    final wasQuiet = quiet;
+    quiet = false;
+    _set(TalkStage.idle);
+    if (wasQuiet) return false;
+    if (_canShow) display.updateReply(text, title: title, ai: ai, done: true);
+    return true;
+  }
+
   /// Claude's progress on the answer.
   void progress(BridgeMessage m) {
+    _lastProgress = DateTime.now();
     reply = m;
     steps = m.steps;
     step = switch (m.stage) {
@@ -164,7 +217,7 @@ class Conversation extends ChangeNotifier {
     };
     if (m.stage == 'writing' && m.live.trim().isNotEmpty) {
       _set(TalkStage.answering);
-      if (_canShow) display.updateReply(m.live, title: 'Claude', ai: ai);
+      if (_canShow && !quiet) display.updateReply(m.live, title: 'Claude', ai: ai);
     } else {
       _set(TalkStage.working);
       _draw();
@@ -172,26 +225,32 @@ class Conversation extends ChangeNotifier {
     notifyListeners(); // the answer so far (the look-up screen follows it)
   }
 
-  /// The finished answer (or Claude's error).
-  void answered(BridgeMessage m) {
+  /// The finished answer (or Claude's error). False when it was not put on
+  /// the glasses because they were sent away with a double tap meanwhile.
+  bool answered(BridgeMessage m) {
     reply = m;
     steps = m.steps;
     _stopTick();
+    final wasQuiet = quiet;
+    quiet = false;
     if (m.isError) {
       failed(m.text);
-      return;
+      return true;
     }
     step = 'Done';
     _set(TalkStage.idle);
+    if (wasQuiet) return false;
     if (_canShow) display.updateReply(m.text, title: 'Claude', ai: ai, done: true);
+    return true;
   }
 
   void failed(String why) {
     _stopTick();
     error = why.trim().isEmpty ? 'No answer' : why.trim();
+    quiet = false;
     _set(TalkStage.error);
     if (_canShow) {
-      display.showStatus('Claude did not answer\n${_short(error, 90)}\nTap right to try again',
+      display.showStatus('$who did not answer\n${_short(error, 90)}\nTap right to try again',
           title: 'Claude', ai: ai);
     }
   }
@@ -205,15 +264,26 @@ class Conversation extends ChangeNotifier {
     if (stage != TalkStage.error) _set(TalkStage.idle);
   }
 
+  /// Double tap on the glasses: our screen is gone. A question still on its
+  /// way carries on quietly (no screens until the next question).
+  void dismiss() {
+    if (busy) {
+      quiet = true;
+      return;
+    }
+    ended();
+  }
+
   // -------------------------------------------------------------- screens
 
   bool get _canShow => canShow();
 
   void _draw() {
-    if (!_canShow) return;
+    if (!_canShow || quiet) return;
     switch (stage) {
       case TalkStage.listening:
-        display.showStatus(listeningScreen(draft, level, _frame), title: 'Listening', ai: _listenAi);
+        display.showStatus(listeningScreen(draft, level, _frame, header: _header, footer: _footer),
+            title: 'Listening', ai: _listenAi);
       case TalkStage.sent:
       case TalkStage.working:
         display.showStatus(workingScreen(), title: 'Claude', ai: ai);
@@ -227,11 +297,16 @@ class Conversation extends ChangeNotifier {
   /// "Termux-Claude listening..." (the dots go ... .. . .. ...), then the
   /// last lines you said. Plain text: it is redrawn a few times a second.
   @visibleForTesting
-  static String listeningScreen(String draft, double level, int frame) {
+  static String listeningScreen(String draft, double level, int frame,
+      {String header = 'Termux-Claude listening', String footer = ''}) {
     final said = GlassesText.wrap(GlassesText.clean(draft));
-    final tail = said.length > 4 ? said.sublist(said.length - 4) : said;
-    return ['Termux-Claude listening${_dots[frame % _dots.length]}', if (tail.isEmpty) 'Say your question' else ...tail]
-        .join('\n');
+    final room = footer.isEmpty ? 4 : 3;
+    final tail = said.length > room ? said.sublist(said.length - room) : said;
+    return [
+      '$header${_dots[frame % _dots.length]}',
+      if (tail.isEmpty && footer.isEmpty) 'Say your question' else ...tail,
+      if (footer.isNotEmpty) footer,
+    ].join('\n');
   }
 
   /// "Got it" / "Claude · 4s ..", your question, then what Claude is doing
@@ -241,12 +316,12 @@ class Conversation extends ChangeNotifier {
     final t = now ?? DateTime.now();
     final secs = sentAt == null ? 0 : t.difference(sentAt!).inSeconds;
     if (_gotItUntil != null && t.isBefore(_gotItUntil!)) {
-      return ['Got it', ...quoteLines(question)].join('\n');
+      return [_gotIt, ...quoteLines(question)].join('\n');
     }
     return [
       for (final r in workingRows(
         layout: layout,
-        status: 'Claude · ${secs}s ${_dots[_frame % _dots.length]}',
+        status: '$who · ${secs}s ${_dots[_frame % _dots.length]}',
         question: question,
         step: step,
         steps: steps,
@@ -321,6 +396,10 @@ class Conversation extends ChangeNotifier {
       if (stage == TalkStage.listening || stage == TalkStage.sent || stage == TalkStage.working) {
         if (stage == TalkStage.sent && _gotItUntil != null && DateTime.now().isAfter(_gotItUntil!)) {
           stage = TalkStage.working;
+        }
+        if (stage != TalkStage.listening && DateTime.now().difference(_lastProgress) > giveUpAfter) {
+          failed('No answer yet. Is Termux running? (type even)');
+          return;
         }
         _draw();
         notifyListeners(); // elapsed time on the phone

@@ -97,6 +97,13 @@ class SettingsPage extends StatelessWidget {
                 s.wordsWhileHolding,
                 (v) => s.set('wordsWhileHolding', v),
               ),
+              _Switch(
+                'Even AI style screens (animated)',
+                'Off: Claude’s screens are plain text, drawn at once. On: the glasses’ own Even AI look, which '
+                    'fades in and adds a scroll bar on every update.',
+                s.aiStyle,
+                (v) => s.set('aiStyle', v),
+              ),
               const SizedBox(height: 8),
               const _Label('Speech recognizer'),
               SegmentedButton<String>(
@@ -122,6 +129,9 @@ class SettingsPage extends StatelessWidget {
                   s.repliesOnGlasses, (v) => s.set('repliesOnGlasses', v)),
               _Switch('Volume keys page the glasses', 'While the app is open: volume up = up, down = down.',
                   s.volumeKeysScroll, (v) => s.set('volumeKeysScroll', v)),
+              _Switch('Tiny * when Claude is done', 'A "*" on the glasses for 3 seconds when a Claude Code job '
+                  'finishes (or an answer you sent away with a double tap is ready).',
+                  s.doneBlink, (v) => s.set('doneBlink', v)),
               const SizedBox(height: 8),
               const _Label('Teleprompter: replies turn their own pages'),
               Wrap(spacing: 8, runSpacing: 8, children: [

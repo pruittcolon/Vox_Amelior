@@ -28,6 +28,9 @@ class WorkController extends ChangeNotifier {
 
   void Function(WorkItem item)? onDone;
 
+  /// Every newly finished job, however quick (for answers you are waiting on).
+  void Function(WorkItem item)? onFinished;
+
   /// The jobs in progress changed (a job started, took a step, or ended).
   void Function(List<WorkJob> active)? onActive;
 
@@ -93,6 +96,7 @@ class WorkController extends ChangeNotifier {
     active = snap.active;
     if (active.map((j) => j.key).join(',') != activeKey) onActive?.call(active);
     for (final item in fresh) {
+      onFinished?.call(item);
       // A message (`glasses "..."`) is always news; a job only if it took a while.
       if (!item.isMessage && item.took < minDuration) continue;
       unread++;

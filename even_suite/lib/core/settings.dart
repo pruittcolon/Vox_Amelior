@@ -88,6 +88,8 @@ class Settings extends ChangeNotifier {
   int pauseMs = 1500; // the pause that ends what you say
   String wakeStrict = 'normal'; // relaxed, normal, strict
   bool wordsWhileHolding = true; // while the TouchBar is held: "Termux-Claude listening" and your words
+  bool aiStyle = false; // Even AI screen states (the glasses animate every update); plain text when off
+  bool doneBlink = true; // a tiny "*" on the glasses for 3 s when Claude is done
   // Work: when Claude Code finishes a job
   bool workAlerts = true;
   int workMinSec = 30; // only jobs that took at least this long
@@ -199,6 +201,8 @@ class Settings extends ChangeNotifier {
     pauseMs = _i(m['pauseMs'], pauseMs).clamp(700, 4000);
     wakeStrict = _s(m['wakeStrict'], wakeStrict);
     wordsWhileHolding = _b(m['wordsWhileHolding'], wordsWhileHolding);
+    aiStyle = _b(m['aiStyle'], aiStyle);
+    doneBlink = _b(m['doneBlink'], doneBlink);
     workAlerts = _b(m['workAlerts'], workAlerts);
     workMinSec = _i(m['workMinSec'], workMinSec).clamp(0, 3600);
     workPhone = _b(m['workPhone'], workPhone);
@@ -366,6 +370,10 @@ class Settings extends ChangeNotifier {
         wakeStrict = value as String;
       case 'wordsWhileHolding':
         wordsWhileHolding = value as bool;
+      case 'aiStyle':
+        aiStyle = value as bool;
+      case 'doneBlink':
+        doneBlink = value as bool;
       case 'workAlerts':
         workAlerts = value as bool;
       case 'workMinSec':

@@ -47,19 +47,27 @@ class GlassesDisplay extends ChangeNotifier {
   /// is working): it waits.
   bool Function() holdOpen = () => false;
 
-  /// The reply answers a TouchBar question: use the Even AI screen states
-  /// (0x30 scrolling, 0x40 last page, 0x50 manual) like the demo.
+  /// Use the Even AI screen states for TouchBar answers. Off by default: in
+  /// those states the glasses fade every update in (8 steps) and add a scroll
+  /// bar, which looks jumpy for screens that change often. Plain text (0x70)
+  /// is drawn as it is.
+  bool aiStates = false;
+
+  /// The reply answers a TouchBar question: with [aiStates], use the Even AI
+  /// screen states (0x30 scrolling, 0x40 last page, 0x50 manual) like the demo.
   bool ai = false;
 
   bool _manual = false;
   bool _streaming = false;
   bool _sending = false;
   bool _dirty = false;
+  bool _exitPending = false; // clear() came while a screen was still going out
   String _shownKey = '';
   DateTime _lastSend = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _throttle;
   Timer? _auto;
   Timer? _close;
+  Timer? _notice;
   bool _wasConnected = false;
 
   static const wpmChoices = [0, 140, 180, 230];
@@ -137,6 +145,26 @@ class GlassesDisplay extends ChangeNotifier {
     this.title = title;
     this.ai = ai;
     _schedule(immediate: immediate);
+  }
+
+  /// A short notice that goes away by itself after [duration] (unless
+  /// something else is shown meanwhile).
+  void notice(String text, {Duration duration = const Duration(seconds: 4), String title = 'Notice'}) {
+    showStatus(text, title: title, immediate: true);
+    final shown = pager;
+    _notice?.cancel();
+    _notice = Timer(duration, () {
+      _notice = null;
+      if (identical(pager, shown) && mode == DisplayMode.status) clear();
+    });
+  }
+
+  /// A tiny sign (e.g. "*" when Claude is done) for [duration], only if the
+  /// glasses show nothing of ours right now.
+  bool flash(String text, {Duration duration = const Duration(seconds: 3)}) {
+    if (mode != DisplayMode.idle || !_ble.isConnected) return false;
+    notice(text, duration: duration, title: 'Done');
+    return true;
   }
 
   /// Text that keeps changing (what you are saying): newest lines shown.
@@ -278,11 +306,14 @@ class GlassesDisplay extends ChangeNotifier {
     });
   }
 
-  /// Clear the glasses (back to their dashboard).
+  /// Clear the glasses (back to their dashboard). Goes out after a screen
+  /// still being sent, never before it (or that screen would stay up).
   Future<void> clear() async {
     _reset();
     notifyListeners();
-    if (_ble.isConnected) await proto.exit();
+    if (!_ble.isConnected) return;
+    _exitPending = true;
+    await _render();
   }
 
   /// The user double-tapped on the glasses: they already left our screen.
@@ -343,6 +374,7 @@ class GlassesDisplay extends ChangeNotifier {
   }
 
   void _schedule({bool immediate = false}) {
+    _exitPending = false; // a new screen replaces the dashboard anyway
     _armClose();
     notifyListeners();
     if (!_ble.isConnected) return;
@@ -368,8 +400,15 @@ class GlassesDisplay extends ChangeNotifier {
     try {
       do {
         _dirty = false;
-        await _sendCurrent();
-      } while (_dirty && mode != DisplayMode.idle);
+        if (mode == DisplayMode.idle) {
+          if (_exitPending && _ble.isConnected) {
+            _exitPending = false;
+            await proto.exit();
+          }
+        } else {
+          await _sendCurrent();
+        }
+      } while (_dirty);
     } finally {
       _sending = false;
     }
@@ -377,7 +416,7 @@ class GlassesDisplay extends ChangeNotifier {
 
   /// 0x4E screen status for what is shown.
   int get _status {
-    if (!ai) return Proto.textShow;
+    if (!ai || !aiStates) return Proto.textShow;
     if (mode == DisplayMode.status) return Proto.aiShowing;
     if (mode != DisplayMode.reply) return Proto.textShow;
     final p = pager!;
@@ -400,7 +439,7 @@ class GlassesDisplay extends ChangeNotifier {
     var tried = 0;
     final sw = Stopwatch()..start();
     for (var i = 0; i < tries && !ok; i++) {
-      if (_dirty) return; // something newer is waiting
+      if (_dirty || !identical(pager, p)) return; // something newer is waiting (or it was closed)
       tried++;
       ok = await proto.sendEvenAIData(screen,
           newScreen: Proto.newScreen(status),
@@ -433,6 +472,7 @@ class GlassesDisplay extends ChangeNotifier {
     _throttle?.cancel();
     _auto?.cancel();
     _close?.cancel();
+    _notice?.cancel();
     super.dispose();
   }
 }

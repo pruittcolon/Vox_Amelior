@@ -79,9 +79,11 @@ class Suite extends ChangeNotifier {
     chat.onReply = _onReply;
     chat.onProgress = _onProgress;
     work.onDone = _onWorkDone;
+    work.onFinished = _onJobFinished;
     work.onActive = (jobs) {
       dashboard.jobs = jobs;
       dashboard.workChanged();
+      _followTerminalJob(jobs);
     };
     conversation.addListener(_onTalkChanged);
     narrator.onDone = _onSpoken;
@@ -157,6 +159,7 @@ class Suite extends ChangeNotifier {
   Timer? _liveCleanup;
   Timer? _holdLimit;
   Timer? _mirrorTimer;
+  Timer? _terminalWatch;
   bool _aiSession = false; // the current question came from the TouchBar
   bool _micOpen = false;
   bool _lastConnected = false;
@@ -167,6 +170,15 @@ class Suite extends ChangeNotifier {
   String _lastQuestion = '';
   String _voiceKey = '';
   int _workNotice = 0;
+
+  /// A line typed into Claude Code by voice: its steps and answer come back
+  /// through the Work hooks and are shown like a chat answer.
+  String? _terminalAsk;
+
+  /// "start" (and your wake words) at the front of a terminal message.
+  WakeWord _startWord = WakeWord(Settings.defaultWakeWords);
+  String _shownJob = ''; // finished job already shown as an answer (no second popup)
+  String _blinkedJob = ''; // finished job already told with the "*" (no popup on top)
 
   /// Short messages for the UI (shown as a snackbar).
   final toasts = StreamController<String>.broadcast();
@@ -213,14 +225,16 @@ class Suite extends ChangeNotifier {
 
   void applySettings() {
     if (client.baseUrl != settings.bridgeUrl) client.baseUrl = settings.bridgeUrl;
+    _startWord = WakeWord({...Settings.defaultWakeWords, ...settings.wakeWords});
     voice
       ..wake = WakeWord(settings.wakeWords, settings.wakeStrictness)
       ..autoOff = Duration(minutes: settings.autoOffMinutes)
       ..quiet = settings.quietChime
       ..language = settings.language
       ..engineName = settings.recognizer
-      ..autoSend = settings.autoSend
-      ..wakeAutoSend = settings.wakeAutoSend
+      // Typing into the terminal waits for "send" (or letting go of the TouchBar).
+      ..autoSend = settings.autoSend && settings.target == Target.claude
+      ..wakeAutoSend = settings.wakeAutoSend && settings.target == Target.claude
       ..silenceMs = settings.pauseMs;
     chat.options = settings.claudeOptions;
     narrator.enabled = settings.speakReplies != 'off';
@@ -236,6 +250,7 @@ class Suite extends ChangeNotifier {
     work.minDuration = Duration(seconds: settings.workMinSec);
     conversation.layout = PanelLayout.parse(settings.screenLayout, base: PanelLayout.working);
     display.closeAfter = settings.closeAfterSec == 0 ? null : Duration(seconds: settings.closeAfterSec);
+    display.aiStates = settings.aiStyle;
     final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.layout}|${dashboard.h24}|${dashboard.fahrenheit}|'
         '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
     dashboard
@@ -377,13 +392,21 @@ class Suite extends ChangeNotifier {
         terminal.onGlassesExit();
         unawaited(narrator.stop());
         unawaited(voice.endFollowUp());
-        conversation.ended();
+        // Nothing read aloud and no follow-up for a question still on its way.
+        _speakThis = false;
+        _spokenQuestion = false;
+        conversation.dismiss();
       case GlassesEvent.headUp:
         dashboard.onHeadUp();
       case GlassesEvent.headDown:
         dashboard.onHeadDown();
       case GlassesEvent.evenAiStart:
-        if (settings.holdToTalk) _glassesTalk();
+        if (settings.holdToTalk) {
+          _glassesTalk();
+        } else {
+          // Never leave the glasses' own "Even AI listening" up with nothing behind it.
+          unawaited(display.clear());
+        }
       case GlassesEvent.evenAiEnd:
         _glassesRelease();
     }
@@ -392,19 +415,23 @@ class Suite extends ChangeNotifier {
   /// Left TouchBar held (the glasses' Even AI gesture): talk to Claude.
   /// Uses the glasses' own microphone when the phone supports it.
   Future<void> _glassesTalk() async {
-    if (!await _micAllowed()) return;
+    _aiSession = true;
+    // The glasses put up their own "Even AI listening" the moment the
+    // TouchBar is held (firmware, it cannot be skipped). Ours replaces it
+    // first thing, before anything that takes time.
+    if (settings.wordsWhileHolding) _showListening('', ai: true, hold: true);
+    if (!await _micAllowed()) {
+      _aiSession = false;
+      conversation.listeningStopped();
+      return;
+    }
     // Holding the TouchBar interrupts whatever is being said.
     await narrator.stop();
-    unawaited(chat.warm());
-    _aiSession = true;
+    if (settings.target == Target.claude) unawaited(chat.warm());
     final useGlassesMic = settings.glassesMic;
     if (useGlassesMic) {
       _micOpen = true;
       unawaited(proto.micOn(true));
-    }
-    // "Termux-Claude listening" replaces the glasses' "Even AI listening" right away.
-    if (settings.wordsWhileHolding && settings.target == Target.claude) {
-      conversation.listening('', ai: true);
     }
     await voice.startDictation(hold: true, source: useGlassesMic ? 'glasses' : 'phone');
     // Same 30 s cap as the demo, in case the release never arrives.
@@ -512,24 +539,47 @@ class Suite extends ChangeNotifier {
     // writing to the display then could interrupt the microphone (unless
     // the test setting asks for it).
     if (voice.holding && !settings.wordsWhileHolding) return;
+    _showListening(draft, ai: voice.holding || _aiSession, hold: voice.holding);
+  }
+
+  /// The listening screen: "Termux-Claude listening" and your words, or in
+  /// terminal mode "Terminal - say "start"" / "Terminal [start]" with
+  /// "send" as the way to type it.
+  void _showListening(String draft, {bool ai = false, bool hold = false}) {
+    final followUp = !hold && voice.followUp;
     if (settings.target == Target.terminal) {
-      if (!ble.isConnected && display.mode == DisplayMode.idle) return;
-      display.showLive(draft.isEmpty ? 'Listening...\nSay your message, then "send".' : draft,
-          title: 'To Terminal');
+      final line = terminalWords(draft, _startWord);
+      conversation.listening(line.text,
+          level: voice.level.value,
+          followUp: followUp,
+          ai: ai,
+          header: line.started || voice.wakeStarted ? 'Terminal [start]' : 'Terminal - say "start"',
+          footer: hold ? 'say "send" or let go' : 'say "send" to type it');
       return;
     }
-    conversation.listening(draft, level: voice.level.value, followUp: voice.followUp, ai: voice.holding || _aiSession);
+    conversation.listening(draft, level: voice.level.value, followUp: followUp, ai: ai);
+  }
+
+  /// What goes to the terminal: without a leading "start" (the word that
+  /// opens a terminal message) and a trailing "send".
+  static ({bool started, String text}) terminalWords(String said, WakeWord wake) {
+    var text = said.trim();
+    var started = false;
+    final m = wake.find(text);
+    if (m != null && m.start == 0) {
+      started = true;
+      text = m.rest;
+    }
+    final ending = VoiceCommands.splitEnding(text);
+    if (ending.command == VoiceCommand.send) text = ending.body;
+    return (started: started, text: text.trim());
   }
 
   /// Let go without saying anything: never leave the glasses on a listening screen.
   void _onNothingHeard() {
     final ai = _aiSession;
     _aiSession = false;
-    if (settings.target == Target.claude) {
-      conversation.nothingHeard(ai: ai);
-    } else if (ble.isConnected && display.mode == DisplayMode.live) {
-      display.clear();
-    }
+    conversation.nothingHeard(ai: ai);
   }
 
   void _onVoiceChanged() {
@@ -542,7 +592,8 @@ class Suite extends ChangeNotifier {
     if (!voice.dictating && (display.mode == DisplayMode.live || conversation.stage == TalkStage.listening)) {
       _liveCleanup?.cancel();
       _liveCleanup = Timer(const Duration(milliseconds: 600), () {
-        if (voice.dictating) return;
+        // Still taking it down, or a message is on its way ("Got it" replaces it).
+        if (voice.dictating || voice.sending) return;
         if (display.mode == DisplayMode.live) display.clear();
         conversation.listeningStopped();
       });
@@ -572,25 +623,125 @@ class Suite extends ChangeNotifier {
     final t = text.trim();
     if (t.isEmpty) return;
     HapticFeedback.lightImpact();
-    await narrator.stop();
+    // "terminal" / "chat" said on its own switches where messages go.
+    final mode = VoiceCommands.parse(t);
+    if (mode == VoiceCommand.toTerminal || mode == VoiceCommand.toChat) {
+      _aiSession = false;
+      runCommand(mode!);
+      return;
+    }
+    _spokenQuestion = spoken ?? voice.lastSpoken;
+    _speakThis = settings.speakReplies == 'always' || (settings.speakReplies == 'voice' && _spokenQuestion);
     try {
       if (settings.target == Target.terminal) {
-        await terminal.sendLine(t);
-        if (settings.repliesOnGlasses && ble.isConnected) terminal.setMirror(true);
+        await _toTerminal(t);
       } else {
         _lastQuestion = t;
-        _spokenQuestion = spoken ?? voice.lastSpoken;
-        _speakThis = settings.speakReplies == 'always' || (settings.speakReplies == 'voice' && _spokenQuestion);
+        _terminalAsk = null;
         chat.system = glassesPrimer();
         chat.options = settings.claudeOptions;
+        // "Got it" first: the glasses answer at once, the rest can take a moment.
         conversation.asked(t, ai: _aiSession);
+        unawaited(narrator.stop());
         await chat.send(t);
       }
     } catch (e) {
       _toast('$e');
       conversation.failed('$e');
       _aiSession = false;
+      _terminalAsk = null;
     }
+  }
+
+  /// Type a line into the terminal. With Claude Code there and its hooks set
+  /// up, its steps and answer show on the glasses like a chat answer;
+  /// otherwise the terminal screen is mirrored.
+  Future<void> _toTerminal(String said) async {
+    final line = terminalWords(said, _startWord).text;
+    if (line.isEmpty) {
+      _onNothingHeard();
+      return;
+    }
+    // The hooks report Claude Code's steps and answer (Work tab).
+    final follow = terminal.agent == 'claude' && (chat.hub?.hook == true || work.items.any((i) => !i.isMessage));
+    if (follow) {
+      _terminalAsk = line;
+      conversation.asked(line,
+          ai: _aiSession, who: 'Claude Code', gotIt: '[send] typed into Claude Code', firstStep: _typedStep);
+    } else {
+      conversation.ended();
+    }
+    unawaited(narrator.stop());
+    await terminal.sendLine(line);
+    _aiSession = false;
+    if (!follow) {
+      if (settings.repliesOnGlasses && ble.isConnected) terminal.setMirror(true);
+      return;
+    }
+    // Claude Code never picked it up (not at its prompt, hooks off): show
+    // the terminal itself instead of waiting.
+    _terminalWatch?.cancel();
+    _terminalWatch = Timer(const Duration(seconds: 20), () {
+      if (_terminalAsk != line || !conversation.busy || conversation.step != _typedStep) return;
+      _terminalAsk = null;
+      conversation.ended();
+      if (_glassesFree()) terminal.setMirror(true);
+    });
+  }
+
+  static const _typedStep = '[send] typed it in';
+
+  /// The Claude Code job started by [_terminalAsk] (matched by its prompt).
+  static bool sameAsk(String asked, String prompt) {
+    String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+    final a = norm(asked), p = norm(prompt);
+    if (a.isEmpty || p.isEmpty) return false;
+    final n = a.length < 40 ? a.length : 40;
+    return p.startsWith(a.substring(0, n)) || a.startsWith(p.substring(0, p.length < n ? p.length : n));
+  }
+
+  void _followTerminalJob(List<WorkJob> jobs) {
+    final ask = _terminalAsk;
+    if (ask == null || conversation.who != 'Claude Code' || !conversation.busy) return;
+    for (final j in jobs) {
+      if (sameAsk(ask, j.prompt)) {
+        conversation.externalProgress(j.step, j.recent);
+        return;
+      }
+    }
+  }
+
+  /// Every finished Claude Code job: the answer you are waiting for, or a
+  /// tiny "*" on the glasses so you know it is done.
+  void _onJobFinished(WorkItem item) {
+    if (item.isMessage) return;
+    final ask = _terminalAsk;
+    if (ask != null && sameAsk(ask, item.prompt)) {
+      _terminalAsk = null;
+      _shownJob = item.id;
+      final text = item.text.isEmpty ? item.summary : item.text;
+      HapticFeedback.mediumImpact();
+      if (conversation.externalAnswer(text)) {
+        dashboard.lastReply = text;
+        if (_speakThis && narrator.enabled && text.isNotEmpty) {
+          unawaited(voice.suspend());
+          conversation.speaking();
+          narrator.finish('job-${item.id}', 0, text);
+        } else {
+          _onSpoken();
+        }
+        return;
+      }
+    }
+    if (settings.workAlerts && _doneBlink()) _blinkedJob = item.id;
+  }
+
+  /// "*" for 3 seconds: barely there, but you see Claude is done. Only when
+  /// the glasses show nothing of ours.
+  bool _doneBlink() {
+    if (!settings.doneBlink || mirror.running || flicker.running) return false;
+    if (voice.dictating || conversation.busy) return false;
+    return display.flash('*');
   }
 
   void _onProgress(BridgeMessage m) {
@@ -604,7 +755,8 @@ class Suite extends ChangeNotifier {
 
   void _onReply(BridgeMessage m) {
     HapticFeedback.mediumImpact();
-    conversation.answered(m);
+    // Sent away with a double tap while it worked: just a "*" to say it is done.
+    if (!conversation.answered(m) && !m.isError) _doneBlink();
     if (!m.isError) {
       dashboard.lastReply = m.text;
       if (settings.noteSlots.contains('reply')) dashboard.markDirty();
@@ -623,7 +775,7 @@ class Suite extends ChangeNotifier {
   void _onSpoken() {
     unawaited(voice.resume());
     if (conversation.stage == TalkStage.error) return;
-    if (settings.conversation && _spokenQuestion && settings.target == Target.claude && !voice.dictating) {
+    if (settings.conversation && _spokenQuestion && !voice.dictating) {
       _spokenQuestion = false; // one follow-up window per answer
       conversation.followingUp();
       unawaited(voice.startFollowUp(Duration(seconds: settings.followUpSec)));
@@ -654,6 +806,7 @@ class Suite extends ChangeNotifier {
     dashboard.lastWork = item;
     if (settings.noteSlots.contains('work') || dashboard.claudePanel) dashboard.markDirty();
     if (!settings.workAlerts) return;
+    if (item.id == _shownJob) return; // already on the glasses as the answer
     final where = item.project.isEmpty ? '' : ' · ${item.project}';
     if (item.isMessage) {
       // A Claude Code session in /even mode talking to you: read it on the glasses.
@@ -666,7 +819,7 @@ class Suite extends ChangeNotifier {
     if (settings.workPhone) {
       unawaited(system.notify(_workNotice++, 'Claude finished$where', item.summary));
     }
-    if (settings.workGlasses && ble.isConnected) {
+    if (settings.workGlasses && ble.isConnected && item.id != _blinkedJob && !conversation.busy && !voice.dictating) {
       unawaited(phone.send(PhoneNotifications.selfId, 'Claude', 'Claude finished$where', item.summary));
     }
   }
@@ -711,9 +864,11 @@ class Suite extends ChangeNotifier {
       case VoiceCommand.toTerminal:
         settings.set('target', Target.terminal);
         _toast('Messages now go to the terminal');
+        _modeNotice('Terminal mode\nSay "start", your words, then "send"\nSay "chat" to go back');
       case VoiceCommand.toChat:
         settings.set('target', Target.claude);
         _toast('Messages now go to Claude chat');
+        _modeNotice('Chat mode\nTalking to Claude again');
       case VoiceCommand.enter:
         terminal.key('Enter');
       case VoiceCommand.escape:
@@ -739,6 +894,12 @@ class Suite extends ChangeNotifier {
       case VoiceCommand.stopListening:
         break; // handled by the voice controller
     }
+  }
+
+  /// Where messages go now, shown briefly on the glasses.
+  void _modeNotice(String text) {
+    conversation.ended();
+    if (_glassesFree()) display.notice(text, duration: const Duration(seconds: 4));
   }
 
   // --------------------------------------------------------------- termux
@@ -814,6 +975,7 @@ class Suite extends ChangeNotifier {
     _liveCleanup?.cancel();
     _holdLimit?.cancel();
     _mirrorTimer?.cancel();
+    _terminalWatch?.cancel();
     settings.removeListener(applySettings);
     voice.dispose();
     mirror.dispose();

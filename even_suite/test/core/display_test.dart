@@ -184,7 +184,30 @@ void main() {
       b.dispose();
     });
 
-    test('a TouchBar question uses the Even AI screen states', () async {
+    test('TouchBar answers are plain text unless the Even AI style is on', () async {
+      display.showText(longText, ai: true);
+      await settle();
+      expect(glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x71, reason: 'no built-in animation');
+      display.showStatus('Termux-Claude listening...', ai: true);
+      await settle();
+      expect(glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x71);
+    });
+
+    test('a close right after a screen goes out after it, never before', () async {
+      display.showText('hello');
+      final closing = display.clear(); // while "hello" is still on its way
+      await closing;
+      await settle();
+      for (final arm in ['L', 'R']) {
+        expect(glasses.sent[arm]!.last, [0x18], reason: '$arm: nothing left on the glasses');
+      }
+      display.showText('again');
+      await settle();
+      expect(glasses.screens().last, contains('again'));
+    });
+
+    test('with the Even AI style on, a TouchBar question uses its screen states', () async {
+      display.aiStates = true;
       display.showText(longText, ai: true);
       await settle();
       final firstStatus = glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4];

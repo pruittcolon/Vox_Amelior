@@ -132,6 +132,12 @@ class VoiceController extends ChangeNotifier {
   Timer? _followTimer;
 
   bool get active => mode != VoiceMode.off;
+
+  /// The message being taken down began with the wake word (hands-free).
+  bool get wakeStarted => _wakeStarted;
+
+  /// A finished message is being handed over (between "send" and [onSubmit]).
+  bool sending = false;
   bool get dictating => mode == VoiceMode.dictating;
 
   // ------------------------------------------------------------- controls
@@ -542,8 +548,13 @@ class VoiceController extends ChangeNotifier {
     _offset = _session.length;
     mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
     hint = t.isEmpty ? 'Nothing to send' : null;
+    sending = t.isNotEmpty;
     notifyListeners();
-    await _afterMessage();
+    try {
+      await _afterMessage();
+    } finally {
+      sending = false;
+    }
     if (t.isNotEmpty) {
       await onSubmit(t);
     } else {
