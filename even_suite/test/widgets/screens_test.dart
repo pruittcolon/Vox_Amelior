@@ -316,27 +316,8 @@ void main() {
     final now = DateTime(2026, 10, 27, 14, 20);
     double ago(int s) => now.subtract(Duration(seconds: s)).millisecondsSinceEpoch / 1000;
     final states = <String, ClaudePanel>{
-      'working': ClaudePanel.build(now: now, jobs: [
-        WorkJob(
-            session: 'a',
-            project: 'vox_mobile',
-            prompt: 'add mood charts to the Insights tab and make the colors work in dark mode too',
-            step: 'Running flutter test --coverage',
-            steps: 14,
-            started: ago(250)),
-      ]),
-      'done': ClaudePanel.build(
-          now: now,
-          last: WorkItem(
-              id: 'w',
-              ts: ago(360),
-              project: 'even-suite',
-              summary: 'Pushed the fix; CI is green and the APK is published.',
-              prompt: 'fix the failing screenshot test',
-              ms: 134000,
-              tools: 6)),
-      'answering': ClaudePanel.build(
-          now: now, asking: ('Searching the web: boston', 'what will the weather be in boston tomorrow')),
+      for (final st in ['working', 'answering', 'done']) st: ClaudePanel.example(st, PanelLayout.standard, now: now),
+      'custom_layout': ClaudePanel.example('done', PanelLayout.parse('claude,asked:0,meta:1'), now: now),
       'longest': ClaudePanel.build(now: now, jobs: [
         WorkJob(
             session: 'a',
@@ -344,9 +325,10 @@ void main() {
             prompt: 'W' * 30 + ' mmmm wwww MMMM ' * 6,
             step: 'Searching the web: ' + 'wide words ' * 8,
             steps: 120,
+            recent: ['M' * 40, 'w' * 40, 'Searching the web'],
             started: ago(7300)),
         const WorkJob(session: 'b'),
-      ]),
+      ], layout: PanelLayout.standard.copyWith(metaLines: 1)),
     };
     for (final e in states.entries) {
       for (final guides in [true, false]) {
@@ -359,8 +341,7 @@ void main() {
               now: now,
               temp: '68°F',
               title: e.value.title,
-              bright: e.value.bright,
-              dim: e.value.dim,
+              rows: e.value.rows,
               guides: guides,
             ),
           ),

@@ -275,13 +275,36 @@ void main() {
       v.dispose();
     });
 
-    test('suspend keeps the mic off while the phone talks', () async {
+    test('while the phone talks: hands-free still hears you, not the phone', () async {
+      var cutIn = 0;
+      voice.onBargeIn = () => cutIn++;
+      voice.spokenText = () => 'Claude will preheat the oven to two hundred degrees.';
       await voice.setHandsFree(true);
-      expect(speech.running, isTrue);
       await voice.suspend();
-      expect(speech.running, isFalse);
+      expect(speech.running, isTrue, reason: 'hands-free keeps listening through a long answer');
+      speech.partial('Claude will preheat the oven');
+      speech.say('Claude will preheat the oven');
+      await flush();
+      expect(voice.mode, VoiceMode.waiting, reason: 'its own voice is not you');
+      expect(cutIn, 0);
+      speech.partial('Claude stop');
+      await flush();
+      expect(cutIn, 1, reason: 'the wake word cuts in');
+      expect(voice.dictating, isTrue);
+      expect(voice.talking, isFalse);
       await voice.resume();
-      expect(speech.running, isTrue);
+    });
+
+    test('without hands-free the mic stays off while the phone talks', () async {
+      await voice.startDictation();
+      speech.say('what time is it');
+      await flush();
+      expect(speech.running, isFalse);
+      await voice.suspend();
+      expect(voice.suspended, isTrue);
+      await voice.resume();
+      expect(voice.suspended, isFalse);
+      expect(speech.running, isFalse, reason: 'nothing needs the mic');
     });
 
     test('glasses hold-to-talk: release sends what was said', () async {

@@ -130,8 +130,11 @@ class Dashboard extends ChangeNotifier {
   /// Claude Code jobs going right now (Work hooks).
   List<WorkJob> jobs = const [];
 
-  /// A question from this app Claude is working on: (step, question).
-  (String, String)? asking;
+  /// A question from this app Claude is working on: (step, question, the answer so far).
+  (String, String, String)? asking;
+
+  /// How Claude's panel is arranged (set in the app's look-up editor).
+  PanelLayout layout = PanelLayout.standard;
 
   /// You are looking up (between the glasses' look-up and look-down events).
   bool lookingUp = false;
@@ -237,7 +240,7 @@ class Dashboard extends ChangeNotifier {
   }
 
   /// Claude's panel as it is now (title, bright and dim lines).
-  ClaudePanel get panel => ClaudePanel.build(jobs: jobs, asking: asking, last: lastWork, h24: h24);
+  ClaudePanel get panel => ClaudePanel.build(jobs: jobs, asking: asking, last: lastWork, h24: h24, layout: layout);
 
   /// The layout actually sent: Claude's panel always uses the dual layout and the notes pane.
   int get sentMode => claudePanel ? 1 : mode;

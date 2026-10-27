@@ -212,7 +212,10 @@ class SpeechEngine(
     private fun mute() {
         if (muted) return
         muted = true
+        // The app's own voice (an answer being read out) must not be cut off.
+        val talking = audio.isMusicActive
         for (stream in STREAMS) {
+            if (talking && stream == AudioManager.STREAM_MUSIC) continue
             try {
                 audio.adjustStreamVolume(stream, AudioManager.ADJUST_MUTE, 0)
             } catch (_: Exception) {

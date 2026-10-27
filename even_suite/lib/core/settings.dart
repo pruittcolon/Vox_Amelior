@@ -97,6 +97,7 @@ class Settings extends ChangeNotifier {
   bool dashSync = true;
   String dashMode = 'dual'; // full, dual, minimal (Claude on the right always uses dual)
   String dashRight = 'claude'; // right side: claude (live panel), notes, calendar, news, stocks, map
+  String panelLayout = 'asked:1,claude,meta:0'; // Claude's panel: block order, lines for your question / the project
   bool dash24h = false;
   bool dashFahrenheit = true;
   bool dashWeather = true;
@@ -203,6 +204,7 @@ class Settings extends ChangeNotifier {
     dashSync = _b(m['dashSync'], dashSync);
     dashMode = _s(m['dashMode'], dashMode);
     dashRight = _s(m['dashRight'], dashRight);
+    panelLayout = _s(m['panelLayout'], panelLayout);
     dash24h = _b(m['dash24h'], dash24h);
     dashFahrenheit = _b(m['dashFahrenheit'], dashFahrenheit);
     dashWeather = _b(m['dashWeather'], dashWeather);
@@ -374,6 +376,8 @@ class Settings extends ChangeNotifier {
         dashMode = value as String;
       case 'dashRight':
         dashRight = value as String;
+      case 'panelLayout':
+        panelLayout = value as String;
       case 'dash24h':
         dash24h = value as bool;
       case 'dashFahrenheit':

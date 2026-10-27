@@ -153,8 +153,7 @@ class GlassesDashboardView extends StatelessWidget {
     super.key,
     required this.now,
     required this.title,
-    required this.bright,
-    this.dim = const [],
+    required this.rows,
     this.h24 = false,
     this.temp = '',
     this.paneLabel,
@@ -163,8 +162,9 @@ class GlassesDashboardView extends StatelessWidget {
 
   final DateTime now;
   final String title;
-  final List<String> bright;
-  final List<String> dim;
+
+  /// The body lines (dim ones drawn darker, as the glasses do).
+  final List<PanelLine> rows;
   final bool h24;
   final String temp;
 
@@ -262,10 +262,9 @@ class _DashPainter extends CustomPainter {
       canvas.drawLine(const Offset(DashLayout.iconX + 5.0, 11), const Offset(DashLayout.iconX + 15.0, 11), icon);
       canvas.drawLine(const Offset(DashLayout.iconX + 5.0, 17), const Offset(DashLayout.iconX + 13.0, 17), icon);
       _g1(canvas, v.title, DashLayout.titleX + 0.0, DashLayout.titleY + 0.0, on);
-      final lines = [...v.bright, ...v.dim];
-      for (var k = 0; k < lines.length && k < DashLayout.bodyLines; k++) {
-        _g1(canvas, lines[k], DashLayout.bodyX + 0.0, DashLayout.bodyY + k * DashLayout.lineHeight + 0.0,
-            k < v.bright.length ? on : dimColor);
+      for (var k = 0; k < v.rows.length && k < DashLayout.bodyLines; k++) {
+        _g1(canvas, v.rows[k].text, DashLayout.bodyX + 0.0, DashLayout.bodyY + k * DashLayout.lineHeight + 0.0,
+            v.rows[k].dim ? dimColor : on);
       }
     }
     canvas.restore();

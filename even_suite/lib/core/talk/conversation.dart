@@ -71,6 +71,9 @@ class Conversation extends ChangeNotifier {
   /// screen states, so it replaces the glasses' own "Even AI listening".
   bool _listenAi = false;
 
+  /// Lines your question takes on the "Claude is working" screen (0-3).
+  int askLines = 1;
+
   /// How long "Got it" stays at the top before Claude's steps take over.
   Duration gotItTime = const Duration(milliseconds: 1300);
 
@@ -168,6 +171,7 @@ class Conversation extends ChangeNotifier {
       _set(TalkStage.working);
       _draw();
     }
+    notifyListeners(); // the answer so far (the look-up screen follows it)
   }
 
   /// The finished answer (or Claude's error).
@@ -240,20 +244,21 @@ class Conversation extends ChangeNotifier {
     if (_gotItUntil != null && t.isBefore(_gotItUntil!)) {
       return ['Got it', ...quoteLines(question)].join('\n');
     }
-    return ['Claude · ${secs}s $dots', ...quoteLines(question), _fit(step.isEmpty ? 'Thinking' : step)].join('\n');
+    final asked = askLines <= 0 ? const <String>[] : quoteLines(question, max: askLines);
+    return ['Claude · ${secs}s $dots', ...asked, _fit(step.isEmpty ? 'Thinking' : step)].join('\n');
   }
 
-  /// Your question in quotes, at most two lines.
+  /// Your question in quotes, at most [max] lines (the last one cut with ...").
   @visibleForTesting
-  static List<String> quoteLines(String q) {
+  static List<String> quoteLines(String q, {int max = 2}) {
     final lines = GlassesText.wrap('"${GlassesText.clean(q)}"');
-    if (lines.length <= 2) return lines;
-    var second = lines[1];
-    while (second.isNotEmpty && GlassesText.wrap('$second..."').length > 1) {
-      final cut = second.lastIndexOf(' ');
-      second = cut <= 0 ? second.substring(0, second.length - 1) : second.substring(0, cut);
+    if (lines.length <= max) return lines;
+    var last = lines[max - 1];
+    while (last.isNotEmpty && GlassesText.wrap('$last..."').length > 1) {
+      final cut = last.lastIndexOf(' ');
+      last = cut <= 0 ? last.substring(0, last.length - 1) : last.substring(0, cut);
     }
-    return [lines[0], '$second..."'];
+    return [...lines.take(max - 1), '$last..."'];
   }
 
   /// One glasses line at most ("..." when cut).

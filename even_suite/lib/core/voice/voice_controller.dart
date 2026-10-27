@@ -98,8 +98,19 @@ class VoiceController extends ChangeNotifier {
   /// Listening for a follow-up right after Claude answered (no wake word).
   bool followUp = false;
 
-  /// The phone is talking: the microphone stays off so it does not hear itself.
+  /// The microphone is off while the phone talks (when nothing needs it).
   bool suspended = false;
+
+  /// The phone is talking. Hands-free keeps listening, so you can cut in with
+  /// the wake word at any time (even through a long, many-page answer), but
+  /// what the phone itself says is not taken for you.
+  bool talking = false;
+
+  /// What the phone has just been saying (to tell its echo from you).
+  String Function()? spokenText;
+
+  /// You cut in with the wake word while the phone was talking.
+  void Function()? onBargeIn;
 
   /// The last message sent was spoken (not typed in the box).
   bool lastSpoken = false;
@@ -200,20 +211,39 @@ class VoiceController extends ChangeNotifier {
     onFollowUpEnd?.call();
   }
 
-  /// Turn the microphone off while the phone speaks (it would hear itself).
+  /// The phone starts speaking. Hands-free keeps listening (with the echo
+  /// guard); otherwise the microphone stays off until it is done.
   Future<void> suspend() async {
-    if (suspended) return;
-    suspended = true;
-    await _stopListening();
+    if (talking) return;
+    talking = true;
+    if (!handsFree) {
+      suspended = true;
+      await _stopListening();
+    }
     notifyListeners();
   }
 
   /// The phone stopped speaking: listen again if anything needs it.
   Future<void> resume() async {
-    if (!suspended) return;
-    suspended = false;
-    if (handsFree || dictating) await _ensureListening();
+    if (!talking && !suspended) return;
+    talking = false;
+    if (suspended) {
+      suspended = false;
+      if (handsFree || dictating) await _ensureListening();
+    }
     notifyListeners();
+  }
+
+  static final _wordRe = RegExp(r"[a-z0-9']+");
+
+  /// Most of what was heard is what the phone is saying: its own echo.
+  bool _isEcho(String heard) {
+    final words = _wordRe.allMatches(heard.toLowerCase()).map((m) => m[0]!).toList();
+    if (words.isEmpty) return true;
+    final said = _wordRe.allMatches((spokenText?.call() ?? '').toLowerCase()).map((m) => m[0]!).toSet();
+    if (said.isEmpty) return false;
+    final hits = words.where(said.contains).length;
+    return hits >= (words.length * 0.6).ceil();
   }
 
   /// Stop taking down the message but keep it (tap Send to send it).
@@ -320,10 +350,12 @@ class VoiceController extends ChangeNotifier {
 
   void _onPartial(String text) {
     _session = text;
+    if (talking && mode == VoiceMode.waiting && _isEcho(text)) return; // the phone hearing itself
     if (followUp) _followTimer?.cancel(); // they are answering
     if (mode == VoiceMode.waiting) {
       final m = wake.find(text);
       if (m == null) return;
+      if (talking) _cutIn();
       // Show "listening" right away; a command is sorted out on the final text.
       _draftBeforeWake = draft;
       _wakeSession = true;
@@ -346,12 +378,17 @@ class VoiceController extends ChangeNotifier {
 
   void _onFinal(String text) {
     _session = text;
+    if (talking && mode == VoiceMode.waiting && _isEcho(text)) {
+      _endSession();
+      return;
+    }
     if (mode == VoiceMode.waiting) {
       final m = wake.find(text);
       if (m == null) {
         heard = text;
         notifyListeners();
       } else {
+        if (talking) _cutIn();
         _draftBeforeWake = draft;
         _afterWake(m.rest);
       }
@@ -438,6 +475,13 @@ class VoiceController extends ChangeNotifier {
     } else {
       _setDraft(rest);
     }
+  }
+
+  /// The wake word while the phone talks: it stops, and you have the floor.
+  void _cutIn() {
+    talking = false;
+    EventLog.add('voice', 'cutIn', {});
+    onBargeIn?.call();
   }
 
   void _runCommand(VoiceCommand cmd) {

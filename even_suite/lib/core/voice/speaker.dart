@@ -172,6 +172,10 @@ class Narrator extends ChangeNotifier {
   final Set<String> _queued = {};
   Timer? _safety;
   int _queuedChars = 0;
+  final List<String> _recent = [];
+
+  /// What was said lately (the microphone takes this for the phone's echo).
+  String get recent => _recent.join(' ');
 
   bool get speaking => _queued.isNotEmpty;
 
@@ -244,6 +248,8 @@ class Narrator extends ChangeNotifier {
     final text = SpeechText.clean(piece);
     if (text.isEmpty) return;
     final id = 'u${_n++}';
+    _recent.add(text);
+    if (_recent.length > 8) _recent.removeAt(0);
     _queued.add(id);
     _saidAny = true;
     _queuedChars += text.length;

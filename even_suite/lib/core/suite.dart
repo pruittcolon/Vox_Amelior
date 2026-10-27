@@ -10,6 +10,7 @@ import 'bridge/bridge_client.dart';
 import 'bridge/chat_controller.dart';
 import 'bridge/terminal_controller.dart';
 import 'bridge/work_controller.dart';
+import 'glasses/claude_panel.dart';
 import 'glasses/dashboard.dart';
 import 'glasses/flicker.dart';
 import 'glasses/glasses_display.dart';
@@ -62,7 +63,9 @@ class Suite extends ChangeNotifier {
       onAutoOff: () => _toast('Hands-free is off (no use for ${settings.autoOffMinutes} min)'),
     )
       ..onFollowUpEnd = _onFollowUpEnd
-      ..onNothing = _onNothingHeard;
+      ..onNothing = _onNothingHeard
+      ..onBargeIn = _onBargeIn;
+    voice.spokenText = () => narrator.recent;
 
     ble.onConnected = (pair) {
       settings.set('lastGlasses', pair.toMap());
@@ -229,20 +232,22 @@ class Suite extends ChangeNotifier {
           pitch: settings.ttsPitch / 100));
     }
     work.minDuration = Duration(seconds: settings.workMinSec);
-    final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.h24}|${dashboard.fahrenheit}|'
+    conversation.askLines = PanelLayout.parse(settings.panelLayout).askLines;
+    final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.layout}|${dashboard.h24}|${dashboard.fahrenheit}|'
         '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
     dashboard
       ..enabled = settings.dashSync
       ..mode = const ['full', 'dual', 'minimal'].indexOf(settings.dashMode).clamp(0, 2)
       ..pane = const ['notes', 'stocks', 'news', 'calendar', 'map'].indexOf(settings.dashRight).clamp(0, 4)
       ..claudePanel = settings.dashRight == 'claude'
+      ..layout = PanelLayout.parse(settings.panelLayout)
       ..h24 = settings.dash24h
       ..fahrenheit = settings.dashFahrenheit
       ..weatherOn = settings.dashWeather
       ..city = settings.dashCity
       ..slots = settings.noteSlots
       ..custom = settings.dashCustom;
-    final newDashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.h24}|${dashboard.fahrenheit}|'
+    final newDashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.layout}|${dashboard.h24}|${dashboard.fahrenheit}|'
         '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
     if (newDashKey != dashKey && ble.isConnected) dashboard.markDirty(delay: const Duration(seconds: 3));
     phone
@@ -351,7 +356,10 @@ class Suite extends ChangeNotifier {
   void _onGlassesEvent(GlassesEvent e) {
     switch (e.code) {
       case GlassesEvent.tap:
-        if (conversation.stage == TalkStage.error && e.lr == 'R') {
+        if (narrator.speaking && e.lr == 'L') {
+          // Left tap while it talks: stop, and it is your turn.
+          unawaited(stopSpeaking());
+        } else if (conversation.stage == TalkStage.error && e.lr == 'R') {
           retry();
         } else if (display.mode == DisplayMode.idle) {
           _showLastReply();
@@ -623,10 +631,16 @@ class Suite extends ChangeNotifier {
 
   void _onFollowUpEnd() => conversation.ended();
 
+  /// You said the wake word while the phone was talking: it stops at once.
+  void _onBargeIn() {
+    unawaited(narrator.stop());
+    _speakThis = false;
+  }
+
   /// A question from this app is part of "Claude's work" on the look-up screen too.
   void _onTalkChanged() {
     final c = conversation;
-    final next = c.busy ? (c.step.isEmpty ? 'Thinking' : c.step, c.question) : null;
+    final next = c.busy ? (c.step.isEmpty ? 'Thinking' : c.step, c.question, c.reply?.live ?? '') : null;
     if (next == dashboard.asking) return;
     dashboard.asking = next;
     dashboard.workChanged();

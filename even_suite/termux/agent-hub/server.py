@@ -733,13 +733,14 @@ class Bridge:
             job = self.jobs.get(session)
             if d.get("state") == "start" or job is None:
                 job = {"session": session, "project": str(d.get("project") or "")[:60],
-                       "prompt": "", "step": "Thinking", "steps": 0, "started": now}
+                       "prompt": "", "step": "Thinking", "steps": 0, "started": now, "recent": []}
                 self.jobs[session] = job
             if d.get("state") == "start":
                 job["prompt"] = str(d.get("prompt") or "")[:200]
             else:
                 job["step"] = describe_tool(str(d.get("tool") or ""), d.get("input"))
                 job["steps"] += 1
+                job["recent"] = (job.get("recent", []) + [job["step"]])[-4:]
             job["updated"] = now
             self.work_version += 1
             self.cond.notify_all()

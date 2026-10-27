@@ -21,6 +21,7 @@ class LookUpPage extends StatefulWidget {
 
 class _LookUpPageState extends State<LookUpPage> {
   bool _access = false;
+  String _sample = 'live'; // what the preview shows: live, working, answering, done
   final _custom = TextEditingController();
   final _city = TextEditingController();
   bool _ready = false;
@@ -70,7 +71,19 @@ class _LookUpPageState extends State<LookUpPage> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
             children: [
-              _Preview(suite: suite),
+              _Preview(suite: suite, sample: s.dashRight == 'claude' ? _sample : 'live'),
+              if (s.dashRight == 'claude') ...[
+                const SizedBox(height: 8),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final (v, label) in const [('live', 'Now'), ('working', 'Working'), ('answering', 'Answering'), ('done', 'Done')])
+                    ChoiceChip(
+                      label: Text(label),
+                      visualDensity: VisualDensity.compact,
+                      selected: _sample == v,
+                      onSelected: (_) => setState(() => _sample = v),
+                    ),
+                ]),
+              ],
               const SizedBox(height: 10),
               Row(children: [
                 Expanded(
@@ -133,6 +146,13 @@ class _LookUpPageState extends State<LookUpPage> {
                   ],
                 ]),
               ),
+              if (s.dashRight == 'claude') ...[
+                const SizedBox(height: 12),
+                _PanelEditor(
+                  layout: PanelLayout.parse(s.panelLayout),
+                  onChanged: (l) => s.set('panelLayout', l.toString()),
+                ),
+              ],
               const SizedBox(height: 12),
               SectionCard(
                 title: 'Clock and weather',
@@ -312,8 +332,9 @@ class _Choices extends StatelessWidget {
 
 /// The look-up screen as the glasses will draw it (dual layout, G1 font widths).
 class _Preview extends StatelessWidget {
-  const _Preview({required this.suite});
+  const _Preview({required this.suite, this.sample = 'live'});
   final Suite suite;
+  final String sample;
 
   @override
   Widget build(BuildContext context) {
@@ -324,16 +345,16 @@ class _Preview extends StatelessWidget {
         ? ''
         : (s.dashFahrenheit ? '${(w.tempC * 9 / 5 + 32).round()}°F' : '${w.tempC}°C');
     String title = '';
-    List<String> bright = const [], dim = const [];
+    List<PanelLine> rows = const [];
     String? label;
     if (s.dashRight == 'claude') {
-      final p = dash.panel;
-      (title, bright, dim) = (p.title, p.bright, p.dim);
+      final p = sample == 'live' ? dash.panel : ClaudePanel.example(sample, PanelLayout.parse(s.panelLayout));
+      (title, rows) = (p.title, p.rows);
     } else if (s.dashRight == 'notes') {
       final notes = dash.buildNotes().where((n) => n.$1.isNotEmpty || n.$2.isNotEmpty).toList();
       if (notes.isNotEmpty) {
         title = G1Font.fit(notes.first.$1, DashLayout.titleMaxPx);
-        bright = G1Font.wrapMax(notes.first.$2, DashLayout.bodyMaxPx, DashLayout.bodyLines);
+        rows = [for (final l in G1Font.wrapMax(notes.first.$2, DashLayout.bodyMaxPx, DashLayout.bodyLines)) PanelLine(l)];
       }
     } else {
       label = '${s.dashRight[0].toUpperCase()}${s.dashRight.substring(1)} (from the Even app)';
@@ -345,9 +366,124 @@ class _Preview extends StatelessWidget {
         h24: s.dash24h,
         temp: temp,
         title: title,
-        bright: bright,
-        dim: dim,
+        rows: rows,
         paneLabel: label,
+      ),
+    );
+  }
+}
+
+/// Arrange Claude's panel: drag the blocks into the order you like, pick how
+/// many lines your question takes and whether the project line shows. Claude
+/// gets the rest of the glasses' four lines.
+class _PanelEditor extends StatelessWidget {
+  const _PanelEditor({required this.layout, required this.onChanged});
+  final PanelLayout layout;
+  final ValueChanged<PanelLayout> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionCard(
+      title: 'Arrange Claude’s panel',
+      icon: Icons.drag_indicator_rounded,
+      iconColor: AppColors.claude,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(
+          'Drag to reorder. The glasses have 4 lines here: your question ${layout.askLines}, '
+          'project ${layout.metaLines}, Claude the rest (${layout.claudeLines}).',
+          style: const TextStyle(color: AppColors.muted, fontSize: 13),
+        ),
+        const SizedBox(height: 10),
+        ReorderableListView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          buildDefaultDragHandles: false,
+          onReorder: (from, to) {
+            final order = List.of(layout.order);
+            if (to > from) to--;
+            order.insert(to, order.removeAt(from));
+            onChanged(layout.copyWith(order: order));
+          },
+          children: [
+            for (var i = 0; i < layout.order.length; i++)
+              _BlockTile(
+                key: ValueKey(layout.order[i]),
+                index: i,
+                block: layout.order[i],
+                layout: layout,
+                onChanged: onChanged,
+              ),
+          ],
+        ),
+      ]),
+    );
+  }
+}
+
+class _BlockTile extends StatelessWidget {
+  const _BlockTile(
+      {super.key, required this.index, required this.block, required this.layout, required this.onChanged});
+  final int index;
+  final String block;
+  final PanelLayout layout;
+  final ValueChanged<PanelLayout> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final (name, about, color) = switch (block) {
+      'asked' => ('What you asked', 'Your question, dim', AppColors.glasses),
+      'meta' => ('Project · time · steps', 'One dim line', AppColors.muted),
+      _ => ('Claude now', 'What it is writing, its steps, or the result', AppColors.claude),
+    };
+    return ReorderableDelayedDragStartListener(
+      index: index,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(4, 8, 12, 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withOpacity(0.35)),
+        ),
+        child: Row(children: [
+          ReorderableDragStartListener(
+            index: index,
+            child: const Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(Icons.drag_handle_rounded, color: AppColors.muted),
+            ),
+          ),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(about, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+              const SizedBox(height: 6),
+              if (block == 'asked')
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final n in const [0, 1, 2, 3])
+                    ChoiceChip(
+                      label: Text(n == 0 ? 'Hide' : '$n line${n == 1 ? '' : 's'}'),
+                      visualDensity: VisualDensity.compact,
+                      selected: layout.askLines == n,
+                      onSelected: (_) => onChanged(layout.copyWith(askLines: n)),
+                    ),
+                ])
+              else if (block == 'meta')
+                Wrap(spacing: 6, children: [
+                  for (final n in const [0, 1])
+                    ChoiceChip(
+                      label: Text(n == 0 ? 'Hide' : 'Show'),
+                      visualDensity: VisualDensity.compact,
+                      selected: layout.metaLines == n,
+                      onSelected: (_) => onChanged(layout.copyWith(metaLines: n)),
+                    ),
+                ])
+              else
+                Text('${layout.claudeLines} line${layout.claudeLines == 1 ? '' : 's'} - the rest',
+                    style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+            ]),
+          ),
+        ]),
       ),
     );
   }

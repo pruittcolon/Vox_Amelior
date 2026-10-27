@@ -341,7 +341,7 @@ void main() {
       expect(title, 'Claude working 4 min');
       expect(text, 'Running the tests\n"fix the build"\neven-suite - 7 steps');
       d.jobs = const [];
-      d.asking = ('Searching the web: boston', 'what is the weather');
+      d.asking = ('Searching the web: boston', 'what is the weather', '');
       expect(d.buildNotes().first, ('Claude working', 'Searching the web: boston\n"what is the weather"'));
       d.dispose();
     });

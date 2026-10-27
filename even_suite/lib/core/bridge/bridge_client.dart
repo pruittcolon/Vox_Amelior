@@ -141,6 +141,9 @@ class WorkJob {
   final double started;
   final double updated;
 
+  /// The last few steps, oldest first (the newest is [step]).
+  final List<String> recent;
+
   const WorkJob({
     required this.session,
     this.project = '',
@@ -149,6 +152,7 @@ class WorkJob {
     this.steps = 0,
     this.started = 0,
     this.updated = 0,
+    this.recent = const [],
   });
 
   factory WorkJob.fromMap(Map m) => WorkJob(
@@ -159,6 +163,7 @@ class WorkJob {
         steps: (m['steps'] as num?)?.toInt() ?? 0,
         started: (m['started'] as num?)?.toDouble() ?? 0,
         updated: (m['updated'] as num?)?.toDouble() ?? 0,
+        recent: [for (final s in (m['recent'] as List? ?? const [])) '$s'],
       );
 
   DateTime get startTime => DateTime.fromMillisecondsSinceEpoch((started * 1000).round());
