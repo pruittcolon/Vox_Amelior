@@ -251,9 +251,9 @@ void main() {
 
       final live = <int>[];
       work.onActive = (jobs) => live.add(jobs.length);
-      const job = WorkJob(session: 's1', project: 'even-suite', prompt: 'fix the build', step: 'Thinking');
-      work.apply(WorkSnapshot(3, work.items, const [job]));
-      work.apply(WorkSnapshot(4, work.items, const [job]));
+      const liveJob = WorkJob(session: 's1', project: 'even-suite', prompt: 'fix the build', step: 'Thinking');
+      work.apply(WorkSnapshot(3, work.items, const [liveJob]));
+      work.apply(WorkSnapshot(4, work.items, const [liveJob]));
       work.apply(WorkSnapshot(5, work.items, const [
         WorkJob(session: 's1', project: 'even-suite', prompt: 'fix the build', step: 'Editing a.dart', steps: 1),
       ]));
