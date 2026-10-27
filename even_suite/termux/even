@@ -49,6 +49,6 @@ case "$1" in
   log) tail -n 40 "$LOG" ;;
   web) start 0 && termux-open-url "$URL/" 2>/dev/null ;;
   setup) proot-distro login ubuntu -- python3 /root/agent-hub/install_hook.py ;;
-  help | -h | --help) sed -n '2,8p' "$0" ;;
+  help | -h | --help) sed -n '2,9p' "$0" ;;
   *) echo "even: no '$1' (type: even help)"; exit 1 ;;
 esac
