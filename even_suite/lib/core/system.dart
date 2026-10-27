@@ -80,8 +80,10 @@ class SystemBridge {
   }
 
   /// Keep the app alive in the background. Returns why Android refused, or null.
-  Future<String?> service({required bool listening, required bool glasses, String text = ''}) =>
-      _invoke<String>('service', {'listening': listening, 'glasses': glasses, 'text': text});
+  /// [mic]: may use the microphone from the background (a TouchBar hold with
+  /// the phone in a pocket).
+  Future<String?> service({required bool listening, required bool glasses, bool mic = false, String text = ''}) =>
+      _invoke<String>('service', {'listening': listening, 'glasses': glasses, 'mic': mic, 'text': text});
 
   Future<bool> termuxInstalled() async => await _invoke<bool>('termuxInstalled') ?? false;
 

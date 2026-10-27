@@ -64,7 +64,12 @@ class Conversation extends ChangeNotifier {
 
   int _frame = 0;
   Timer? _tick;
+  Timer? _nothingTimer;
   DateTime? _gotItUntil;
+
+  /// The listening screen belongs to a TouchBar hold: keep the Even AI
+  /// screen states, so it replaces the glasses' own "Even AI listening".
+  bool _listenAi = false;
 
   /// How long "Got it" stays at the top before Claude's steps take over.
   Duration gotItTime = const Duration(milliseconds: 1300);
@@ -77,16 +82,37 @@ class Conversation extends ChangeNotifier {
 
   /// What you have said so far. In a follow-up the answer stays on the
   /// glasses until you actually start talking.
-  void listening(String text, {double level = 0, bool followUp = false}) {
+  void listening(String text, {double level = 0, bool followUp = false, bool ai = false}) {
     draft = text;
     this.level = level;
     if (followUp && text.trim().isEmpty) {
       _set(TalkStage.followUp);
       return;
     }
+    _nothingTimer?.cancel();
+    final first = stage != TalkStage.listening;
+    _listenAi = ai;
     _set(TalkStage.listening);
     _startTick(const Duration(milliseconds: 450));
-    _draw();
+    if (first && _canShow) {
+      // At once: this is what replaces the glasses' own listening screen.
+      display.showStatus(listeningScreen(draft, level, _frame), title: 'Listening', ai: _listenAi, immediate: true);
+    } else {
+      _draw();
+    }
+  }
+
+  /// Let go of the TouchBar but nothing was heard: say so, then give the
+  /// glasses back (so they never sit on a listening screen).
+  void nothingHeard({bool ai = false}) {
+    _stopTick();
+    _set(TalkStage.idle);
+    if (!_canShow) return;
+    display.showStatus("Didn't catch that.\nHold the TouchBar and try again.", title: 'Claude', ai: ai, immediate: true);
+    _nothingTimer?.cancel();
+    _nothingTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (stage == TalkStage.idle && display.mode == DisplayMode.status) display.clear();
+    });
   }
 
   /// The voice meter moved.
@@ -106,6 +132,7 @@ class Conversation extends ChangeNotifier {
   // --------------------------------------------------------------- asking
 
   void asked(String text, {bool ai = false}) {
+    _nothingTimer?.cancel();
     question = text.trim();
     this.ai = ai;
     sentAt = DateTime.now();
@@ -184,7 +211,7 @@ class Conversation extends ChangeNotifier {
     if (!_canShow) return;
     switch (stage) {
       case TalkStage.listening:
-        display.showStatus(listeningScreen(draft, level, _frame), title: 'Listening', ai: false);
+        display.showStatus(listeningScreen(draft, level, _frame), title: 'Listening', ai: _listenAi);
       case TalkStage.sent:
       case TalkStage.working:
         display.showStatus(workingScreen(), title: 'Claude', ai: ai);
@@ -193,14 +220,14 @@ class Conversation extends ChangeNotifier {
     }
   }
 
-  /// "Listening..." with a voice meter, then the last lines you said.
+  /// "Termux-Claude listening..." with a voice meter, then the last lines you said.
   @visibleForTesting
   static String listeningScreen(String draft, double level, int frame) {
     final dots = '.' * (1 + frame % 3);
     final bars = (2 + level * 22).round().clamp(1, 24);
     final said = GlassesText.wrap(GlassesText.clean(draft));
     final tail = said.length > 3 ? said.sublist(said.length - 3) : said;
-    return ['Listening$dots', '|' * bars, if (tail.isEmpty) 'Say your question' else ...tail].join('\n');
+    return ['Termux-Claude listening$dots', '|' * bars, if (tail.isEmpty) 'Say your question' else ...tail].join('\n');
   }
 
   /// "Got it" / "Claude · 4s ..", your question, then what Claude is doing
@@ -274,6 +301,7 @@ class Conversation extends ChangeNotifier {
   @override
   void dispose() {
     _stopTick();
+    _nothingTimer?.cancel();
     super.dispose();
   }
 }

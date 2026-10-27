@@ -267,7 +267,7 @@ class _JobCard extends StatelessWidget {
     final when = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
     final meta = [
       if (item.project.isNotEmpty) item.project,
-      if (item.ms > 0) formatDuration(item.took),
+      if (item.ms > 0 && !item.isMessage) formatDuration(item.took),
       if (item.tools > 0) '${item.tools} step${item.tools == 1 ? '' : 's'}',
       when,
     ].join(' · ');
@@ -283,9 +283,10 @@ class _JobCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 2),
-                child: Icon(Icons.check_circle_rounded, color: AppColors.ok, size: 20),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(item.isMessage ? Icons.chat_rounded : Icons.check_circle_rounded,
+                    color: item.isMessage ? AppColors.claude : AppColors.ok, size: 20),
               ),
               const SizedBox(width: 10),
               Expanded(

@@ -214,7 +214,7 @@ class _Console extends StatelessWidget {
                 ? ['Start Agent Hub from the Glasses tab, then come back.']
                 : [
                     'Tap the mic and just talk. It sends when you pause, answers on your glasses and out loud, then listens for a follow-up.',
-                    'Or hold the left TouchBar, or turn on hands-free and say “Claude…”.',
+                    'Or hold the left TouchBar, or turn on hands-free and say “${suite.voice.wake.label}…”.',
                   ],
           );
         }

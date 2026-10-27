@@ -60,7 +60,9 @@ class Suite extends ChangeNotifier {
       onCommand: runCommand,
       onDraft: _showDraft,
       onAutoOff: () => _toast('Hands-free is off (no use for ${settings.autoOffMinutes} min)'),
-    )..onFollowUpEnd = _onFollowUpEnd;
+    )
+      ..onFollowUpEnd = _onFollowUpEnd
+      ..onNothing = _onNothingHeard;
 
     ble.onConnected = (pair) {
       settings.set('lastGlasses', pair.toMap());
@@ -389,6 +391,10 @@ class Suite extends ChangeNotifier {
       _micOpen = true;
       unawaited(proto.micOn(true));
     }
+    // "Termux-Claude listening" replaces the glasses' "Even AI listening" right away.
+    if (settings.wordsWhileHolding && settings.target == Target.claude) {
+      conversation.listening('', ai: true);
+    }
     await voice.startDictation(hold: true, source: useGlassesMic ? 'glasses' : 'phone');
     // Same 30 s cap as the demo, in case the release never arrives.
     _holdLimit?.cancel();
@@ -494,14 +500,25 @@ class Suite extends ChangeNotifier {
     // While the TouchBar is held the glasses show their own listening screen;
     // writing to the display then could interrupt the microphone (unless
     // the test setting asks for it).
-    if (voice.source == 'glasses' && !settings.wordsWhileHolding) return;
+    if (voice.holding && !settings.wordsWhileHolding) return;
     if (settings.target == Target.terminal) {
       if (!ble.isConnected && display.mode == DisplayMode.idle) return;
       display.showLive(draft.isEmpty ? 'Listening...\nSay your message, then "send".' : draft,
           title: 'To Terminal');
       return;
     }
-    conversation.listening(draft, level: voice.level.value, followUp: voice.followUp);
+    conversation.listening(draft, level: voice.level.value, followUp: voice.followUp, ai: voice.holding || _aiSession);
+  }
+
+  /// Let go without saying anything: never leave the glasses on a listening screen.
+  void _onNothingHeard() {
+    final ai = _aiSession;
+    _aiSession = false;
+    if (settings.target == Target.claude) {
+      conversation.nothingHeard(ai: ai);
+    } else if (ble.isConnected && display.mode == DisplayMode.live) {
+      display.clear();
+    }
   }
 
   void _onVoiceChanged() {
@@ -527,9 +544,10 @@ class Suite extends ChangeNotifier {
     if (voice.handsFree && off != null) {
       final hh = off.hour.toString().padLeft(2, '0');
       final mm = off.minute.toString().padLeft(2, '0');
-      text = 'Say “Claude”, then your message and “send”. Turns off at $hh:$mm.';
+      text = 'Say “${voice.wake.label}”, then your message and “send”. Turns off at $hh:$mm.';
     }
-    final error = await system.service(listening: voice.handsFree, glasses: ble.isConnected, text: text);
+    final error = await system.service(
+        listening: voice.handsFree, glasses: ble.isConnected, mic: ble.isConnected && settings.holdToTalk, text: text);
     if (error != null && voice.handsFree) {
       _toast('Android blocked background listening: $error');
     }
@@ -617,9 +635,17 @@ class Suite extends ChangeNotifier {
   /// Claude Code finished a job (Work tab): say so briefly, only now.
   void _onWorkDone(WorkItem item) {
     dashboard.lastWork = item;
-    if (settings.noteSlots.contains('work')) dashboard.markDirty();
+    if (settings.noteSlots.contains('work') || dashboard.claudePanel) dashboard.markDirty();
     if (!settings.workAlerts) return;
     final where = item.project.isEmpty ? '' : ' · ${item.project}';
+    if (item.isMessage) {
+      // A Claude Code session in /even mode talking to you: read it on the glasses.
+      if (settings.workPhone) unawaited(system.notify(_workNotice++, 'Claude Code$where', item.summary));
+      if (_glassesFree() && !conversation.busy && !voice.dictating) {
+        display.showText(item.text.isEmpty ? item.summary : item.text, title: 'Claude Code');
+      }
+      return;
+    }
     if (settings.workPhone) {
       unawaited(system.notify(_workNotice++, 'Claude finished$where', item.summary));
     }

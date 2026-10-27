@@ -100,6 +100,13 @@ class ClaudePanel {
         G1Font.wrapMax('"${_clean(question)}"', w, 3),
       );
     }
+    if (last != null && last.isMessage) {
+      return ClaudePanel(
+        title('Claude Code - ${_clock(last.time, h24)}'),
+        G1Font.wrapMax(_clean(last.text.isEmpty ? last.summary : last.text), w, last.project.isEmpty ? 4 : 3),
+        [if (last.project.isNotEmpty) G1Font.fit(last.project, w)],
+      );
+    }
     if (last != null) {
       final meta = [
         if (last.project.isNotEmpty) last.project,

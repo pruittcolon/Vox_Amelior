@@ -4,7 +4,6 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../core/glasses/glasses_text.dart';
 import '../../core/settings.dart';
-import '../../core/voice/wake_word.dart';
 import '../../widgets/common.dart';
 import '../claude/claude_settings_sheet.dart';
 import '../lookup/lookup_page.dart';
@@ -63,12 +62,12 @@ class SettingsPage extends StatelessWidget {
                 value: s.wakeWords.join(', '),
                 onSave: (v) {
                   final words = v.split(',').map((w) => w.trim()).where((w) => w.isNotEmpty).toList();
-                  s.set('wakeWords', words.isEmpty ? List.of(WakeWord.defaults) : words);
+                  s.set('wakeWords', words.isEmpty ? List.of(Settings.defaultWakeWords) : words);
                 },
               ),
               _Switch(
                 'Quiet start chime',
-                'Mutes the recognizer’s beep while waiting for “Claude” (briefly dips media volume).',
+                'Mutes the recognizer’s beep while waiting for “${s.wakeWords.first}” (briefly dips media volume).',
                 s.quietChime,
                 (v) => s.set('quietChime', v),
               ),
@@ -79,14 +78,15 @@ class SettingsPage extends StatelessWidget {
                 (v) => s.set('holdToTalk', v),
               ),
               _Switch(
-                'Use the glasses microphone',
-                'When holding the TouchBar, listen through the glasses (Android 13+; otherwise the phone mic).',
+                'Use the glasses microphone (test)',
+                'When holding the TouchBar, listen through the glasses instead of the phone. On some phones the '
+                    'recognizer hears nothing from it - then leave this off.',
                 s.glassesMic,
                 (v) => s.set('glassesMic', v),
               ),
               _Switch(
-                'Show my words while holding (test)',
-                'Writes what you say on the glasses while the TouchBar is held. Turn off if the glasses stop hearing you.',
+                'Show my words while holding',
+                'The glasses show “Termux-Claude listening” and what you say while the TouchBar is held.',
                 s.wordsWhileHolding,
                 (v) => s.set('wordsWhileHolding', v),
               ),

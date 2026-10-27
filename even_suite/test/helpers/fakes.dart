@@ -371,7 +371,7 @@ class FakeSystem extends SystemBridge {
       {for (final k in kinds) k: k != 'microphone' || micGranted};
 
   @override
-  Future<String?> service({required bool listening, required bool glasses, String text = ''}) async {
+  Future<String?> service({required bool listening, required bool glasses, bool mic = false, String text = ''}) async {
     serviceCalls.add('listening=$listening glasses=$glasses');
     return null;
   }

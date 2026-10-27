@@ -34,6 +34,7 @@ class SuiteService : Service() {
             ACTION_UPDATE -> {
                 listening = intent.getBooleanExtra("listening", false)
                 glasses = intent.getBooleanExtra("glasses", false)
+                mic = intent.getBooleanExtra("mic", false)
                 text = intent.getStringExtra("text") ?: ""
             }
             ACTION_STOP_MIRROR -> stopMirrorNow()
@@ -58,18 +59,27 @@ class SuiteService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun goForeground(): Boolean = try {
+    private fun goForeground(): Boolean {
         val notification = build()
+        val types = serviceTypes()
+        if (tryForeground(notification, types)) return true
+        // Android refuses the microphone type when started from the background:
+        // keep the glasses link (and screen sharing) without it.
+        val noMic = types and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE.inv()
+        if (noMic != types && noMic != 0 && tryForeground(notification, noMic)) return true
+        if (!mirroring) stopSelfCompat()
+        return false
+    }
+
+    private fun tryForeground(notification: Notification, types: Int): Boolean = try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, serviceTypes())
+            startForeground(NOTIFICATION_ID, notification, types)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
         true
     } catch (e: Exception) {
-        // Android refuses some types when started from the background.
-        Log.e(TAG, "startForeground failed: $e")
-        if (!mirroring) stopSelfCompat()
+        Log.e(TAG, "startForeground($types) failed: $e")
         false
     }
 
@@ -134,7 +144,8 @@ class SuiteService : Service() {
 
     private fun serviceTypes(): Int {
         var types = 0
-        if (listening && granted(Manifest.permission.RECORD_AUDIO)) {
+        // Hands-free, or ready for a TouchBar hold while the phone is in a pocket.
+        if ((listening || (mic && glasses)) && granted(Manifest.permission.RECORD_AUDIO)) {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         }
         val btOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || granted(Manifest.permission.BLUETOOTH_CONNECT)
@@ -217,6 +228,7 @@ class SuiteService : Service() {
 
         private var listening = false
         private var glasses = false
+        private var mic = false
         private var text = ""
         @Volatile private var mirroring = false
         private var mirror: ScreenMirror? = null
@@ -276,11 +288,12 @@ class SuiteService : Service() {
         var onStopListening: (() -> Unit)? = null
 
         /** Returns null on success, or why Android refused. */
-        fun update(context: Context, listening: Boolean, glasses: Boolean, text: String): String? {
+        fun update(context: Context, listening: Boolean, glasses: Boolean, text: String, mic: Boolean = false): String? {
             val intent = Intent(context, SuiteService::class.java)
                 .setAction(ACTION_UPDATE)
                 .putExtra("listening", listening)
                 .putExtra("glasses", glasses)
+                .putExtra("mic", mic)
                 .putExtra("text", text)
             return try {
                 if (!listening && !glasses && !mirroring) {

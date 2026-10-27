@@ -278,6 +278,7 @@ class MainActivity : FlutterActivity() {
                     listening = args?.get("listening") as? Boolean ?: false,
                     glasses = args?.get("glasses") as? Boolean ?: false,
                     text = args?.get("text") as? String ?: "",
+                    mic = args?.get("mic") as? Boolean ?: false,
                 )
                 result.success(error)
             }

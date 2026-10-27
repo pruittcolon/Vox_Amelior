@@ -92,7 +92,7 @@ class VoiceStatus extends StatelessWidget {
               : 'Listening... say “send” when done';
           color = AppColors.claude;
         } else if (voice.mode == VoiceMode.waiting) {
-          text = 'Say “Claude”, your message, then “send”';
+          text = 'Say “${voice.wake.label}”, your message, then “send”';
           color = AppColors.glasses;
         } else if (voice.hint != null) {
           text = voice.hint!;
@@ -141,7 +141,7 @@ class HandsFreeTile extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Hands-free “Claude”', style: TextStyle(fontWeight: FontWeight.w700)),
+                Text('Hands-free “${voice.wake.label}”', style: const TextStyle(fontWeight: FontWeight.w700)),
                 Text(
                   on && off != null
                       ? 'Listening · turns off at ${clockTime(off)}'
@@ -212,7 +212,7 @@ class _HandsFreeBannerState extends State<HandsFreeBanner> {
                       child: Text(
                         v.dictating
                             ? 'Taking your message…'
-                            : 'Listening for “Claude”${left != null ? ' · $left min left' : ''}',
+                            : 'Listening for “${v.wake.label}”${left != null ? ' · $left min left' : ''}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),

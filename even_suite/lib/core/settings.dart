@@ -23,14 +23,18 @@ class Settings extends ChangeNotifier {
 
   String bridgeUrl = defaultBridgeUrl;
   String startCommand = defaultStartCommand;
-  List<String> wakeWords = List.of(WakeWord.defaults);
+  /// "Start" (and what recognizers often hear instead) begins a hands-free
+  /// message; "send" sends it.
+  static const defaultWakeWords = ['start', 'tart', 'starts'];
+
+  List<String> wakeWords = List.of(defaultWakeWords);
   int autoOffMinutes = 10;
   bool quietChime = true;
   String recognizer = 'auto'; // auto, ondevice, default
   String language = ''; // '' = phone default, else e.g. en-US
   bool repliesOnGlasses = true;
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
-  bool glassesMic = true; // TouchBar hold listens through the glasses' mic
+  bool glassesMic = false; // TouchBar hold listens through the glasses' mic (test: the phone mic is reliable)
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
   int bmpGapMs = 5; // gap between picture packets per arm (tuning)
   int bmpChunk = 194; // picture bytes per packet: 194 (demo) or 236 (tuning)
@@ -83,7 +87,7 @@ class Settings extends ChangeNotifier {
   bool wakeAutoSend = false; // same after "Claude…" (off: say "send")
   int pauseMs = 1500; // the pause that ends what you say
   String wakeStrict = 'normal'; // relaxed, normal, strict
-  bool wordsWhileHolding = false; // test: show your words while the TouchBar is held
+  bool wordsWhileHolding = true; // while the TouchBar is held: "Termux-Claude listening" and your words
   // Work: when Claude Code finishes a job
   bool workAlerts = true;
   int workMinSec = 30; // only jobs that took at least this long
@@ -128,7 +132,7 @@ class Settings extends ChangeNotifier {
     startCommand = _s(m['startCommand'], startCommand);
     if (startCommand == legacyStartCommand) startCommand = defaultStartCommand;
     final words = _s(m['wakeWords'], '');
-    if (words.trim().isNotEmpty) {
+    if (words.trim().isNotEmpty && words != WakeWord.defaults.join(',')) {
       wakeWords = words.split(',').map((w) => w.trim()).where((w) => w.isNotEmpty).toList();
     }
     autoOffMinutes = _i(m['autoOffMinutes'], autoOffMinutes).clamp(1, 240);

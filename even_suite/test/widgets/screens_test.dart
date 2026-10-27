@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 import 'package:even_suite/core/bridge/bridge_client.dart';
 import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
+import 'package:even_suite/core/glasses/glasses_display.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/features/flicker/flicker_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
@@ -393,22 +394,22 @@ void main() {
     await tester.pump();
     expect(suite.display.pager!.page, 0);
 
-    // Long press left (Even AI gesture): listen through the glasses' mic.
+    // Long press left: "Termux-Claude listening" at once (instead of Even AI's
+    // own listening screen), the phone mic takes it down, the words show live.
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
     expect(suite.voice.dictating, isTrue);
     expect(suite.voice.holding, isTrue);
-    expect(w.speech.lastSource, 'glasses');
-    bool micPacket(int on) => w.glasses.sent['R']!.any((p) => p.length == 2 && p[0] == 0x0E && p[1] == on);
-    expect(micPacket(1), isTrue, reason: 'glasses microphone on');
+    expect(w.speech.lastSource, 'phone');
+    expect(w.glasses.screens().last, contains('Termux-Claude listening'));
+    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x31,
+        reason: 'Even AI screen state, so it takes over from "Even AI listening"');
     w.speech.partial('what is the weather');
     await tester.pump(const Duration(milliseconds: 500));
-    expect(w.glasses.screens().join(), isNot(contains('what is the weather')),
-        reason: 'the glasses show their own listening screen while held');
+    expect(w.glasses.screens().last, contains('what is the weather'), reason: 'what you say, live');
     w.glasses.touch(24, 'L');
     await tester.pump();
-    expect(micPacket(0), isTrue, reason: 'microphone off on release');
     w.speech.say('what is the weather', finishing: true);
     await tester.pump();
     expect(w.bridge.sentTexts, ['what is the weather']);
@@ -427,6 +428,20 @@ void main() {
     await tester.pump(const Duration(seconds: 9));
     expect(suite.voice.followUp, isFalse);
     expect(w.speech.running, isFalse, reason: 'mic off again after the follow-up window (hands-free is off)');
+
+    // Let go before saying anything: never stuck on a listening screen.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    w.glasses.touch(24, 'L');
+    await tester.pump();
+    w.speech.silence(finishing: true);
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last, contains("Didn't catch that"));
+    expect(w.bridge.sentTexts, ['what is the weather'], reason: 'nothing sent');
+    await tester.pump(const Duration(seconds: 3));
+    expect(suite.display.mode, DisplayMode.idle, reason: 'the glasses are given back');
 
     // Double tap: the glasses left our screen.
     w.glasses.touch(0, 'L');

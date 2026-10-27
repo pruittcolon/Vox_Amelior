@@ -93,7 +93,8 @@ class WorkController extends ChangeNotifier {
     active = snap.active;
     if (active.map((j) => j.key).join(',') != activeKey) onActive?.call(active);
     for (final item in fresh) {
-      if (item.took < minDuration) continue;
+      // A message (`glasses "..."`) is always news; a job only if it took a while.
+      if (!item.isMessage && item.took < minDuration) continue;
       unread++;
       EventLog.add('work', 'done', {'project': item.project, 'ms': item.ms, 'tools': item.tools});
       onDone?.call(item);

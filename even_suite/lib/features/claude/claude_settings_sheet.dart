@@ -159,13 +159,13 @@ class ClaudeSettingsSheet extends StatelessWidget {
           ),
           const Divider(height: 32),
           Text('Trigger words (hands-free)', style: Theme.of(context).textTheme.titleMedium),
-          const _Head('When does “Claude” count?'),
+          _Head('When does “${suite.voice.wake.label}” count?'),
           _Choices(
             value: s.wakeStrict,
             options: [
               (WakeStrictness.relaxed.name, 'Anywhere'),
               (WakeStrictness.normal.name, 'At the start'),
-              (WakeStrictness.strict.name, '“Hey Claude”'),
+              (WakeStrictness.strict.name, '“Hey ${suite.voice.wake.label}”'),
             ],
             onChanged: (v) => s.set('wakeStrict', v),
           ),
@@ -173,15 +173,15 @@ class ClaudeSettingsSheet extends StatelessWidget {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               switch (s.wakeStrictness) {
-                WakeStrictness.relaxed => 'Any “Claude” starts a message. Easiest, but talk about Claude nearby can trigger it.',
-                WakeStrictness.normal => 'Only when what you say starts with “Claude” (or “Hey/OK Claude”). Mentions mid-sentence are ignored.',
-                WakeStrictness.strict => 'Only “Hey Claude” or “OK Claude” at the start. Hardest to trigger by accident.',
+                WakeStrictness.relaxed => 'The word anywhere starts a message. Easiest, but talk nearby can trigger it.',
+                WakeStrictness.normal => 'Only when what you say starts with it (or “Hey …”). Mid-sentence it is ignored.',
+                WakeStrictness.strict => 'Only “Hey …” or “OK …” at the start. Hardest to trigger by accident.',
               },
               style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
             ),
           ),
           _Switch(
-            'Send after a pause for “Claude…” too',
+            'Send after a pause for “${suite.voice.wake.label}…” too',
             'Off: a hands-free message only goes when you say “send” - nothing goes by accident.',
             s.wakeAutoSend,
             (v) => s.set('wakeAutoSend', v),

@@ -106,7 +106,7 @@ class GlassesPreview extends StatelessWidget {
           Row(children: [
             Expanded(
               child: Text(
-                idle ? 'Tap a reply or say “Claude, show the reply”' : display.title,
+                idle ? 'Tap a reply to show it here' : display.title,
                 style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

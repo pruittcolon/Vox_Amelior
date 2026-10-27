@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""glasses - send a short update to your Even G1 glasses (through Agent Hub and
+the Even Suite app): it shows on the glasses, on the look-up screen, and as a
+phone notification.
+
+    glasses "Built the APK - CI is green."
+    echo "Need your OK to push" | glasses
+
+Claude Code runs this in /even (glasses) mode. If Agent Hub is not running,
+the update waits in ~/.agent-hub/work-pending.jsonl and shows when it starts
+(type `even` in Termux).
+"""
+import json
+import os
+import re
+import sys
+import time
+import urllib.request
+
+PORT = os.environ.get("HUB_PORT", "8787")
+PENDING = os.path.expanduser("~/.agent-hub/work-pending.jsonl")
+
+
+def main():
+    text = " ".join(sys.argv[1:]).strip() or (sys.stdin.read().strip() if not sys.stdin.isatty() else "")
+    if not text:
+        print(__doc__.strip())
+        return 1
+    flat = " ".join(text.split())
+    m = re.match(r"(.+?[.!?])(\s|$)", flat)
+    summary = m.group(1) if m else flat
+    if len(summary) > 120:
+        summary = summary[:117].rstrip() + "..."
+    cwd = os.getcwd()
+    item = {"kind": "message", "ts": time.time(), "summary": summary, "text": text[:6000],
+            "project": os.path.basename(cwd.rstrip("/")) or cwd,
+            # Older app builds only announce jobs that took 30 s or more.
+            "ms": 60000}
+    req = urllib.request.Request(f"http://127.0.0.1:{PORT}/api/work/done", data=json.dumps(item).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=3).read()
+        print("Sent to your glasses.")
+    except OSError:
+        os.makedirs(os.path.dirname(PENDING), exist_ok=True)
+        with open(PENDING, "a") as f:
+            f.write(json.dumps(item) + "\n")
+        print("Agent Hub is not running: saved; it shows on the glasses once it starts (type `even` in Termux).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

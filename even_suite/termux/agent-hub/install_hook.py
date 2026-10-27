@@ -53,11 +53,23 @@ def main():
                     del hooks[event]
     else:
         if all(ours(e) == [g] for e, g in wanted.items()):
+            command = os.path.join(os.path.dirname(SETTINGS), "commands", "even.md")
+            os.makedirs(os.path.dirname(command), exist_ok=True)
+            shutil.copy(os.path.join(HERE, "even-command.md"), command)
             if not quiet:
-                print("The Even Suite Work hooks are already installed.")
+                print("The Even Suite Work hooks are already installed (and /even is up to date).")
             return 0
         for event, group in wanted.items():
             hooks[event] = [g for g in hooks.get(event) or [] if g not in ours(event)] + [group]
+    # The /even command: glasses mode for a Claude Code conversation.
+    commands = os.path.join(os.path.dirname(SETTINGS), "commands")
+    command_file = os.path.join(commands, "even.md")
+    if remove:
+        if os.path.exists(command_file):
+            os.remove(command_file)
+    else:
+        os.makedirs(commands, exist_ok=True)
+        shutil.copy(os.path.join(HERE, "even-command.md"), command_file)
     os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
     backup = SETTINGS + ".bak-even-suite"
     if os.path.exists(SETTINGS) and not os.path.exists(backup):
@@ -68,7 +80,9 @@ def main():
         f.write("\n")
     os.replace(tmp, SETTINGS)
     if not quiet:
-        print("Removed the hook." if remove else "Installed: Claude Code now tells Even Suite when it finishes a job.")
+        print("Removed the hooks and /even." if remove else
+              "Installed: Claude Code now tells Even Suite what it is doing and when it is done. "
+              "In any Claude Code chat, type /even to get updates on your glasses.")
     return 0
 
 

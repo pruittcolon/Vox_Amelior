@@ -99,7 +99,7 @@ void main() {
     test('listening shows a voice meter and the last lines said', () {
       final s = Conversation.listeningScreen('what is the weather', 0.5, 1);
       final lines = s.split('\n');
-      expect(lines[0], 'Listening..');
+      expect(lines[0], 'Termux-Claude listening..');
       expect(lines[1], startsWith('|||'));
       expect(lines.last, 'what is the weather');
       expect(Conversation.listeningScreen('', 0, 0), contains('Say your question'));
@@ -259,6 +259,10 @@ void main() {
       ]));
       work.apply(WorkSnapshot(6, work.items));
       expect(live, [1, 1, 0], reason: 'started, took a step, finished (no repeat for no change)');
+
+      // `glasses "..."` from a Claude Code session: always news, however quick.
+      work.apply(WorkSnapshot(7, [...work.items, const WorkItem(id: 'm', ts: 1, summary: 'Need your OK', kind: 'message')]));
+      expect(told.last, 'Need your OK');
       expect(formatDuration(const Duration(seconds: 75)), '1 min 15 s');
     });
   });

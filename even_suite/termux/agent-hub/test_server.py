@@ -321,6 +321,21 @@ class AgentHubTest(unittest.TestCase):
         self.assertEqual(snap["items"][-1]["prompt"], "fix the build")
         self.assertEqual(snap["items"][-1]["summary"], "Fixed it.")
 
+    def test_glasses_command_sends_a_message(self):
+        script = os.path.join(HERE, "glasses")
+        env = dict(self.env, HUB_PORT=str(self.port))
+        r = subprocess.run([sys.executable, script, "Done: APK built.", "CI is green."], env=env,
+                           capture_output=True, text=True, timeout=20, cwd=self.home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Sent to your glasses", r.stdout)
+        item = self.get("/api/work")["items"][-1]
+        self.assertEqual(item["kind"], "message")
+        self.assertEqual(item["summary"], "Done: APK built.")
+        self.assertEqual(item["text"], "Done: APK built. CI is green.")
+        r = subprocess.run([sys.executable, script, "later"], env=dict(env, HUB_PORT="1"),
+                           capture_output=True, text=True, timeout=20)
+        self.assertIn("saved", r.stdout)
+
     def test_install_hook_is_idempotent(self):
         settings = os.path.join(self.home, ".claude", "settings.json")
         os.makedirs(os.path.dirname(settings), exist_ok=True)
@@ -339,6 +354,9 @@ class AgentHubTest(unittest.TestCase):
         for event in ("UserPromptSubmit", "PreToolUse"):
             [group] = data["hooks"][event]
             self.assertTrue(group["hooks"][0]["async"], f"{event} must not slow Claude down")
+        command = os.path.join(self.home, ".claude", "commands", "even.md")
+        with open(command) as f:
+            self.assertIn("agent-hub/glasses", f.read(), "/even is installed with the hooks")
         self.assertTrue(self.get("/api/ping")["hook"])
         subprocess.run([sys.executable, script, "--remove", "--quiet"], env=self.env, check=True, timeout=20)
         self.assertFalse(self.get("/api/ping")["hook"])
@@ -346,6 +364,7 @@ class AgentHubTest(unittest.TestCase):
         subprocess.run([sys.executable, script, "--remove", "--quiet"], env=self.env, check=True, timeout=20)
         with open(settings) as f:
             self.assertEqual([h["command"] for g in json.load(f)["hooks"]["Stop"] for h in g["hooks"]], ["echo hi"])
+        self.assertFalse(os.path.exists(command), "/even goes with --remove")
 
     def test_zz_quit(self):
         # Last test: `all stop` shuts the server down cleanly.

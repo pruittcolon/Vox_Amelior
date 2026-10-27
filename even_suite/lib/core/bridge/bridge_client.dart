@@ -97,6 +97,12 @@ class WorkItem {
   /// What you asked (when the start hook saw it).
   final String prompt;
 
+  /// "job" (Claude finished, from the Stop hook) or "message" (a Claude Code
+  /// session sent an update with `glasses "..."`).
+  final String kind;
+
+  bool get isMessage => kind == 'message';
+
   const WorkItem({
     required this.id,
     required this.ts,
@@ -106,6 +112,7 @@ class WorkItem {
     this.ms = 0,
     this.tools = 0,
     this.prompt = '',
+    this.kind = 'job',
   });
 
   factory WorkItem.fromMap(Map m) => WorkItem(
@@ -117,6 +124,7 @@ class WorkItem {
         ms: (m['ms'] as num?)?.toInt() ?? 0,
         tools: (m['tools'] as num?)?.toInt() ?? 0,
         prompt: '${m['prompt'] ?? ''}',
+        kind: '${m['kind'] ?? 'job'}',
       );
 
   DateTime get time => DateTime.fromMillisecondsSinceEpoch((ts * 1000).round());

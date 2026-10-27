@@ -20,9 +20,18 @@ enum WakeStrictness {
 /// only ever counts there.
 class WakeWord {
   WakeWord([Iterable<String>? words, this.strictness = WakeStrictness.normal])
-      : words = _normalizeAll(words ?? defaults);
+      : words = _normalizeAll(words ?? defaults),
+        label = _labelOf(words ?? defaults);
 
   final WakeStrictness strictness;
+
+  /// The first word, capitalised, for "Say “Start”…" in the app.
+  final String label;
+
+  static String _labelOf(Iterable<String> words) {
+    final w = words.map((x) => x.trim()).firstWhere((x) => x.isNotEmpty, orElse: () => 'Claude');
+    return w[0].toUpperCase() + w.substring(1);
+  }
 
   static const List<String> defaults = [
     'claude', 'claud', 'clode', 'clod', 'klaud', 'klod', 'clawed', 'cloud',

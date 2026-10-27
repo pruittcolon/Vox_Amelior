@@ -52,6 +52,10 @@ class VoiceController extends ChangeNotifier {
   /// A follow-up window closed without a question (or with "thanks").
   void Function()? onFollowUpEnd;
 
+  /// A message ended with nothing in it (e.g. the TouchBar was let go
+  /// before anything was heard).
+  void Function()? onNothing;
+
   StreamSubscription<SpeechEvent>? _sub;
 
   // Settings
@@ -496,7 +500,11 @@ class VoiceController extends ChangeNotifier {
     hint = t.isEmpty ? 'Nothing to send' : null;
     notifyListeners();
     await _afterMessage();
-    if (t.isNotEmpty) await onSubmit(t);
+    if (t.isNotEmpty) {
+      await onSubmit(t);
+    } else {
+      onNothing?.call();
+    }
   }
 
   // --------------------------------------------------------------- timers
@@ -518,7 +526,7 @@ class VoiceController extends ChangeNotifier {
     _idleTimer = Timer(dictationIdle, () {
       if (!dictating || holding) return;
       mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
-      hint = draft.isEmpty ? null : 'Paused. Tap Send, or say “Claude, send”.';
+      hint = draft.isEmpty ? null : 'Paused. Tap Send, or say “${wake.label}, send”.';
       _afterMessage();
       notifyListeners();
     });

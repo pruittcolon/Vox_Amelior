@@ -710,9 +710,11 @@ class Bridge:
                 "summary": str(d.get("summary") or "")[:240],
                 "text": str(d.get("text") or "")[:6000],
                 "ms": num(d.get("ms")),
-                "tools": num(d.get("tools"))}
+                "tools": num(d.get("tools")),
+                # "job" (the Stop hook) or "message" (`glasses "..."` from a Claude Code session)
+                "kind": "message" if d.get("kind") == "message" else "job"}
         with self.cond:
-            job = self.jobs.pop(item["session"], None)
+            job = self.jobs.pop(item["session"], None) if item["session"] else None
             item["prompt"] = (job or {}).get("prompt", "") or str(d.get("prompt") or "")[:200]
             self.work = (self.work + [item])[-100:]
             self.work_version += 1

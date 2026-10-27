@@ -107,6 +107,22 @@ void main() {
       expect(p.dim, ['even-suite - 1 min'], reason: 'no room left for "You asked"');
     });
 
+    test('a message from a Claude Code session (/even)', () {
+      final p = ClaudePanel.build(
+          now: now,
+          last: WorkItem(
+              id: 'm',
+              ts: now.millisecondsSinceEpoch / 1000,
+              kind: 'message',
+              project: 'even-suite',
+              summary: 'Done: APK built.',
+              text: 'Done: APK built. CI is green and the release is up - install it from the link on your phone.'));
+      expectFits(p);
+      expect(p.title, 'Claude Code - 2:20pm');
+      expect(p.bright.first, 'Done: APK built. CI is green and the');
+      expect(p.dim, ['even-suite']);
+    });
+
     test('a question from this app, and nothing at all', () {
       final p = ClaudePanel.build(now: now, asking: ('Searching the web: boston weather tomorrow', 'what will the weather be in boston tomorrow and should I bring an umbrella or not'));
       expectFits(p);
