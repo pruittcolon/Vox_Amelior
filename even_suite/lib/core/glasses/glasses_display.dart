@@ -136,10 +136,11 @@ class GlassesDisplay extends ChangeNotifier {
 
   /// A short screen that keeps changing (listening, "Claude is thinking"):
   /// shown as given, at most one screen, updates throttled like live text.
-  void showStatus(String text, {String title = 'Claude', bool ai = false, bool immediate = false}) {
+  /// [raw]: exactly these lines (no Markdown clean-up, which drops a lone "*").
+  void showStatus(String text, {String title = 'Claude', bool ai = false, bool immediate = false, bool raw = false}) {
     _stopAuto();
     _streaming = false;
-    final lines = GlassesText.wrap(GlassesText.clean(text));
+    final lines = raw ? text.split('\n') : GlassesText.wrap(GlassesText.clean(text));
     mode = DisplayMode.status;
     pager = GlassesPager(lines.take(GlassesText.linesPerScreen).toList());
     this.title = title;
@@ -149,8 +150,9 @@ class GlassesDisplay extends ChangeNotifier {
 
   /// A short notice that goes away by itself after [duration] (unless
   /// something else is shown meanwhile).
-  void notice(String text, {Duration duration = const Duration(seconds: 4), String title = 'Notice'}) {
-    showStatus(text, title: title, immediate: true);
+  void notice(String text,
+      {Duration duration = const Duration(seconds: 4), String title = 'Notice', bool raw = false}) {
+    showStatus(text, title: title, immediate: true, raw: raw);
     final shown = pager;
     _notice?.cancel();
     _notice = Timer(duration, () {
@@ -163,7 +165,7 @@ class GlassesDisplay extends ChangeNotifier {
   /// glasses show nothing of ours right now.
   bool flash(String text, {Duration duration = const Duration(seconds: 3)}) {
     if (mode != DisplayMode.idle || !_ble.isConnected) return false;
-    notice(text, duration: duration, title: 'Done');
+    notice(text, duration: duration, title: 'Done', raw: true);
     return true;
   }
 

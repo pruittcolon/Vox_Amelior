@@ -186,7 +186,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.task_alt_outlined));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(w.glasses.sent['L']!.any((p) => p[0] == 0x4B), isTrue, reason: 'short note on the glasses');
+      expect(w.glasses.screens().last.trim(), '*', reason: 'a tiny * on the glasses when Claude is done');
+      expect(w.glasses.sent['L']!.any((p) => p[0] == 0x4B), isFalse, reason: 'no popup on top of the *');
       await _shot(tester, '4b_work$tag');
 
       // Terminal tab.

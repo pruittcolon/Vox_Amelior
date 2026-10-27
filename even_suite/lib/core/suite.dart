@@ -49,6 +49,11 @@ class Suite extends ChangeNotifier {
     work = WorkController(this.client);
     terminal = TerminalController(this.client, display);
     mirror = ScreenMirror(screen ?? PlatformScreen(), proto)..onFallback = _toast;
+    // Screen sharing owns the glasses while it runs: our screen (and its
+    // auto-close, which would end the sharing) steps aside.
+    mirror.addListener(() {
+      if (mirror.running && display.mode != DisplayMode.idle) display.onGlassesExit();
+    });
     this.speaker = speaker ?? PlatformSpeaker();
     narrator = Narrator(this.speaker);
     conversation = Conversation(display)..canShow = _glassesFree;
