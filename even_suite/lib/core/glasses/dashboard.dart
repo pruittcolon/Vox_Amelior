@@ -89,9 +89,14 @@ class WeatherService {
 }
 
 /// The look-up screen (the G1 dashboard): clock and weather, layout, and up
-/// to four notes you choose - Claude's finished jobs, the last answer, phone
-/// notifications, or your own text. Kept fresh on connect, every few
-/// minutes, whenever a note's source changes, and when you look up.
+/// to four notes you choose - Claude's work (live while it runs, then the
+/// result), the last answer, phone notifications, or your own text. Kept
+/// fresh on connect, every few minutes, whenever a note's source changes, and
+/// when you look up.
+///
+/// The glasses keep notes in their memory, so a note that keeps changing
+/// (Claude at work) is rewritten every few seconds only while you are looking
+/// up, and at most every [backgroundEvery] otherwise.
 class Dashboard extends ChangeNotifier {
   Dashboard(this.proto, {this.weatherService});
 
@@ -117,6 +122,18 @@ class Dashboard extends ChangeNotifier {
   String lastReply = '';
   final List<String> phone = [];
 
+  /// Claude Code jobs going right now (Work hooks).
+  List<WorkJob> jobs = const [];
+
+  /// A question from this app Claude is working on: (step, question).
+  (String, String)? asking;
+
+  /// You are looking up (between the glasses' look-up and look-down events).
+  bool lookingUp = false;
+
+  Duration liveEvery = const Duration(seconds: 4);
+  Duration backgroundEvery = const Duration(minutes: 2);
+
   // State
   Weather? weather;
   DateTime? lastSync;
@@ -127,7 +144,11 @@ class Dashboard extends ChangeNotifier {
   String _sentLayout = '';
   Timer? _debounce;
   Timer? _timer;
+  Timer? _live;
+  Timer? _lookTimeout;
+  DateTime _lastBackground = DateTime.fromMillisecondsSinceEpoch(0);
   bool _again = false;
+  bool _againNotesOnly = true;
 
   bool get _connected => proto.ble.isConnected;
 
@@ -145,18 +166,63 @@ class Dashboard extends ChangeNotifier {
   void onDisconnected() {
     _timer?.cancel();
     _timer = null;
+    _stopLive();
   }
 
-  /// You looked up: refresh if it has been a while.
+  /// You looked up: bring everything up to date now, then keep Claude's note
+  /// live while you look.
   void onHeadUp() {
+    lookingUp = true;
     final last = lastSync;
-    if (last == null || DateTime.now().difference(last) > const Duration(minutes: 2)) sync();
+    final stale = last == null || DateTime.now().difference(last) > const Duration(minutes: 2);
+    sync(notesOnly: !stale);
+    _live?.cancel();
+    _live = Timer.periodic(liveEvery, (_) {
+      if (lookingUp) sync(notesOnly: true);
+    });
+    // In case the look-down event never arrives.
+    _lookTimeout?.cancel();
+    _lookTimeout = Timer(const Duration(seconds: 30), _stopLive);
+    notifyListeners();
+  }
+
+  /// You looked down again.
+  void onHeadDown() {
+    _stopLive();
+    notifyListeners();
+  }
+
+  void _stopLive() {
+    lookingUp = false;
+    _live?.cancel();
+    _live = null;
+    _lookTimeout?.cancel();
+  }
+
+  /// Claude's work moved on: send it soon if you are looking up, otherwise
+  /// now and then (it is sent anyway the moment you look up).
+  void workChanged() {
+    if (!slots.contains('work')) return;
+    if (lookingUp) {
+      markDirty(delay: const Duration(milliseconds: 800), notesOnly: true);
+      return;
+    }
+    final wait = backgroundEvery - DateTime.now().difference(_lastBackground);
+    if (wait <= Duration.zero) {
+      _lastBackground = DateTime.now();
+      markDirty(delay: const Duration(seconds: 1), notesOnly: true);
+    } else if (_debounce == null || !_debounce!.isActive) {
+      _debounce = Timer(wait, () {
+        _lastBackground = DateTime.now();
+        sync(notesOnly: true);
+      });
+    }
   }
 
   /// Something a note shows changed: send it in a moment.
-  void markDirty({Duration delay = const Duration(seconds: 2)}) {
+  void markDirty({Duration delay = const Duration(seconds: 2), bool notesOnly = false}) {
     _debounce?.cancel();
-    _debounce = Timer(delay, sync);
+    _debounce = Timer(delay, () => sync(notesOnly: notesOnly));
   }
 
   void addPhoneNote(String line) {
@@ -173,12 +239,29 @@ class Dashboard extends ChangeNotifier {
       return h24 ? '${h.toString().padLeft(2, '0')}:$m' : '$h:$m${t.hour < 12 ? 'am' : 'pm'}';
     }
 
+    String took(Duration d) => d.inMinutes < 1 ? '${d.inSeconds.clamp(0, 59)} s' : '${d.inMinutes} min';
+
     (String, String) note(String source) {
       switch (source) {
         case 'work':
+          if (jobs.isNotEmpty) {
+            final j = jobs.first;
+            final more = jobs.length > 1 ? '\n+${jobs.length - 1} more working' : '';
+            return (
+              'Claude working ${took(j.elapsed())}',
+              '${j.step.isEmpty ? 'Thinking' : j.step}\n'
+                  '${j.prompt.isEmpty ? '' : '"${j.prompt}"\n'}'
+                  '${j.project}${j.steps > 0 ? ' · ${j.steps} steps' : ''}$more',
+            );
+          }
+          final a = asking;
+          if (a != null) return ('Claude working', '${a.$1}\n"${a.$2}"');
           final w = lastWork;
           if (w == null) return ('Claude', 'No finished jobs yet.');
-          return ('Claude done ${clock(w.time)}', '${w.summary}\n${w.project}');
+          return (
+            'Claude done ${clock(w.time)}',
+            '${w.summary}\n${w.prompt.isEmpty ? '' : 'You asked: ${w.prompt}\n'}${w.project}',
+          );
         case 'reply':
           if (lastReply.trim().isEmpty) return ('', '');
           return ('Last answer', lastReply);
@@ -204,19 +287,23 @@ class Dashboard extends ChangeNotifier {
     return out;
   }
 
-  /// Send what changed (everything with [force]).
-  Future<void> sync({bool force = false}) async {
+  /// Send what changed (everything with [force]); [notesOnly] skips the
+  /// clock, weather and layout.
+  Future<void> sync({bool force = false, bool notesOnly = false}) async {
     if (!enabled || !_connected || paused()) return;
     if (syncing) {
+      _againNotesOnly = _again ? (_againNotesOnly && notesOnly) : notesOnly;
       _again = true;
       return;
     }
     syncing = true;
     notifyListeners();
     try {
+      var notes = notesOnly && !force;
       do {
         _again = false;
-        await _syncOnce(force);
+        await _syncOnce(force, notesOnly: notes);
+        notes = _againNotesOnly;
       } while (_again && _connected);
       error = null;
     } catch (e) {
@@ -227,7 +314,11 @@ class Dashboard extends ChangeNotifier {
     }
   }
 
-  Future<void> _syncOnce(bool force) async {
+  Future<void> _syncOnce(bool force, {bool notesOnly = false}) async {
+    if (notesOnly) {
+      await _sendNotes(false);
+      return;
+    }
     if (weatherOn && weatherService != null) {
       final w = weather;
       if (w == null || DateTime.now().difference(w.at) > const Duration(minutes: 30) || force) {
@@ -245,6 +336,11 @@ class Dashboard extends ChangeNotifier {
     if (force || layout != _sentLayout) {
       if (await proto.sendDashboardMode(mode, pane)) _sentLayout = layout;
     }
+    await _sendNotes(force);
+    lastSync = DateTime.now();
+  }
+
+  Future<void> _sendNotes(bool force) async {
     final notes = buildNotes();
     for (var i = 0; i < 4; i++) {
       final (title, text) = i < notes.length ? notes[i] : ('', '');
@@ -252,14 +348,16 @@ class Dashboard extends ChangeNotifier {
       if (!force && _sentNotes[i + 1] == key) continue;
       if (title.isEmpty && text.isEmpty && !_sentNotes.containsKey(i + 1) && !force) continue;
       if (await proto.sendNote(i + 1, title, text)) _sentNotes[i + 1] = key;
+      EventLog.add('dash', 'note', {'slot': i + 1, 'lookingUp': lookingUp, 'chars': text.length});
     }
-    lastSync = DateTime.now();
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _timer?.cancel();
+    _live?.cancel();
+    _lookTimeout?.cancel();
     weatherService?.close();
     super.dispose();
   }

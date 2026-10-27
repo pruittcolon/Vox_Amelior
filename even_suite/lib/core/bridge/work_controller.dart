@@ -15,6 +15,9 @@ class WorkController extends ChangeNotifier {
   final BridgeClient client;
 
   List<WorkItem> items = const [];
+
+  /// Claude Code jobs going right now.
+  List<WorkJob> active = const [];
   bool online = false;
   String? error;
 
@@ -24,6 +27,9 @@ class WorkController extends ChangeNotifier {
   Duration minDuration = const Duration(seconds: 30);
 
   void Function(WorkItem item)? onDone;
+
+  /// The jobs in progress changed (a job started, took a step, or ended).
+  void Function(List<WorkJob> active)? onActive;
 
   int _version = -1;
   bool _running = false;
@@ -83,6 +89,9 @@ class WorkController extends ChangeNotifier {
     error = null;
     final fresh = firstLook ? const <WorkItem>[] : snap.items.where((i) => !known.contains(i.id)).toList();
     items = snap.items;
+    final activeKey = active.map((j) => j.key).join(',');
+    active = snap.active;
+    if (active.map((j) => j.key).join(',') != activeKey) onActive?.call(active);
     for (final item in fresh) {
       if (item.took < minDuration) continue;
       unread++;

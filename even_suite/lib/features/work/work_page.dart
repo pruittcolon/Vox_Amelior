@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -94,8 +96,9 @@ class _WorkPageState extends State<WorkPage> {
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 const Text(
-                    'Any Claude Code session in Termux (the one you type into too) tells this app when it '
-                    'finishes. You get a one-line note on the glasses and a phone notification - only at the end.',
+                    'Any Claude Code session in Termux (the one you type into too) shows here while it works '
+                    '- and on the glasses when you look up. When it finishes you get a one-line note on the '
+                    'glasses and a phone notification - only at the end.',
                     style: TextStyle(color: AppColors.muted, fontSize: 13.5)),
                 if (_hook == false) ...[
                   const SizedBox(height: 10),
@@ -135,6 +138,17 @@ class _WorkPageState extends State<WorkPage> {
                 ),
               ]),
             ),
+            if (work.active.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text('Working now', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 6),
+              for (final job in work.active) _LiveJob(job: job),
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Text('Look up on the glasses to see it there too; it keeps updating while you look.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+              ),
+            ],
             const SizedBox(height: 16),
             Row(children: [
               Expanded(child: Text('Finished', style: Theme.of(context).textTheme.titleMedium)),
@@ -162,6 +176,77 @@ class _WorkPageState extends State<WorkPage> {
           ],
         );
       },
+    );
+  }
+}
+
+/// A job in progress: spinner, what Claude is doing, what you asked, time.
+class _LiveJob extends StatefulWidget {
+  const _LiveJob({required this.job});
+  final WorkJob job;
+  @override
+  State<_LiveJob> createState() => _LiveJobState();
+}
+
+class _LiveJobState extends State<_LiveJob> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final j = widget.job;
+    final meta = [
+      if (j.project.isNotEmpty) j.project,
+      formatDuration(j.elapsed()),
+      if (j.steps > 0) '${j.steps} step${j.steps == 1 ? '' : 's'}',
+    ].join(' · ');
+    return Card(
+      color: AppColors.claude.withOpacity(0.08),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppColors.claude.withOpacity(0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.claude),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(j.step.isEmpty ? 'Thinking' : j.step,
+                  style: const TextStyle(fontWeight: FontWeight.w700, height: 1.3)),
+              if (j.prompt.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text('“${j.prompt}”',
+                      maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5)),
+                ),
+              const SizedBox(height: 4),
+              Text(meta, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 }
@@ -203,6 +288,14 @@ class _JobCard extends StatelessWidget {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(item.summary, style: const TextStyle(fontWeight: FontWeight.w700, height: 1.3)),
+                  if (item.prompt.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Text('You asked: ${item.prompt}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+                    ),
                   const SizedBox(height: 4),
                   Text(meta, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
                 ]),

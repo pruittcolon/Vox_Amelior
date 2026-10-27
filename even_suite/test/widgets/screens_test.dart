@@ -148,15 +148,34 @@ void main() {
       // Claude Code finished a job in Termux: Work tab, phone and glasses notes.
       final now = DateTime.now().millisecondsSinceEpoch / 1000;
       suite.work.apply(const WorkSnapshot(1, []));
-      suite.work.apply(WorkSnapshot(2, [
+      suite.work.apply(WorkSnapshot(2, const [], [
+        WorkJob(
+            session: 'a1',
+            project: 'vox_mobile',
+            prompt: 'add mood charts to the Insights tab',
+            step: 'Running flutter test',
+            steps: 14,
+            started: now - 260),
+      ]));
+      expect(suite.dashboard.jobs.single.step, 'Running flutter test', reason: 'live on the look-up screen');
+      suite.work.apply(WorkSnapshot(3, [
         WorkItem(
             id: 'w1',
             ts: now,
             project: 'even-suite',
             summary: 'Pushed the fix; CI is green.',
             text: 'Pushed the fix; CI is green. The APK is published.',
+            prompt: 'fix the failing screenshot test',
             ms: 134000,
             tools: 6),
+      ], [
+        WorkJob(
+            session: 'a1',
+            project: 'vox_mobile',
+            prompt: 'add mood charts to the Insights tab',
+            step: 'Running flutter test',
+            steps: 14,
+            started: now - 260),
       ]));
       await tester.pump();
       expect(w.system.posted.single, 'Claude finished · even-suite|Pushed the fix; CI is green.');
@@ -202,6 +221,9 @@ void main() {
       final toolsList = find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first;
       Future<void> openTool(String label) async {
         final tile = find.text(label);
+        // From the top each time: scrollUntilVisible only scrolls one way.
+        await tester.drag(toolsList, const Offset(0, 3000));
+        await tester.pump();
         await tester.scrollUntilVisible(tile, 150, scrollable: toolsList);
         await tester.ensureVisible(tile);
         await tester.pump();

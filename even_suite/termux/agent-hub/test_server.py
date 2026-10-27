@@ -291,6 +291,36 @@ class AgentHubTest(unittest.TestCase):
         with open(os.path.join(self.home, ".agent-hub", "work-pending.jsonl")) as f:
             self.assertIn("Done.", f.read())
 
+    def test_live_job_progress_then_done(self):
+        hook = os.path.join(HERE, "claude_done_hook.py")
+        env = dict(self.env, HUB_PORT=str(self.port))
+
+        def run(d):
+            r = subprocess.run([sys.executable, hook], input=json.dumps(d), text=True, env=env, timeout=20)
+            self.assertEqual(r.returncode, 0)
+
+        base = {"session_id": "job12345xyz", "cwd": "/root/proj"}
+        v0 = self.get("/api/work")["version"]
+        run(dict(base, hook_event_name="UserPromptSubmit", prompt="fix   the build"))
+        run(dict(base, hook_event_name="PreToolUse", tool_name="Edit",
+                 tool_input={"file_path": "/root/proj/server.py", "old_string": "x" * 5000}))
+        snap = self.get(f"/api/work?v={v0}&wait=5")
+        job = [j for j in snap["active"] if j["session"] == "job12345"][0]
+        self.assertEqual(job["prompt"], "fix the build")
+        self.assertEqual(job["step"], "Editing server.py")
+        self.assertEqual(job["steps"], 1)
+        self.assertEqual(job["project"], "proj")
+        transcript = os.path.join(self.home, "job.jsonl")
+        with open(transcript, "w") as f:
+            f.write(json.dumps({"type": "user", "timestamp": "2026-10-27T10:00:00Z", "message": {"content": "fix the build"}}) + "\n")
+            f.write(json.dumps({"type": "assistant", "timestamp": "2026-10-27T10:03:00Z",
+                                "message": {"content": [{"type": "text", "text": "Fixed it."}]}}))
+        run(dict(base, hook_event_name="Stop", transcript_path=transcript))
+        snap = self.get("/api/work")
+        self.assertFalse([j for j in snap["active"] if j["session"] == "job12345"], "done: no longer working")
+        self.assertEqual(snap["items"][-1]["prompt"], "fix the build")
+        self.assertEqual(snap["items"][-1]["summary"], "Fixed it.")
+
     def test_install_hook_is_idempotent(self):
         settings = os.path.join(self.home, ".claude", "settings.json")
         os.makedirs(os.path.dirname(settings), exist_ok=True)
@@ -306,6 +336,9 @@ class AgentHubTest(unittest.TestCase):
         self.assertEqual(len(commands), 2)
         self.assertIn("echo hi", commands)
         self.assertTrue(any("claude_done_hook.py" in c for c in commands))
+        for event in ("UserPromptSubmit", "PreToolUse"):
+            [group] = data["hooks"][event]
+            self.assertTrue(group["hooks"][0]["async"], f"{event} must not slow Claude down")
         self.assertTrue(self.get("/api/ping")["hook"])
         subprocess.run([sys.executable, script, "--remove", "--quiet"], env=self.env, check=True, timeout=20)
         self.assertFalse(self.get("/api/ping")["hook"])

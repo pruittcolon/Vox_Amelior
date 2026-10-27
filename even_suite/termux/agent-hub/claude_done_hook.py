@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Claude Code "Stop" hook: tells Agent Hub that Claude finished a job, so the
-Even Suite app can say so on your phone and glasses (Work tab).
+"""Claude Code hook for the Even Suite Work tab and look-up screen.
 
-Installed by install_hook.py into ~/.claude/settings.json. Standard library
-only; never blocks Claude (1.5 s network timeout, always exits 0). If Agent Hub
-is not running, the job is kept in ~/.agent-hub/work-pending.jsonl and shows up
-the next time it starts.
+- UserPromptSubmit: a job started (with what you asked);
+- PreToolUse: the step Claude is on ("Editing server.py");
+- Stop: Claude finished - with a one-line summary.
+
+Agent Hub collects these; the app shows the job live when you look up and
+says so (briefly) on the phone and glasses when it is done. Installed by
+install_hook.py into ~/.claude/settings.json (start and step hooks run in the
+background). Standard library only; never blocks Claude (short timeouts,
+always exits 0). A finished job that finds Agent Hub not running is kept in
+~/.agent-hub/work-pending.jsonl and shows up the next time it starts.
 """
 import json
 import os
@@ -73,12 +78,41 @@ def summarize(text, n=90):
     return first if len(first) <= n else first[:n - 3].rstrip() + "..."
 
 
+def post(path, item, timeout):
+    req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", data=json.dumps(item).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    urllib.request.urlopen(req, timeout=timeout).read()
+
+
+def progress(data, event):
+    """Start of a job, or a step: only worth sending while Agent Hub is up."""
+    cwd = data.get("cwd") or os.getcwd()
+    item = {"session": (data.get("session_id") or "")[:8],
+            "project": os.path.basename(cwd.rstrip("/")) or cwd}
+    if event == "UserPromptSubmit":
+        prompt = " ".join(str(data.get("prompt") or "").split())
+        item.update(state="start", prompt=prompt[:200])
+    else:
+        inp = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {}
+        keep = ("description", "command", "file_path", "notebook_path", "pattern", "query", "url")
+        item.update(state="step", tool=data.get("tool_name") or "",
+                    input={k: str(inp[k])[:120] for k in keep if k in inp})
+    try:
+        post("/api/work/progress", item, 1.0)
+    except OSError:
+        pass
+
+
 def main():
     if os.environ.get("HUB_BRIDGE") == "1":
         return  # a question from the app itself: it shows the answer already
     try:
         data = json.load(sys.stdin)
     except ValueError:
+        return
+    event = data.get("hook_event_name") or "Stop"
+    if event in ("UserPromptSubmit", "PreToolUse"):
+        progress(data, event)
         return
     text, secs, tools = last_turn(data.get("transcript_path") or "")
     text = (data.get("last_assistant_message") or text or "").strip()
@@ -93,11 +127,8 @@ def main():
         "ms": int(secs * 1000),
         "tools": tools,
     }
-    body = json.dumps(item).encode()
-    req = urllib.request.Request(f"http://127.0.0.1:{PORT}/api/work/done", data=body,
-                                 headers={"Content-Type": "application/json"}, method="POST")
     try:
-        urllib.request.urlopen(req, timeout=1.5).read()
+        post("/api/work/done", item, 1.5)
     except OSError:
         try:
             os.makedirs(os.path.dirname(PENDING), exist_ok=True)

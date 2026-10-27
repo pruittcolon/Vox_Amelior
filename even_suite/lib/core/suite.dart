@@ -72,6 +72,11 @@ class Suite extends ChangeNotifier {
     chat.onReply = _onReply;
     chat.onProgress = _onProgress;
     work.onDone = _onWorkDone;
+    work.onActive = (jobs) {
+      dashboard.jobs = jobs;
+      dashboard.workChanged();
+    };
+    conversation.addListener(_onTalkChanged);
     narrator.onDone = _onSpoken;
     _events = ble.events.listen(_onGlassesEvent);
     _phoneNotes = system.phoneNotifications.listen((m) => phone.onPosted(PhoneNote.fromMap(m)));
@@ -361,6 +366,8 @@ class Suite extends ChangeNotifier {
         conversation.ended();
       case GlassesEvent.headUp:
         dashboard.onHeadUp();
+      case GlassesEvent.headDown:
+        dashboard.onHeadDown();
       case GlassesEvent.evenAiStart:
         if (settings.holdToTalk) _glassesTalk();
       case GlassesEvent.evenAiEnd:
@@ -597,6 +604,15 @@ class Suite extends ChangeNotifier {
 
   void _onFollowUpEnd() => conversation.ended();
 
+  /// A question from this app is part of "Claude's work" on the look-up screen too.
+  void _onTalkChanged() {
+    final c = conversation;
+    final next = c.busy ? (c.step.isEmpty ? 'Thinking' : c.step, c.question) : null;
+    if (next == dashboard.asking) return;
+    dashboard.asking = next;
+    dashboard.workChanged();
+  }
+
   /// Claude Code finished a job (Work tab): say so briefly, only now.
   void _onWorkDone(WorkItem item) {
     dashboard.lastWork = item;
@@ -712,6 +728,7 @@ class Suite extends ChangeNotifier {
     _phoneNotes?.cancel();
     work.dispose();
     narrator.dispose();
+    conversation.removeListener(_onTalkChanged);
     conversation.dispose();
     dashboard.dispose();
     phone.dispose();

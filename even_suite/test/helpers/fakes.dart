@@ -291,6 +291,7 @@ class FakeBridgeClient extends BridgeClient {
   Future<bool> installHook() async => hook = true;
 
   final workItems = <WorkItem>[];
+  final workJobs = <WorkJob>[];
   int workVersion = 1;
 
   void addWork(WorkItem item) {
@@ -303,7 +304,7 @@ class FakeBridgeClient extends BridgeClient {
   Future<WorkSnapshot> work({int version = -1, int waitSec = 0}) async {
     if (!online) throw const BridgeException('Termux bridge is not running');
     if (version == workVersion && waitSec > 0) await _changed.future;
-    return WorkSnapshot(workVersion, List.of(workItems));
+    return WorkSnapshot(workVersion, List.of(workItems), List.of(workJobs));
   }
 
   @override

@@ -248,6 +248,17 @@ void main() {
       expect(work.unread, 1);
       work.markRead();
       expect(work.unread, 0);
+
+      final live = <int>[];
+      work.onActive = (jobs) => live.add(jobs.length);
+      const job = WorkJob(session: 's1', project: 'even-suite', prompt: 'fix the build', step: 'Thinking');
+      work.apply(WorkSnapshot(3, work.items, const [job]));
+      work.apply(WorkSnapshot(4, work.items, const [job]));
+      work.apply(WorkSnapshot(5, work.items, const [
+        WorkJob(session: 's1', project: 'even-suite', prompt: 'fix the build', step: 'Editing a.dart', steps: 1),
+      ]));
+      work.apply(WorkSnapshot(6, work.items));
+      expect(live, [1, 1, 0], reason: 'started, took a step, finished (no repeat for no change)');
       expect(formatDuration(const Duration(seconds: 75)), '1 min 15 s');
     });
   });
@@ -305,6 +316,58 @@ void main() {
       expect(notes[2], ('Groceries', 'milk, eggs'));
       expect(notes[3], ('', ''));
       d.dispose();
+    });
+
+    test('Claude\'s work note is live while it runs', () {
+      final started = DateTime.now().subtract(const Duration(minutes: 4, seconds: 10));
+      final d = Dashboard(Proto(BleManager(FakeGlasses())))
+        ..slots = ['work', 'off', 'off', 'off']
+        ..jobs = [
+          WorkJob(
+              session: 's1',
+              project: 'even-suite',
+              prompt: 'fix the build',
+              step: 'Running the tests',
+              steps: 7,
+              started: started.millisecondsSinceEpoch / 1000),
+        ];
+      final (title, text) = d.buildNotes().first;
+      expect(title, 'Claude working 4 min');
+      expect(text, 'Running the tests\n"fix the build"\neven-suite - 7 steps');
+      d.jobs = const [];
+      d.asking = ('Searching the web: boston', 'what is the weather');
+      expect(d.buildNotes().first, ('Claude working', 'Searching the web: boston\n"what is the weather"'));
+      d.dispose();
+    });
+
+    test('looking up sends the changed note at once, and keeps it live', () async {
+      final glasses = FakeGlasses();
+      final control = FakeControl();
+      final ble = BleManager(glasses, control: control);
+      await control.connectNow();
+      final d = Dashboard(Proto(ble))
+        ..slots = ['work', 'off', 'off', 'off']
+        ..liveEvery = const Duration(milliseconds: 50);
+      await d.sync(force: true);
+      glasses.clear();
+      d.jobs = [WorkJob(session: 's', step: 'Reading a.dart', started: DateTime.now().millisecondsSinceEpoch / 1000)];
+      d.onHeadUp();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(glasses.sent['L']!.where((p) => p[0] == 0x1E), isNotEmpty, reason: 'the note, right away');
+      expect(glasses.sent['L']!.where((p) => p[0] == 0x06), isEmpty, reason: 'clock was fresh: notes only');
+      expect(d.lookingUp, isTrue);
+      glasses.clear();
+      d.jobs = [WorkJob(session: 's', step: 'Editing a.dart', steps: 1, started: DateTime.now().millisecondsSinceEpoch / 1000)];
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(glasses.sent['L']!.where((p) => p[0] == 0x1E), isNotEmpty, reason: 'updates while you look');
+      d.onHeadDown();
+      expect(d.lookingUp, isFalse);
+      glasses.clear();
+      d.jobs = [WorkJob(session: 's', step: 'Writing b.dart', steps: 2, started: DateTime.now().millisecondsSinceEpoch / 1000)];
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(glasses.sent['L']!.where((p) => p[0] == 0x1E), isEmpty, reason: 'not while you look down');
+      d.dispose();
+      ble.dispose();
     });
 
     test('sync sends clock, layout and notes to both arms', () async {

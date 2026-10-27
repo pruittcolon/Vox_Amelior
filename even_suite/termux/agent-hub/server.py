@@ -468,13 +468,23 @@ class ResultError(RuntimeError):
     """Claude answered with an error (the process itself is fine)."""
 
 
+HOOK_EVENTS = ("Stop", "UserPromptSubmit", "PreToolUse")
+
+
 def hook_installed():
-    """Is the "Claude is done" Stop hook (claude_done_hook.py) in Claude Code's settings?"""
+    """Are the Work hooks (claude_done_hook.py on start, each step and done) in Claude Code's settings?"""
     try:
         with open(os.path.expanduser("~/.claude/settings.json")) as f:
-            return "claude_done_hook.py" in f.read()
-    except OSError:
+            hooks = json.load(f).get("hooks") or {}
+    except (OSError, ValueError, AttributeError):
         return False
+    return all(any("claude_done_hook.py" in h.get("command", "")
+                   for g in hooks.get(event) or [] for h in g.get("hooks") or [])
+               for event in HOOK_EVENTS)
+
+
+# A Claude Code job not heard from for this long is no longer shown as working.
+JOB_STALE_SECS = 30 * 60
 
 
 class Bridge:
@@ -495,6 +505,8 @@ class Bridge:
         # Finished Claude Code jobs (from the Stop hook) for the app's Work tab.
         self.work = []
         self.work_version = 0
+        # Claude Code jobs in progress (from the start / step hooks), by session.
+        self.jobs = {}
         self.load()
         self.load_work()
 
@@ -700,12 +712,42 @@ class Bridge:
                 "ms": num(d.get("ms")),
                 "tools": num(d.get("tools"))}
         with self.cond:
+            job = self.jobs.pop(item["session"], None)
+            item["prompt"] = (job or {}).get("prompt", "") or str(d.get("prompt") or "")[:200]
             self.work = (self.work + [item])[-100:]
             self.work_version += 1
             self.cond.notify_all()
         if save:
             self.save_work()
         return item
+
+    def job_progress(self, d):
+        """A Claude Code job started (state "start", with the prompt) or took a step."""
+        session = str(d.get("session") or "")[:40]
+        if not session:
+            return None
+        now = time.time()
+        with self.cond:
+            job = self.jobs.get(session)
+            if d.get("state") == "start" or job is None:
+                job = {"session": session, "project": str(d.get("project") or "")[:60],
+                       "prompt": "", "step": "Thinking", "steps": 0, "started": now}
+                self.jobs[session] = job
+            if d.get("state") == "start":
+                job["prompt"] = str(d.get("prompt") or "")[:200]
+            else:
+                job["step"] = describe_tool(str(d.get("tool") or ""), d.get("input"))
+                job["steps"] += 1
+            job["updated"] = now
+            self.work_version += 1
+            self.cond.notify_all()
+            return job
+
+    def active_jobs(self):
+        now = time.time()
+        for s in [s for s, j in self.jobs.items() if now - j.get("updated", 0) > JOB_STALE_SECS]:
+            del self.jobs[s]
+        return sorted(self.jobs.values(), key=lambda j: -j.get("updated", 0))
 
     def clear_work(self):
         with self.cond:
@@ -722,7 +764,8 @@ class Bridge:
                 if left <= 0:
                     break
                 self.cond.wait(timeout=left)
-            return {"version": self.work_version, "items": self.work[-max(1, min(tail, 100)):]}
+            return {"version": self.work_version, "items": self.work[-max(1, min(tail, 100)):],
+                    "active": self.active_jobs()}
 
 
 bridge = Bridge()
@@ -832,6 +875,11 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(d, dict):
                 return self.send_json({"error": "bad request"}, 400)
             return self.send_json({"ok": True, "id": bridge.add_work(d)["id"]})
+        if parts == ["api", "work", "progress"]:
+            d = self.json_body()
+            if not isinstance(d, dict):
+                return self.send_json({"error": "bad request"}, 400)
+            return self.send_json({"ok": bridge.job_progress(d) is not None})
         if parts == ["api", "work", "clear"]:
             bridge.clear_work()
             return self.send_json({"ok": True})

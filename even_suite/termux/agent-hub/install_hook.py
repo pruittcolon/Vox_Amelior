@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Adds the "Claude is done" Stop hook (claude_done_hook.py) to
-~/.claude/settings.json, once. Keeps everything else in the file as it is and
-saves a backup the first time. Run again any time; it changes nothing twice.
+"""Adds the Even Suite Work hooks (claude_done_hook.py) to
+~/.claude/settings.json, once: Stop (Claude finished), and in the background
+UserPromptSubmit (a job started) and PreToolUse (each step), so the glasses
+can show a job live when you look up. Keeps everything else in the file as it
+is and saves a backup the first time. Run again any time; it changes nothing
+twice.
 
     python3 install_hook.py           # install
     python3 install_hook.py --remove  # take it out again
@@ -28,19 +31,33 @@ def main():
     except ValueError:
         print("~/.claude/settings.json is not valid JSON; not touching it.")
         return 1
-    stop = settings.setdefault("hooks", {}).setdefault("Stop", [])
-    ours = [g for g in stop if any("claude_done_hook.py" in h.get("command", "") for h in g.get("hooks", []))]
+    hooks = settings.setdefault("hooks", {})
+
+    def ours(event):
+        return [g for g in hooks.get(event) or []
+                if any("claude_done_hook.py" in h.get("command", "") for h in g.get("hooks", []))]
+
+    wanted = {
+        "Stop": {"hooks": [{"type": "command", "command": COMMAND, "timeout": 10}]},
+        "UserPromptSubmit": {"hooks": [{"type": "command", "command": COMMAND, "timeout": 5, "async": True}]},
+        "PreToolUse": {"hooks": [{"type": "command", "command": COMMAND, "timeout": 5, "async": True}]},
+    }
     if remove:
-        if not ours:
+        if not any(ours(e) for e in wanted):
             return 0
-        settings["hooks"]["Stop"] = [g for g in stop if g not in ours]
+        for event in wanted:
+            mine = ours(event)
+            if mine:
+                hooks[event] = [g for g in hooks.get(event) or [] if g not in mine]
+                if not hooks[event]:
+                    del hooks[event]
     else:
-        if ours and all(h.get("command") == COMMAND for g in ours for h in g.get("hooks", [])):
+        if all(ours(e) == [g] for e, g in wanted.items()):
             if not quiet:
-                print("The Claude-is-done hook is already installed.")
+                print("The Even Suite Work hooks are already installed.")
             return 0
-        settings["hooks"]["Stop"] = [g for g in stop if g not in ours] + [
-            {"hooks": [{"type": "command", "command": COMMAND, "timeout": 10}]}]
+        for event, group in wanted.items():
+            hooks[event] = [g for g in hooks.get(event) or [] if g not in ours(event)] + [group]
     os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
     backup = SETTINGS + ".bak-even-suite"
     if os.path.exists(SETTINGS) and not os.path.exists(backup):

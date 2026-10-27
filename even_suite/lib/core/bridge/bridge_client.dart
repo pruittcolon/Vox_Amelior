@@ -94,6 +94,9 @@ class WorkItem {
   final int ms;
   final int tools;
 
+  /// What you asked (when the start hook saw it).
+  final String prompt;
+
   const WorkItem({
     required this.id,
     required this.ts,
@@ -102,6 +105,7 @@ class WorkItem {
     this.text = '',
     this.ms = 0,
     this.tools = 0,
+    this.prompt = '',
   });
 
   factory WorkItem.fromMap(Map m) => WorkItem(
@@ -112,20 +116,63 @@ class WorkItem {
         text: '${m['text'] ?? ''}',
         ms: (m['ms'] as num?)?.toInt() ?? 0,
         tools: (m['tools'] as num?)?.toInt() ?? 0,
+        prompt: '${m['prompt'] ?? ''}',
       );
 
   DateTime get time => DateTime.fromMillisecondsSinceEpoch((ts * 1000).round());
   Duration get took => Duration(milliseconds: ms);
 }
 
+/// A Claude Code job still going (from the start and step hooks).
+class WorkJob {
+  final String session;
+  final String project;
+  final String prompt;
+  final String step;
+  final int steps;
+  final double started;
+  final double updated;
+
+  const WorkJob({
+    required this.session,
+    this.project = '',
+    this.prompt = '',
+    this.step = '',
+    this.steps = 0,
+    this.started = 0,
+    this.updated = 0,
+  });
+
+  factory WorkJob.fromMap(Map m) => WorkJob(
+        session: '${m['session'] ?? ''}',
+        project: '${m['project'] ?? ''}',
+        prompt: '${m['prompt'] ?? ''}',
+        step: '${m['step'] ?? ''}',
+        steps: (m['steps'] as num?)?.toInt() ?? 0,
+        started: (m['started'] as num?)?.toDouble() ?? 0,
+        updated: (m['updated'] as num?)?.toDouble() ?? 0,
+      );
+
+  DateTime get startTime => DateTime.fromMillisecondsSinceEpoch((started * 1000).round());
+
+  /// How long it has been going.
+  Duration elapsed([DateTime? now]) => (now ?? DateTime.now()).difference(startTime);
+
+  String get key => '$session|$step|$steps|$prompt';
+}
+
 class WorkSnapshot {
   final int version;
   final List<WorkItem> items;
-  const WorkSnapshot(this.version, this.items);
+
+  /// Jobs in progress, most recently active first.
+  final List<WorkJob> active;
+  const WorkSnapshot(this.version, this.items, [this.active = const []]);
 
   factory WorkSnapshot.fromMap(Map m) => WorkSnapshot(
         (m['version'] as num?)?.toInt() ?? 0,
         [for (final x in (m['items'] as List? ?? const [])) WorkItem.fromMap(x as Map)],
+        [for (final x in (m['active'] as List? ?? const [])) WorkJob.fromMap(x as Map)],
       );
 }
 
