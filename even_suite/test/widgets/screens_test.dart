@@ -402,7 +402,8 @@ void main() {
     expect(suite.voice.dictating, isTrue);
     expect(suite.voice.holding, isTrue);
     expect(w.speech.lastSource, 'phone');
-    expect(w.glasses.screens().last, contains('Termux-Claude listening'));
+    // (The test font is wider than the glasses' font, so the header may wrap here.)
+    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('Termux-Claude listening'));
     expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x31,
         reason: 'Even AI screen state, so it takes over from "Even AI listening"');
     w.speech.partial('what is the weather');
