@@ -186,8 +186,11 @@ void main() {
       await tester.tap(find.byIcon(Icons.task_alt_outlined));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(w.glasses.screens().last.trim(), '*', reason: 'a tiny * on the glasses when Claude is done');
-      expect(w.glasses.sent['L']!.any((p) => p[0] == 0x4B), isFalse, reason: 'no popup on top of the *');
+      // Mid-conversation (the answer is up, it listens for a follow-up): nothing pops up over it;
+      // the finished job waits on the look-up screen.
+      expect(w.glasses.screens().last.trim(), isNot('*'));
+      expect(w.glasses.sent['L']!.any((p) => p[0] == 0x4B), isFalse, reason: 'no popup over the conversation');
+      expect(suite.dashboard.lastWork?.id, 'w1');
       await _shot(tester, '4b_work$tag');
 
       // Terminal tab.
