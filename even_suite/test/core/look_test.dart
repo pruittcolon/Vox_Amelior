@@ -34,7 +34,7 @@ void main() {
         // A column (same x and width, rows next to each other) is one group;
         // a narrower item above a wide one is not part of it.
         if (e.key == 'split') {
-          expect(HudFrame.groups(e.value, pieces).where((g) => g.$3 == 0 && g.$4 == 2), hasLength(1),
+          expect(HudFrame.groups(e.value, pieces).where((g) => g.$1 < 0 && g.$3 == 0 && g.$4 == 2), hasLength(1),
               reason: 'time, date and weather');
         }
         if (e.key == 'busy') {
