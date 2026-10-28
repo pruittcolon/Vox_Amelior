@@ -121,6 +121,10 @@ class VoiceController extends ChangeNotifier {
 
   /// The last message sent was a follow-up (said in the window after an answer).
   bool lastFollowUp = false;
+
+  /// Every word goes through as said, with no voice commands picked out -
+  /// the TV remote, where "up" is a key, not "scroll up".
+  bool plainWords = false;
   bool _draftTyped = false;
   final level = ValueNotifier<double>(0);
 
@@ -459,7 +463,7 @@ class VoiceController extends ChangeNotifier {
         return;
       }
     }
-    if (followUp && _committed.isEmpty) {
+    if (followUp && _committed.isEmpty && !plainWords) {
       if (VoiceCommands.endsConversation(piece)) {
         _endSession();
         endFollowUp();

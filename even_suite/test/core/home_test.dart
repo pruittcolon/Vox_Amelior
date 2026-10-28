@@ -59,6 +59,9 @@ void main() {
 
     test('power, volume (3 presses, like the Roku app), mute, input', () {
       expect(keys('TV off'), ['POWER_OFF']);
+      expect(keys('Television off.'), ['POWER_OFF']);
+      expect(keys('T.V. off'), ['POWER_OFF']);
+      expect(keys('television on'), ['POWER_ON']);
       expect(keys('Turn off the TV.'), ['POWER_OFF']);
       expect(keys('turn the tv on'), ['POWER_ON']);
       expect(keys('TV volume up'), ['VOL_UP', 'VOL_UP', 'VOL_UP']);

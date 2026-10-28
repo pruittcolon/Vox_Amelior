@@ -662,12 +662,12 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(suite.voice.draft, isEmpty);
-    w.speech.partial('turn on the lights');
+    w.speech.partial('what is on my calendar');
     await tester.pump();
     w.glasses.touch(1, 'R');
     await tester.pump();
     await tester.pump();
-    expect(w.bridge.sentTexts.last, 'turn on the lights');
+    expect(w.bridge.sentTexts.last, 'what is on my calendar');
     w.bridge.addReply('Done.');
     await tester.pump();
     await tester.pump();

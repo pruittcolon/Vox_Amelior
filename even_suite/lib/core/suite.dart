@@ -1307,6 +1307,7 @@ class Suite extends ChangeNotifier {
 
   void _startTvRemote() {
     tvRemote = true;
+    voice.plainWords = true; // up and down are the TV's keys now, not scrolling
     EventLog.add('home', 'tvRemote', {'on': true});
     _armTvRemote();
     _homeNotice('TV remote\nup down left right  OK  back\nhome  volume up/down  mute\npause  play  off  - say "done"', remote: true);
@@ -1322,6 +1323,7 @@ class Suite extends ChangeNotifier {
   void _endTvRemote() {
     if (!tvRemote) return;
     tvRemote = false;
+    voice.plainWords = false;
     _tvRemoteOff?.cancel();
     EventLog.add('home', 'tvRemote', {'on': false});
     if (_glassesFree() && !conversation.busy) display.notice('TV remote off', duration: const Duration(seconds: 2));
