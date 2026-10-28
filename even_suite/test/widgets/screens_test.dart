@@ -315,7 +315,7 @@ void main() {
       await openTool('Claude and voice');
       await tester.pump(const Duration(milliseconds: 400));
       await _shot(tester, '14_claude_settings$tag');
-      expect(find.text('Effort (how hard it thinks)'), findsOneWidget);
+      expect(find.text('Answer speed'), findsOneWidget);
       await tester.tapAt(const Offset(180, 30));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
