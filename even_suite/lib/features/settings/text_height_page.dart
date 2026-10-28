@@ -26,9 +26,13 @@ class _TextHeightPageState extends State<TextHeightPage> {
     if (_started) return;
     _started = true;
     _suite = SuiteScope.of(context);
-    final s = _suite.settings;
-    _suite.display.onGlassesExit(); // the preview takes the screen
-    _suite.position.begin(s.displayHeight, s.displayDepth);
+    // After this frame: it updates other screens, which can't happen mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final s = _suite.settings;
+      _suite.display.onGlassesExit(); // the preview takes the screen
+      _suite.position.begin(s.displayHeight, s.displayDepth);
+    });
   }
 
   Future<void> _done() async {
@@ -49,7 +53,8 @@ class _TextHeightPageState extends State<TextHeightPage> {
     // Left with the back button: keep the spot, close the preview.
     if (!_saved && _suite.position.open) {
       final p = _suite.position;
-      p.end().then((_) {
+      // Once the page is gone (other screens update when it closes).
+      Future<void>.microtask(p.end).then((_) {
         _suite.settings
           ..set('displayHeight', p.height)
           ..set('displayDepth', p.depth);
