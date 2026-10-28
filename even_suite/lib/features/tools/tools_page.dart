@@ -10,6 +10,7 @@ import '../lookup/lookup_page.dart';
 import '../screen/screen_page.dart';
 import '../settings/settings_page.dart';
 import '../settings/speech_page.dart';
+import '../settings/text_height_page.dart';
 import '../settings/touchbar_page.dart';
 import '../terminal/terminal_page.dart';
 import 'diagnostics_page.dart';
@@ -44,6 +45,8 @@ class ToolsPage extends StatelessWidget {
               'Your own layout when you look up - drag anything, the time too', () => push(const LookUpPage())),
           _Tool(Icons.touch_app_rounded, AppColors.glasses, 'TouchBar', 'What a hold and a double tap do',
               () => push(const TouchBarPage())),
+          _Tool(Icons.height_rounded, AppColors.hud, 'Text height', 'Move the text up or down in your view',
+              () => push(const TextHeightPage())),
           _Tool(Icons.view_agenda_rounded, AppColors.claude, 'Glasses layout',
               'Arrange Claude’s working screen; when screens close', () => push(const LayoutPage())),
           _Tool(Icons.notes_rounded, AppColors.ok, 'Send text', 'Type or paste text, page through it on the glasses',

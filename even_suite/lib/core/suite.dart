@@ -12,6 +12,7 @@ import 'bridge/terminal_controller.dart';
 import 'bridge/work_controller.dart';
 import 'glasses/claude_panel.dart';
 import 'glasses/dashboard.dart';
+import 'glasses/display_position.dart';
 import 'glasses/flicker.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
@@ -166,6 +167,9 @@ class Suite extends ChangeNotifier {
   late final ScreenMirror mirror;
   late final PictureLab lab = PictureLab(proto);
   late final PhoneActions phoneActions = PhoneActions(system);
+
+  /// Text height (the Text height page); nothing else draws while it is open.
+  late final DisplayPosition position = DisplayPosition(proto);
   late final Flicker flicker = Flicker(proto);
 
   /// Flicker owns the glasses while it runs: screen sharing stops and the
@@ -907,7 +911,7 @@ class Suite extends ChangeNotifier {
   /// "*" for 3 seconds: barely there, but you see Claude is done. Only when
   /// the glasses show nothing of ours.
   bool _doneBlink() {
-    if (!settings.doneBlink || mirror.running || flicker.running) return false;
+    if (!settings.doneBlink || mirror.running || flicker.running || position.open) return false;
     if (voice.dictating || conversation.busy) return false;
     return display.flash('*');
   }
@@ -1195,7 +1199,7 @@ class Suite extends ChangeNotifier {
   /// You looked up: your own layout replaces the glasses' dashboard, and
   /// keeps the clock and Claude's work fresh while you look.
   void lookUp({Duration lasts = const Duration(seconds: 45)}) {
-    if (!ble.isConnected || mirror.running || flicker.running) return;
+    if (!ble.isConnected || mirror.running || flicker.running || position.open) return;
     // Never over something you are reading, saying or waiting for.
     if (display.mode != DisplayMode.idle && !_lookShowing) return;
     if (voice.dictating || conversation.busy) return;

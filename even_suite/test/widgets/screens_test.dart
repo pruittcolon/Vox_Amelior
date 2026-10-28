@@ -297,6 +297,7 @@ void main() {
         ('TouchBar', '17_touchbar'),
         ('Speech engine', '19_speech'),
         ('Phone actions', '20_phone'),
+        ('Text height', '21_text_height'),
         ('Send text', '7_text'),
         ('Notifications', '8_notifications'),
         ('How to talk to it', '9_help'),
