@@ -852,7 +852,7 @@ void main() {
     await tester.tap(inClaude(find.text('Sessions')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Shell'), findsOneWidget);
+    expect(find.text('A command line'), findsOneWidget, reason: 'the shell is listed here');
     expect(find.text('fix the look up screen on the glasses'), findsOneWidget, reason: 'a past conversation');
     await tester.tap(find.text('New Claude Code'));
     await tester.pump();

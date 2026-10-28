@@ -54,7 +54,9 @@ void main() {
     final ble = BleManager(glasses, control: control);
     final display = GlassesDisplay(Proto(ble));
     await control.connectNow();
-    final term = TerminalController(client, display)..setSession('shell');
+    // The hub starts nothing by itself: open the shell first.
+    final name = await client.newSession(kind: 'shell');
+    final term = TerminalController(client, display)..setSession(name);
     final owner = Object();
     term.watch(owner);
     term.setMirror(true);
