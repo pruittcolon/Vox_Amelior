@@ -1196,10 +1196,12 @@ void main() {
     await tester.pump();
     w.speech.say('how many moons does jupiter have', finishing: true);
     await tester.pump();
+    expect(w.bridge.sentTexts, ['how many moons does jupiter have']);
+    await tester.pump(const Duration(milliseconds: 100));
     w.bridge.addReply('Jupiter has 95 known moons. Want to know about the biggest ones?');
     await tester.pump();
     await tester.pump();
-    expect(w.glasses.screens().last, contains('95 known moons'));
+    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('95 known moons'));
     await tester.pump(const Duration(seconds: 2));
     expect(suite.voice.followUp, isFalse, reason: 'one question: nothing listens afterwards');
     expect(suite.voice.dictating, isFalse);
