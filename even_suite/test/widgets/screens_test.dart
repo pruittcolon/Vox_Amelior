@@ -530,6 +530,7 @@ void main() {
     expect(suite.display.mode, DisplayMode.idle, reason: 'the glasses are given back');
 
     // Double tap with nothing on the glasses: talk - no Even AI screen at all.
+    await tester.pump(const Duration(seconds: 1)); // past the glasses' answer to that close
     w.glasses.touch(0, 'L');
     await tester.pump();
     await tester.pump();
