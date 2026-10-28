@@ -25,6 +25,7 @@ class TerminalPane extends StatelessWidget {
       return;
     }
     draft.clear();
+    suite.voice.setDraft('');
     await suite.typeIntoTerminal(text);
   }
 
@@ -69,6 +70,8 @@ class TerminalPane extends StatelessWidget {
                 autocorrect: false,
                 enableSuggestions: false,
                 textInputAction: TextInputAction.send,
+                // Kept in step with the mic's draft (else that clears what you type).
+                onChanged: suite.voice.setDraft,
                 onSubmitted: (_) => _send(context),
                 style: const TextStyle(fontFamily: 'monospace'),
                 decoration: InputDecoration(
