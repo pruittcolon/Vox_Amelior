@@ -200,7 +200,12 @@ class Proto {
   // -------------------------------------------------------------- exit (0x18)
 
   /// Back to the dashboard (clears whatever the app was showing).
+  /// Called whenever the app closes the glasses' screen (they answer that
+  /// with the same F5 00 a double tap sends).
+  void Function()? onExit;
+
   Future<bool> exit() async {
+    onExit?.call();
     final data = Uint8List.fromList([0x18]);
     bool ok(Uint8List d) => d.length > 1 && d[1] == 0xc9;
     final retL = await ble.request(data, lr: 'L', timeoutMs: 1500);

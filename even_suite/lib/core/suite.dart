@@ -17,6 +17,7 @@ import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
 import 'glasses/look_layout.dart';
 import 'log.dart';
+import 'phone_actions.dart';
 import 'phone_notifications.dart';
 import 'screen/picture_lab.dart';
 import 'screen/screen_mirror.dart';
@@ -52,6 +53,12 @@ class Suite extends ChangeNotifier {
     // Screens go out as fast as the glasses take them (one in flight, the
     // newest waiting), so what you say shows up without lag.
     display = GlassesDisplay(proto, liveGap: const Duration(milliseconds: 150));
+    // The glasses answer every exit we send with a "double tap" (F5 00): not you.
+    proto.onExit = () {
+      _exitEcho = true;
+      _echoTimer?.cancel();
+      _echoTimer = Timer(const Duration(milliseconds: 800), () => _exitEcho = false);
+    };
     this.client = client ?? BridgeClient(settings.bridgeUrl);
     chat = ChatController(this.client);
     work = WorkController(this.client);
@@ -103,6 +110,7 @@ class Suite extends ChangeNotifier {
     _events = ble.events.listen(_onGlassesEvent);
     _phoneNotes = system.phoneNotifications.listen((m) => phone.onPosted(PhoneNote.fromMap(m)));
     system.onStopListening = () => voice.setHandsFree(false);
+    system.onReminder = _onReminder;
     system.onOpenTab = tabRequests.add;
     system.onVolumeKey = (dir) {
       if (dir == 'up') {
@@ -161,6 +169,7 @@ class Suite extends ChangeNotifier {
   late final VoiceController voice;
   late final ScreenMirror mirror;
   late final PictureLab lab = PictureLab(proto);
+  late final PhoneActions phoneActions = PhoneActions(system);
   late final Flicker flicker = Flicker(proto);
 
   /// Flicker owns the glasses while it runs: screen sharing stops and the
@@ -194,6 +203,8 @@ class Suite extends ChangeNotifier {
   Timer? _mirrorTimer;
   Timer? _terminalWatch;
   Timer? _lookTimer;
+  Timer? _echoTimer;
+  bool _exitEcho = false;
   DateTime? _lookSince;
   int? _battery;
   LookLayout? _lookCache;
@@ -454,7 +465,13 @@ class Suite extends ChangeNotifier {
           display.tapRight();
         }
       case GlassesEvent.exit:
+        if (_exitEcho) {
+          // The glasses confirming a screen we closed ourselves.
+          _exitEcho = false;
+          return;
+        }
         // Double tap: done with this - quiet, and no follow-up.
+        final idle = display.mode == DisplayMode.idle && !voice.dictating && !conversation.busy && !narrator.speaking;
         final wasListening = voice.dictating && !voice.followUp;
         if (wasListening) {
           _aiSession = false;
@@ -470,7 +487,7 @@ class Suite extends ChangeNotifier {
         _speakThis = false;
         _spokenQuestion = false;
         conversation.dismiss();
-        if (!wasListening) _doubleTap();
+        if (!wasListening) _doubleTap(idle: idle);
       case GlassesEvent.headUp:
         if (settings.lookMode == 'custom') {
           lookUp();
@@ -557,9 +574,10 @@ class Suite extends ChangeNotifier {
         size: GlassesText.screenSize(),
         length: settings.answerLength,
         spoken: settings.speakReplies != 'off',
+        phone: settings.phoneActions,
       );
 
-  static String buildPrimer({required ScreenSize size, String length = 'brief', bool spoken = false}) {
+  static String buildPrimer({required ScreenSize size, String length = 'brief', bool spoken = false, bool phone = false}) {
     final chars = size.chars;
     final aim = switch (length) {
       'normal' => 'Aim for about 150 characters. Go up to $chars (one screen) only if it needs it.',
@@ -580,13 +598,14 @@ class Suite extends ChangeNotifier {
         'separated by a blank line; each chunk becomes one screen.\n'
         '${spoken ? '- Your reply is also read aloud: write it to sound natural spoken, no symbols or abbreviations that read badly.\n' : ''}'
         '- You run as Claude Code on the user\'s phone (Termux). You can use your tools to do what '
-        'they ask; then report the result in one short line.';
+        'they ask; then report the result in one short line.'
+        '${phone ? '\n${PhoneAction.primer}' : ''}';
   }
 
   void _showLastReply({bool speak = false}) {
     final r = chat.lastReply;
     if (r == null) return;
-    display.showText(r.text, title: 'Claude');
+    display.showText(PhoneAction.strip(r.text), title: 'Claude');
     if (speak && narrator.enabled) {
       unawaited(voice.suspend());
       _speakThis = true;
@@ -743,6 +762,14 @@ class Suite extends ChangeNotifier {
     _speakThis = settings.speakReplies == 'always' || (settings.speakReplies == 'voice' && _spokenQuestion);
     final target = _target;
     _sessionTarget = null;
+    // "Flashlight on", "next song", "set a timer for 5 minutes": done at once, no Claude needed.
+    if (target == Target.claude && settings.phoneActions) {
+      final quick = PhoneAction.parseLocal(t, DateTime.now());
+      if (quick != null) {
+        await _doPhone(quick, quick: true);
+        return;
+      }
+    }
     try {
       if (target == Target.terminal) {
         await _toTerminal(t);
@@ -855,7 +882,52 @@ class Suite extends ChangeNotifier {
     return display.flash('*');
   }
 
-  void _onProgress(BridgeMessage m) {
+  /// Claude's reply without its phone-action lines.
+  static BridgeMessage _clean(BridgeMessage m) {
+    if (!m.text.contains('[[') && !m.live.contains('[[')) return m;
+    return BridgeMessage(
+        id: m.id,
+        who: m.who,
+        to: m.to,
+        text: PhoneAction.strip(m.text),
+        status: m.status,
+        ts: m.ts,
+        stage: m.stage,
+        tool: m.tool,
+        live: PhoneAction.strip(m.live),
+        block: m.block,
+        steps: m.steps,
+        started: m.started,
+        ms: m.ms,
+        note: m.note);
+  }
+
+  /// Do it and say so: a notice on the glasses, a toast on the phone.
+  Future<void> _doPhone(PhoneAction a, {bool quick = false}) async {
+    if (quick) {
+      _aiSession = false;
+      conversation.ended();
+    }
+    final said = await phoneActions.run(a);
+    EventLog.add('phone', 'action', {'do': a.kind, 'quick': quick, 'result': said});
+    _toast(said);
+    // After Claude's answer only a problem is worth a screen of its own.
+    if ((quick || said.startsWith('Could not')) && _glassesFree() && !conversation.busy && !voice.dictating) {
+      display.notice(said, duration: const Duration(seconds: 3));
+    }
+  }
+
+  /// A reminder (or timer) went off: on the glasses, with a buzz on the phone.
+  void _onReminder(String id, String text) {
+    HapticFeedback.heavyImpact();
+    EventLog.add('phone', 'reminder', {'id': id});
+    if (ble.isConnected && !mirror.running && !flicker.running && !voice.dictating && !conversation.busy) {
+      display.showText(text.startsWith('Timer done') ? text : 'Reminder\n$text', title: 'Reminder');
+    }
+  }
+
+  void _onProgress(BridgeMessage raw) {
+    final m = _clean(raw);
     conversation.progress(m);
     if (_speakThis && narrator.enabled && m.stage == 'writing' && m.live.isNotEmpty) {
       unawaited(voice.suspend());
@@ -864,7 +936,12 @@ class Suite extends ChangeNotifier {
     }
   }
 
-  void _onReply(BridgeMessage m) {
+  void _onReply(BridgeMessage raw) {
+    final actions = settings.phoneActions && !raw.isError ? PhoneAction.extract(raw.text) : const <PhoneAction>[];
+    final m = _clean(raw);
+    for (final a in actions) {
+      unawaited(_doPhone(a));
+    }
     HapticFeedback.mediumImpact();
     // Sent away with a double tap while it worked: just a "*" to say it is done.
     if (!conversation.answered(m) && !m.isError) _doneBlink();
@@ -1007,9 +1084,14 @@ class Suite extends ChangeNotifier {
     }
   }
 
-  /// Double tap on the glasses (when nothing was being said): whatever you chose.
-  void _doubleTap() {
+  /// Double tap on the glasses (when nothing was being said): whatever you
+  /// chose. "talk" starts listening without the glasses' Even AI screen
+  /// (only a long press brings that up) - when nothing of ours was showing;
+  /// otherwise the double tap just closed it.
+  void _doubleTap({required bool idle}) {
     switch (settings.doubleTapAction) {
+      case 'talk':
+        if (idle) unawaited(_glassesTalk());
       case 'switch':
         runCommand(settings.target == Target.terminal ? VoiceCommand.toChat : VoiceCommand.toTerminal);
       case 'repeat':
@@ -1175,6 +1257,7 @@ class Suite extends ChangeNotifier {
     _mirrorTimer?.cancel();
     _terminalWatch?.cancel();
     _lookTimer?.cancel();
+    _echoTimer?.cancel();
     speechModel.removeListener(_applySpeech);
     settings.removeListener(applySettings);
     voice.dispose();

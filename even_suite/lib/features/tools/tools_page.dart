@@ -16,6 +16,7 @@ import 'diagnostics_page.dart';
 import 'help_page.dart';
 import 'images_page.dart';
 import 'notify_page.dart';
+import 'phone_page.dart';
 import 'text_page.dart';
 
 /// Everything else, grouped: your glasses, Claude, labs, the app.
@@ -59,6 +60,8 @@ class ToolsPage extends StatelessWidget {
         _Group('Claude', [
           _Tool(Icons.terminal_rounded, AppColors.glasses, 'Terminal', 'Claude Code and your Termux shell',
               () => pushBody('Terminal', const TerminalPage(active: true))),
+          _Tool(Icons.phone_android_rounded, AppColors.warn, 'Phone actions',
+              'Reminders, timers, alarms, apps, calls, texts, music', () => push(const PhonePage())),
           _Tool(Icons.tune_rounded, AppColors.claude, 'Claude and voice',
               'Model, effort, the speaking voice, follow-ups, trigger words', () => ClaudeSettingsSheet.show(context)),
           _Tool(Icons.graphic_eq_rounded, AppColors.hud, 'Speech engine',

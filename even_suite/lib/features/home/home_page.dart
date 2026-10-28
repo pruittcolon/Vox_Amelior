@@ -9,10 +9,10 @@ import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
 import '../../widgets/voice_widgets.dart';
-import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
 import '../settings/settings_page.dart';
 import '../settings/touchbar_page.dart';
+import '../tools/phone_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -73,11 +73,11 @@ class HomePage extends StatelessWidget {
                     onTap: () => _push(context, const TouchBarPage()),
                   ),
                   _FeatureCard(
-                    icon: Icons.view_agenda_rounded,
-                    color: AppColors.claude,
-                    title: 'Claude screens',
-                    caption: 'Arrange the working screen; when it closes',
-                    onTap: () => _push(context, const LayoutPage()),
+                    icon: Icons.phone_android_rounded,
+                    color: AppColors.warn,
+                    title: 'Phone actions',
+                    caption: 'Reminders, timers, apps, calls - just say it',
+                    onTap: () => _push(context, const PhonePage()),
                   ),
                   _FeatureCard(
                     icon: Icons.task_alt_rounded,

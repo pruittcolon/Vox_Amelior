@@ -26,7 +26,8 @@ class TouchBarPage extends StatelessWidget {
               icon: Icons.touch_app_rounded,
               color: AppColors.claude,
               title: 'Hold the left TouchBar',
-              hint: 'Then talk. It sends when you pause; a double tap throws it away.',
+              hint: 'Then talk; it sends when you pause. The glasses flash their own “Even AI” screen first '
+                  '(their firmware, before the app hears anything) - double tap to talk skips it.',
               value: s.holdToTalk ? s.holdAction : 'off',
               options: const [
                 ('mode', 'Whichever mode is on', 'Chat or terminal - switch by saying “terminal” or “chat”'),
@@ -44,10 +45,11 @@ class TouchBarPage extends StatelessWidget {
               icon: Icons.ads_click_rounded,
               color: AppColors.glasses,
               title: 'Double tap',
-              hint: 'The glasses always close what is on the screen first.',
+              hint: 'On a screen it closes it. With nothing showing, it does this:',
               value: s.doubleTapAction,
               options: const [
-                ('close', 'Just close', 'Back to the glasses'),
+                ('talk', 'Talk (no Even AI screen)', 'Listening at once - the glasses never show “Even AI”'),
+                ('close', 'Nothing', 'Just closes what is on the screen'),
                 ('switch', 'Switch chat / terminal', 'Shows which one is on now'),
                 ('repeat', 'Show the last answer', 'Brings Claude’s last answer back'),
               ],

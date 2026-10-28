@@ -91,6 +91,9 @@ class MainActivity : FlutterActivity() {
             }
         }
         EventChannel(messenger, "suite/speechEvents").setStreamHandler(speechEvents)
+        PhoneActions.onReminder = { id, text ->
+            runOnUiThread { systemChannel.invokeMethod("reminder", mapOf("id" to id, "text" to text)) }
+        }
 
         // Raw microphone audio for the app's own recognizer (Parakeet).
         val recorder = PcmRecorder(this) { chunk -> pcmEvents.send(chunk) }
@@ -161,6 +164,7 @@ class MainActivity : FlutterActivity() {
             // Swiped away: nothing is left to drive the mic or the glasses.
             speech?.dispose()
             pcm?.stop()
+            PhoneActions.onReminder = null
             tts?.dispose()
             NotifyListener.onPosted = null
             BleManager.listener = null
@@ -353,6 +357,7 @@ class MainActivity : FlutterActivity() {
             }
             "location" -> result.success(lastLocation())
             "filesDir" -> result.success(filesDir.absolutePath)
+            "phone" -> result.success(PhoneActions.run(this, args ?: emptyMap<Any, Any>()))
             "battery" -> {
                 val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
                 val level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
@@ -437,6 +442,8 @@ class MainActivity : FlutterActivity() {
         "notifications" -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()
         "termux" -> listOf(TERMUX_PERMISSION)
         "location" -> listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
+        "contacts" -> listOf(Manifest.permission.READ_CONTACTS)
+        "calls" -> listOf(Manifest.permission.CALL_PHONE)
         else -> emptyList()
     }
 
@@ -522,7 +529,19 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        inForeground = true
+    }
+
+    override fun onPause() {
+        inForeground = false
+        super.onPause()
+    }
+
     companion object {
+        /** The app is on screen (it may then open other apps without extra permission). */
+        @Volatile var inForeground = false
         private const val PERMISSION_REQUEST = 41
         private const val SCREEN_REQUEST = 42
         private const val TERMUX = "com.termux"

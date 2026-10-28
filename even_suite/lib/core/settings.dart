@@ -95,8 +95,9 @@ class Settings extends ChangeNotifier {
   String lookLayout = ''; // LookLayout JSON ('' = the Split preset)
   // TouchBar: what a hold and a double tap do
   String holdAction = 'mode'; // mode (chat or terminal, whichever is on), chat, terminal
-  String doubleTapAction = 'close'; // close, switch (chat <-> terminal), repeat
+  String doubleTapAction = 'talk'; // talk (no Even AI screen), close, switch (chat <-> terminal), repeat
   String speechEngine = 'android'; // android (SpeechRecognizer) or parakeet (on the phone, downloaded)
+  bool phoneActions = true; // Claude (and quick commands) may set reminders, open apps, ...
   // Work: when Claude Code finishes a job
   bool workAlerts = true;
   int workMinSec = 30; // only jobs that took at least this long
@@ -215,6 +216,7 @@ class Settings extends ChangeNotifier {
     holdAction = _s(m['holdAction'], holdAction);
     doubleTapAction = _s(m['doubleTapAction'], doubleTapAction);
     speechEngine = _s(m['speechEngine'], speechEngine);
+    phoneActions = _b(m['phoneActions'], phoneActions);
     workAlerts = _b(m['workAlerts'], workAlerts);
     workMinSec = _i(m['workMinSec'], workMinSec).clamp(0, 3600);
     workPhone = _b(m['workPhone'], workPhone);
@@ -396,6 +398,8 @@ class Settings extends ChangeNotifier {
         doubleTapAction = value as String;
       case 'speechEngine':
         speechEngine = value as String;
+      case 'phoneActions':
+        phoneActions = value as bool;
       case 'workAlerts':
         workAlerts = value as bool;
       case 'workMinSec':

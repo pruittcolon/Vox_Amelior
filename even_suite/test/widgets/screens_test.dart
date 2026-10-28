@@ -295,6 +295,7 @@ void main() {
         ('Look up screen', '13_lookup'),
         ('TouchBar', '17_touchbar'),
         ('Speech engine', '19_speech'),
+        ('Phone actions', '20_phone'),
         ('Send text', '7_text'),
         ('Notifications', '8_notifications'),
         ('How to talk to it', '9_help'),
@@ -445,6 +446,12 @@ void main() {
     await tester.pump();
     expect(w.glasses.screens().length, count);
 
+    // The glasses answer our own exit with a "double tap": that one is not you.
+    w.glasses.touch(0, 'R');
+    await tester.pump();
+    expect(suite.voice.dictating, isFalse, reason: 'an echo, not a double tap');
+    await tester.pump(const Duration(seconds: 1));
+
     // Double tap set to switch chat and terminal.
     suite.settings.set('doubleTapAction', 'switch');
     w.glasses.touch(0, 'R');
@@ -522,10 +529,17 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     expect(suite.display.mode, DisplayMode.idle, reason: 'the glasses are given back');
 
-    // Double tap: the glasses left our screen.
+    // Double tap with nothing on the glasses: talk - no Even AI screen at all.
     w.glasses.touch(0, 'L');
     await tester.pump();
-    expect(suite.display.pager, isNull);
+    await tester.pump();
+    expect(suite.voice.dictating, isTrue);
+    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('Termux-Claude listening'));
+    // Double tap again: thrown away.
+    w.glasses.touch(0, 'L');
+    await tester.pump();
+    expect(suite.voice.dictating, isFalse);
+    await tester.pump(const Duration(seconds: 1));
 
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
@@ -667,6 +681,48 @@ void main() {
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('phone actions: instant ones, Claude\'s, and a reminder going off', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+
+    // Said plainly: done at once, Claude is not asked.
+    await suite.submit('Flashlight on', spoken: true);
+    await tester.pump();
+    expect(w.system.phoneCalls.single, {'do': 'torch', 'on': true});
+    expect(w.bridge.sentTexts, isEmpty);
+    expect(w.glasses.screens().last, contains('Done'));
+    await tester.pump(const Duration(seconds: 4));
+
+    // Through Claude: its action line is done and never shown.
+    await suite.submit('remind me tomorrow at 9 to call the bank', spoken: false);
+    await tester.pump();
+    expect(w.bridge.lastSystem, contains('[[phone:'), reason: 'Claude knows it can');
+    w.bridge.addReply('Reminder set for 9 AM.\n[[phone:{"do":"remind","at":"2030-01-02T09:00","text":"Call the bank"}]]');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('Reminder set for 9 AM.'));
+    expect(w.glasses.screens().join(), isNot(contains('[[phone')));
+    final remind = w.system.phoneCalls.last;
+    expect(remind['do'], 'remind');
+    expect(remind['text'], 'Call the bank');
+    expect(remind['at'], DateTime(2030, 1, 2, 9).millisecondsSinceEpoch);
+    await tester.pump(const Duration(seconds: 30));
+
+    // The reminder goes off: on the glasses.
+    await suite.display.clear();
+    await tester.pump(const Duration(seconds: 1));
+    suite.system.onReminder!('r1', 'Call the bank');
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('Call the bank'));
+    expect(w.glasses.screens().last, contains('Reminder'));
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   testWidgets('a tiny "*" for 3 seconds when Claude is done (can be switched off)', (tester) async {
     final w = _World();
     final suite = w.suite;
@@ -689,6 +745,7 @@ void main() {
         reason: 'gone after 3 seconds');
 
     // Sent away with a double tap while Claude works: no screens come back, the answer is a "*".
+    await tester.pump(const Duration(seconds: 1)); // past the glasses' answer to that exit
     await suite.submit('what time is it', spoken: false);
     await tester.pump();
     expect(suite.conversation.busy, isTrue);

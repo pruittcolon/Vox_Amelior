@@ -417,6 +417,16 @@ class FakeSystem extends SystemBridge {
 
   String? files;
 
+  /// Phone actions asked for, and what they answer.
+  final phoneCalls = <Map<String, Object?>>[];
+  Map<String, Object?> phoneAnswer = const {'ok': true, 'say': 'Done'};
+
+  @override
+  Future<Map> phone(Map<String, Object?> action) async {
+    phoneCalls.add(action);
+    return phoneAnswer;
+  }
+
   @override
   Future<String?> filesDir() async => files;
 

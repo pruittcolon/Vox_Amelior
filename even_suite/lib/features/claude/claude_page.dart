@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import '../../core/bridge/bridge_client.dart';
 import '../../core/bridge/chat_controller.dart';
 import '../../core/bridge/work_controller.dart';
+import '../../core/phone_actions.dart';
 import '../../core/settings.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
@@ -235,7 +236,7 @@ class _Console extends StatelessWidget {
               itemBuilder: (context, i) => _Entry(
                 message: items[i],
                 onShow: () {
-                  suite.display.showText(items[i].text, title: items[i].isMine ? 'You' : 'Claude');
+                  suite.display.showText(PhoneAction.strip(items[i].text), title: items[i].isMine ? 'You' : 'Claude');
                   showToast(context, suite.ble.isConnected ? 'Showing on your glasses' : 'Glasses are not connected');
                 },
               ),
@@ -278,7 +279,7 @@ class _Entry extends StatelessWidget {
             TextSpan(
                 text: '• ',
                 style: TextStyle(color: m.isError ? AppColors.error : AppColors.claude, fontWeight: FontWeight.w700)),
-            TextSpan(text: m.text, style: TextStyle(color: m.isError ? AppColors.error : null)),
+            TextSpan(text: PhoneAction.strip(m.text), style: TextStyle(color: m.isError ? AppColors.error : null)),
           ]),
           style: _mono,
         ),
@@ -366,7 +367,7 @@ class _WorkingState extends State<_Working> with SingleTickerProviderStateMixin 
                 overflow: TextOverflow.ellipsis),
           Text('$spin $stage · ${secs}s',
               style: _Entry._mono.copyWith(color: AppColors.claude, fontWeight: FontWeight.w700)),
-          if (m.live.isNotEmpty) Text('${m.live}$cursor', style: _Entry._mono),
+          if (m.live.isNotEmpty) Text('${PhoneAction.strip(m.live)}$cursor', style: _Entry._mono),
         ]);
       },
     );

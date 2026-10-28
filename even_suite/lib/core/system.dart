@@ -15,6 +15,9 @@ class SystemBridge {
   /// A notification of ours was tapped: open this tab ('work', ...).
   void Function(String tab)? onOpenTab;
 
+  /// A reminder went off (while the app runs).
+  void Function(String id, String text)? onReminder;
+
   void init() {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -24,6 +27,9 @@ class SystemBridge {
           onVolumeKey?.call('${call.arguments}');
         case 'openTab':
           onOpenTab?.call('${call.arguments}');
+        case 'reminder':
+          final m = call.arguments as Map? ?? const {};
+          onReminder?.call('${m['id'] ?? ''}', '${m['text'] ?? ''}');
       }
     });
   }
@@ -53,6 +59,10 @@ class SystemBridge {
 
   /// The tab a tapped notification asked for when the app was started by it.
   Future<String?> launchTab() => _invoke<String>('launchTab');
+
+  /// Do something on the phone (see PhoneAction): {ok, say} or {ok: false, error}.
+  Future<Map> phone(Map<String, Object?> action) async =>
+      await _invoke<Map>('phone', action) ?? const {'ok': false, 'error': 'not available here'};
 
   /// Where the app keeps its own files (downloaded speech models).
   Future<String?> filesDir() => _invoke<String>('filesDir');
