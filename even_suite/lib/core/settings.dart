@@ -40,7 +40,7 @@ class Settings extends ChangeNotifier {
   int doneBlinkMs = 3000; // how long the "*" shows when Claude is done
   int termShowSec = 30; // after you send to Termux: its screen on the glasses this long after it last changed (0 = answer like chat, -1 = until you close it)
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
-  bool glassesMic = false; // listen through the glasses' mic (with Parakeet) - test: on 28 Oct most of its sound got lost
+  bool glassesMic = true; // TouchBar hold and follow-ups: the glasses' own mic (with Parakeet), their Even AI screen kept
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
   int bmpGapMs = 5; // gap between picture packets per arm (tuning)
   int bmpChunk = 194; // picture bytes per packet: 194 (demo) or 236 (tuning)
@@ -92,7 +92,7 @@ class Settings extends ChangeNotifier {
   bool wakeAutoSend = false; // same after "Claude…" (off: say "send")
   int pauseMs = 1500; // the pause that ends what you say
   String wakeStrict = 'normal'; // relaxed, normal, strict
-  bool wordsWhileHolding = true; // while the TouchBar is held: "Termux-Claude listening" and your words
+  bool wordsWhileHolding = false; // while the TouchBar is held: our listening screen and your words instead of Even AI's
   bool aiStyle = false; // Even AI screen states (the glasses animate every update); plain text when off
   bool doneBlink = true; // a tiny "*" on the glasses for 3 s when Claude is done
   // Look up: 'custom' = your own layout (drawn by the app), 'dashboard' = the glasses' own

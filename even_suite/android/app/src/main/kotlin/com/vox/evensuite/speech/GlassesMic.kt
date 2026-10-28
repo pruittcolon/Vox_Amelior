@@ -23,6 +23,14 @@ object GlassesMic {
     /** The app's own recognizer takes the decoded audio directly (no pipe). */
     @Volatile private var pcmSink: ((ByteArray) -> Unit)? = null
 
+    /**
+     * Sound that came while nothing listened yet (decoded, with when it came;
+     * worker thread only): the TouchBar was just held and the recognizer is
+     * still starting. Handed over first, so the first word is not cut off.
+     */
+    private val preRoll = ArrayDeque<Pair<Long, ByteArray>>()
+    private const val PRE_ROLL_MS = 1500L
+
     // Diagnostics
     private var statPackets = 0
     private var statDecodeUs = 0L
@@ -70,7 +78,14 @@ object GlassesMic {
     /** Hand decoded 16 kHz PCM to [sink] (Parakeet) until [closePcm]. */
     fun openPcm(sink: (ByteArray) -> Unit) {
         pcmSink = sink
-        worker.execute { if (handle == 0L) handle = Lc3.open() }
+        worker.execute {
+            if (handle == 0L) handle = Lc3.open()
+            val now = System.currentTimeMillis()
+            while (preRoll.isNotEmpty()) {
+                val (at, pcm) = preRoll.removeFirst()
+                if (now - at <= PRE_ROLL_MS) sink(pcm)
+            }
+        }
     }
 
     fun closePcm() {
@@ -90,7 +105,17 @@ object GlassesMic {
             }
             return
         }
-        if (!streaming) return
+        if (!streaming) {
+            // Nothing listens yet (the recognizer is starting): keep the last moments.
+            worker.execute {
+                if (handle == 0L) handle = Lc3.open()
+                val pcm = Lc3.decode(handle, lc3)
+                val now = System.currentTimeMillis()
+                preRoll.addLast(now to pcm)
+                while (preRoll.isNotEmpty() && now - preRoll.first().first > PRE_ROLL_MS) preRoll.removeFirst()
+            }
+            return
+        }
         val o = out ?: return
         worker.execute {
             if (handle == 0L) return@execute

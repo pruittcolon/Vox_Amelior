@@ -608,14 +608,13 @@ class Suite extends ChangeNotifier {
   }
 
   /// Left TouchBar held (the glasses' Even AI gesture): talk to Claude.
-  /// Uses the glasses' own microphone when the phone supports it.
-  /// Left TouchBar held (the glasses' Even AI gesture): talk to Claude.
   ///
-  /// The glasses tell us when the hold starts, but once our screen is up
-  /// they never say when it is let go (firmware: the "released" event only
-  /// comes while their own Even AI screen is showing with its microphone
-  /// on). So what you say goes when you pause; a tap sends it at once and a
-  /// double tap throws it away.
+  /// Their own "Even AI listening" stays up (it is instant, and only while
+  /// it shows do they say when the TouchBar is let go - so it sends the
+  /// moment you let go), and their microphone starts right away: it hears
+  /// you, not the room. With Android's recognizer (which hears nothing from
+  /// the glasses' mic) the phone listens. A pause sends too; a tap sends at
+  /// once, a double tap throws it away.
   Future<void> _glassesTalk() async {
     _aiSession = true;
     _stopLook();
@@ -624,19 +623,20 @@ class Suite extends ChangeNotifier {
       'terminal' => Target.terminal,
       _ => null,
     };
-    // The glasses put up their own "Even AI listening" the moment the
-    // TouchBar is held (firmware, it cannot be skipped). Ours replaces it
-    // first thing, before anything that takes time.
+    // The microphone first, before anything that takes time (the sound
+    // that comes meanwhile is kept and heard).
+    final glasses = holdMicReady;
+    if (glasses) _openGlassesMic();
     if (settings.wordsWhileHolding) _showListening('', ai: true, touch: true);
-    if (!await _micAllowed()) {
+    if (!glasses && !await _micAllowed()) {
       _aiSession = false;
       conversation.listeningStopped();
       return;
     }
     // Holding the TouchBar interrupts whatever is being said.
-    await narrator.stop();
+    unawaited(narrator.stop());
     if (_target == Target.claude) unawaited(chat.warm());
-    await _dictate(pauseSends: true, fresh: true);
+    await _dictate(pauseSends: true, fresh: true, glasses: glasses);
     // A cap on one message, so it can never listen on and on.
     _holdLimit?.cancel();
     _holdLimit = Timer(const Duration(seconds: 45), () {
@@ -644,12 +644,12 @@ class Suite extends ChangeNotifier {
     });
   }
 
-  /// The glasses said the TouchBar was let go (only while their own screen
-  /// shows): send it now.
+  /// The glasses said the TouchBar was let go (while their own screen
+  /// shows): the recognizer finishes the last words and it is sent at once.
   void _glassesRelease() {
     _holdLimit?.cancel();
     _holdLimit = null;
-    if (voice.dictating && voice.pauseSends) unawaited(voice.send());
+    if (voice.dictating && voice.pauseSends) voice.releaseHold();
     _closeGlassesMic();
   }
 
@@ -668,23 +668,28 @@ class Suite extends ChangeNotifier {
   /// Listen through the glasses' own microphone - it hears you, not the TV
   /// or the people around - while they are connected and Parakeet is the
   /// speech engine (Android's recognizer hears nothing from it on many phones).
-  bool get glassesMicInUse =>
+  bool get glassesMicInUse => holdMicReady;
+
+  /// The glasses' microphone can be used: switched on (the default),
+  /// connected, and Parakeet listening.
+  bool get holdMicReady =>
       settings.glassesMic && ble.isConnected && settings.speechEngine == 'parakeet' && speechModel.ready;
 
   /// Start taking a message down, from the glasses' microphone when it can be
   /// used ([followUp]: the window after an answer).
-  Future<void> _dictate({bool hold = false, bool pauseSends = false, bool fresh = false, Duration? followUp}) async {
-    final glasses = glassesMicInUse;
-    conversation.calmListening = glasses;
-    if (glasses) _openGlassesMic();
-    final source = glasses ? 'glasses' : 'phone';
+  Future<void> _dictate(
+      {bool hold = false, bool pauseSends = false, bool fresh = false, Duration? followUp, bool? glasses}) async {
+    final useGlasses = glasses ?? glassesMicInUse;
+    conversation.calmListening = useGlasses;
+    if (useGlasses) _openGlassesMic();
+    final source = useGlasses ? 'glasses' : 'phone';
     if (followUp != null) {
       await voice.startFollowUp(followUp, source: source);
     } else {
       await voice.startDictation(hold: hold, pauseSends: pauseSends, fresh: fresh, source: source);
     }
     // (Switching away from the phone's mic can close it on the way.)
-    if (glasses && voice.dictating) _openGlassesMic();
+    if (useGlasses && voice.dictating) _openGlassesMic();
   }
 
   /// Instructions sent with every message (as Claude's system prompt): this
@@ -799,7 +804,7 @@ class Suite extends ChangeNotifier {
     _showListening(draft, ai: _aiSession, touch: touch);
   }
 
-  /// The listening screen: "Termux-Claude listening" and your words, or in
+  /// The listening screen: "Listening" and your words, or in
   /// terminal mode which terminal it goes to ("> Claude 2", "[start]" once
   /// said) and that a pause or "send" types it in.
   void _showListening(String draft, {bool ai = false, bool touch = false}) {

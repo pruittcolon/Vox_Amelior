@@ -102,10 +102,10 @@ void main() {
     test('listening shows a voice meter and the last lines said', () {
       final s = Conversation.listeningScreen('what is the weather', 0.5, 1);
       final lines = s.split('\n');
-      expect(lines, ['Termux-Claude listening..', 'what is the weather'], reason: 'plain text, no meter');
+      expect(lines, ['Listening..', 'what is the weather'], reason: 'plain text, no meter');
       expect([for (var f = 0; f < 5; f++) Conversation.listeningScreen('', 0, f).split('\n').first],
-          ['Termux-Claude listening...', 'Termux-Claude listening..', 'Termux-Claude listening.',
-           'Termux-Claude listening..', 'Termux-Claude listening...']);
+          ['Listening...', 'Listening..', 'Listening.',
+           'Listening..', 'Listening...']);
       expect(Conversation.listeningScreen('', 0, 0), contains('Say your question'));
     });
 

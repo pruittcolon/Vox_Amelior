@@ -68,7 +68,7 @@ class Conversation extends ChangeNotifier {
   /// No sign of life for this long while waiting: say so instead of waiting forever.
   Duration giveUpAfter = const Duration(minutes: 10);
 
-  String _header = 'Termux-Claude listening';
+  String _header = 'Listening';
   String _footer = '';
   String _prompt = 'Say your question';
   DateTime _draftAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -113,7 +113,7 @@ class Conversation extends ChangeNotifier {
       {double level = 0,
       bool followUp = false,
       bool ai = false,
-      String header = 'Termux-Claude listening',
+      String header = 'Listening',
       String footer = '',
       String prompt = 'Say your question'}) {
     if (text != draft) _draftAt = DateTime.now();
@@ -307,11 +307,11 @@ class Conversation extends ChangeNotifier {
 
   static const _dots = ['...', '..', '.', '..'];
 
-  /// "Termux-Claude listening..." (the dots go ... .. . .. ...), then the
+  /// "Listening..." (the dots go ... .. . .. ...), then the
   /// last lines you said. Plain text: it is redrawn a few times a second.
   @visibleForTesting
   static String listeningScreen(String draft, double level, int frame,
-      {String header = 'Termux-Claude listening', String footer = '', String prompt = 'Say your question'}) {
+      {String header = 'Listening', String footer = '', String prompt = 'Say your question'}) {
     final said = GlassesText.wrap(GlassesText.clean(draft));
     final room = footer.isEmpty ? 4 : 3;
     final tail = said.length > room ? said.sublist(said.length - room) : said;

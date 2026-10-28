@@ -326,7 +326,7 @@ class _Preview extends StatelessWidget {
                     border: Border.all(color: AppColors.hud.withOpacity(0.5)),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text('Your text here\nTermux-Claude listening...',
+                  child: const Text('Your text here\nListening...',
                       style: TextStyle(color: AppColors.hud, fontSize: 12, height: 1.4)),
                 ),
               ),

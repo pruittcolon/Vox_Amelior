@@ -86,15 +86,15 @@ class SettingsPage extends StatelessWidget {
                 (v) => s.set('holdToTalk', v),
               ),
               _Switch(
-                'Use the glasses microphone (test)',
-                'Hears you, not the room - but on your phone much of its sound gets lost on the way, and then '
-                    'nothing is understood. Needs the Parakeet speech engine. Leave off if talking stops working.',
+                'Use the glasses microphone',
+                'For the TouchBar hold and follow-ups: it starts the moment you hold and hears you, not the room. '
+                    'Needs the Parakeet speech engine (More › Speech engine); otherwise the phone listens.',
                 s.glassesMic,
                 (v) => s.set('glassesMic', v),
               ),
               _Switch(
                 'Show my words while holding',
-                'The glasses show “Termux-Claude listening” and what you say while the TouchBar is held.',
+                'Instead of the glasses’ own “Even AI listening”, our screen with what you say. Slower: it can only send when you pause.',
                 s.wordsWhileHolding,
                 (v) => s.set('wordsWhileHolding', v),
               ),

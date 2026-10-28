@@ -483,7 +483,7 @@ class VoiceController extends ChangeNotifier {
     _committed = _join(_committed, piece);
     _endSession();
     if (_awaitingRelease) {
-      _submit(_committed);
+      _submit(_committed.trim().isNotEmpty ? _committed : draft);
       return;
     }
     final ending = VoiceCommands.splitEnding(_committed);

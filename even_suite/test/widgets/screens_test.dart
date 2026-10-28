@@ -497,23 +497,22 @@ void main() {
     await tester.pump();
     expect(suite.display.pager!.page, 0);
 
-    // Long press left: "Termux-Claude listening" at once (instead of Even AI's
-    // own listening screen), the phone mic takes it down, the words show live.
+    // Long press left: the glasses' own "Even AI listening" stays - nothing of
+    // ours over it, so they say when it is let go - and letting go sends it.
+    final screensBefore = w.glasses.screens().length;
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
     expect(suite.voice.dictating, isTrue);
-    expect(suite.voice.pauseSends, isTrue, reason: 'a pause (or the release, when reported) sends it');
-    expect(w.speech.lastSource, 'phone');
-    // (The test font is wider than the glasses' font, so the header may wrap here.)
-    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('Termux-Claude listening'));
-    expect(w.glasses.sent['L']!.lastWhere((p) => p[0] == 0x4E)[4], 0x71,
-        reason: 'plain text: no Even AI fade-in or scroll bar on every update');
+    expect(suite.voice.pauseSends, isTrue, reason: 'a pause sends it too');
+    expect(w.speech.lastSource, 'phone', reason: 'Android\'s recognizer here: the phone listens');
+    expect(w.glasses.screens(), hasLength(screensBefore), reason: 'their Even AI screen stays');
     w.speech.partial('what is the weather');
     await tester.pump(const Duration(milliseconds: 500));
-    expect(w.glasses.screens().last, contains('what is the weather'), reason: 'what you say, live');
+    expect(w.glasses.screens(), hasLength(screensBefore), reason: 'none while you talk either');
     w.glasses.touch(24, 'L');
     await tester.pump();
+    expect(w.speech.finishes, greaterThan(0), reason: 'let go: the recognizer finishes the last words');
     w.speech.say('what is the weather', finishing: true);
     await tester.pump();
     expect(w.bridge.sentTexts, ['what is the weather']);
@@ -552,7 +551,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(suite.voice.dictating, isTrue);
-    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('Termux-Claude listening'));
+    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('Listening'));
     // Double tap again: thrown away.
     w.glasses.touch(0, 'L');
     await tester.pump();
@@ -644,11 +643,12 @@ void main() {
     await tester.pumpWidget(EvenSuiteApp(suite: suite));
     await tester.pump();
 
-    // The glasses never say the TouchBar was let go while our screen is up: a pause sends it.
+    // Held, and a pause (not letting go) sends it. Their own Even AI screen stays meanwhile.
+    final before = w.glasses.screens().length;
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
-    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('pause or tap to send'));
+    expect(w.glasses.screens(), hasLength(before));
     w.speech.say('what time is it');
     await tester.pump();
     await tester.pump();

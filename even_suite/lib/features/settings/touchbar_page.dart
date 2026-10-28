@@ -96,7 +96,7 @@ class TouchBarPage extends StatelessWidget {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Show my words while I talk', style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: const Text('“Termux-Claude listening” and what you say, live.',
+                  subtitle: const Text('Our screen instead of Even AI’s - slower: sends only when you pause.',
                       style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                   value: s.wordsWhileHolding,
                   onChanged: (v) => s.set('wordsWhileHolding', v),
@@ -120,8 +120,8 @@ class TouchBarPage extends StatelessWidget {
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Use the glasses microphone (test)', style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: const Text('Hears only you, but much of its sound can get lost. Needs Parakeet.',
+                  title: const Text('Use the glasses microphone', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Starts the moment you hold, hears only you. Needs Parakeet.',
                       style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                   value: s.glassesMic,
                   onChanged: (v) => s.set('glassesMic', v),

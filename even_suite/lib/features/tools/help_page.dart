@@ -74,7 +74,7 @@ class HelpPage extends StatelessWidget {
             iconColor: AppColors.glasses,
             child: Column(children: [
               step('•', 'Tap the mic and talk', 'It sends when you pause. Tap again to stop early and edit. While Claude talks, tap to stop it.'),
-              step('•', 'Hold the left TouchBar', 'The glasses say “Termux-Claude listening” and show what you say. It sends when you pause - no “$word”, no “send”. Tap to send at once, double tap to cancel.'),
+              step('•', 'Hold the left TouchBar', 'The glasses show their own “Even AI listening” and hear you through their microphone. Let go and it is sent at once - no “$word”, no “send”. Double tap to cancel.'),
               step('•', 'Watch it work', 'The glasses show “Got it” with your question, then what Claude is doing (“Searching the web 4s”), then the answer as it is written.'),
               step('•', 'Read replies like a teleprompter', 'Pages turn on their own at reading speed. Right tap = next and keep going; left tap = back and pause. Or use ▲ ▼, the volume keys, or your voice.'),
               step('•', 'Talk to the terminal', 'Hold and say “terminal”. Then hold, say “start”, your words, and “send” (or pause): it is typed into Claude Code in Termux and its steps and answer show like a chat answer. Say “chat” to go back.'),
