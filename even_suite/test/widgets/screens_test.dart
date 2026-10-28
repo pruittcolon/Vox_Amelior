@@ -1006,4 +1006,20 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('"flashlight on" works in terminal mode too - never typed into the terminal', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    suite.useSession('claude');
+    await tester.pump();
+    await suite.submit('Flashlight on', spoken: true);
+    await tester.pump();
+    expect(w.system.phoneCalls.single['do'], 'torch');
+    expect(w.bridge.pasted, isEmpty);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

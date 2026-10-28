@@ -821,8 +821,9 @@ class Suite extends ChangeNotifier {
     _speakThis = settings.speakReplies == 'always' || (settings.speakReplies == 'voice' && _spokenQuestion);
     final target = _target;
     _sessionTarget = null;
-    // "Flashlight on", "next song", "set a timer for 5 minutes": done at once, no Claude needed.
-    if (target == Target.claude && settings.phoneActions) {
+    // "Flashlight on", "next song", "set a timer for 5 minutes": done at once,
+    // no Claude needed - in chat or terminal mode alike (never typed in).
+    if (settings.phoneActions) {
       final quick = PhoneAction.parseLocal(t, DateTime.now());
       if (quick != null) {
         await _doPhone(quick, quick: true);
