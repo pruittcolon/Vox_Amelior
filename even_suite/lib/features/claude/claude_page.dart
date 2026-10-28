@@ -182,7 +182,7 @@ class _Header extends StatelessWidget {
                 style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
               ),
             ),
-            GlassesBattery(ble: suite.ble),
+            GlassesBattery(ble: suite.ble, onTap: () => suite.askBattery(now: true)),
           ]);
         },
       ),

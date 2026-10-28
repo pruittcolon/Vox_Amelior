@@ -7,14 +7,18 @@ import '../core/glasses/g1_font.dart';
 import '../core/glasses/glasses_display.dart';
 import 'common.dart';
 
-/// The glasses' battery (the lower arm), e.g. "73%" - only while they are
-/// connected and have told it. Rebuilds itself when it changes.
+/// The glasses' battery (the lower arm), e.g. "Glasses 73%" - whenever they
+/// are connected ("Glasses …" until they tell it). Rebuilds itself when it
+/// changes.
 class GlassesBattery extends StatelessWidget {
-  const GlassesBattery({super.key, required this.ble, this.compact = true});
+  const GlassesBattery({super.key, required this.ble, this.compact = true, this.onTap});
   final BleManager ble;
 
-  /// Just the icon and the number (headers); otherwise a pill with a label.
+  /// Icon and text only (headers); otherwise a pill.
   final bool compact;
+
+  /// E.g. read it again.
+  final VoidCallback? onTap;
 
   static IconData icon(int pct) => pct >= 90
       ? Icons.battery_full_rounded
@@ -28,35 +32,41 @@ class GlassesBattery extends StatelessWidget {
 
   static Color color(int pct) => pct >= 40 ? AppColors.ok : pct >= 20 ? AppColors.warn : AppColors.error;
 
+  /// "left 73%, right 77%" (the arms that told it).
+  static String arms(BleManager ble) => [
+        if (ble.batteryL != null) 'left ${ble.batteryL}%',
+        if (ble.batteryR != null) 'right ${ble.batteryR}%',
+      ].join(', ');
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: ble,
         builder: (context, _) {
+          if (!ble.isConnected) return const SizedBox.shrink();
           final pct = ble.battery;
-          if (!ble.isConnected || pct == null) return const SizedBox.shrink();
-          final c = color(pct);
-          final arms = [
-            if (ble.batteryL != null) 'left ${ble.batteryL}%',
-            if (ble.batteryR != null) 'right ${ble.batteryR}%',
-          ].join(', ');
+          final c = pct == null ? AppColors.muted : color(pct);
           final row = Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon(pct), size: compact ? 18 : 16, color: c),
+            Icon(pct == null ? Icons.battery_unknown_rounded : icon(pct), size: compact ? 18 : 16, color: c),
             const SizedBox(width: 3),
-            Text('$pct%', style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: compact ? 13 : 12.5)),
+            Text(pct == null ? 'Glasses …' : 'Glasses $pct%',
+                style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: compact ? 13 : 12.5)),
           ]);
           return Tooltip(
-            message: 'Glasses battery: $arms',
-            child: compact
-                ? Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: row)
-                : Container(
-                    padding: const EdgeInsets.fromLTRB(10, 5, 12, 5),
-                    decoration: BoxDecoration(
-                      color: c.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: c.withOpacity(0.35)),
-                    ),
-                    child: row,
-                  ),
+            message: pct == null ? 'Asking the glasses for their battery' : 'Glasses battery: ${arms(ble)}',
+            child: Material(
+              color: compact ? Colors.transparent : c.withOpacity(0.12),
+              shape: StadiumBorder(side: compact ? BorderSide.none : BorderSide(color: c.withOpacity(0.35))),
+              child: InkWell(
+                customBorder: const StadiumBorder(),
+                onTap: onTap,
+                child: Padding(
+                  padding: compact
+                      ? const EdgeInsets.symmetric(horizontal: 6, vertical: 4)
+                      : const EdgeInsets.fromLTRB(10, 5, 12, 5),
+                  child: row,
+                ),
+              ),
+            ),
           );
         },
       );

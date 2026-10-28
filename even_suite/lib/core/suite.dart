@@ -435,6 +435,13 @@ class Suite extends ChangeNotifier {
     _batterySoon = Timer(after, _askBattery);
   }
 
+  /// Read the glasses' battery again (the app shows it). [now] skips the
+  /// 20 s spacing - a tap on the battery.
+  Future<void> askBattery({bool now = false}) {
+    if (now) _batteryAsked = DateTime.fromMillisecondsSinceEpoch(0);
+    return _askBattery();
+  }
+
   Future<void> _askBattery() async {
     if (!ble.isConnected || mirror.running) return;
     if (DateTime.now().difference(_batteryAsked) < const Duration(seconds: 20)) return;
@@ -443,6 +450,10 @@ class Suite extends ChangeNotifier {
       await proto.queryBattery();
     } catch (_) {}
     EventLog.add('glasses', 'battery', {'L': ble.batteryL, 'R': ble.batteryR});
+    // No answer (busy link): try again soon rather than in 5 minutes.
+    if (ble.isConnected && ble.battery == null) {
+      _askBatterySoon(const Duration(seconds: 25));
+    }
   }
 
   /// Packets the glasses sent for someone else. Dashboard acks there mean

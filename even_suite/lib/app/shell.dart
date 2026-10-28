@@ -74,7 +74,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     EventLog.add('app', 'lifecycle', {'state': state.name});
     final fg = state == AppLifecycleState.resumed;
     if (fg != _foreground) setState(() => _foreground = fg);
-    if (fg) SuiteScope.of(context).chat.check();
+    if (fg) {
+      SuiteScope.of(context).chat.check();
+      unawaited(SuiteScope.of(context).askBattery()); // fresh when you look
+    }
   }
 
   @override

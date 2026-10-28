@@ -187,10 +187,7 @@ class _Header extends StatelessWidget {
               pulse: chat.state == BridgeState.starting,
               onTap: () => _sheet(context, _BridgeCard(suite: suite)),
             ),
-            GestureDetector(
-              onTap: () => _sheet(context, _GlassesCard(suite: suite)),
-              child: GlassesBattery(ble: ble, compact: false),
-            ),
+            GlassesBattery(ble: ble, compact: false, onTap: () => _sheet(context, _GlassesCard(suite: suite))),
           ]),
         ]),
       ),
@@ -399,6 +396,7 @@ class _GlassesCard extends StatelessWidget {
           LinkState.disconnected => ('Not connected', AppColors.muted),
         };
         final busy = ble.state == LinkState.connecting || ble.state == LinkState.scanning;
+        final pct = ble.battery;
         final last = suite.settings.lastGlasses;
         final name = ble.current?.label ?? (last != null ? GlassesPair.fromMap(last).label : 'Even G1');
         return Card(
@@ -436,6 +434,23 @@ class _GlassesCard extends StatelessWidget {
               if (ble.lastError != null) ...[
                 const SizedBox(height: 12),
                 Text(ble.lastError!, style: const TextStyle(color: AppColors.warn)),
+              ],
+              if (ble.isConnected) ...[
+                const SizedBox(height: 14),
+                Row(children: [
+                  Icon(
+                    pct == null ? Icons.battery_unknown_rounded : GlassesBattery.icon(pct),
+                    color: pct == null ? AppColors.muted : GlassesBattery.color(pct),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      pct == null ? 'Battery: asking the glasses…' : 'Battery: ${GlassesBattery.arms(ble)}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  TextButton(onPressed: () => suite.askBattery(now: true), child: const Text('Check')),
+                ]),
               ],
               const SizedBox(height: 16),
               if (ble.state == LinkState.connected)

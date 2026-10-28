@@ -937,19 +937,49 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 2)));
 
   testWidgets('glasses battery shows in the app', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
     final w = _World();
     final suite = w.suite;
     await w.control.connectNow();
-    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pumpWidget(RepaintBoundary(key: _shotKey, child: EvenSuiteApp(suite: suite)));
+    await tester.pump();
+    Finder onHome(String text) => find.descendant(of: find.byType(HomePage), matching: find.text(text));
+    Finder inClaude(String text) => find.descendant(of: find.byType(ClaudePage), matching: find.text(text));
+    // Connected, not told yet: still there, so you know where to look.
+    expect(onHome('Glasses …'), findsOneWidget);
+
     await tester.pump(const Duration(seconds: 4)); // asked a moment after connecting
     expect(suite.ble.batteryL, 73);
     expect(suite.ble.batteryR, 77);
     expect(suite.ble.battery, 73, reason: 'the arm that runs out first');
-    expect(find.descendant(of: find.byType(HomePage), matching: find.text('73%')), findsOneWidget);
+    expect(onHome('Glasses 73%'), findsOneWidget);
+    await _shot(tester, '22_battery_home');
+    // And on the Claude tab, whatever it talks to.
+    await tester.tap(find.byIcon(Icons.auto_awesome_outlined));
+    await tester.pump();
+    expect(inClaude('Glasses 73%'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.visibility_outlined));
+    await tester.pump();
+
     // Told by another app's question too.
     w.glasses.injectReply('L', Uint8List.fromList([0x2C, 0x66, 41, 0, 0]));
     await tester.pump();
     expect(suite.ble.battery, 41);
+    expect(onHome('Glasses 41%'), findsOneWidget);
+
+    // Tap it: both arms, and read again.
+    await tester.tap(onHome('Glasses 41%'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Battery: left 41%, right 77%'), findsOneWidget);
+    w.glasses.battery['L'] = 15;
+    await tester.tap(find.text('Check'));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.text('Battery: left 15%, right 77%'), findsOneWidget);
+    await _shot(tester, '22_battery_sheet');
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
