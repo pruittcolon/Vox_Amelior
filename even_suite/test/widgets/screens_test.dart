@@ -902,7 +902,8 @@ void main() {
 
     // Typed: word for word ("start" stays), into that session.
     await tester.enterText(inClaude(find.byType(TextField)), 'start the dev server');
-    await tester.tap(find.byTooltip('Send (Enter)'));
+    // The keyboard's send key (the "Opened Claude 2" toast covers the button here).
+    await tester.testTextInput.receiveAction(TextInputAction.send);
     await tester.pump();
     await tester.pump();
     expect(w.bridge.pasted.last, 'start the dev server');
