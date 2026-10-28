@@ -972,6 +972,7 @@ class Suite extends ChangeNotifier {
   /// Talk to terminal [name] from now on ("claude" is the one Termux shows).
   void useSession(String name) {
     settings.set('terminalAgent', name);
+    terminal.setSession(name);
     _setTarget(Target.terminal);
   }
 

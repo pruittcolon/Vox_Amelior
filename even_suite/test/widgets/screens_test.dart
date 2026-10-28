@@ -243,7 +243,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(suite.settings.target, Target.terminal);
       expect(find.byType(TerminalScreen), findsOneWidget);
-      expect(find.text('Shift+Tab'), findsOneWidget);
+      expect(find.text('Esc'), findsOneWidget, reason: 'the keys a phone keyboard lacks');
       await _shot(tester, '5_terminal$tag');
       suite.useChat();
       await tester.tap(find.byIcon(Icons.widgets_outlined));
