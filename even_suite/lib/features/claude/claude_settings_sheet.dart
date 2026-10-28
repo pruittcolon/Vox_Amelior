@@ -55,7 +55,32 @@ class ClaudeSettingsSheet extends StatelessWidget {
           const SizedBox(height: 4),
           const Text('Claude Code runs in Termux on this phone - no API key, your own Claude login.',
               style: TextStyle(color: AppColors.muted, fontSize: 13)),
-          const _Head('Model'),
+          const _Head('Answer speed'),
+          _Choices(
+            value: s.answerSpeed,
+            options: const [('quick', 'Quick'), ('full', 'Always Claude Code')],
+            onChanged: (v) => s.set('answerSpeed', v),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              s.answerSpeed == 'quick'
+                  ? 'A light Claude without tools answers in about a second. When a question needs your files, '
+                      'the terminal or the web it hands over to Claude Code by itself; say “think harder” to go '
+                      'straight there.'
+                  : 'Every question goes to Claude Code with its tools: it can do more, but starts slower.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+            ),
+          ),
+          if (s.answerSpeed == 'quick') ...[
+            const _Head('Quick answers use'),
+            _Choices(
+              value: s.quickModel,
+              options: const [('sonnet', 'Sonnet'), ('haiku', 'Haiku (fastest)')],
+              onChanged: (v) => s.set('quickModel', v),
+            ),
+          ],
+          const _Head('Claude Code model'),
           _Choices(
             value: s.claudeModel,
             options: const [('opus', 'Opus'), ('sonnet', 'Sonnet'), ('haiku', 'Haiku (fastest)')],

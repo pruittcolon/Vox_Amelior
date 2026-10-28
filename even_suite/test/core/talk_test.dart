@@ -143,6 +143,10 @@ void main() {
       expect(brief, isNot(contains('read aloud')));
       expect(Suite.buildPrimer(size: size, length: 'normal', spoken: true), contains('read aloud'));
       expect(Suite.buildPrimer(size: size, length: 'normal'), contains('about 150 characters'));
+      expect(Suite.buildPrimer(size: size, quick: true), contains('[[full]]'));
+      expect(Suite.buildPrimer(size: size), isNot(contains('[[full]]')));
+      expect(Suite.wantsFull('Think harder about this'), isTrue);
+      expect(Suite.wantsFull('what time is it'), isFalse);
     });
   });
 

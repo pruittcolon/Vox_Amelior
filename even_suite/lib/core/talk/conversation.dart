@@ -71,6 +71,7 @@ class Conversation extends ChangeNotifier {
   String _header = 'Termux-Claude listening';
   String _footer = '';
   String _prompt = 'Say your question';
+  DateTime _draftAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Sent away with a double tap while Claude works: it carries on without
   /// putting its screens back up.
@@ -109,6 +110,7 @@ class Conversation extends ChangeNotifier {
       String header = 'Termux-Claude listening',
       String footer = '',
       String prompt = 'Say your question'}) {
+    if (text != draft) _draftAt = DateTime.now();
     draft = text;
     this.level = level;
     _header = header;
@@ -402,6 +404,10 @@ class Conversation extends ChangeNotifier {
         }
         if (stage != TalkStage.listening && DateTime.now().difference(_lastProgress) > giveUpAfter) {
           failed('No answer yet. Is Termux running? (type even)');
+          return;
+        }
+        // While words are coming in they are what goes to the glasses, not the dots.
+        if (stage == TalkStage.listening && DateTime.now().difference(_draftAt) < const Duration(milliseconds: 700)) {
           return;
         }
         _draw();

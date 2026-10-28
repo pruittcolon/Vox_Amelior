@@ -222,6 +222,9 @@ def clean_options(d):
         opts["effort"] = d["effort"]
     if d.get("access") in ACCESS_MODES:
         opts["access"] = d["access"]
+    # "quick": a second Claude without tools (much faster to answer); "full": Claude Code.
+    if d.get("lane") in ("quick", "full"):
+        opts["lane"] = d["lane"]
     return opts
 
 
@@ -265,14 +268,15 @@ class LiveClaude:
     wait for Claude Code to start, and the reply streams in as it is written
     (stage, tool steps and text), so the app can show what is happening."""
 
-    def __init__(self, bridge):
+    def __init__(self, bridge, convo_key="claude", turn=None):
         self.bridge = bridge
+        self.convo_key = convo_key  # its own conversation in bridge.convo
         self.proc = None
         self.key = None            # options the process was started with
         self.events = None         # parsed stdout lines; None = the process ended
         self.stderr = []
         self.stopped = False
-        self.turn = threading.Lock()        # one question at a time
+        self.turn = turn or threading.Lock()  # one question at a time (shared by both lanes)
         self.spawn_lock = threading.Lock()
 
     @staticmethod
@@ -283,6 +287,8 @@ class LiveClaude:
             a += ["--model", opts["model"]]
         if opts.get("effort"):
             a += ["--effort", opts["effort"]]
+        if opts.get("lane") == "quick":
+            a += ["--tools", ""]  # no tools: a much smaller prompt, so the first words come sooner
         mode = ACCESS_MODES.get(opts.get("access", "read"))
         if mode:
             a += ["--permission-mode", mode]
@@ -303,10 +309,10 @@ class LiveClaude:
                 return self.proc
             self.close()
             b = self.bridge
-            session = b.convo.get("claude")
+            session = b.convo.get(self.convo_key)
             resume = session is not None
             if not resume:
-                session = b.convo["claude"] = str(uuid.uuid4())
+                session = b.convo[self.convo_key] = str(uuid.uuid4())
             # HUB_BRIDGE: the "Claude is done" hook skips these (the app shows them already).
             env = dict(os.environ, HUB_BRIDGE="1")
             proc = subprocess.Popen(self.args(opts, system, session, resume), cwd=WORKDIR, env=env,
@@ -393,7 +399,7 @@ class LiveClaude:
             if self.stopped:
                 raise RuntimeError("Stopped.")
             if attempt == 1 and "No conversation found" in err:
-                b.convo["claude"] = None  # the old session is gone: start a new one
+                b.convo[self.convo_key] = None  # the old session is gone: start a new one
                 continue
             if attempt == 1 and not got_any and opts.get("access") == "auto":
                 # Auto mode not available on this account: answer without it.
@@ -492,7 +498,7 @@ class Bridge:
         self.cond = threading.Condition()
         self.version = 0
         self.messages = []
-        self.convo = {"claude": None, "agy": None}  # conversation ids
+        self.convo = {"claude": None, "claude-quick": None, "agy": None}  # conversation ids
         self.busy = {}                              # agent -> Popen
         self.relay_token = 0
         # Extra system prompt for Claude (the Even Suite app sends the glasses'
@@ -500,8 +506,12 @@ class Bridge:
         self.system = ""
         # Model / effort / access picked in the app.
         self.options = {}
-        self.live = LiveClaude(self)
-        self.locks = {"claude": self.live.turn, "agy": threading.Lock()}
+        # Two Claudes, so switching never restarts one: Claude Code with its tools
+        # ("full") and a quick one without ("quick"), answering one question at a time.
+        turn = threading.Lock()
+        self.lives = {"full": LiveClaude(self, "claude", turn), "quick": LiveClaude(self, "claude-quick", turn)}
+        self.live = self.lives["full"]
+        self.locks = {"claude": turn, "agy": threading.Lock()}
         # Finished Claude Code jobs (from the Stop hook) for the app's Work tab.
         self.work = []
         self.work_version = 0
@@ -559,20 +569,27 @@ class Bridge:
         return msg
 
     # ---- talking to agents
+    def lane(self):
+        return self.lives.get(self.options.get("lane") or "full", self.live)
+
     def run_agent(self, agent, prompt, msg):
         """Blocking: send prompt to agent's bridge conversation, return reply."""
-        first = self.convo.get(agent) is None
-        if first:
-            prompt = INTRO + prompt
         if agent == "claude":
+            live = self.lane()
+            first = self.convo.get(live.convo_key) is None
+            if first:
+                prompt = INTRO + prompt
             try:
-                return self.live.run(prompt, msg, dict(self.options), self.system)
+                return live.run(prompt, msg, dict(self.options), self.system)
             except ResultError:
                 raise
             except RuntimeError:
                 if first:
-                    self.convo["claude"] = None
+                    self.convo[live.convo_key] = None
                 raise
+        first = self.convo.get(agent) is None
+        if first:
+            prompt = INTRO + prompt
         args = [AGY_BIN, "--output-format", "json"]
         if not first:
             args += ["--conversation", self.convo["agy"]]
@@ -650,13 +667,14 @@ class Bridge:
             self.system = system[:4000]
         if options is not None:
             self.options = clean_options(options)
-        threading.Thread(target=self.live.warm, args=(dict(self.options), self.system), daemon=True).start()
+        threading.Thread(target=self.lane().warm, args=(dict(self.options), self.system), daemon=True).start()
 
     def stop(self):
         with self.cond:
             self.relay_token += 1
             procs = [p for a, p in self.busy.items() if a != "claude"]
-        self.live.stop()
+        for live in self.lives.values():
+            live.stop()
         for p in procs:
             p.terminate()
 

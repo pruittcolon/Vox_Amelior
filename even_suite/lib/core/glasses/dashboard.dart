@@ -207,10 +207,14 @@ class Dashboard extends ChangeNotifier {
     _lookTimeout?.cancel();
   }
 
+  /// The notes are shown (off while your own look-up layout replaces the
+  /// dashboard: then only the clock and weather are kept up to date).
+  bool notesOn = true;
+
   /// Claude's work moved on: send it soon if you are looking up, otherwise
   /// now and then (it is sent anyway the moment you look up).
   void workChanged() {
-    if (!claudePanel && !slots.contains('work')) return;
+    if (!notesOn || (!claudePanel && !slots.contains('work'))) return;
     if (lookingUp) {
       markDirty(delay: const Duration(milliseconds: 800), notesOnly: true);
       return;
@@ -365,6 +369,7 @@ class Dashboard extends ChangeNotifier {
   }
 
   Future<void> _sendNotes(bool force) async {
+    if (!notesOn) return;
     final notes = buildNotes();
     for (var i = 0; i < 4; i++) {
       final (title, text) = i < notes.length ? notes[i] : ('', '');

@@ -75,6 +75,10 @@ class Settings extends ChangeNotifier {
   String claudeEffort = 'medium'; // low, medium, high, xhigh, max
   String claudeAccess = 'auto'; // read (only looks), edit (files), auto (can run commands)
   String answerLength = 'brief'; // brief (~50 characters), normal (~150), long (screens)
+  String answerSpeed = 'quick'; // quick (no tools, hands off to Claude Code when needed) or full
+  String quickModel = 'sonnet'; // the quick lane's model: sonnet or haiku
+  int touchPauseMs = 900; // TouchBar / double tap: this much quiet sends what you said
+  bool bleParallel = false; // send text screens to both arms at once (test)
   // Talking back and forth
   String speakReplies = 'voice'; // off, voice (answers to spoken questions), always
   String ttsEngine = ''; // text-to-speech app ('' = the phone's default)
@@ -197,6 +201,10 @@ class Settings extends ChangeNotifier {
     claudeEffort = _s(m['claudeEffort'], claudeEffort);
     claudeAccess = _s(m['claudeAccess'], claudeAccess);
     answerLength = _s(m['answerLength'], answerLength);
+    answerSpeed = _s(m['answerSpeed'], answerSpeed);
+    quickModel = _s(m['quickModel'], quickModel);
+    touchPauseMs = _i(m['touchPauseMs'], touchPauseMs).clamp(500, 3000);
+    bleParallel = _b(m['bleParallel'], bleParallel);
     speakReplies = _s(m['speakReplies'], speakReplies);
     ttsEngine = _s(m['ttsEngine'], ttsEngine);
     ttsVoice = _s(m['ttsVoice'], ttsVoice);
@@ -354,6 +362,14 @@ class Settings extends ChangeNotifier {
         holdToTalk = value as bool;
       case 'claudeModel':
         claudeModel = value as String;
+      case 'answerSpeed':
+        answerSpeed = value as String;
+      case 'quickModel':
+        quickModel = value as String;
+      case 'touchPauseMs':
+        touchPauseMs = value as int;
+      case 'bleParallel':
+        bleParallel = value as bool;
       case 'claudeEffort':
         claudeEffort = value as String;
       case 'claudeAccess':

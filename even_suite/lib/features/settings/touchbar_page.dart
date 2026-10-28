@@ -82,6 +82,17 @@ class TouchBarPage extends StatelessWidget {
                     'A pause sends what you said. A single tap sends it at once - the glasses report taps only on '
                     'Even AI style screens, so switch that on below if you want taps.',
                     style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                const SizedBox(height: 10),
+                const Text('Send after a pause of', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final (ms, label) in const [(700, '0.7 s'), (900, '0.9 s'), (1300, '1.3 s'), (2000, '2 s')])
+                    ChoiceChip(
+                      label: Text(label),
+                      selected: s.touchPauseMs == ms,
+                      onSelected: (_) => s.set('touchPauseMs', ms),
+                    ),
+                ]),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Show my words while I talk', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -97,6 +108,15 @@ class TouchBarPage extends StatelessWidget {
                       style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                   value: s.aiStyle,
                   onChanged: (v) => s.set('aiStyle', v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Faster screens (test)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Sends each screen to both arms at once - about 50 ms quicker. Switch off '
+                      'if one side ever shows a different screen.',
+                      style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                  value: s.bleParallel,
+                  onChanged: (v) => s.set('bleParallel', v),
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,

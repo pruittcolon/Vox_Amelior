@@ -40,7 +40,7 @@ class PhoneAction {
   /// [text] without the action tags (also a half-written one at the end,
   /// while the reply is still streaming in).
   static String strip(String text) {
-    var t = text.replaceAll(_tag, '');
+    var t = text.replaceAll(_tag, '').replaceAll('[[full]]', '');
     final open = t.lastIndexOf('[[');
     if (open >= 0 && !t.substring(open).contains(']]')) t = t.substring(0, open);
     return t.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();

@@ -146,6 +146,11 @@ class VoiceController extends ChangeNotifier {
   /// With [pauseSends]: quiet this long after the last words sends anyway
   /// (in case the recognizer never closes the sentence).
   Duration pauseGrace = const Duration(seconds: 4);
+
+  /// With [pauseSends]: the words stopped changing this long ago - send now,
+  /// without waiting for the recognizer's own (slower) end of speech.
+  Duration stableAfter = const Duration(milliseconds: 900);
+  Timer? _stableTimer;
   bool get dictating => mode == VoiceMode.dictating;
 
   // ------------------------------------------------------------- controls
@@ -302,6 +307,7 @@ class VoiceController extends ChangeNotifier {
     holding = false;
     pauseSends = false;
     _idleTimer?.cancel();
+    _stableTimer?.cancel();
     if (dictating) {
       mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
       await _afterMessage();
@@ -392,6 +398,12 @@ class VoiceController extends ChangeNotifier {
     if (dictating) {
       _armIdle();
       _setDraft(_join(_committed, _tail(text)));
+      if (pauseSends) {
+        _stableTimer?.cancel();
+        _stableTimer = Timer(stableAfter, () {
+          if (dictating && pauseSends && draft.trim().isNotEmpty) _submit(draft);
+        });
+      }
     }
   }
 
@@ -563,6 +575,7 @@ class VoiceController extends ChangeNotifier {
     mode = handsFree ? VoiceMode.waiting : VoiceMode.off;
     hint = t.isEmpty ? 'Nothing to send' : null;
     sending = t.isNotEmpty;
+    _stableTimer?.cancel();
     notifyListeners();
     try {
       await _afterMessage();
@@ -672,6 +685,7 @@ class VoiceController extends ChangeNotifier {
     _idleTimer?.cancel();
     _releaseTimer?.cancel();
     _followTimer?.cancel();
+    _stableTimer?.cancel();
     level.dispose();
     super.dispose();
   }

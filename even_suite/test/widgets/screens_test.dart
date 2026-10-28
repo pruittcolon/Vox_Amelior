@@ -133,7 +133,8 @@ void main() {
       await tester.pump();
       expect(w.bridge.sentTexts.last, 'remind me about the dentist at noon');
       expect(w.bridge.lastSystem, contains('characters'), reason: 'glasses formatting goes with every message');
-      expect(w.bridge.lastOptions, {'model': 'opus', 'effort': 'medium', 'access': 'auto'});
+      expect(w.bridge.lastOptions, {'model': 'sonnet', 'effort': 'low', 'access': 'auto', 'lane': 'quick'},
+          reason: 'the quick Claude by default');
       // Claude works on it: the steps show on the phone and the glasses.
       w.bridge.progress(stage: 'tool', tool: 'Reading calendar.ics');
       await tester.pump();
@@ -725,6 +726,58 @@ void main() {
     await tester.pump();
     expect(w.glasses.screens().last, contains('Call the bank'));
     expect(w.glasses.screens().last, contains('Reminder'));
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('quick answers: a light Claude first, Claude Code when it needs tools', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+
+    await suite.submit('what is in my notes folder', spoken: false);
+    await tester.pump();
+    expect(w.bridge.lastOptions?['lane'], 'quick');
+    expect(w.bridge.lastSystem, contains('[[full]]'));
+    // It needs tools: handed to Claude Code by itself, the same question.
+    w.bridge.addReply('[[full]]');
+    await tester.pump();
+    await tester.pump();
+    expect(w.bridge.sentTexts, ['what is in my notes folder', 'what is in my notes folder']);
+    expect(w.bridge.lastOptions?['lane'], 'full');
+    expect(w.bridge.lastOptions?['model'], 'opus');
+    expect(w.glasses.screens().join(), isNot(contains('[[full]]')));
+    expect(suite.conversation.busy, isTrue, reason: 'still waiting, now for Claude Code');
+    w.bridge.addReply('Three files: a.md, b.md, c.md');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('Three files'));
+
+    // "Think harder": straight to Claude Code.
+    await tester.pump(const Duration(seconds: 30));
+    await suite.submit('think harder about the plan', spoken: false);
+    await tester.pump();
+    expect(w.bridge.lastOptions?['lane'], 'full');
+    w.bridge.addReply('Done.');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+
+    // TouchBar: the words stopped changing for 0.9 s - sent without waiting for the recognizer.
+    await tester.pump(const Duration(seconds: 1));
+    w.glasses.touch(0, 'L');
+    await tester.pump();
+    await tester.pump();
+    expect(suite.voice.pauseSends, isTrue);
+    w.speech.partial('what day is it');
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(w.bridge.sentTexts.last, isNot('what day is it'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    expect(w.bridge.sentTexts.last, 'what day is it');
+    w.bridge.addReply('Tuesday.');
     await tester.pump(const Duration(seconds: 30));
     await tester.pumpWidget(const SizedBox());
     suite.dispose();

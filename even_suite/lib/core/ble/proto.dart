@@ -26,6 +26,10 @@ class Proto {
 
   int _evenaiSeq = 0;
 
+  /// Send text screens to both arms at once instead of left, then right
+  /// (the right arm takes ~200 ms to confirm a screen; the left ~50 ms).
+  bool parallelText = false;
+
   /// Send one screen of text to both arms (left first, then right).
   Future<bool> sendEvenAIData(String text,
       {required int newScreen,
@@ -40,6 +44,13 @@ class Proto {
         currentPage: currentPage,
         maxPage: maxPage);
     _evenaiSeq++;
+    if (parallelText) {
+      final both = await Future.wait([
+        ble.requestList(packets, lr: 'L', timeoutMs: timeoutMs ?? 2000),
+        ble.requestList(packets, lr: 'R', timeoutMs: timeoutMs ?? 2000),
+      ]);
+      return both[0] && both[1];
+    }
     if (!await ble.requestList(packets, lr: 'L', timeoutMs: timeoutMs ?? 2000)) {
       return false;
     }

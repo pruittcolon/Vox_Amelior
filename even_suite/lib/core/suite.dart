@@ -206,6 +206,9 @@ class Suite extends ChangeNotifier {
   LookLayout? _lookCache;
   String _lookKey = '\u0000';
 
+  /// The question on its way went to the quick Claude (no tools) or the full one.
+  String _lane = 'full';
+
   /// The TouchBar hold talks to this (chat or terminal) instead of the
   /// current mode, for one message.
   Target? _sessionTarget;
@@ -287,7 +290,7 @@ class Suite extends ChangeNotifier {
       ..autoSend = settings.autoSend && settings.target == Target.claude
       ..wakeAutoSend = settings.wakeAutoSend && settings.target == Target.claude
       ..silenceMs = settings.pauseMs;
-    chat.options = settings.claudeOptions;
+    chat.options = _claudeOptions();
     narrator.enabled = settings.speakReplies != 'off';
     final voiceKey = '${settings.ttsEngine}|${settings.ttsVoice}|${settings.ttsRate}|${settings.ttsPitch}';
     if (voiceKey != _voiceKey) {
@@ -360,7 +363,10 @@ class Suite extends ChangeNotifier {
       _mirrorTimer?.cancel();
       _mirrorTimer = Timer(const Duration(milliseconds: 400), mirror.reconfigure);
     }
-    chat.system = glassesPrimer();
+    chat.system = glassesPrimer(quick: settings.answerSpeed == 'quick');
+    proto.parallelText = settings.bleParallel;
+    voice.stableAfter = Duration(milliseconds: settings.touchPauseMs);
+    dashboard.notesOn = settings.lookMode != 'custom';
     flicker
       ..topText = settings.flickTop
       ..bottomText = settings.flickBottom
@@ -577,20 +583,34 @@ class Suite extends ChangeNotifier {
   /// Instructions sent with every message (as Claude's system prompt): this
   /// goes straight to the glasses, how long to be, and how to split longer
   /// answers into screens.
-  String glassesPrimer() => buildPrimer(
+  String glassesPrimer({bool quick = false}) => buildPrimer(
         size: GlassesText.screenSize(),
         length: settings.answerLength,
         spoken: settings.speakReplies != 'off',
         phone: settings.phoneActions,
+        quick: quick,
       );
 
-  static String buildPrimer({required ScreenSize size, String length = 'brief', bool spoken = false, bool phone = false}) {
+  /// Model and options for the next question: the quick Claude (no tools,
+  /// answers in about a second) or full Claude Code.
+  Map<String, String> _claudeOptions({bool full = false}) => settings.answerSpeed == 'quick' && !full
+      ? {'model': settings.quickModel, 'effort': 'low', 'access': settings.claudeAccess, 'lane': 'quick'}
+      : {...settings.claudeOptions, 'lane': 'full'};
+
+  /// "Think harder", "use Claude Code": straight to the full Claude.
+  static bool wantsFull(String q) =>
+      RegExp(r'\b(think (harder|hard|deeply|carefully)|use (full )?claude code|with (your )?tools)\b',
+              caseSensitive: false)
+          .hasMatch(q);
+
+  static String buildPrimer(
+      {required ScreenSize size, String length = 'brief', bool spoken = false, bool phone = false, bool quick = false}) {
     final chars = size.chars;
     final aim = switch (length) {
       'normal' => 'Aim for about 150 characters. Go up to $chars (one screen) only if it needs it.',
       'long' => 'Answer fully, but keep each screen-sized chunk tight.',
       _ => 'Aim for about 50 characters (one short line). Use up to 100-150 characters only when '
-          'the answer needs that to make sense.',
+          'the answer needs that to make sense - never more unless they ask for detail.',
     };
     return 'Your reply goes straight to Even Realities G1 smart glasses, where the user reads it in '
         'front of their eyes (the Even Suite app). The user usually speaks; speech-to-text may contain '
@@ -604,8 +624,10 @@ class Suite extends ChangeNotifier {
         '- If more is truly needed (or asked for), split it into chunks of at most $chars characters '
         'separated by a blank line; each chunk becomes one screen.\n'
         '${spoken ? '- Your reply is also read aloud: write it to sound natural spoken, no symbols or abbreviations that read badly.\n' : ''}'
-        '- You run as Claude Code on the user\'s phone (Termux). You can use your tools to do what '
-        'they ask; then report the result in one short line.'
+        '${quick ? '- Quick mode: you have no tools here. If the request needs them (the user\'s files, running '
+            'commands, Termux, git, the web or anything current), reply with exactly [[full]] and nothing else - '
+            'Claude Code with its tools takes over.' : '- You run as Claude Code on the user\'s phone (Termux). You can use your tools to do what '
+            'they ask; then report the result in one short line.'}'
         '${phone ? '\n${PhoneAction.primer}' : ''}';
   }
 
@@ -783,8 +805,9 @@ class Suite extends ChangeNotifier {
       } else {
         _lastQuestion = t;
         _terminalAsk = null;
-        chat.system = glassesPrimer();
-        chat.options = settings.claudeOptions;
+        _lane = settings.answerSpeed == 'quick' && !wantsFull(t) ? 'quick' : 'full';
+        chat.system = glassesPrimer(quick: _lane == 'quick');
+        chat.options = _claudeOptions(full: _lane == 'full');
         // "Got it" first: the glasses answer at once, the rest can take a moment.
         conversation.asked(t, ai: _aiSession);
         unawaited(narrator.stop());
@@ -943,7 +966,21 @@ class Suite extends ChangeNotifier {
     }
   }
 
+  /// The quick Claude needs tools for this one: the same question to Claude Code.
+  void _escalate() {
+    _lane = 'full';
+    EventLog.add('chat', 'escalate', {});
+    conversation.externalProgress('Handing to Claude Code', const []);
+    chat.system = glassesPrimer();
+    chat.options = _claudeOptions(full: true);
+    unawaited(chat.send(_lastQuestion).catchError((Object e) => conversation.failed('$e')));
+  }
+
   void _onReply(BridgeMessage raw) {
+    if (_lane == 'quick' && !raw.isError && raw.text.contains('[[full]]')) {
+      _escalate();
+      return;
+    }
     final actions = settings.phoneActions && !raw.isError ? PhoneAction.extract(raw.text) : const <PhoneAction>[];
     final m = _clean(raw);
     for (final a in actions) {

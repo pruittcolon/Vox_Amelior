@@ -206,6 +206,19 @@ class AgentHubTest(unittest.TestCase):
         self.assertNotIn("--model", args, "model names are checked")
         self.assertIn("--resume", args)
 
+    def test_quick_lane_has_no_tools_and_its_own_claude(self):
+        full = {"model": "opus", "effort": "medium", "access": "auto", "lane": "full"}
+        quick = {"model": "sonnet", "effort": "low", "access": "auto", "lane": "quick"}
+        self.watch("full lane first", options=full)
+        self.watch("quick lane answer", options=quick)
+        args = self.starts()[-1]
+        self.assertEqual(args[args.index("--tools") + 1], "", "quick: no tools")
+        self.assertEqual(args[args.index("--model") + 1], "sonnet")
+        n = len(self.starts())
+        self.watch("full again", options=full)
+        self.watch("quick again", options=quick)
+        self.assertEqual(len(self.starts()), n, "each lane keeps its own Claude running")
+
     def test_live_queue_one_at_a_time(self):
         self.post("/api/bridge/send", {"text": "slow one", "to": "claude"})
         time.sleep(0.5)
