@@ -34,6 +34,9 @@ class Settings extends ChangeNotifier {
   String language = ''; // '' = phone default, else e.g. en-US
   bool repliesOnGlasses = true;
   int pageHoldMs = 0; // extra time each teleprompter page stays up
+  int pageSec = 0; // every page stays this many seconds (0 = by reading speed)
+  int firstPageMs = 600; // extra time on an answer's first page
+  int doneBlinkMs = 3000; // how long the "*" shows when Claude is done
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
   bool glassesMic = false; // TouchBar hold listens through the glasses' mic (test: the phone mic is reliable)
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
@@ -162,6 +165,9 @@ class Settings extends ChangeNotifier {
     repliesOnGlasses = _b(m['repliesOnGlasses'], repliesOnGlasses);
     readingWpm = _i(m['readingWpm'], readingWpm).clamp(0, 400);
     pageHoldMs = _i(m['pageHoldMs'], pageHoldMs).clamp(0, 6000);
+    pageSec = _i(m['pageSec'], pageSec).clamp(0, 60);
+    firstPageMs = _i(m['firstPageMs'], firstPageMs).clamp(0, 8000);
+    doneBlinkMs = _i(m['doneBlinkMs'], doneBlinkMs).clamp(500, 15000);
     glassesMic = _b(m['glassesMic'], glassesMic);
     diagnostics = _b(m['diagnostics'], diagnostics);
     bmpGapMs = _i(m['bmpGapMs'], bmpGapMs).clamp(0, 30);
@@ -289,6 +295,12 @@ class Settings extends ChangeNotifier {
         readingWpm = value as int;
       case 'pageHoldMs':
         pageHoldMs = value as int;
+      case 'pageSec':
+        pageSec = value as int;
+      case 'firstPageMs':
+        firstPageMs = value as int;
+      case 'doneBlinkMs':
+        doneBlinkMs = value as int;
       case 'glassesMic':
         glassesMic = value as bool;
       case 'diagnostics':

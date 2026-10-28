@@ -101,7 +101,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           ),
           Expanded(
             child: IndexedStack(index: _tab, children: [
-              const HomePage(),
+              HomePage(active: _foreground && _tab == Shell.home),
               ClaudePage(active: _foreground && _tab == Shell.claude),
               WorkPage(active: _foreground && _tab == Shell.work),
               const ToolsPage(),

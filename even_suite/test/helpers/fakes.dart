@@ -27,6 +27,9 @@ class FakeGlasses implements BleTransport {
   /// Simulated Bluetooth round trip (0 = reply at once).
   Duration replyDelay = Duration.zero;
 
+  /// Each arm's battery, answered to 2C 01.
+  final Map<String, int> battery = {'L': 73, 'R': 77};
+
   @override
   Stream<BleReceive> get receive => _rx.stream;
 
@@ -40,7 +43,7 @@ class FakeGlasses implements BleTransport {
         ignoreFirst[data[0]] = skip - 1;
         continue;
       }
-      final reply = _reply(data);
+      final reply = _reply(data, arm);
       if (reply != null) {
         void deliver() => _rx.add(BleReceive()
           ..lr = arm
@@ -65,8 +68,10 @@ class FakeGlasses implements BleTransport {
     return packets.length;
   }
 
-  Uint8List? _reply(Uint8List d) {
+  Uint8List? _reply(Uint8List d, String arm) {
     switch (d[0]) {
+      case 0x2C: // battery: 2C 66 <percent>
+        return Uint8List.fromList([0x2C, 0x66, battery[arm]!, 0, 0]);
       case 0x25: // heartbeat echoes its sequence
         return Uint8List.fromList([0x25, 6, 0, d[3], 0x04, d[5]]);
       case 0x16: // CRC: status in byte 5
@@ -285,7 +290,7 @@ class FakeBridgeClient extends BridgeClient {
   bool hook = true;
 
   @override
-  Future<HubInfo> ping() async => HubInfo(3, const {'live', 'warm', 'work'}, hook: hook);
+  Future<HubInfo> ping() async => HubInfo(4, const {'live', 'warm', 'work', 'sessions', 'submit'}, hook: hook);
 
   @override
   Future<bool> installHook() async => hook = true;
@@ -315,21 +320,61 @@ class FakeBridgeClient extends BridgeClient {
   }
 
   @override
-  Future<TermScreen> capture(String agent, {int lines = 120, int waitSec = 0, String hash = ''}) async {
+  Future<TermScreen> capture(String agent,
+      {int lines = 120, int waitSec = 0, String hash = '', bool ansi = false}) async {
     final h = '${screen.hashCode}';
     if (hash == h && waitSec > 0) await _changed.future;
-    return TermScreen(screen, '${screen.hashCode}');
+    return TermScreen(screen, '${screen.hashCode}', cols: 60, rows: 30);
   }
 
+  /// Where each paste went, and what the hub says happened ("sent", "menu", "stuck").
+  final pastedTo = <String>[];
+  String pasteResult = 'sent';
+
   @override
-  Future<void> paste(String agent, String text, {bool enter = true}) async {
+  Future<String> paste(String agent, String text, {bool enter = true}) async {
     pasted.add(text);
+    pastedTo.add(agent);
     screen = '$screen$text\n';
     _bump();
+    return enter ? pasteResult : 'typed';
   }
 
   @override
   Future<void> keys(String agent, List<String> keys) async => keysSent.addAll(keys);
+
+  final sessionList = <TermSession>[
+    const TermSession('claude', main: true, attached: 1, state: 'idle', topic: 'fix the look up screen'),
+    const TermSession('shell', kind: 'shell'),
+  ];
+
+  @override
+  Future<List<TermSession>> sessions() async {
+    if (!online) throw const BridgeException('Termux bridge is not running');
+    return List.of(sessionList);
+  }
+
+  @override
+  Future<String> newSession({String kind = 'claude', bool resume = false}) async {
+    var n = 2;
+    while (sessionList.any((s) => s.name == '$kind-$n')) {
+      n++;
+    }
+    sessionList.add(TermSession('$kind-$n', kind: kind, state: kind == 'claude' ? 'idle' : ''));
+    return '$kind-$n';
+  }
+
+  @override
+  Future<String?> closeSession(String session) async {
+    if (session == 'claude') return 'That is your Termux session; it stays open.';
+    sessionList.removeWhere((s) => s.name == session);
+    return null;
+  }
+
+  final fitted = <String>[];
+
+  @override
+  Future<void> fitSession(String session, int cols, int rows) async => fitted.add('$session $cols x $rows');
 
   @override
   Future<void> stop() async {}
@@ -386,7 +431,12 @@ class FakeSystem extends SystemBridge {
   Future<bool> openTermux() async => true;
 
   @override
-  Future<void> openAppSettings() async {}
+  Future<void> openAppSettings([String? package]) async {}
+
+  bool evenAppInstalled = false;
+
+  @override
+  Future<bool> appInstalled(String package) async => package == 'com.even.g1' && evenAppInstalled;
 
   @override
   Future<void> volumeKeys(bool enabled) async => volumeKeysOn = enabled;

@@ -54,7 +54,7 @@ void main() {
     final ble = BleManager(glasses, control: control);
     final display = GlassesDisplay(Proto(ble));
     await control.connectNow();
-    final term = TerminalController(client, display)..setAgent('shell');
+    final term = TerminalController(client, display)..setSession('shell');
     final owner = Object();
     term.watch(owner);
     term.setMirror(true);

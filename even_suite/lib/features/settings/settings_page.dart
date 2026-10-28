@@ -8,6 +8,7 @@ import '../../widgets/common.dart';
 import '../claude/claude_settings_sheet.dart';
 import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
+import 'text_timing_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -142,26 +143,13 @@ class SettingsPage extends StatelessWidget {
                     onSelected: (_) => s.set('readingWpm', wpm),
                   ),
               ]),
-              if (s.readingWpm > 0) ...[
-                _Label('Speed: ${s.readingWpm} words per minute'),
-                Slider(
-                  value: s.readingWpm.clamp(60, 400).toDouble(),
-                  min: 60,
-                  max: 400,
-                  divisions: 34,
-                  label: '${s.readingWpm}',
-                  onChanged: (v) => s.set('readingWpm', v.round()),
-                ),
-                _Label('Extra pause on each page: ${(s.pageHoldMs / 1000).toStringAsFixed(1)} s'),
-                Slider(
-                  value: s.pageHoldMs.clamp(0, 6000).toDouble(),
-                  min: 0,
-                  max: 6000,
-                  divisions: 24,
-                  label: '${(s.pageHoldMs / 1000).toStringAsFixed(1)} s',
-                  onChanged: (v) => s.set('pageHoldMs', v.round()),
-                ),
-              ],
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () =>
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TextTimingPage())),
+                icon: const Icon(Icons.timer_rounded),
+                label: const Text('Text timing: speed, fixed time, pauses'),
+              ),
               const SizedBox(height: 6),
               const Text('Right tap = next page and keep going. Left tap = back and pause.',
                   style: TextStyle(color: AppColors.muted, fontSize: 12.5)),

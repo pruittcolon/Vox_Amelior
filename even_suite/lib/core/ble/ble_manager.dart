@@ -148,6 +148,22 @@ class BleManager extends ChangeNotifier {
   /// Called when both arms link up (the app saves the pair here).
   void Function(GlassesPair pair)? onConnected;
 
+  /// Packets no request of ours was waiting for - e.g. the glasses
+  /// answering another app on the phone (the Even app) that writes to them.
+  void Function(BleReceive res)? onUnsolicited;
+
+  /// Battery of each arm, 0-100 (null until the glasses tell).
+  int? batteryL;
+  int? batteryR;
+
+  /// The lower of the two arms (what runs out first).
+  int? get battery {
+    final l = batteryL, r = batteryR;
+    if (l == null) return r;
+    if (r == null) return l;
+    return l < r ? l : r;
+  }
+
   final _events = StreamController<GlassesEvent>.broadcast();
   Stream<GlassesEvent> get events => _events.stream;
 
@@ -201,6 +217,7 @@ class BleManager extends ChangeNotifier {
     await control?.disconnect();
     state = LinkState.disconnected;
     leftUp = rightUp = false;
+    batteryL = batteryR = null;
     notifyListeners();
   }
 
@@ -258,6 +275,18 @@ class BleManager extends ChangeNotifier {
       _events.add(GlassesEvent(res.data[1], res.lr));
       return;
     }
+    // Battery: 2C 66 <percent> ... (asked for by us or by another app).
+    if (res.data[0] == 0x2C && res.data.length > 2 && res.data[1] == 0x66 && res.data[2] <= 100) {
+      final pct = res.data[2];
+      if ((res.lr == 'L' ? batteryL : batteryR) != pct) {
+        if (res.lr == 'L') {
+          batteryL = pct;
+        } else {
+          batteryR = pct;
+        }
+        notifyListeners();
+      }
+    }
     final cmd = _key(res.lr, res.data[0]);
     if (res.data[0] != 0x25) lastReply = DateTime.now();
     final waiting = _reqListen.remove(cmd);
@@ -281,6 +310,7 @@ class BleManager extends ChangeNotifier {
   Timer? _rxTimer;
 
   void _unsolicited(BleReceive res) {
+    onUnsolicited?.call(res);
     final kind = '${res.lr}:${res.data.take(2).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
     _rxCounts[kind] = (_rxCounts[kind] ?? 0) + 1;
     _rxFirst[kind] ??= res.hexString.length > 60 ? res.hexString.substring(0, 60) : res.hexString;

@@ -161,7 +161,16 @@ class Proto {
     return Uint8List.fromList([0x1E, len & 0xff, (len >> 8) & 0xff, seq & 0xff, ...body]);
   }
 
+  /// Sequence numbers of our last dashboard packets: the glasses echo them
+  /// in their answers, so an answer with another number was for someone
+  /// else (another app on the phone writing the dashboard).
+  final _ourDash = <int>[];
+
+  bool isOurDashSeq(int seq) => _ourDash.contains(seq & 0xff);
+
   Future<bool> _toBoth(Uint8List packet, String what) async {
+    _ourDash.add(packet[3]);
+    if (_ourDash.length > 8) _ourDash.removeAt(0);
     var ok = true;
     for (final lr in const ['L', 'R']) {
       final r = await ble.request(packet, lr: lr, timeoutMs: 1500);
@@ -182,6 +191,14 @@ class Proto {
       _toBoth(notePacket(_dashSeq++, slot, title, text), 'dashNote');
 
   // ------------------------------------------------------- microphone (0x0E)
+
+  /// Ask each arm for its battery. The answer, `2C 66 <percent> ...`, is read
+  /// by [BleManager] (into batteryL / batteryR) like any other.
+  Future<void> queryBattery() async {
+    for (final lr in const ['L', 'R']) {
+      await ble.request(Uint8List.fromList([0x2C, 0x01]), lr: lr, timeoutMs: 1500, log: false);
+    }
+  }
 
   /// Glasses microphone on/off (the demo turns it on at the right arm when the
   /// left TouchBar is held). Audio then streams as 0xF1 packets.

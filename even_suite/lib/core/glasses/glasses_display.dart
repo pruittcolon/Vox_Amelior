@@ -40,6 +40,14 @@ class GlassesDisplay extends ChangeNotifier {
   /// Extra milliseconds every scrolling page stays up (user setting).
   int holdMs = 0;
 
+  /// Every page stays this long (ms) instead of by reading speed; 0 = by [wpm].
+  int fixedMs = 0;
+
+  /// Extra milliseconds on an answer's first page (you just started reading).
+  int firstExtraMs = 600;
+
+  int _armedWords = 0; // words on the page when its timer started
+
   /// Teleprompter paused (by a left tap, "pause", or the phone).
   bool paused = false;
 
@@ -299,29 +307,46 @@ class GlassesDisplay extends ChangeNotifier {
     return moved;
   }
 
-  /// How long the current page stays up when scrolling.
+  /// How long the current page stays up when scrolling: a fixed time, or
+  /// long enough to read its words at [wpm]; plus the extra pauses.
   @visibleForTesting
   Duration pageTime({bool first = false}) {
-    final words = pager?.pageWords ?? 0;
-    final ms = (words * 60000 / (wpm == 0 ? 180 : wpm)).round() + (first ? 1200 : 600) + holdMs;
-    return Duration(milliseconds: ms.clamp(1500, 20000));
+    final extra = 600 + (first ? firstExtraMs : 0) + holdMs;
+    final int ms;
+    if (fixedMs > 0) {
+      ms = fixedMs + (first ? firstExtraMs : 0) + holdMs;
+    } else {
+      ms = ((pager?.pageWords ?? 0) * 60000 / (wpm == 0 ? 180 : wpm)).round() + extra;
+    }
+    return Duration(milliseconds: ms.clamp(1000, 40000));
   }
 
   void _armAuto({bool first = false}) {
     _stopAuto();
     if (!canScroll || paused) return;
     if (pager!.atEnd) return;
-    _auto = Timer(pageTime(first: first), () {
-      _auto = null;
-      // The pager may have been rebuilt meanwhile (a reply still streaming in).
-      final p = pager;
-      if (p == null || mode != DisplayMode.reply || paused) return;
-      if (p.down()) {
-        _schedule(immediate: true);
-        _armAuto();
-      }
-      notifyListeners();
-    });
+    _armedWords = pager!.pageWords;
+    _auto = Timer(pageTime(first: first), _turn);
+  }
+
+  void _turn() {
+    _auto = null;
+    // The pager may have been rebuilt meanwhile (a reply still streaming in).
+    final p = pager;
+    if (p == null || mode != DisplayMode.reply || paused) return;
+    // The page was still being written when its time was set (an answer
+    // streaming in): give the words that came since their reading time too.
+    final grew = p.pageWords - _armedWords;
+    if (fixedMs == 0 && grew > 2) {
+      _armedWords = p.pageWords;
+      _auto = Timer(Duration(milliseconds: (grew * 60000 / (wpm == 0 ? 180 : wpm)).round()), _turn);
+      return;
+    }
+    if (p.down()) {
+      _schedule(immediate: true);
+      _armAuto();
+    }
+    notifyListeners();
   }
 
   /// Clear the glasses (back to their dashboard). Goes out after a screen
@@ -358,6 +383,14 @@ class GlassesDisplay extends ChangeNotifier {
   void _stopAuto() {
     _auto?.cancel();
     _auto = null;
+  }
+
+  /// Send the screen again although it has not changed: the glasses drew
+  /// something of their own over it (their dashboard when you look up).
+  void redraw() {
+    if (mode == DisplayMode.idle) return;
+    _shownKey = '';
+    _schedule(immediate: true);
   }
 
   // -------------------------------------------------------------- sending

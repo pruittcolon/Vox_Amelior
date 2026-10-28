@@ -199,12 +199,56 @@ class HubInfo {
   const HubInfo(this.api, this.features, {this.hook = false});
   bool get live => features.contains('live');
   bool get work => features.contains('work');
+
+  /// Sessions can be listed, opened and closed from the app.
+  bool get sessions => features.contains('sessions');
 }
 
 class TermScreen {
   final String text;
   final String hash;
-  const TermScreen(this.text, this.hash);
+
+  /// The terminal's size (0 when an older Agent Hub does not say).
+  final int cols;
+  final int rows;
+  const TermScreen(this.text, this.hash, {this.cols = 0, this.rows = 0});
+}
+
+/// A terminal in Termux (a tmux session): the Claude Code you use in Termux
+/// ("claude"), more opened from the app ("claude-2", ...), shells.
+class TermSession {
+  final String name;
+  final String kind; // claude, shell, agy
+  final bool main; // the one Termux shows
+  final int attached; // Termux screens showing it
+  final String state; // Claude Code: working, asking (a question is up), idle
+  final String topic; // what it was last asked
+  final double activity; // last output, seconds since 1970
+  const TermSession(this.name,
+      {this.kind = 'claude', this.main = false, this.attached = 0, this.state = '', this.topic = '', this.activity = 0});
+
+  factory TermSession.fromMap(Map m) => TermSession(
+        '${m['name'] ?? ''}',
+        kind: '${m['kind'] ?? 'shell'}',
+        main: m['main'] == true,
+        attached: (m['attached'] as num?)?.toInt() ?? 0,
+        state: '${m['state'] ?? ''}',
+        topic: '${m['topic'] ?? ''}',
+        activity: (m['activity'] as num?)?.toDouble() ?? 0,
+      );
+
+  bool get isClaude => kind == 'claude';
+
+  /// "Claude Code" (the Termux one), "Claude 2", "Shell", "Shell 2", "Antigravity".
+  String get label => labelFor(name, main: main);
+
+  static String labelFor(String name, {bool? main}) {
+    if (main ?? name == 'claude') return 'Claude Code';
+    final m = RegExp(r'^(claude|shell|agy)(?:-(\d+))?$').firstMatch(name);
+    if (m == null) return name;
+    final base = switch (m.group(1)) { 'claude' => 'Claude', 'agy' => 'Antigravity', _ => 'Shell' };
+    return m.group(2) == null ? base : '$base ${m.group(2)}';
+  }
 }
 
 class BridgeException implements Exception {
@@ -223,7 +267,10 @@ class BridgeClient {
   final HttpClient _http = HttpClient()
     ..connectionTimeout = const Duration(seconds: 3)
     ..idleTimeout = const Duration(seconds: 30);
-  final Set<HttpClientRequest> _open = {};
+
+  /// Requests in flight, by who started them ('chat', 'term', 'work'), so a
+  /// screen closing cancels only its own long polls - never a message on its way.
+  final Map<HttpClientRequest, String?> _open = {};
 
   String get baseUrl => _base;
   set baseUrl(String url) {
@@ -241,20 +288,30 @@ class BridgeClient {
     return u;
   }
 
-  /// Cancel long polls in flight (e.g. when leaving a screen).
+  /// Cancel everything in flight (the bridge address changed).
   void abortAll() {
-    for (final r in _open.toList()) {
+    for (final r in _open.keys.toList()) {
       r.abort(const BridgeException('cancelled'));
     }
     _open.clear();
   }
 
+  /// Cancel the long polls [tag] started (e.g. when leaving a screen).
+  void abort(String tag) {
+    for (final e in _open.entries.toList()) {
+      if (e.value == tag) {
+        e.key.abort(const BridgeException('cancelled'));
+        _open.remove(e.key);
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> _send(String method, String path,
-      {Map<String, dynamic>? body, Duration timeout = const Duration(seconds: 8)}) async {
+      {Map<String, dynamic>? body, Duration timeout = const Duration(seconds: 8), String? tag}) async {
     HttpClientRequest? req;
     try {
       req = await _http.openUrl(method, Uri.parse('$_base$path')).timeout(timeout);
-      _open.add(req);
+      _open[req] = tag;
       if (body != null) {
         final bytes = utf8.encode(jsonEncode(body));
         req.headers.contentType = ContentType.json;
@@ -292,7 +349,7 @@ class BridgeClient {
 
   Future<BridgeSnapshot> snapshot({int version = -1, int waitSec = 0, int tail = 40}) async {
     final m = await _send('GET', '/api/bridge?v=$version&wait=$waitSec&tail=$tail',
-        timeout: Duration(seconds: waitSec + 8));
+        timeout: Duration(seconds: waitSec + 8), tag: 'chat');
     return BridgeSnapshot.fromMap(m);
   }
 
@@ -331,7 +388,7 @@ class BridgeClient {
   /// Finished Claude Code jobs; with [waitSec] it waits for a new one.
   Future<WorkSnapshot> work({int version = -1, int waitSec = 0}) async {
     final m = await _send('GET', '/api/work?v=$version&wait=$waitSec&tail=50',
-        timeout: Duration(seconds: waitSec + 8));
+        timeout: Duration(seconds: waitSec + 8), tag: 'work');
     return WorkSnapshot.fromMap(m);
   }
 
@@ -350,21 +407,55 @@ class BridgeClient {
 
   Future<void> reset() => _send('POST', '/api/bridge/reset', body: const {});
 
-  /// The terminal screen of [agent]. With [waitSec] it waits until the screen
-  /// differs from [hash] (long poll), so an idle terminal costs nothing.
-  Future<TermScreen> capture(String agent,
-      {int lines = 120, int waitSec = 0, String hash = ''}) async {
+  /// The screen of terminal [session]. With [waitSec] it waits until the
+  /// screen differs from [hash] (long poll), so an idle terminal costs
+  /// nothing. [ansi] keeps the colours (escape codes).
+  Future<TermScreen> capture(String session,
+      {int lines = 120, int waitSec = 0, String hash = '', bool ansi = false}) async {
     final m = await _send(
-        'GET', '/api/term/$agent/capture?lines=$lines&wait=$waitSec&h=${Uri.encodeQueryComponent(hash)}',
-        timeout: Duration(seconds: waitSec + 8));
-    return TermScreen('${m['text'] ?? ''}', '${m['h'] ?? ''}');
+        'GET',
+        '/api/term/${Uri.encodeComponent(session)}/capture?lines=$lines&wait=$waitSec'
+            '&h=${Uri.encodeQueryComponent(hash)}${ansi ? '&ansi=1' : ''}',
+        timeout: Duration(seconds: waitSec + 8),
+        tag: 'term');
+    return TermScreen('${m['text'] ?? ''}', '${m['h'] ?? ''}',
+        cols: (m['cols'] as num?)?.toInt() ?? 0, rows: (m['rows'] as num?)?.toInt() ?? 0);
   }
 
-  Future<void> paste(String agent, String text, {bool enter = true}) =>
-      _send('POST', '/api/term/$agent/paste', body: {'text': text, 'enter': enter});
+  /// Type [text] into [session] (and press Enter). Says how it went: "sent",
+  /// "typed" (no Enter), "menu" (Claude Code is asking a question, nothing
+  /// typed) or "stuck" (still in its input box). Older hubs: always "sent".
+  Future<String> paste(String session, String text, {bool enter = true}) async {
+    final m = await _send('POST', '/api/term/${Uri.encodeComponent(session)}/paste',
+        body: {'text': text, 'enter': enter}, timeout: const Duration(seconds: 12));
+    return '${m['result'] ?? (enter ? 'sent' : 'typed')}';
+  }
 
-  Future<void> keys(String agent, List<String> keys) =>
-      _send('POST', '/api/term/$agent/keys', body: {'keys': keys});
+  Future<void> keys(String session, List<String> keys) =>
+      _send('POST', '/api/term/${Uri.encodeComponent(session)}/keys', body: {'keys': keys});
+
+  /// Every terminal running in Termux (needs Agent Hub with sessions).
+  Future<List<TermSession>> sessions() async {
+    final m = await _send('GET', '/api/sessions', timeout: const Duration(seconds: 6));
+    return [for (final x in (m['sessions'] as List? ?? const [])) TermSession.fromMap(x as Map)];
+  }
+
+  /// Open another Claude Code ([kind] 'claude') or shell; returns its name.
+  /// [resume] picks up the last conversation instead of a fresh one.
+  Future<String> newSession({String kind = 'claude', bool resume = false}) async {
+    final m = await _send('POST', '/api/sessions', body: {'kind': kind, 'resume': resume});
+    return '${m['name'] ?? ''}';
+  }
+
+  /// End a session; returns why not (the Termux one stays), or null.
+  Future<String?> closeSession(String session) async {
+    final m = await _send('POST', '/api/sessions/${Uri.encodeComponent(session)}/close', body: const {});
+    return m['ok'] == true ? null : '${m['error'] ?? 'Could not close it'}';
+  }
+
+  /// Size [session] to the phone's view (skipped while Termux shows it).
+  Future<void> fitSession(String session, int cols, int rows) => _send(
+      'POST', '/api/term/${Uri.encodeComponent(session)}/size', body: {'cols': cols, 'rows': rows});
 
   void close() {
     abortAll();

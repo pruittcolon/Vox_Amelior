@@ -145,6 +145,17 @@ class Dashboard extends ChangeNotifier {
   // State
   Weather? weather;
   DateTime? lastSync;
+
+  /// Another app on the phone (the Even app) wrote the dashboard: how
+  /// often since the app started, and when last.
+  int foreignWrites = 0;
+  DateTime? foreignAt;
+
+  void noteForeign() {
+    foreignWrites++;
+    foreignAt = DateTime.now();
+    notifyListeners();
+  }
   String? error;
   bool syncing = false;
 

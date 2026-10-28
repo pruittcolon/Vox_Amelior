@@ -8,14 +8,19 @@ import '../../core/settings.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
+import '../../widgets/session_bar.dart';
 import '../../widgets/voice_widgets.dart';
 import '../lookup/lookup_page.dart';
 import '../settings/settings_page.dart';
+import '../settings/text_timing_page.dart';
 import '../settings/touchbar_page.dart';
 import '../tools/phone_page.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.active = true});
+
+  /// On screen and the app in front (the session list stays fresh).
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +35,7 @@ class HomePage extends StatelessWidget {
           children: [
             _Header(suite: suite),
             const SizedBox(height: 16),
-            _TalkHero(suite: suite),
+            _TalkHero(suite: suite, active: active),
             if (!connected) ...[const SizedBox(height: 12), _GlassesCard(suite: suite)],
             if (!online) ...[const SizedBox(height: 12), _BridgeCard(suite: suite)],
             const SizedBox(height: 12),
@@ -86,6 +91,23 @@ class HomePage extends StatelessWidget {
                     caption: 'Told the moment Claude Code is done',
                     onTap: () => Shell.goTo(context, Shell.work),
                   ),
+                  _FeatureCard(
+                    icon: Icons.timer_rounded,
+                    color: AppColors.claude,
+                    title: 'Text timing',
+                    caption: 'How long each screen of an answer stays',
+                    onTap: () => _push(context, const TextTimingPage()),
+                  ),
+                  _FeatureCard(
+                    icon: Icons.terminal_rounded,
+                    color: AppColors.glasses,
+                    title: 'Sessions',
+                    caption: 'Claude Code as in Termux - open more, switch',
+                    onTap: () {
+                      suite.useSession(suite.terminal.session);
+                      Shell.goTo(context, Shell.claude);
+                    },
+                  ),
                 ],
               );
             }),
@@ -93,7 +115,7 @@ class HomePage extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: () => Shell.goTo(context, Shell.more),
               icon: const Icon(Icons.apps_rounded),
-              label: const Text('Terminal, screen sharing and more'),
+              label: const Text('Screen sharing, text height and more'),
             ),
           ],
         );
@@ -165,6 +187,10 @@ class _Header extends StatelessWidget {
               pulse: chat.state == BridgeState.starting,
               onTap: () => _sheet(context, _BridgeCard(suite: suite)),
             ),
+            GestureDetector(
+              onTap: () => _sheet(context, _GlassesCard(suite: suite)),
+              child: GlassesBattery(ble: ble, compact: false),
+            ),
           ]),
         ]),
       ),
@@ -206,23 +232,26 @@ class _StatusChip extends StatelessWidget {
       );
 }
 
-/// The main thing: talk. Chat or terminal, the big button, where it is at.
+/// The main thing: talk. Where it goes (chat or one of your terminals), the
+/// big button, where it is at.
 class _TalkHero extends StatelessWidget {
-  const _TalkHero({required this.suite});
+  const _TalkHero({required this.suite, required this.active});
   final Suite suite;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
     final s = suite.settings;
     return ListenableBuilder(
-      listenable: s,
+      listenable: Listenable.merge([s, suite.terminal]),
       builder: (context, _) {
         final terminal = s.target == Target.terminal;
+        final label = suite.terminal.label;
         final accent = terminal ? AppColors.glasses : AppColors.claude;
         final hold = switch (s.holdAction) {
           'chat' => 'Claude chat',
-          'terminal' => 'the terminal',
-          _ => terminal ? 'the terminal' : 'Claude',
+          'terminal' => label,
+          _ => terminal ? label : 'Claude',
         };
         return Container(
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
@@ -240,28 +269,26 @@ class _TalkHero extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               Expanded(
-                child: Text(terminal ? 'Terminal' : 'Ask Claude',
+                child: Text(terminal ? label : 'Ask Claude',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
               ),
-              SegmentedButton<Target>(
-                showSelectedIcon: false,
-                style: const ButtonStyle(visualDensity: VisualDensity.compact),
-                segments: const [
-                  ButtonSegment(value: Target.claude, icon: Icon(Icons.chat_bubble_rounded, size: 16), label: Text('Chat')),
-                  ButtonSegment(value: Target.terminal, icon: Icon(Icons.terminal_rounded, size: 16), label: Text('Code')),
-                ],
-                selected: {s.target},
-                onSelectionChanged: (v) => s.set('target', v.first),
-              ),
+              if (terminal)
+                TextButton.icon(
+                  onPressed: () => Shell.goTo(context, Shell.claude),
+                  icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                  label: const Text('Watch it'),
+                ),
             ]),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               terminal
-                  ? 'What you say is typed into Claude Code in Termux; its steps and answer come back here.'
+                  ? 'What you say is typed into $label in Termux. Its steps and answer come back here and on your glasses.'
                   : 'Ask anything. The answer shows on your glasses and can be read aloud.',
               style: const TextStyle(color: AppColors.muted, fontSize: 13.5),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
+            SessionBar(suite: suite, active: active),
+            const SizedBox(height: 14),
             Center(
               child: TalkButton(
                 voice: suite.voice,
@@ -279,7 +306,7 @@ class _TalkHero extends StatelessWidget {
               voice: suite.voice,
               talk: suite.conversation,
               narrator: suite.narrator,
-              target: terminal ? 'the terminal' : 'Claude',
+              target: terminal ? label : 'Claude',
             ),
             const SizedBox(height: 14),
             Row(children: [

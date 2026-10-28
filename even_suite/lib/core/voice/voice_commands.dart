@@ -14,6 +14,8 @@ enum VoiceCommand {
   stopReply,
   toTerminal,
   toChat,
+  newSession,
+  nextSession,
   enter,
   escape,
   choice1,
@@ -89,6 +91,14 @@ class VoiceCommands {
     VoiceCommand.toChat: [
       'chat', 'chat mode', 'switch to chat', 'go to chat', 'use chat', 'back to chat', 'go back to chat',
       'normal mode', 'talk to claude', 'claude chat', 'leave the terminal', 'exit terminal',
+    ],
+    VoiceCommand.newSession: [
+      'new session', 'new claude session', 'new claude code session', 'open a new session', 'start a new session',
+      'new terminal session', 'another session', 'open another session',
+    ],
+    VoiceCommand.nextSession: [
+      'next session', 'switch session', 'switch sessions', 'other session', 'next claude', 'next terminal',
+      'previous session', 'change session',
     ],
     VoiceCommand.enter: ['enter', 'press enter', 'hit enter', 'return'],
     VoiceCommand.escape: ['escape', 'press escape', 'hit escape'],

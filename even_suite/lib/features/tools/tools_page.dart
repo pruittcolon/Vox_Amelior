@@ -11,8 +11,8 @@ import '../screen/screen_page.dart';
 import '../settings/settings_page.dart';
 import '../settings/speech_page.dart';
 import '../settings/text_height_page.dart';
+import '../settings/text_timing_page.dart';
 import '../settings/touchbar_page.dart';
-import '../terminal/terminal_page.dart';
 import 'diagnostics_page.dart';
 import 'help_page.dart';
 import 'images_page.dart';
@@ -47,6 +47,8 @@ class ToolsPage extends StatelessWidget {
               () => push(const TouchBarPage())),
           _Tool(Icons.height_rounded, AppColors.hud, 'Text height', 'Move the text up or down in your view',
               () => push(const TextHeightPage())),
+          _Tool(Icons.timer_rounded, AppColors.claude, 'Text timing', 'How long each screen of an answer stays',
+              () => push(const TextTimingPage())),
           _Tool(Icons.view_agenda_rounded, AppColors.claude, 'Glasses layout',
               'Arrange Claude’s working screen; when screens close', () => push(const LayoutPage())),
           _Tool(Icons.notes_rounded, AppColors.ok, 'Send text', 'Type or paste text, page through it on the glasses',
@@ -61,8 +63,12 @@ class ToolsPage extends StatelessWidget {
               () => suite.display.clear()),
         ]),
         _Group('Claude', [
-          _Tool(Icons.terminal_rounded, AppColors.glasses, 'Terminal', 'Claude Code and your Termux shell',
-              () => pushBody('Terminal', const TerminalPage(active: true))),
+          _Tool(Icons.terminal_rounded, AppColors.glasses, 'Terminal sessions',
+              'Claude Code as in Termux - open more, switch between them', () {
+            // One place for terminals: the Claude tab, on the one you used last.
+            suite.useSession(suite.terminal.session);
+            Shell.goTo(context, Shell.claude);
+          }),
           _Tool(Icons.phone_android_rounded, AppColors.warn, 'Phone actions',
               'Reminders, timers, alarms, apps, calls, texts, music', () => push(const PhonePage())),
           _Tool(Icons.tune_rounded, AppColors.claude, 'Claude and voice',

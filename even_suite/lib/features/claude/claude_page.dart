@@ -12,8 +12,11 @@ import '../../core/phone_actions.dart';
 import '../../core/settings.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
+import '../../widgets/glasses_widgets.dart';
+import '../../widgets/session_bar.dart';
 import '../../widgets/voice_widgets.dart';
 import 'claude_settings_sheet.dart';
+import 'terminal_pane.dart';
 
 class ClaudePage extends StatefulWidget {
   const ClaudePage({super.key, required this.active});
@@ -30,6 +33,7 @@ class _ClaudePageState extends State<ClaudePage> {
   final _draft = TextEditingController();
   final _focus = FocusNode();
   bool _watching = false;
+  bool _watchingTerm = false;
 
   @override
   void didChangeDependencies() {
@@ -37,6 +41,8 @@ class _ClaudePageState extends State<ClaudePage> {
     suite = SuiteScope.of(context);
     suite.voice.removeListener(_syncDraft);
     suite.voice.addListener(_syncDraft);
+    suite.settings.removeListener(_updateWatch);
+    suite.settings.addListener(_updateWatch);
     _updateWatch();
   }
 
@@ -46,6 +52,7 @@ class _ClaudePageState extends State<ClaudePage> {
     _updateWatch();
   }
 
+  /// Chat stays live while the tab shows; the terminal while you watch it.
   void _updateWatch() {
     if (widget.active && !_watching) {
       suite.chat.watch(this);
@@ -53,6 +60,14 @@ class _ClaudePageState extends State<ClaudePage> {
     } else if (!widget.active && _watching) {
       suite.chat.unwatch(this);
       _watching = false;
+    }
+    final term = widget.active && suite.settings.target == Target.terminal;
+    if (term && !_watchingTerm) {
+      suite.terminal.watch(this);
+      _watchingTerm = true;
+    } else if (!term && _watchingTerm) {
+      suite.terminal.unwatch(this);
+      _watchingTerm = false;
     }
   }
 
@@ -70,7 +85,9 @@ class _ClaudePageState extends State<ClaudePage> {
   @override
   void dispose() {
     suite.voice.removeListener(_syncDraft);
+    suite.settings.removeListener(_updateWatch);
     if (_watching) suite.chat.unwatch(this);
+    if (_watchingTerm) suite.terminal.unwatch(this);
     _draft.dispose();
     _focus.dispose();
     super.dispose();
@@ -93,12 +110,23 @@ class _ClaudePageState extends State<ClaudePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      _Header(suite: suite),
-      StageStrip(talk: suite.conversation, voice: suite.voice, narrator: suite.narrator),
-      Expanded(child: _Console(suite: suite)),
-      _VoiceDock(suite: suite, draft: _draft, focus: _focus, onSend: _send, onTalk: _talk),
-    ]);
+    return ListenableBuilder(
+      listenable: suite.settings,
+      builder: (context, _) {
+        final terminal = suite.settings.target == Target.terminal;
+        return Column(children: [
+          _Header(suite: suite),
+          SessionBar(suite: suite, active: widget.active, padding: const EdgeInsets.fromLTRB(12, 2, 12, 6)),
+          if (terminal)
+            Expanded(child: TerminalPane(suite: suite, draft: _draft, focus: _focus, onTalk: _talk))
+          else ...[
+            StageStrip(talk: suite.conversation, voice: suite.voice, narrator: suite.narrator),
+            Expanded(child: _Console(suite: suite)),
+            _VoiceDock(suite: suite, draft: _draft, focus: _focus, onSend: _send, onTalk: _talk),
+          ],
+        ]);
+      },
+    );
   }
 }
 
@@ -109,75 +137,99 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 0, 4),
+      padding: const EdgeInsets.fromLTRB(16, 8, 0, 2),
       child: ListenableBuilder(
-        listenable: suite.settings,
-        builder: (context, _) => Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Claude',
-                  style: Theme.of(context).textTheme.headlineSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
-              Text(
-                suite.settings.target == Target.terminal
-                    ? 'Typing into ${suite.terminal.agent == 'claude' ? 'Claude Code' : 'the terminal'}'
-                    : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)} · '
-                        '${accessLabel(suite.settings.claudeAccess)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
-              ),
-            ]),
-          ),
-          SegmentedButton<Target>(
-            showSelectedIcon: false,
-            style: const ButtonStyle(visualDensity: VisualDensity.compact),
-            segments: const [
-              ButtonSegment(value: Target.claude, label: Text('Chat')),
-              ButtonSegment(value: Target.terminal, label: Text('Term')),
-            ],
-            selected: {suite.settings.target},
-            onSelectionChanged: (s) => suite.settings.set('target', s.first),
-          ),
-          IconButton(
-            tooltip: 'Model, voice and conversation',
-            onPressed: () => ClaudeSettingsSheet.show(context),
-            icon: const Icon(Icons.tune_rounded),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'More',
-            icon: const Icon(Icons.more_vert_rounded),
-            onSelected: (v) async {
-              switch (v) {
-                case 'stop':
-                  await suite.chat.stopReply();
-                  await suite.stopSpeaking();
-                case 'new':
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (c) => AlertDialog(
-                      title: const Text('Start a new chat?'),
-                      content: const Text('Claude forgets this conversation. The web page shows the new chat too.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Keep')),
-                        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('New chat')),
-                      ],
-                    ),
-                  );
-                  if (ok == true) {
-                    try {
-                      await suite.chat.newChat();
-                    } catch (e) {
-                      if (context.mounted) showToast(context, '$e');
-                    }
+        listenable: Listenable.merge([suite.settings, suite.terminal, suite.ble]),
+        builder: (context, _) {
+          final terminal = suite.settings.target == Target.terminal;
+          final term = suite.terminal;
+          final state = switch (term.current?.state) {
+            'working' => ' · working',
+            'asking' => ' · asking you',
+            'idle' => ' · ready',
+            _ => '',
+          };
+          return Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Claude',
+                    style: Theme.of(context).textTheme.headlineSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(
+                  terminal
+                      ? '${term.label}$state${term.current?.main == true ? ' · in Termux' : ''}'
+                      : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)} · '
+                          '${accessLabel(suite.settings.claudeAccess)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+                ),
+              ]),
+            ),
+            GlassesBattery(ble: suite.ble),
+            if (terminal)
+              IconButton(
+                tooltip: term.mirroring ? 'Stop showing it on the glasses' : 'Show it on the glasses',
+                isSelected: term.mirroring,
+                selectedIcon: const Icon(Icons.visibility_rounded, color: AppColors.hud),
+                icon: const Icon(Icons.visibility_outlined),
+                onPressed: () {
+                  if (!term.mirroring && !suite.ble.isConnected) {
+                    return showToast(context, 'Connect your glasses first');
                   }
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'stop', child: Text('Stop the reply')),
-              PopupMenuItem(value: 'new', child: Text('New chat')),
-            ],
-          ),
-        ]),
+                  term.setMirror(!term.mirroring);
+                },
+              )
+            else
+              IconButton(
+                tooltip: 'Model, voice and conversation',
+                onPressed: () => ClaudeSettingsSheet.show(context),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (v) async {
+                switch (v) {
+                  case 'stop':
+                    await suite.chat.stopReply();
+                    await suite.stopSpeaking();
+                  case 'interrupt':
+                    await term.key('Escape');
+                  case 'settings':
+                    if (context.mounted) ClaudeSettingsSheet.show(context);
+                  case 'new':
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (c) => AlertDialog(
+                        title: const Text('Start a new chat?'),
+                        content: const Text('Claude forgets this conversation. The web page shows the new chat too.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Keep')),
+                          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('New chat')),
+                        ],
+                      ),
+                    );
+                    if (ok == true) {
+                      try {
+                        await suite.chat.newChat();
+                      } catch (e) {
+                        if (context.mounted) showToast(context, '$e');
+                      }
+                    }
+                }
+              },
+              itemBuilder: (_) => terminal
+                  ? const [
+                      PopupMenuItem(value: 'interrupt', child: Text('Stop what it is doing (Esc)')),
+                      PopupMenuItem(value: 'settings', child: Text('Voice and replies')),
+                    ]
+                  : const [
+                      PopupMenuItem(value: 'stop', child: Text('Stop the reply')),
+                      PopupMenuItem(value: 'new', child: Text('New chat')),
+                    ],
+            ),
+          ]);
+        },
       ),
     );
   }
@@ -194,19 +246,9 @@ class _Console extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([suite.chat, suite.settings]),
+      listenable: suite.chat,
       builder: (context, _) {
         final chat = suite.chat;
-        if (suite.settings.target == Target.terminal) {
-          return EmptyHint(
-            icon: Icons.terminal_rounded,
-            title: 'Talking to the terminal',
-            lines: [
-              'What you say or type is typed into ${suite.terminal.agent == 'claude' ? 'Claude Code' : 'the terminal'} in Termux, then Enter.',
-              'Its screen is mirrored to your glasses. Open the Terminal tab to watch it here.',
-            ],
-          );
-        }
         if (chat.messages.isEmpty) {
           return EmptyHint(
             icon: Icons.auto_awesome_rounded,

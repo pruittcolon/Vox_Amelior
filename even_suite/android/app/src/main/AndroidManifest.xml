@@ -91,6 +91,8 @@
             <action android:name="android.speech.RecognitionService" />
         </intent>
         <package android:name="com.termux" />
+        <!-- The Even app: told apart when it also drives the glasses' dashboard. -->
+        <package android:name="com.even.g1" />
         <!-- Text-to-speech engines the user can pick (Google, Samsung, ...) -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />

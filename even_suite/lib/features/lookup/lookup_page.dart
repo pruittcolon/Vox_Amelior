@@ -105,6 +105,7 @@ class _LookUpPageState extends State<LookUpPage> {
     final s = suite.settings;
     final dash = suite.dashboard;
     return [
+              if (dash.foreignWrites > 0) ...[_OtherApp(suite: suite), const SizedBox(height: 12)],
               _Preview(suite: suite, sample: s.dashRight == 'claude' ? _sample : 'live'),
               if (s.dashRight == 'claude') ...[
                 const SizedBox(height: 8),
@@ -347,6 +348,50 @@ class _LookUpPageState extends State<LookUpPage> {
   }
 
   static String _clock(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+}
+
+/// Another app (the Even app) keeps rewriting the glasses' dashboard - every
+/// minute - so what you pick here seems to snap back. Even Suite puts yours
+/// back right after it (with "Keep it up to date" on); force-stopping the
+/// Even app ends the tug of war.
+class _OtherApp extends StatelessWidget {
+  const _OtherApp({required this.suite});
+  final Suite suite;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = suite.settings;
+    final at = suite.dashboard.foreignAt;
+    final ago = at == null ? '' : DateTime.now().difference(at).inSeconds < 90 ? ' (just now)' : '';
+    return SectionCard(
+      title: 'Another app changes your dashboard',
+      icon: Icons.sync_problem_rounded,
+      iconColor: AppColors.warn,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(
+          'The Even app is running too and resets the glasses’ dashboard about every minute$ago - '
+          'that is why your choice keeps snapping back.',
+          style: const TextStyle(color: AppColors.muted, fontSize: 13),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Put mine back each time', style: TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: const Text('Within a second of every change it makes.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+          value: s.dashSync,
+          onChanged: (v) => s.set('dashSync', v),
+        ),
+        OutlinedButton.icon(
+          onPressed: () async {
+            await suite.system.openAppSettings('com.even.g1');
+            if (context.mounted) showToast(context, 'Tap Force stop - the Even app stops changing it');
+          },
+          icon: const Icon(Icons.block_rounded),
+          label: const Text('Stop the Even app'),
+        ),
+      ]),
+    );
+  }
 }
 
 class _Choices extends StatelessWidget {

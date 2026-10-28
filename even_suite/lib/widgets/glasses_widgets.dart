@@ -1,10 +1,66 @@
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../core/ble/ble_manager.dart';
 import '../core/glasses/claude_panel.dart';
 import '../core/glasses/g1_font.dart';
 import '../core/glasses/glasses_display.dart';
 import 'common.dart';
+
+/// The glasses' battery (the lower arm), e.g. "73%" - only while they are
+/// connected and have told it. Rebuilds itself when it changes.
+class GlassesBattery extends StatelessWidget {
+  const GlassesBattery({super.key, required this.ble, this.compact = true});
+  final BleManager ble;
+
+  /// Just the icon and the number (headers); otherwise a pill with a label.
+  final bool compact;
+
+  static IconData icon(int pct) => pct >= 90
+      ? Icons.battery_full_rounded
+      : pct >= 65
+          ? Icons.battery_5_bar_rounded
+          : pct >= 40
+              ? Icons.battery_4_bar_rounded
+              : pct >= 20
+                  ? Icons.battery_2_bar_rounded
+                  : Icons.battery_alert_rounded;
+
+  static Color color(int pct) => pct >= 40 ? AppColors.ok : pct >= 20 ? AppColors.warn : AppColors.error;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: ble,
+        builder: (context, _) {
+          final pct = ble.battery;
+          if (!ble.isConnected || pct == null) return const SizedBox.shrink();
+          final c = color(pct);
+          final arms = [
+            if (ble.batteryL != null) 'left ${ble.batteryL}%',
+            if (ble.batteryR != null) 'right ${ble.batteryR}%',
+          ].join(', ');
+          final row = Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon(pct), size: compact ? 18 : 16, color: c),
+            const SizedBox(width: 3),
+            Text('$pct%', style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: compact ? 13 : 12.5)),
+          ]);
+          return Tooltip(
+            message: 'Glasses battery: $arms',
+            child: compact
+                ? Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: row)
+                : Container(
+                    padding: const EdgeInsets.fromLTRB(10, 5, 12, 5),
+                    decoration: BoxDecoration(
+                      color: c.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: c.withOpacity(0.35)),
+                    ),
+                    child: row,
+                  ),
+          );
+        },
+      );
+}
 
 /// Simple line drawing of the G1 (two rounded lenses and a bridge).
 class GlassesGlyph extends StatelessWidget {

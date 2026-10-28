@@ -163,6 +163,50 @@ void main() {
       b.dispose();
     });
 
+    testWidgets('teleprompter: a page still being written gets the time its new words need', (tester) async {
+      final g = FakeGlasses();
+      final c = FakeControl();
+      final b = BleManager(g, control: c);
+      final d = GlassesDisplay(Proto(b))..wpm = 180;
+      await c.connectNow();
+      // The answer starts streaming: a few words, its timer is short.
+      d.updateReply('Short start.', title: 'Claude');
+      await tester.pump();
+      final early = d.pageTime(first: true);
+      // Then the rest arrives (several pages); the first page is now full.
+      d.updateReply(longText, title: 'Claude');
+      await tester.pump();
+      final full = d.pageTime(first: true);
+      expect(full, greaterThan(early));
+      await tester.pump(early + const Duration(milliseconds: 50));
+      expect(d.pager!.page, 0, reason: 'not turned on the timer set for two words');
+      await tester.pump(full - early);
+      expect(d.pager!.page, 1);
+      d.dispose();
+      b.dispose();
+    });
+
+    testWidgets('teleprompter: a fixed time per page, however much is on it', (tester) async {
+      final g = FakeGlasses();
+      final c = FakeControl();
+      final b = BleManager(g, control: c);
+      final d = GlassesDisplay(Proto(b))
+        ..wpm = 180
+        ..fixedMs = 5000
+        ..firstExtraMs = 1000;
+      await c.connectNow();
+      d.showText(longText, title: 'Claude');
+      await tester.pump();
+      expect(d.pageTime(first: true), const Duration(seconds: 6));
+      expect(d.pageTime(), const Duration(seconds: 5));
+      await tester.pump(const Duration(milliseconds: 5900));
+      expect(d.pager!.page, 0);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(d.pager!.page, 1);
+      d.dispose();
+      b.dispose();
+    });
+
     testWidgets('teleprompter: pages turn at reading speed; left tap pauses, right tap resumes',
         (tester) async {
       final g = FakeGlasses();

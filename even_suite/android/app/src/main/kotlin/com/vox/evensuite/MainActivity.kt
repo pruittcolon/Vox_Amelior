@@ -311,11 +311,22 @@ class MainActivity : FlutterActivity() {
             "termuxInstalled" -> result.success(termuxInstalled())
             "runTermux" -> result.success(runTermux(args?.get("command") as? String ?: ""))
             "openAppSettings" -> {
+                val pkg = args?.get("package") as? String ?: packageName
                 startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg"))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
                 result.success(null)
+            }
+            "appInstalled" -> {
+                val pkg = args?.get("package") as? String ?: ""
+                val installed = try {
+                    packageManager.getPackageInfo(pkg, 0)
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+                result.success(installed)
             }
             "openTermux" -> {
                 val launch = packageManager.getLaunchIntentForPackage(TERMUX)

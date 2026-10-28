@@ -2,6 +2,7 @@
 // large (1.3x) text. Any overflow fails the test. PNGs land in
 // test/screenshots/out/ (CI uploads them).
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:even_suite/core/bridge/bridge_client.dart';
@@ -11,12 +12,17 @@ import 'package:even_suite/core/glasses/glasses_display.dart';
 import 'package:even_suite/core/glasses/look_layout.dart';
 import 'package:even_suite/core/settings.dart';
 import 'package:even_suite/core/suite.dart';
+import 'package:even_suite/core/voice/voice_commands.dart';
+import 'package:even_suite/features/claude/claude_page.dart';
 import 'package:even_suite/features/flicker/flicker_page.dart';
+import 'package:even_suite/features/home/home_page.dart';
 import 'package:even_suite/features/lookup/look_designer.dart';
+import 'package:even_suite/features/lookup/lookup_page.dart';
 import 'package:even_suite/features/screen/screen_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
 import 'package:even_suite/main.dart';
 import 'package:even_suite/widgets/glasses_widgets.dart';
+import 'package:even_suite/widgets/terminal_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -221,18 +227,28 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
       }
 
-      // Terminal (from More).
-      w.bridge.screen = 'pruitt@phone:~\$ claude\n'
-          '╭───────────────────────────────╮\n'
-          '│ ✻ Welcome to Claude Code!     │\n'
-          '╰───────────────────────────────╯\n'
-          '> fix the failing test in vox_mobile\n'
-          '● Reading test/search_test.dart…\n'
-          '● Found it: the index runs outside runAsync.\n'
-          '  ⎿ Updated 1 file\n';
-      await openTool('Terminal');
+      // Terminal sessions (from More): the Claude tab on Claude Code, live and in colour.
+      w.bridge.screen = '\x1b[38;2;215;119;87m ▐▛███▜▌\x1b[0m   Claude Code v2.1\n'
+          '\x1b[2m   /root/even-suite\x1b[0m\n'
+          '\n'
+          '\x1b[1m❯ fix the failing test in vox_mobile\x1b[0m\n'
+          '\x1b[38;2;215;119;87m●\x1b[0m Reading test/search_test.dart…\n'
+          '\x1b[38;2;215;119;87m●\x1b[0m Found it: the index runs outside runAsync.\n'
+          '  ⎿ \x1b[32mUpdated 1 file\x1b[0m\n'
+          '\x1b[38;5;244m────────────────────────────────────────\x1b[0m\n'
+          '❯ \n'
+          '\x1b[38;5;244m────────────────────────────────────────\x1b[0m\n'
+          '  \x1b[38;5;141m⏵⏵ auto mode on\x1b[0m (shift+tab to cycle)\n';
+      await openTool('Terminal sessions');
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(suite.settings.target, Target.terminal);
+      expect(find.byType(TerminalScreen), findsOneWidget);
+      expect(find.text('Shift+Tab'), findsOneWidget);
       await _shot(tester, '5_terminal$tag');
-      await back();
+      suite.useChat();
+      await tester.tap(find.byIcon(Icons.widgets_outlined));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       // Phone screen, sharing, with a frame on the glasses.
       await openTool('Phone screen');
@@ -572,21 +588,21 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(suite.settings.target, Target.terminal);
-    expect(last(), contains('Terminal mode'));
+    expect(last(), contains('> Claude Code'));
     expect(w.bridge.sentTexts, isEmpty);
     expect(w.bridge.pasted, isEmpty, reason: 'switching is not typed anywhere');
     await tester.pump(const Duration(seconds: 5));
     expect(suite.display.mode, DisplayMode.idle, reason: 'the notice goes away by itself');
 
-    // Hold again: the screen asks for "start", then shows it was heard.
+    // Hold again: the screen says where it goes, then shows "start" was heard.
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
-    expect(last(), contains('say "start"'));
+    expect(last(), contains('> Claude Code'));
     expect(last(), contains('"send"'));
     w.speech.partial('start list the files');
     await tester.pump(const Duration(milliseconds: 700));
-    expect(last(), contains('Terminal [start]'));
+    expect(last(), contains('> Claude Code [start]'));
     expect(last(), contains('list the files'));
     expect(last(), isNot(contains('start list')));
     // "send" types it straight away.
@@ -848,6 +864,172 @@ void main() {
     expect(suite.display.pager!.page, 1);
     suite.system.onVolumeKey!('up');
     expect(suite.display.pager!.page, 0);
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('sessions: open another Claude Code, talk and type to it, the hold follows, end it', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    // Left over from testing: the hold fixed to chat.
+    suite.settings.set('holdAction', 'chat');
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await suite.chat.check();
+    suite.work.apply(const WorkSnapshot(1, []));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.auto_awesome_outlined));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    Finder inClaude(Finder f) => find.descendant(of: find.byType(ClaudePage), matching: f);
+    expect(inClaude(find.text('Chat')), findsOneWidget);
+    expect(inClaude(find.text('Claude Code')), findsOneWidget, reason: 'the one in Termux');
+    expect(inClaude(find.text('Shell')), findsOneWidget);
+
+    // + New: a fresh Claude Code next to the Termux one, and you talk to it now.
+    await tester.tap(inClaude(find.text('New')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('New Claude Code session'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(w.bridge.sessionList.map((x) => x.name), contains('claude-2'));
+    expect(suite.settings.target, Target.terminal);
+    expect(suite.terminal.session, 'claude-2');
+    expect(suite.settings.holdAction, 'mode', reason: 'a hold fixed to chat would go somewhere else');
+    expect(inClaude(find.text('Claude 2')), findsOneWidget);
+    expect(find.byType(TerminalScreen), findsOneWidget);
+    await _shot(tester, '22_sessions');
+
+    // Typed: word for word ("start" stays), into that session.
+    await tester.enterText(inClaude(find.byType(TextField)), 'start the dev server');
+    await tester.tap(find.byTooltip('Send (Enter)'));
+    await tester.pump();
+    await tester.pump();
+    expect(w.bridge.pasted.last, 'start the dev server');
+    expect(w.bridge.pastedTo.last, 'claude-2');
+
+    // Spoken with the TouchBar: goes to the same one, a pause sends it.
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('> Claude 2'));
+    w.speech.say('list the files');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(w.bridge.pasted.last, 'list the files');
+    expect(w.bridge.pastedTo.last, 'claude-2');
+    w.glasses.touch(24, 'L');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    // Claude Code is asking a question: nothing typed, the glasses say so.
+    w.bridge.pasteResult = 'menu';
+    await suite.typeIntoTerminal('yes do it');
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('asking you something'));
+    w.bridge.pasteResult = 'sent';
+    await tester.pump(const Duration(seconds: 7));
+
+    // "next session" by voice: back to the Termux one.
+    suite.runCommand(VoiceCommand.nextSession);
+    await tester.pump();
+    await tester.pump();
+    expect(suite.terminal.session, isNot('claude-2'));
+    await tester.pump(const Duration(seconds: 5));
+
+    // Hold the chip: end it.
+    suite.useSession('claude-2');
+    await tester.pump();
+    await tester.longPress(inClaude(find.text('Claude 2')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('End this session'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('End it'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(w.bridge.sessionList.map((x) => x.name), isNot(contains('claude-2')));
+    expect(suite.terminal.session, 'claude');
+
+    // Chat again.
+    await tester.tap(inClaude(find.text('Chat')));
+    await tester.pump();
+    expect(suite.settings.target, Target.claude);
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('glasses battery shows in the app', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump(const Duration(seconds: 4)); // asked a moment after connecting
+    expect(suite.ble.batteryL, 73);
+    expect(suite.ble.batteryR, 77);
+    expect(suite.ble.battery, 73, reason: 'the arm that runs out first');
+    expect(find.descendant(of: find.byType(HomePage), matching: find.text('73%')), findsOneWidget);
+    // Told by another app's question too.
+    w.glasses.injectReply('L', Uint8List.fromList([0x2C, 0x66, 41, 0, 0]));
+    await tester.pump();
+    expect(suite.ble.battery, 41);
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('built-in look-up screen: put back when the Even app rewrites the dashboard', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    suite.settings
+      ..set('lookMode', 'dashboard')
+      ..set('dashSync', true);
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump(const Duration(seconds: 10));
+    int dashWrites() => w.glasses.sent['R']!.where((p) => p[0] == 0x06).length;
+    final before = dashWrites();
+    // The Even app's minute update: its acks (its own sequence numbers) reach us too.
+    for (final p in [
+      [0x06, 0x07, 0x00, 0x2c, 0x06, 0x00],
+      [0x06, 0x16, 0x00, 0x2d, 0x01, 0x00],
+      [0x06, 0x0c, 0x00, 0x2e, 0x03, 0x01, 0x00, 0x01, 0x00, 0x00],
+    ]) {
+      w.glasses.injectReply('R', Uint8List.fromList(p));
+    }
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 2));
+    expect(dashWrites(), greaterThan(before), reason: 'ours goes back right after');
+    expect(suite.dashboard.foreignWrites, greaterThan(0));
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
+    nav.push(MaterialPageRoute<void>(builder: (_) => const LookUpPage()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Another app changes your dashboard'), findsOneWidget);
+    expect(find.text('Stop the Even app'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('my look-up layout comes back when the glasses put their dashboard over it', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    suite.settings.set('lookMode', 'custom');
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump(const Duration(seconds: 1));
+    w.glasses.touch(2, 'R'); // head up
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final shown = w.glasses.screens().length;
+    expect(suite.display.title, Suite.lookTitle);
+    w.glasses.touch(30, 'R'); // their dashboard came up over ours
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(w.glasses.screens().length, greaterThan(shown), reason: 'the same screen, sent again');
+    w.glasses.touch(3, 'R'); // head down
+    await tester.pump(const Duration(seconds: 1));
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));

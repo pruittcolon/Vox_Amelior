@@ -109,7 +109,13 @@ class SystemBridge {
 
   Future<bool> openTermux() async => await _invoke<bool>('openTermux') ?? false;
 
-  Future<void> openAppSettings() => _invoke('openAppSettings');
+  /// Android's page for this app, or for [package] (e.g. to force-stop another app).
+  Future<void> openAppSettings([String? package]) =>
+      _invoke('openAppSettings', {if (package != null) 'package': package});
+
+  /// [package] is installed on this phone.
+  Future<bool> appInstalled(String package) async =>
+      await _invoke<bool>('appInstalled', {'package': package}) ?? false;
 
   Future<void> volumeKeys(bool enabled) => _invoke('volumeKeys', {'enabled': enabled});
 
