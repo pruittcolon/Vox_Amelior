@@ -4,6 +4,10 @@
 Words in the message change what it does: "tool" runs a fake Bash step,
 "slow" takes 3 s, "stream" sends its answer in slow pieces, "die" exits.
 FAKE_CLAUDE_LOG (a file) records the arguments of every start.
+
+Started in a terminal (a tmux session) it acts like Claude Code's screen: a
+"❯ " input line, "● echo: ..." for each message, and for a message with
+"ask" in it a menu ("❯ 1. Yes") that the next line answers.
 """
 import json
 import os
@@ -21,6 +25,20 @@ def reply_for(text):
     lines = text.strip().splitlines()
     return "echo: " + (lines[-1] if lines else "") + mark
 
+
+if sys.stdin.isatty() and "-p" not in args and "--input-format" not in args:
+    rule = "─" * 30
+    while True:
+        sys.stdout.write(f"{rule}\n❯ ")
+        sys.stdout.flush()
+        line = sys.stdin.readline()
+        if not line:
+            sys.exit(0)
+        print(f"● echo: {line.strip()}")
+        if "ask" in line:
+            sys.stdout.write("Do you want to proceed?\n❯ 1. Yes\n  2. No\n")
+            sys.stdout.flush()
+            print(f"● answered: {sys.stdin.readline().strip()}")
 
 if "--input-format" not in args:
     print(json.dumps({"result": reply_for(sys.stdin.read()), "is_error": False}))

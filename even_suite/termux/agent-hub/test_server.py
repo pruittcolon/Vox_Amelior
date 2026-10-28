@@ -80,7 +80,7 @@ class AgentHubTest(unittest.TestCase):
     def test_ping_lists_sessions(self):
         data = self.get("/api/ping")
         self.assertTrue(data["ok"])
-        self.assertEqual(data["api"], 3)
+        self.assertEqual(data["api"], 4)
         self.assertIn("live", data["features"])
         self.assertIn("shell", data["sessions"])
         status = self.get("/api/status")
@@ -406,6 +406,66 @@ class AgentHubTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self.post("/api/term/shell/keys", {"keys": ["rm -rf /"]})
         self.assertEqual(cm.exception.code, 400)
+
+    def wait_for(self, session, needle, timeout=10):
+        deadline, seen, h = time.time() + timeout, "", ""
+        while time.time() < deadline and needle not in seen:
+            screen = self.get(f"/api/term/{session}/capture?lines=80&wait=2&h={h}")
+            seen, h = screen["text"], screen["h"]
+        return seen
+
+    def test_sessions_list_new_type_and_close(self):
+        listed = self.get("/api/sessions")
+        self.assertEqual(listed["main"], "claude")
+        main = listed["sessions"][0]
+        self.assertEqual((main["name"], main["kind"], main["main"]), ("claude", "claude", True))
+        self.assertIn("shell", [s["name"] for s in listed["sessions"]])
+
+        name = self.post("/api/sessions", {"kind": "claude"})["name"]
+        self.assertEqual(name, "claude-2")
+        self.assertEqual(self.post("/api/sessions", {"kind": "claude"})["name"], "claude-3")
+        self.wait_for(name, "❯")
+        # Typed in and sent: the screen shows it went, the input line is empty again.
+        r = self.post(f"/api/term/{name}/paste", {"text": "hello from the glasses", "enter": True})
+        self.assertEqual((r["result"], r["session"]), ("sent", name))
+        self.assertIn("● echo: hello from the glasses", self.wait_for(name, "● echo: hello"))
+        # Claude Code asking a question: nothing is typed (Enter would pick an answer).
+        self.post(f"/api/term/{name}/paste", {"text": "ask me first", "enter": True})
+        self.wait_for(name, "1. Yes")
+        self.assertEqual(self.post(f"/api/term/{name}/paste", {"text": "more words", "enter": True})["result"], "menu")
+        self.post(f"/api/term/{name}/keys", {"keys": ["1", "Enter"]})
+        self.assertIn("answered: 1", self.wait_for(name, "answered"))
+
+        info = {s["name"]: s for s in self.get("/api/sessions")["sessions"]}
+        self.assertEqual(info[name]["kind"], "claude")
+        self.assertIn("ask me first", info[name]["topic"])
+        # Sized to the phone when no Termux screen shows it.
+        self.assertTrue(self.post(f"/api/term/{name}/size", {"cols": 44, "rows": 30})["fitted"])
+        self.assertEqual(self.get(f"/api/term/{name}/capture?lines=5")["cols"], 44)
+        self.assertIn("echo: hello", self.get(f"/api/term/{name}/capture?lines=40&ansi=1")["text"])
+
+        self.assertTrue(self.post(f"/api/sessions/{name}/close", {})["ok"])
+        self.assertTrue(self.post("/api/sessions/claude-3/close", {})["ok"])
+        self.assertNotIn(name, [s["name"] for s in self.get("/api/sessions")["sessions"]])
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.get(f"/api/term/{name}/capture")
+        self.assertEqual(cm.exception.code, 404)
+        # The Termux session is never closed from the phone.
+        self.assertFalse(self.post("/api/sessions/claude/close", {})["ok"])
+
+    def test_input_box_reading(self):
+        import server
+        screen = ["● Done.", "─" * 20, "❯ fix the look up screen", "─" * 20, "  ⏵⏵ auto mode on"]
+        self.assertEqual(server.input_line(screen), "fix the look up screen")
+        self.assertTrue(server.still_typed("fix the look up screen", "Fix the look up screen"))
+        self.assertTrue(server.still_typed("[Pasted text #1 +3 lines]", "anything"))
+        self.assertFalse(server.still_typed("", "fix it"))
+        self.assertIsNone(server.input_line(["root@phone:~# ls", "a b"]))
+        busy = ["❯ make the app faster", "  and smoother", "● Working…", "─" * 20, "❯ ", "─" * 20,
+                "  ⏵⏵ auto mode on · esc to interrupt"]
+        self.assertEqual(server.claude_state(busy), {"state": "working", "topic": "make the app faster and smoother"})
+        asking = ["❯ delete the logs", "Do you want to proceed?", "❯ 1. Yes", "  2. No"]
+        self.assertEqual(server.claude_state(asking)["state"], "asking")
 
     def test_glasses_text_is_plain(self):
         self.post("/api/term/shell/paste", {"text": "echo '● done → ok'", "enter": True})

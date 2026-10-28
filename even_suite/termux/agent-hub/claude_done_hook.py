@@ -15,6 +15,7 @@ always exits 0). A finished job that finds Agent Hub not running is kept in
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.request
@@ -84,6 +85,18 @@ def post(path, item, timeout):
     urllib.request.urlopen(req, timeout=timeout).read()
 
 
+def tmux_session():
+    """The tmux session this Claude Code runs in ("claude", "claude-2"), or ""."""
+    if not os.environ.get("TMUX_PANE"):
+        return ""
+    try:
+        r = subprocess.run(["tmux", "display-message", "-p", "-t", os.environ["TMUX_PANE"], "#S"],
+                           capture_output=True, text=True, timeout=2)
+        return r.stdout.strip()[:40]
+    except (OSError, subprocess.SubprocessError):
+        return "tmux"
+
+
 def progress(data, event):
     """Start of a job, or a step: only worth sending while Agent Hub is up."""
     cwd = data.get("cwd") or os.getcwd()
@@ -91,7 +104,7 @@ def progress(data, event):
             "project": os.path.basename(cwd.rstrip("/")) or cwd}
     if event == "UserPromptSubmit":
         prompt = " ".join(str(data.get("prompt") or "").split())
-        item.update(state="start", prompt=prompt[:200])
+        item.update(state="start", prompt=prompt[:200], where=tmux_session())
     else:
         inp = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {}
         keep = ("description", "command", "file_path", "notebook_path", "pattern", "query", "url")
@@ -120,7 +133,7 @@ def main():
     item = {
         "ts": time.time(),
         "project": os.path.basename(cwd.rstrip("/")) or cwd,
-        "where": os.environ.get("TMUX_PANE", "") and "tmux",
+        "where": tmux_session(),
         "session": (data.get("session_id") or "")[:8],
         "summary": summarize(text) if text else "Finished.",
         "text": text[:6000],

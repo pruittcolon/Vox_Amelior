@@ -51,7 +51,8 @@ NAMES = {"claude": "Claude Code", "agy": "Antigravity", "shell": "Shell"}
 
 # Keys the Even Suite app may send to a session (tmux key names).
 ALLOWED_KEYS = {"Enter", "Escape", "Up", "Down", "Left", "Right", "Tab", "BTab", "Space",
-                "BSpace", "PageUp", "PageDown", "C-c", "C-d", "y", "n",
+                "BSpace", "DC", "Home", "End", "PageUp", "PageDown", "C-c", "C-d", "C-l", "C-o",
+                "C-r", "C-t", "C-u", "C-a", "C-e", "y", "n",
                 "1", "2", "3", "4", "5", "6", "7", "8", "9"}
 
 # Started from inside a Claude session, these would make child Claudes think
@@ -80,48 +81,210 @@ def ensure_session(agent):
     return name
 
 
-def paste_to_session(agent, text, enter):
-    name = ensure_session(agent)
+# Sessions the app opens are named like these ("claude-2", "shell-3").
+NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
+
+
+def resolve(name):
+    """The tmux session for `name`: an agent (started if needed) or any
+    session that exists. None when there is no such session."""
+    if name in SESSIONS:
+        return ensure_session(name)
+    if NAME_RE.match(name) and tmux("has-session", "-t", f"={name}").returncode == 0:
+        return name
+    return None
+
+
+def pane(name):
+    """Target for pane commands: exactly this session (never "claude-2" for "claude")."""
+    return f"={name}:"
+
+
+def session_kind(name, start):
+    """claude, agy or shell, from the session's name and the command it started with."""
+    s = (start or "").lower()
+    if name.startswith("claude") or "claude" in s:
+        return "claude"
+    if name.startswith("agy") or "agy" in s:
+        return "agy"
+    return "shell"
+
+
+# Claude Code's input box ("❯ text", older versions "> text" inside a box)
+# and its menus ("❯ 1. Yes"), as tmux shows them.
+PROMPT_RE = re.compile(r"^[\s│|]*[❯>]\s?(.*?)[\s│|]*$")
+MENU_RE = re.compile(r"^\d+\.\s")
+
+
+def visible(name):
+    """The non-empty lines on screen now."""
+    return [l for l in tmux("capture-pane", "-p", "-J", "-t", pane(name)).stdout.splitlines() if l.strip()]
+
+
+def input_line(lines):
+    """What sits in Claude Code's input box ('' when empty), or None when no
+    prompt is on screen (a shell, or Claude Code still starting)."""
+    for line in reversed(lines[-12:]):
+        m = PROMPT_RE.match(line)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _norm(s):
+    return " ".join(s.split()).lower()
+
+
+def still_typed(box, text):
+    """The input box still holds `text` (Enter did not send it)."""
+    if not box:
+        return False
+    if box.startswith("[Pasted text"):
+        return True
+    n = min(16, len(_norm(text)))
+    return n > 0 and _norm(box)[:n] == _norm(text)[:n]
+
+
+def paste_to_session(name, text, enter):
+    """Type `text` into the session; with `enter`, send it and make sure it went.
+
+    Returns "sent", "typed" (no Enter asked for), "menu" (Claude Code is
+    asking a question - nothing typed, since Enter would pick an answer) or
+    "stuck" (the text is still in the input box after three Enters).
+    """
+    box = input_line(visible(name))
+    if enter and box is not None and MENU_RE.match(box):
+        return "menu"
     buf = f"hub-{uuid.uuid4().hex[:8]}"
     tmux("load-buffer", "-b", buf, "-", input=text)
-    tmux("paste-buffer", "-p", "-d", "-b", buf, "-t", name)
-    if enter:
-        time.sleep(0.15)
-        tmux("send-keys", "-t", name, "Enter")
+    tmux("paste-buffer", "-p", "-d", "-b", buf, "-t", pane(name))
+    if not enter:
+        return "typed"
+    # Claude Code takes a paste in over a few frames; an Enter that lands
+    # in the middle of it becomes a new line instead of sending.
+    time.sleep(0.3 if len(text) < 300 else 0.6)
+    for _ in range(3):
+        tmux("send-keys", "-t", pane(name), "Enter")
+        time.sleep(0.5)
+        if not still_typed(input_line(visible(name)), text):
+            return "sent"
+    return "stuck"
 
 
-def capture_session(agent, lines):
-    name = ensure_session(agent)
-    out = tmux("capture-pane", "-p", "-J", "-t", name, "-S", f"-{lines}").stdout
-    return out.rstrip() + "\n"
+def capture_session(name, lines, ansi=False):
+    args = ["capture-pane", "-p", "-J", "-t", pane(name), "-S", f"-{lines}"]
+    if ansi:
+        args.insert(1, "-e")
+    return tmux(*args).stdout.rstrip() + "\n"
 
 
 def screen_hash(text):
     return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:16]
 
 
-def capture_wait(agent, lines, known, wait):
+def capture_wait(name, lines, known, wait, ansi=False):
     """Screen text and its hash; waits up to `wait` s for it to differ from `known`.
 
     The phone app long-polls this, so an idle terminal costs one request per
     `wait` seconds instead of one per second.
     """
-    name = ensure_session(agent)
     deadline = time.time() + max(0.0, min(wait, 25.0))
     while True:
-        out = tmux("capture-pane", "-p", "-J", "-t", name, "-S", f"-{lines}").stdout
-        text = out.rstrip() + "\n"
+        text = capture_session(name, lines, ansi)
         h = screen_hash(text)
         if h != known or time.time() >= deadline:
             return text, h
         time.sleep(0.4)
 
 
-def send_keys(agent, keys):
-    name = ensure_session(agent)
+def pane_size(name):
+    out = tmux("display-message", "-p", "-t", pane(name), "#{pane_width} #{pane_height}").stdout.split()
+    return (int(out[0]), int(out[1])) if len(out) == 2 and all(x.isdigit() for x in out) else (0, 0)
+
+
+def fit_session(name, cols, rows):
+    """Size a session to the phone's view - only when no Termux screen is
+    attached to it (that one sets the size itself)."""
+    attached = tmux("display-message", "-p", "-t", pane(name), "#{session_attached}").stdout.strip()
+    if attached not in ("", "0"):
+        return False
+    cols, rows = max(20, min(int(cols), 300)), max(5, min(int(rows), 200))
+    tmux("resize-window", "-t", pane(name), "-x", str(cols), "-y", str(rows))
+    # Back to following whichever screen attaches next.
+    tmux("set-option", "-w", "-t", pane(name), "window-size", "latest")
+    return True
+
+
+def send_keys(name, keys):
     for key in keys:
         if key in ALLOWED_KEYS:
-            tmux("send-keys", "-t", name, key)
+            tmux("send-keys", "-t", pane(name), key)
+
+
+def claude_state(lines):
+    """working / asking / idle, and the last thing asked, from a Claude Code screen."""
+    tail = lines[-8:]
+    state = "working" if any("esc to interrupt" in l for l in tail) else "idle"
+    prompts = [i for i, l in enumerate(lines) if PROMPT_RE.match(l)]
+    topic = ""
+    if prompts:
+        if MENU_RE.match(PROMPT_RE.match(lines[prompts[-1]]).group(1)):
+            state = "asking"
+        for i in reversed(prompts[:-1]):
+            t = PROMPT_RE.match(lines[i]).group(1).strip()
+            if t and not MENU_RE.match(t):
+                # A long message wraps onto indented lines below it.
+                more = [l.strip() for l in lines[i + 1:i + 3] if l.startswith("  ") and not PROMPT_RE.match(l)]
+                topic = " ".join([t, *more])
+                break
+    return {"state": state, "topic": topic[:140]}
+
+
+def list_sessions():
+    """Every tmux session (Claude Code ones first, the Termux one on top),
+    with what each Claude is doing."""
+    fmt = "\t".join(["#{session_name}", "#{session_created}", "#{session_activity}", "#{session_attached}",
+                     "#{pane_start_command}", "#{pane_width}", "#{pane_height}", "#{pane_active}#{window_active}"])
+    panes = {}
+    for line in tmux("list-panes", "-a", "-F", fmt).stdout.splitlines():
+        f = line.split("\t")
+        if len(f) == 8 and (f[0] not in panes or f[7] == "11"):
+            panes[f[0]] = f
+    main = SESSIONS["claude"]["session"]
+    out = []
+    for name, f in panes.items():
+        kind = session_kind(name, f[4])
+        info = {"name": name, "kind": kind, "main": name == main, "attached": int(f[3] or 0),
+                "created": int(f[1] or 0), "activity": int(f[2] or 0),
+                "cols": int(f[5] or 0), "rows": int(f[6] or 0)}
+        if kind == "claude":
+            info.update(claude_state([l for l in capture_session(name, 300).splitlines() if l.strip()]))
+        out.append(info)
+    out.sort(key=lambda s: (not s["main"], s["kind"] != "claude", s["created"], s["name"]))
+    return out
+
+
+def new_session(kind, resume=False):
+    """Open another Claude Code (or shell): "claude-2", "claude-3", ..."""
+    existing = set(tmux("list-sessions", "-F", "#{session_name}").stdout.split())
+    n = 2
+    while f"{kind}-{n}" in existing:
+        n += 1
+    name = f"{kind}-{n}"
+    cmd = SESSIONS[kind]["cmd"] + (" --continue" if resume and kind == "claude" else "")
+    tmux("new-session", "-d", "-s", name, "-x", "60", "-y", "40", "-c", WORKDIR,
+         f"{cmd}; echo; echo '[{name} ended - close it in the app]'; exec bash -i")
+    tmux("set-option", "-t", name, "window-size", "latest")
+    return name
+
+
+def close_session(name):
+    """End a session. The Termux one ("claude") stays: it is the one you type in."""
+    if name == SESSIONS["claude"]["session"]:
+        return "That is your Termux session; it stays open."
+    if tmux("kill-session", "-t", f"={name}").returncode != 0:
+        return "No such session"
+    return None
 
 
 # The G1 font is basically Latin text; Claude Code's UI is full of box drawing,
@@ -132,10 +295,10 @@ GLASSES_MAP = str.maketrans({"●": "*", "⏺": "*", "⎿": ">", "❯": ">", "�
                              "─": " ", "│": " ", " ": " "})
 
 
-def glasses_text(agent, lines):
+def glasses_text(name, lines):
     """Last `lines` non-empty lines of the pane, cleaned up for the G1 display."""
     out = []
-    for raw in capture_session(agent, 200).splitlines():
+    for raw in capture_session(name, 200).splitlines():
         line = raw.translate(GLASSES_MAP)
         line = "".join(c for c in line if not ("←" <= c <= "⯿" or c >= "\U0001f000"))
         line = " ".join(line.split())
@@ -152,8 +315,7 @@ class Pty:
     live = {}
     lock = threading.Lock()
 
-    def __init__(self, agent, cols, rows):
-        session = ensure_session(agent)
+    def __init__(self, session, cols, rows):
         self.id = uuid.uuid4().hex
         pid, fd = pty.fork()
         if pid == 0:
@@ -751,10 +913,11 @@ class Bridge:
             job = self.jobs.get(session)
             if d.get("state") == "start" or job is None:
                 job = {"session": session, "project": str(d.get("project") or "")[:60],
-                       "prompt": "", "step": "Thinking", "steps": 0, "started": now, "recent": []}
+                       "prompt": "", "step": "Thinking", "steps": 0, "started": now, "recent": [], "where": ""}
                 self.jobs[session] = job
             if d.get("state") == "start":
                 job["prompt"] = str(d.get("prompt") or "")[:200]
+                job["where"] = str(d.get("where") or "")[:40]
             else:
                 job["step"] = describe_tool(str(d.get("tool") or ""), d.get("input"))
                 job["steps"] += 1
@@ -833,23 +996,30 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(bridge.snapshot(int(q.get("v", -1)), float(q.get("wait", 0)),
                                                   int(q.get("tail", 0))))
         if url.path == "/api/ping":
-            return self.send_json({"ok": True, "name": "agent-hub", "api": 3, "hook": hook_installed(),
-                                   "features": ["live", "warm", "work"], "sessions": sorted(SESSIONS)})
+            return self.send_json({"ok": True, "name": "agent-hub", "api": 4, "hook": hook_installed(),
+                                   "features": ["live", "warm", "work", "sessions", "submit"],
+                                   "sessions": sorted(SESSIONS)})
+        if url.path == "/api/sessions":
+            return self.send_json({"sessions": list_sessions(), "main": SESSIONS["claude"]["session"]})
         if url.path == "/api/work":
             return self.send_json(bridge.work_snapshot(int(q.get("v", -1)), float(q.get("wait", 0)),
                                                        int(q.get("tail", 30))))
         if url.path == "/api/status":
             return self.send_json({a: tmux("has-session", "-t", f"={s['session']}").returncode == 0
                                    for a, s in SESSIONS.items()})
-        if len(parts) == 4 and parts[:2] == ["api", "term"] and parts[2] in SESSIONS:
+        if len(parts) == 4 and parts[:2] == ["api", "term"]:
+            name = resolve(parts[2])
+            if name is None:
+                return self.send_json({"error": "no such session"}, 404)
             if parts[3] == "stream":
-                return self.stream(parts[2], q.get("cols", 80), q.get("rows", 24))
+                return self.stream(name, q.get("cols", 80), q.get("rows", 24))
             if parts[3] == "capture":
-                text, h = capture_wait(parts[2], max(1, min(int(q.get("lines", 60)), 2000)),
-                                       q.get("h", ""), float(q.get("wait", 0)))
-                return self.send_json({"text": text, "h": h})
+                text, h = capture_wait(name, max(1, min(int(q.get("lines", 60)), 2000)),
+                                       q.get("h", ""), float(q.get("wait", 0)), ansi=q.get("ansi") == "1")
+                cols, rows = pane_size(name)
+                return self.send_json({"text": text, "h": h, "cols": cols, "rows": rows})
             if parts[3] == "glasses":
-                return self.send_json({"text": glasses_text(parts[2], int(q.get("lines", 20)))})
+                return self.send_json({"text": glasses_text(name, int(q.get("lines", 20)))})
         return self.static(url.path)
 
     def do_POST(self):
@@ -867,15 +1037,29 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 return self.send_json({"error": "gone"}, 410)
             return self.send_json({"ok": True})
-        if parts[:2] == ["api", "term"] and len(parts) == 4 and parts[2] in SESSIONS and parts[3] == "paste":
+        if parts == ["api", "sessions"]:
             d = self.json_body()
-            paste_to_session(parts[2], d.get("text", ""), bool(d.get("enter")))
-            return self.send_json({"ok": True})
-        if parts[:2] == ["api", "term"] and len(parts) == 4 and parts[2] in SESSIONS and parts[3] == "keys":
-            keys = self.json_body().get("keys") or []
+            kind = d.get("kind", "claude")
+            if kind not in ("claude", "shell"):
+                return self.send_json({"error": "bad kind"}, 400)
+            return self.send_json({"ok": True, "name": new_session(kind, bool(d.get("resume")))})
+        if len(parts) == 4 and parts[:2] == ["api", "sessions"] and parts[3] == "close":
+            error = close_session(parts[2])
+            return self.send_json({"ok": error is None, **({"error": error} if error else {})})
+        if parts[:2] == ["api", "term"] and len(parts) == 4 and parts[3] in ("paste", "keys", "size"):
+            name = resolve(parts[2])
+            if name is None:
+                return self.send_json({"error": "no such session"}, 404)
+            d = self.json_body()
+            if parts[3] == "paste":
+                result = paste_to_session(name, d.get("text", ""), bool(d.get("enter")))
+                return self.send_json({"ok": True, "result": result, "session": name})
+            if parts[3] == "size":
+                return self.send_json({"ok": True, "fitted": fit_session(name, d.get("cols", 60), d.get("rows", 40))})
+            keys = d.get("keys") or []
             if not isinstance(keys, list) or not all(isinstance(k, str) and k in ALLOWED_KEYS for k in keys):
                 return self.send_json({"error": "bad keys"}, 400)
-            send_keys(parts[2], keys)
+            send_keys(name, keys)
             return self.send_json({"ok": True})
         if parts == ["api", "bridge", "send"]:
             d = self.json_body()
