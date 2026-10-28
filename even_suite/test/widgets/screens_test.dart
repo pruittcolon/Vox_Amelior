@@ -971,7 +971,9 @@ void main() {
 
     // Tap it: both arms, and read again.
     await tester.tap(onHome('Glasses 41%'));
-    await tester.pump(const Duration(milliseconds: 500));
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 200)); // the sheet slides up
+    }
     expect(find.text('Battery: left 41%, right 77%'), findsOneWidget);
     w.glasses.battery['L'] = 15;
     await tester.tap(find.text('Check'));
