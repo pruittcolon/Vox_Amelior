@@ -213,6 +213,9 @@ class Suite extends ChangeNotifier {
   Target get _target => _sessionTarget ?? settings.target;
   bool _aiSession = false; // the current question came from the TouchBar
   bool _micOpen = false;
+
+  /// Talking with the TouchBar held: the glasses' own Even AI screen is up.
+  bool _holdTalk = false;
   bool _lastConnected = false;
   bool _lastHandsFree = false;
   DateTime? _lastAutoOffAt;
@@ -546,7 +549,7 @@ class Suite extends ChangeNotifier {
     if (e.code == 9 || e.code == 10) _askBatterySoon(const Duration(seconds: 1));
     switch (e.code) {
       case GlassesEvent.tap:
-        if (voice.dictating && conversation.stage == TalkStage.listening) {
+        if (voice.dictating && (conversation.stage == TalkStage.listening || (_holdTalk && voice.pauseSends))) {
           // Tap while it listens: send it now (nothing said: "Didn't catch that").
           unawaited(voice.send());
         } else if (narrator.speaking && e.lr == 'L') {
@@ -615,8 +618,9 @@ class Suite extends ChangeNotifier {
   /// you, not the room. With Android's recognizer (which hears nothing from
   /// the glasses' mic) the phone listens. A pause sends too; a tap sends at
   /// once, a double tap throws it away.
-  Future<void> _glassesTalk() async {
+  Future<void> _glassesTalk({bool hold = true}) async {
     _aiSession = true;
+    _holdTalk = hold;
     _stopLook();
     _sessionTarget = switch (settings.holdAction) {
       'chat' => Target.claude,
@@ -627,7 +631,8 @@ class Suite extends ChangeNotifier {
     // that comes meanwhile is kept and heard).
     final glasses = holdMicReady;
     if (glasses) _openGlassesMic();
-    if (settings.wordsWhileHolding) _showListening('', ai: true, touch: true);
+    // A double tap has no Even AI screen of its own: ours shows it listens.
+    if (!hold || settings.wordsWhileHolding) _showListening('', ai: true, touch: true);
     if (!glasses && !await _micAllowed()) {
       _aiSession = false;
       conversation.listeningStopped();
@@ -800,7 +805,7 @@ class Suite extends ChangeNotifier {
     // writing to the display then could interrupt the microphone (unless
     // the test setting asks for it).
     final touch = _aiSession && voice.pauseSends;
-    if (touch && !settings.wordsWhileHolding) return;
+    if (touch && _holdTalk && !settings.wordsWhileHolding) return;
     _showListening(draft, ai: _aiSession, touch: touch);
   }
 
@@ -855,6 +860,7 @@ class Suite extends ChangeNotifier {
     if (!voice.dictating) {
       _closeGlassesMic();
       _holdLimit?.cancel();
+      _holdTalk = false;
     }
     // Left dictation without sending: take "Listening" off the glasses.
     // Checked a moment later, because a send replaces it with "Got it".
@@ -1463,7 +1469,7 @@ class Suite extends ChangeNotifier {
   void _doubleTap({required bool idle}) {
     switch (settings.doubleTapAction) {
       case 'talk':
-        if (idle) unawaited(_glassesTalk());
+        if (idle) unawaited(_glassesTalk(hold: false));
       case 'switch':
         runCommand(settings.target == Target.terminal ? VoiceCommand.toChat : VoiceCommand.toTerminal);
       case 'repeat':

@@ -586,17 +586,14 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
     expect(suite.display.mode, DisplayMode.idle, reason: 'the notice goes away by itself');
 
-    // Hold again: the screen says where it goes, then shows "start" was heard.
+    // Hold again: the glasses' own Even AI screen while you talk (nothing of ours).
+    final held = w.glasses.screens().length;
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
-    expect(last(), contains('> Termux Claude'));
-    expect(last(), contains('"send"'));
     w.speech.partial('start list the files');
     await tester.pump(const Duration(milliseconds: 700));
-    expect(last(), contains('> Termux Claude [start]'));
-    expect(last(), contains('list the files'));
-    expect(last(), isNot(contains('start list')));
+    expect(w.glasses.screens(), hasLength(held));
     // "send" types it straight away.
     w.speech.say('start list the files send');
     await tester.pump();
@@ -908,7 +905,7 @@ void main() {
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
-    expect(w.glasses.screens().last, contains('> Claude 2'));
+    expect(suite.voice.dictating, isTrue);
     w.speech.say('list the files');
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
