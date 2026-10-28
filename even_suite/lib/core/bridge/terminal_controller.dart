@@ -35,7 +35,9 @@ class TerminalController extends ChangeNotifier {
   String? error;
   bool online = false;
   bool mirroring = false;
-  Duration mirrorIdle = const Duration(minutes: 10);
+  /// The glasses stop showing the terminal this long after it last changed
+  /// (null: until you close it).
+  Duration? mirrorIdle = const Duration(minutes: 10);
 
   /// Every terminal in Termux (refreshed while a screen shows them).
   List<TermSession> sessions = const [];
@@ -223,7 +225,8 @@ class TerminalController extends ChangeNotifier {
 
   void _armMirrorOff() {
     _mirrorOff?.cancel();
-    _mirrorOff = Timer(mirrorIdle, () => setMirror(false));
+    final idle = mirrorIdle;
+    if (idle != null) _mirrorOff = Timer(idle, () => setMirror(false));
   }
 
   Future<void> _loop() async {

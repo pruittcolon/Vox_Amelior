@@ -15,6 +15,7 @@ import 'glasses/dashboard.dart';
 import 'glasses/display_position.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
+import 'glasses/hud_frame.dart';
 import 'glasses/look_layout.dart';
 import 'log.dart';
 import 'phone_actions.dart';
@@ -361,7 +362,12 @@ class Suite extends ChangeNotifier {
     proto.parallelText = settings.bleParallel;
     voice.stableAfter = Duration(milliseconds: settings.touchPauseMs);
     dashboard.notesOn = settings.lookMode != 'custom';
-    terminal.mirrorIdle = Duration(minutes: settings.autoOffMinutes);
+    // Termux on the glasses: this long after its screen last changed.
+    terminal.mirrorIdle = switch (settings.termShowSec) {
+      < 0 => null,
+      0 => Duration(minutes: settings.autoOffMinutes),
+      final s => Duration(seconds: s),
+    };
     if (terminal.session != settings.terminalAgent) terminal.setSession(settings.terminalAgent);
     system.volumeKeys(settings.volumeKeysScroll);
     _applySpeech();
@@ -492,8 +498,27 @@ class Suite extends ChangeNotifier {
     if ((e.code == GlassesEvent.dashboardShown || e.code == GlassesEvent.dashboardClosed) && _lookShowing) {
       _redrawTimer?.cancel();
       _redrawTimer = Timer(const Duration(milliseconds: 150), () {
-        if (_lookShowing) display.redraw();
+        if (!_lookShowing) return;
+        display.redraw();
+        _frameKey = ''; // and the frame over it
+        _frameTimer?.cancel();
+        _frameTimer = Timer(const Duration(milliseconds: 450), _sendFrame);
       });
+    }
+    // Both arms report their own dashboard opening; note when the left one
+    // stays dark (the right arm tells it you looked up).
+    if (e.code == GlassesEvent.dashboardShown) {
+      _dashShownAt[e.lr] = DateTime.now();
+      if (e.lr == 'R') {
+        final at = _dashShownAt['R']!;
+        _leftCheck?.cancel();
+        _leftCheck = Timer(const Duration(milliseconds: 800), () {
+          final l = _dashShownAt['L'];
+          if (l == null || at.difference(l).inMilliseconds > 800) {
+            EventLog.add('dash', 'leftMissing', {'look': settings.lookMode});
+          }
+        });
+      }
     }
     // Charging or battery news from the glasses: read the battery again.
     if (e.code == 9 || e.code == 10) _askBatterySoon(const Duration(seconds: 1));
@@ -877,7 +902,10 @@ class Suite extends ChangeNotifier {
     if (terminal.sessions.isNotEmpty && terminal.current == null) terminal.onSessionGone?.call();
     final label = terminal.label;
     // The hooks report Claude Code's steps and answer (Work tab).
-    final follow = terminal.isClaude && (chat.hub?.hook == true || work.items.any((i) => !i.isMessage));
+    // With "Terminal on glasses" set, the terminal itself shows instead.
+    final follow = settings.termShowSec == 0 &&
+        terminal.isClaude &&
+        (chat.hub?.hook == true || work.items.any((i) => !i.isMessage));
     if (follow) {
       _terminalAsk = line;
       conversation.asked(line, ai: _aiSession, who: label, gotIt: '[send] typed into $label', firstStep: _typedStep);
@@ -905,7 +933,11 @@ class Suite extends ChangeNotifier {
       return;
     }
     if (!follow) {
-      if (settings.repliesOnGlasses && ble.isConnected) terminal.setMirror(true);
+      if (settings.repliesOnGlasses && ble.isConnected) {
+        // Already showing: start its time again from now.
+        terminal.setMirror(false);
+        terminal.setMirror(true);
+      }
       return;
     }
     // Claude Code never picked it up (hooks off): show the terminal itself
@@ -1340,12 +1372,40 @@ class Suite extends ChangeNotifier {
 
   void _drawLook({bool immediate = false}) {
     final rows = LookRenderer.render(lookLayout, lookData());
-    display.showStatus(rows.join('\n'), title: lookTitle, raw: true, immediate: immediate);
+    final text = rows.join('\n');
+    display.showStatus(text, title: lookTitle, raw: true, immediate: immediate);
+    // The HUD frame goes over the text once it is up (again when the text changed).
+    final key = '${settings.lookFrame}|$text';
+    if (key != _frameKey) {
+      _frameKey = key;
+      _frameTimer?.cancel();
+      _frameTimer = Timer(const Duration(milliseconds: 450), _sendFrame);
+    }
+  }
+
+  String _frameKey = '';
+  final _dashShownAt = <String, DateTime>{};
+  Timer? _leftCheck;
+  Timer? _frameTimer;
+  bool _frameBusy = false;
+
+  Future<void> _sendFrame() async {
+    final bmp = HudFrame.bmp(settings.lookFrame);
+    if (bmp == null || _frameBusy || !_lookShowing || !ble.isConnected) return;
+    _frameBusy = true;
+    try {
+      final ok = await proto.sendBmp(bmp, requireCrc: false);
+      EventLog.add('look', 'frame', {'style': settings.lookFrame, 'ok': ok});
+    } finally {
+      _frameBusy = false;
+    }
   }
 
   void _stopLook({bool close = false}) {
     _lookTimer?.cancel();
     _lookTimer = null;
+    _frameTimer?.cancel();
+    _frameKey = '';
     if (close && _lookShowing) unawaited(display.clear());
   }
 
@@ -1389,6 +1449,7 @@ class Suite extends ChangeNotifier {
           'Or just type even in Termux.';
     }
     final r = await system.runTermux(command);
+    EventLog.add('termux', 'run', {'command': command, 'result': r});
     if (r == 'ok') {
       chat.markStarting();
       // Ubuntu and Claude Code take a while to start on a phone.
@@ -1397,6 +1458,7 @@ class Suite extends ChangeNotifier {
         if (await chat.check()) return done;
       }
       chat.state = BridgeState.offline;
+      EventLog.add('termux', 'noAnswer', {'command': command});
       return 'Started it, but Claude is not answering yet. In Termux, type: even log';
     }
     if (r == 'no-permission') {
@@ -1428,6 +1490,8 @@ class Suite extends ChangeNotifier {
     _redrawTimer?.cancel();
     _foreignTimer?.cancel();
     _lookTimer?.cancel();
+    _frameTimer?.cancel();
+    _leftCheck?.cancel();
     _echoTimer?.cancel();
     speechModel.removeListener(_applySpeech);
     settings.removeListener(applySettings);

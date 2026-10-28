@@ -9,6 +9,7 @@ import 'package:even_suite/core/bridge/bridge_client.dart';
 import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/glasses/glasses_display.dart';
+import 'package:even_suite/core/glasses/hud_frame.dart';
 import 'package:even_suite/core/glasses/look_layout.dart';
 import 'package:even_suite/core/settings.dart';
 import 'package:even_suite/core/suite.dart';
@@ -87,7 +88,12 @@ class _World {
     screen: screen,
     speaker: speaker,
     weather: WeatherService(location: () async => null),
-  )..conversation.gotItTime = Duration.zero; // test time is not wall-clock time
+  )
+    ..conversation.gotItTime = Duration.zero // test time is not wall-clock time
+    // Claude Code's answers in terminal mode like chat ones (the tests below
+    // that check its steps); the "Termux on the glasses" test turns it on.
+    ..settings.set('termShowSec', 0)
+    ..settings.set('lookFrame', 'off'); // the HUD frame test turns it on
 }
 
 const _reply = 'You have three things today:\n'
@@ -1051,6 +1057,66 @@ void main() {
     expect(w.system.phoneCalls.single['do'], 'torch');
     expect(w.bridge.pasted, isEmpty);
     await tester.pump(const Duration(seconds: 4));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  testWidgets('Termux on the glasses: its screen stays for the time you set, then goes', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    suite.settings.set('termShowSec', 10);
+    suite.applySettings();
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await suite.chat.check();
+    suite.useSession('claude');
+    await tester.pump();
+    w.bridge.screen = '> ready\n';
+    await suite.typeIntoTerminal('list the files');
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(w.bridge.pasted.last, 'list the files');
+    expect(suite.terminal.mirroring, isTrue, reason: 'the terminal itself, not a chat-like answer');
+    expect(w.glasses.screens().last, contains('list the files'));
+
+    // Still there before the time is up, gone after it.
+    await tester.pump(const Duration(seconds: 8));
+    expect(suite.terminal.mirroring, isTrue);
+    await tester.pump(const Duration(seconds: 3));
+    expect(suite.terminal.mirroring, isFalse);
+
+    // Until you close it: still there much later.
+    suite.settings.set('termShowSec', -1);
+    suite.applySettings();
+    await suite.typeIntoTerminal('and again');
+    await tester.pump(const Duration(minutes: 3));
+    expect(suite.terminal.mirroring, isTrue);
+    suite.terminal.setMirror(false);
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  testWidgets('look up: the HUD frame picture goes over the text, once it is up', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    suite.settings.set('lookFrame', 'frame');
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+    final before = w.glasses.sent['L']!.length;
+    w.glasses.touch(2, 'R'); // head up
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    final after = w.glasses.sent['L']!.sublist(before);
+    final text = after.indexWhere((p) => p[0] == 0x4E);
+    final picture = after.indexWhere((p) => p[0] == 0x15);
+    expect(text, greaterThanOrEqualTo(0), reason: 'the layout text');
+    expect(picture, greaterThan(text), reason: 'then the frame, over it');
+    // Unchanged text: the frame is not sent again every refresh.
+    final frames = after.where((p) => p[0] == 0x15 && p[1] == 0).length;
+    await tester.pump(const Duration(seconds: 5));
+    expect(w.glasses.sent['L']!.sublist(before).where((p) => p[0] == 0x15 && p[1] == 0).length, frames);
+    expect(HudFrame.lit('corners').where((b) => b == 1).length, lessThan(HudFrame.lit('grid').where((b) => b == 1).length));
+    w.glasses.touch(3, 'R');
+    await tester.pump(const Duration(seconds: 1));
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));

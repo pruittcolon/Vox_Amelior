@@ -37,6 +37,7 @@ class Settings extends ChangeNotifier {
   int pageSec = 0; // every page stays this many seconds (0 = by reading speed)
   int firstPageMs = 600; // extra time on an answer's first page
   int doneBlinkMs = 3000; // how long the "*" shows when Claude is done
+  int termShowSec = 30; // after you send to Termux: its screen on the glasses this long after it last changed (0 = answer like chat, -1 = until you close it)
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
   bool glassesMic = false; // TouchBar hold listens through the glasses' mic (test: the phone mic is reliable)
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
@@ -86,6 +87,7 @@ class Settings extends ChangeNotifier {
   bool doneBlink = true; // a tiny "*" on the glasses for 3 s when Claude is done
   // Look up: 'custom' = your own layout (drawn by the app), 'dashboard' = the glasses' own
   String lookMode = 'custom';
+  String lookFrame = 'frame'; // HUD picture around your layout: corners, frame, grid, off
   String lookLayout = ''; // LookLayout JSON ('' = the Split preset)
   // TouchBar: what a hold and a double tap do
   String holdAction = 'mode'; // mode (chat or terminal, whichever is on), chat, terminal
@@ -151,6 +153,7 @@ class Settings extends ChangeNotifier {
     pageSec = _i(m['pageSec'], pageSec).clamp(0, 60);
     firstPageMs = _i(m['firstPageMs'], firstPageMs).clamp(0, 8000);
     doneBlinkMs = _i(m['doneBlinkMs'], doneBlinkMs).clamp(500, 15000);
+    termShowSec = _i(m['termShowSec'], termShowSec).clamp(-1, 600);
     glassesMic = _b(m['glassesMic'], glassesMic);
     diagnostics = _b(m['diagnostics'], diagnostics);
     bmpGapMs = _i(m['bmpGapMs'], bmpGapMs).clamp(0, 30);
@@ -197,6 +200,7 @@ class Settings extends ChangeNotifier {
     aiStyle = _b(m['aiStyle'], aiStyle);
     doneBlink = _b(m['doneBlink'], doneBlink);
     lookMode = _s(m['lookMode'], lookMode);
+    lookFrame = _s(m['lookFrame'], lookFrame);
     lookLayout = _s(m['lookLayout'], lookLayout);
     holdAction = _s(m['holdAction'], holdAction);
     doubleTapAction = _s(m['doubleTapAction'], doubleTapAction);
@@ -265,6 +269,8 @@ class Settings extends ChangeNotifier {
         firstPageMs = value as int;
       case 'doneBlinkMs':
         doneBlinkMs = value as int;
+      case 'termShowSec':
+        termShowSec = value as int;
       case 'glassesMic':
         glassesMic = value as bool;
       case 'diagnostics':
@@ -358,6 +364,8 @@ class Settings extends ChangeNotifier {
         doneBlink = value as bool;
       case 'lookMode':
         lookMode = value as String;
+      case 'lookFrame':
+        lookFrame = value as String;
       case 'lookLayout':
         lookLayout = value as String;
       case 'holdAction':

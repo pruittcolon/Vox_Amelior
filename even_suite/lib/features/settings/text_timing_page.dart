@@ -143,6 +143,35 @@ class TextTimingPage extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               SectionCard(
+                title: 'Termux on the glasses',
+                icon: Icons.terminal_rounded,
+                iconColor: AppColors.glasses,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  const Text(
+                      'After you send to a Termux session, its screen stays on the glasses this long after it last '
+                      'changed, so you can read it and send the next. Double tap or say "hide" to close it sooner.',
+                      style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                  const SizedBox(height: 10),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final (sec, label) in const [
+                      (10, '10 s'),
+                      (30, '30 s'),
+                      (60, '1 min'),
+                      (120, '2 min'),
+                      (300, '5 min'),
+                      (-1, 'Until I close it'),
+                      (0, 'Off: answer like chat'),
+                    ])
+                      ChoiceChip(
+                        label: Text(label),
+                        selected: s.termShowSec == sec,
+                        onSelected: (_) => s.set('termShowSec', sec),
+                      ),
+                  ]),
+                ]),
+              ),
+              const SizedBox(height: 12),
+              SectionCard(
                 title: 'The * when Claude is done',
                 icon: Icons.star_rounded,
                 iconColor: AppColors.warn,

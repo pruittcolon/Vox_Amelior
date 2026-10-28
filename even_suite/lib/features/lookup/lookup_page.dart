@@ -4,6 +4,7 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../core/glasses/claude_panel.dart';
 import '../../core/glasses/g1_font.dart';
+import '../../core/glasses/hud_frame.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
@@ -83,7 +84,32 @@ class _LookUpPageState extends State<LookUpPage> {
                 onSelectionChanged: (v) => s.set('lookMode', v.first),
               ),
               const SizedBox(height: 14),
-              if (custom) const LookDesigner() else ..._dashboard(context, suite),
+              if (custom) ...[
+                const LookDesigner(),
+                const SizedBox(height: 12),
+                SectionCard(
+                  title: 'HUD frame',
+                  icon: Icons.filter_frames_rounded,
+                  iconColor: AppColors.hud,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const Text('Thin lines drawn around your layout on the glasses, for a heads-up display look.',
+                        style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                    const SizedBox(height: 10),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      for (final (key, label) in HudFrame.styles)
+                        ChoiceChip(
+                          label: Text(label),
+                          selected: s.lookFrame == key,
+                          onSelected: (_) {
+                            s.set('lookFrame', key);
+                            if (suite.ble.isConnected) suite.showLookNow();
+                          },
+                        ),
+                    ]),
+                  ]),
+                ),
+              ] else
+                ..._dashboard(context, suite),
               const SizedBox(height: 12),
               SectionCard(
                 title: 'Clock and weather',
