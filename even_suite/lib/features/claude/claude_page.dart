@@ -432,7 +432,8 @@ class _Dock extends StatelessWidget {
             style: terminal ? const TextStyle(fontFamily: 'monospace') : null,
             decoration: InputDecoration(
               isDense: true,
-              hintText: terminal ? 'Message ${suite.terminal.label}…' : 'Type, or tap the mic…',
+              hintText: terminal ? 'Type to ${suite.terminal.label}' : 'Type or talk',
+              hintMaxLines: 1,
             ),
           ),
         ),
