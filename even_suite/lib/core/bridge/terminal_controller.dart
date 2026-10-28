@@ -43,6 +43,10 @@ class TerminalController extends ChangeNotifier {
   /// The running Agent Hub lists sessions (false: an older one - `even restart`).
   bool sessionsSupported = true;
 
+  /// tmux turns Agent Hub away, so no session can be seen or typed into
+  /// until `~/agent-hub/allow-app` runs in Termux's Claude.
+  bool denied = false;
+
   /// What the last line typed in did: sent, typed, menu, stuck (or an error).
   String lastSend = '';
 
@@ -121,7 +125,9 @@ class TerminalController extends ChangeNotifier {
 
   Future<void> refreshSessions() async {
     try {
-      sessions = await client.sessions();
+      final got = await client.sessions();
+      sessions = got.list;
+      denied = got.denied;
       sessionsSupported = true;
       online = true;
       if (sessions.isNotEmpty && current == null) onSessionGone?.call();

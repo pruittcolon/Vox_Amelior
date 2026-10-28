@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts Agent Hub inside Ubuntu: the web server in the foreground (and Chrome
-# pointed at it). It shows and types into the tmux sessions in Termux's shared
-# tmp folder - the same ones your `claude` command uses.
+# pointed at it). It shows and types into your tmux sessions - the ones your
+# `claude` command uses (run ~/agent-hub/allow-app once so tmux lets it in).
 # Run from Termux with `all` (see ~/.bashrc on the Termux side).
 
 PORT="${HUB_PORT:-8787}"
@@ -9,8 +9,6 @@ URL="http://127.0.0.1:$PORT/"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export PATH="$HOME/.local/bin:$PATH"
 export LANG="${LANG:-C.UTF-8}"
-# Shared with the Termux `claude` command (proot keeps /tmp sockets private).
-[ -d /data/data/com.termux/files/usr/tmp ] && export TMUX_TMPDIR="${TMUX_TMPDIR:-/data/data/com.termux/files/usr/tmp}"
 
 open_chrome() {
   am start -a android.intent.action.VIEW -d "$URL" -p com.android.chrome >/dev/null 2>&1 \

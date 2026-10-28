@@ -455,9 +455,13 @@ class BridgeClient {
       _send('POST', '/api/term/${Uri.encodeComponent(session)}/keys', body: {'keys': keys});
 
   /// Every terminal running in Termux (needs Agent Hub with sessions).
-  Future<List<TermSession>> sessions() async {
+  /// [denied]: tmux turned Agent Hub away (allow-app has not been run).
+  Future<({List<TermSession> list, bool denied})> sessions() async {
     final m = await _send('GET', '/api/sessions', timeout: const Duration(seconds: 6));
-    return [for (final x in (m['sessions'] as List? ?? const [])) TermSession.fromMap(x as Map)];
+    return (
+      list: [for (final x in (m['sessions'] as List? ?? const [])) TermSession.fromMap(x as Map)],
+      denied: m['denied'] == true,
+    );
   }
 
   /// Open a Claude Code ([kind] 'claude') or a shell; returns its name.

@@ -63,19 +63,28 @@ for key in list(os.environ):
 os.environ.setdefault("TERM", "xterm-256color")
 os.environ.setdefault("LANG", "C.UTF-8")
 
-# One tmux server for everyone: the Termux `claude` command, this hub and the
-# phone app. proot gives a socket under /tmp a private name in each proot
-# login, so two logins never see each other's tmux; Termux's own tmp folder
-# (the same path in every login) is shared. ~/.bashrc sets the same.
-TERMUX_TMP = "/data/data/com.termux/files/usr/tmp"
-if os.path.isdir(TERMUX_TMP):
-    os.environ.setdefault("TMUX_TMPDIR", TERMUX_TMP)
-
 
 # ---------------------------------------------------------------- tmux
 
+# tmux turns away clients it thinks are another user. Each proot login fakes
+# root, but tmux sees the real Android user of a client from another login
+# (this hub, started by `even`) and answers "access not allowed" - every
+# command then quietly comes back empty. allow-app (in Termux's Claude) lets
+# that user in; until then the app is told instead of shown blank screens.
+TMUX_DENIED = {"at": 0.0}
+
+
 def tmux(*args, input=None):
-    return subprocess.run(["tmux", *args], input=input, capture_output=True, text=True)
+    r = subprocess.run(["tmux", *args], input=input, capture_output=True, text=True)
+    if "access not allowed" in (r.stderr or "") + (r.stdout or ""):
+        TMUX_DENIED["at"] = time.time()
+        r.returncode, r.stdout = 1, ""
+    return r
+
+
+def tmux_denied():
+    """tmux refused us in the last minute (allow-app has not been run)."""
+    return time.time() - TMUX_DENIED["at"] < 60
 
 
 # Sessions the app opens are named like these ("claude-2", "shell-3").
@@ -218,10 +227,16 @@ def send_keys(name, keys):
             tmux("send-keys", "-t", pane(name), key)
 
 
+# Claude Code's spinner while it works: "● Hullaballooing… (5m 27s)" (the
+# "esc to interrupt" hint is cut off in a phone-wide pane).
+SPINNER_RE = re.compile(r"…\s*\((\d+[hms]\s*)+")
+
+
 def claude_state(lines):
     """working / asking / idle, and the last thing asked, from a Claude Code screen."""
-    tail = lines[-8:]
-    state = "working" if any("esc to interrupt" in l for l in tail) else "idle"
+    tail = lines[-10:]
+    working = any("esc to interrupt" in l or SPINNER_RE.search(l) for l in tail)
+    state = "working" if working else "idle"
     prompts = [i for i, l in enumerate(lines) if PROMPT_RE.match(l)]
     topic = ""
     if prompts:
@@ -1062,7 +1077,9 @@ class Handler(BaseHTTPRequestHandler):
                                    "features": ["live", "warm", "work", "sessions", "submit", "conversations"],
                                    "sessions": sorted(SESSIONS)})
         if url.path == "/api/sessions":
-            return self.send_json({"sessions": list_sessions(), "main": SESSIONS["claude"]["session"]})
+            sessions = list_sessions()
+            return self.send_json({"sessions": sessions, "main": SESSIONS["claude"]["session"],
+                                   "denied": not sessions and tmux_denied()})
         if url.path == "/api/conversations":
             return self.send_json({"conversations": conversations(int(q.get("limit", 20)))})
         if url.path == "/api/work":

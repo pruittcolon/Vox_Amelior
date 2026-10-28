@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Lets Agent Hub - and so the Even Suite app - see and type into your tmux
+# sessions (the Claude you run in Termux). Run it in that Claude or any shell
+# of the same Ubuntu login:   ~/agent-hub/allow-app
+# With --install it is also added to ~/.tmux.conf, so every new tmux server
+# lets the app in by itself.
+#
+# Why: each proot login pretends to be root, but tmux sees the real Android
+# user of a client from another login (Agent Hub, started by `even`) and
+# answers "access not allowed", so the app saw only blank screens.
+uid=$(awk '/^Uid:/{print $2}' /proc/self/status)
+user=$(getent passwd "$uid" | cut -d: -f1)
+if [ -z "$user" ]; then
+  echo "No user name for uid $uid - cannot allow it."
+  exit 1
+fi
+if [ "$1" = "--install" ]; then
+  line="run-shell -b '$HOME/agent-hub/allow-app'"
+  if ! grep -qsF "$line" ~/.tmux.conf; then
+    echo "$line" >> ~/.tmux.conf
+    echo "Added to ~/.tmux.conf: new tmux servers let the app in too."
+  fi
+fi
+tmux server-access -a -w "$user" 2>/dev/null
+if tmux server-access -l 2>/dev/null | grep -q "^$user"; then
+  echo "tmux lets $user (Agent Hub, the Even Suite app) in now."
+else
+  echo "No tmux running here yet: start claude, then run this again."
+  exit 1
+fi

@@ -348,10 +348,12 @@ class FakeBridgeClient extends BridgeClient {
     const TermSession('shell', kind: 'shell'),
   ];
 
+  bool denied = false;
+
   @override
-  Future<List<TermSession>> sessions() async {
+  Future<({List<TermSession> list, bool denied})> sessions() async {
     if (!online) throw const BridgeException('Termux bridge is not running');
-    return List.of(sessionList);
+    return (list: denied ? <TermSession>[] : List.of(sessionList), denied: denied);
   }
 
   @override

@@ -424,6 +424,7 @@ class AgentHubTest(unittest.TestCase):
         self.assertEqual(cm.exception.code, 404, "never started just by looking")
         listed = self.get("/api/sessions")
         self.assertEqual(listed["main"], "claude")
+        self.assertFalse(listed["denied"])
         main = listed["sessions"][0]
         self.assertEqual((main["name"], main["kind"], main["main"]), ("claude", "claude", True))
         self.assertIn("shell", [s["name"] for s in listed["sessions"]])
@@ -486,6 +487,18 @@ class AgentHubTest(unittest.TestCase):
             self.post("/api/sessions", {"kind": "claude", "resume_id": "not-a-real-one"})
         self.assertEqual(cm.exception.code, 404)
 
+    def test_tmux_refusing_us_is_noticed(self):
+        import server
+        fake = subprocess.CompletedProcess([], 0, "", "access not allowed\n")
+        real = server.subprocess.run
+        server.subprocess.run = lambda *a, **k: fake
+        try:
+            r = server.tmux("list-sessions")
+        finally:
+            server.subprocess.run = real
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertTrue(server.tmux_denied())
+
     def test_input_box_reading(self):
         import server
         screen = ["● Done.", "─" * 20, "❯ fix the look up screen", "─" * 20, "  ⏵⏵ auto mode on"]
@@ -497,6 +510,10 @@ class AgentHubTest(unittest.TestCase):
         busy = ["❯ make the app faster", "  and smoother", "● Working…", "─" * 20, "❯ ", "─" * 20,
                 "  ⏵⏵ auto mode on · esc to interrupt"]
         self.assertEqual(server.claude_state(busy), {"state": "working", "topic": "make the app faster and smoother"})
+        narrow = ["❯ fix it", "● Hullaballooing… (5m 27s)", "─" * 20, "❯ ", "─" * 20, "  ⏵⏵ auto mode on (shift+tab to ·"]
+        self.assertEqual(server.claude_state(narrow)["state"], "working", "the spinner, in a phone-wide pane")
+        done = ["❯ fix it", "✻ Brewed for 1s · done 2:57 PM", "─" * 20, "❯ ", "─" * 20, "  ⏵⏵ auto mode on"]
+        self.assertEqual(server.claude_state(done)["state"], "idle")
         asking = ["❯ delete the logs", "Do you want to proceed?", "❯ 1. Yes", "  2. No"]
         self.assertEqual(server.claude_state(asking)["state"], "asking")
 

@@ -272,10 +272,13 @@ class _SessionsSheetState extends State<SessionsSheet> {
               if (!term.sessionsSupported) ...[
                 const SizedBox(height: 12),
                 const _Note('Agent Hub needs the update: in Termux, type  even restart'),
+              ] else if (term.denied) ...[
+                const SizedBox(height: 12),
+                const _Note('tmux is not letting the app in yet. In your Termux Claude, type:\n'
+                    '! ~/agent-hub/allow-app --install'),
               ] else if (!term.sessions.any((s) => s.main)) ...[
                 const SizedBox(height: 12),
-                const _Note('Your Termux Claude is not visible yet. Close it (type /exit), then type  claude  '
-                    'in Termux - it picks the conversation up and shows here.'),
+                const _Note('Your Termux Claude is not open. Type  claude  in Termux, or open one here.'),
               ],
               const SizedBox(height: 14),
               const _Heading('Open now'),

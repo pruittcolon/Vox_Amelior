@@ -30,7 +30,17 @@ class TerminalPane extends StatelessWidget {
               border: Border.all(color: AppColors.outline),
             ),
             clipBehavior: Clip.antiAlias,
-            child: !term.online && term.text.isEmpty
+            child: term.denied
+                ? const EmptyHint(
+                    icon: Icons.lock_outline_rounded,
+                    title: 'tmux is not letting the app in',
+                    lines: [
+                      'In your Termux Claude, type:',
+                      '! ~/agent-hub/allow-app --install',
+                      'Once is enough - then this shows your sessions.',
+                    ],
+                  )
+                : !term.online && term.text.isEmpty
                 ? EmptyHint(
                     icon: Icons.terminal_rounded,
                     title: term.error == null ? 'Connecting to Termux…' : 'Termux bridge is offline',
