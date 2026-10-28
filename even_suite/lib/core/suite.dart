@@ -330,6 +330,7 @@ class Suite extends ChangeNotifier {
       ..forward = settings.notifyForward
       ..private = settings.notifyPrivate
       ..allowed = settings.allowedApps;
+    display.holdMs = settings.pageHoldMs;
     if (display.wpm != settings.readingWpm) display.setWpm(settings.readingWpm);
     EventLog.instance.enabled = settings.diagnostics;
     if (proto.bmpGapMs != settings.bmpGapMs) proto.bmpGapMs = settings.bmpGapMs;

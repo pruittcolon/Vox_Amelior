@@ -33,6 +33,7 @@ class Settings extends ChangeNotifier {
   String recognizer = 'auto'; // auto, ondevice, default
   String language = ''; // '' = phone default, else e.g. en-US
   bool repliesOnGlasses = true;
+  int pageHoldMs = 0; // extra time each teleprompter page stays up
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
   bool glassesMic = false; // TouchBar hold listens through the glasses' mic (test: the phone mic is reliable)
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
@@ -160,6 +161,7 @@ class Settings extends ChangeNotifier {
     language = _s(m['language'], language);
     repliesOnGlasses = _b(m['repliesOnGlasses'], repliesOnGlasses);
     readingWpm = _i(m['readingWpm'], readingWpm).clamp(0, 400);
+    pageHoldMs = _i(m['pageHoldMs'], pageHoldMs).clamp(0, 6000);
     glassesMic = _b(m['glassesMic'], glassesMic);
     diagnostics = _b(m['diagnostics'], diagnostics);
     bmpGapMs = _i(m['bmpGapMs'], bmpGapMs).clamp(0, 30);
@@ -285,6 +287,8 @@ class Settings extends ChangeNotifier {
         repliesOnGlasses = value as bool;
       case 'readingWpm':
         readingWpm = value as int;
+      case 'pageHoldMs':
+        pageHoldMs = value as int;
       case 'glassesMic':
         glassesMic = value as bool;
       case 'diagnostics':

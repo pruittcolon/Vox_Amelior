@@ -148,6 +148,21 @@ void main() {
       b.dispose();
     });
 
+    testWidgets('teleprompter: the extra page pause adds to the page time', (tester) async {
+      final g = FakeGlasses();
+      final c = FakeControl();
+      final b = BleManager(g, control: c);
+      final d = GlassesDisplay(Proto(b))..wpm = 180;
+      await c.connectNow();
+      d.showText(longText, title: 'Claude');
+      await tester.pump();
+      final base = d.pageTime();
+      d.holdMs = 2000;
+      expect(d.pageTime() - base, const Duration(seconds: 2));
+      d.dispose();
+      b.dispose();
+    });
+
     testWidgets('teleprompter: pages turn at reading speed; left tap pauses, right tap resumes',
         (tester) async {
       final g = FakeGlasses();

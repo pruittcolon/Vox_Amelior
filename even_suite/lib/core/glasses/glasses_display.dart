@@ -37,6 +37,9 @@ class GlassesDisplay extends ChangeNotifier {
   /// Reading speed for automatic page turns; 0 = only by hand.
   int wpm = 0;
 
+  /// Extra milliseconds every scrolling page stays up (user setting).
+  int holdMs = 0;
+
   /// Teleprompter paused (by a left tap, "pause", or the phone).
   bool paused = false;
 
@@ -300,8 +303,8 @@ class GlassesDisplay extends ChangeNotifier {
   @visibleForTesting
   Duration pageTime({bool first = false}) {
     final words = pager?.pageWords ?? 0;
-    final ms = (words * 60000 / (wpm == 0 ? 180 : wpm)).round() + (first ? 1200 : 600);
-    return Duration(milliseconds: ms.clamp(2500, 15000));
+    final ms = (words * 60000 / (wpm == 0 ? 180 : wpm)).round() + (first ? 1200 : 600) + holdMs;
+    return Duration(milliseconds: ms.clamp(1500, 20000));
   }
 
   void _armAuto({bool first = false}) {
