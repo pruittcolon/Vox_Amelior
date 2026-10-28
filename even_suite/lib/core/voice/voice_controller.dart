@@ -112,6 +112,10 @@ class VoiceController extends ChangeNotifier {
   /// You cut in with the wake word while the phone was talking.
   void Function()? onBargeIn;
 
+  /// Hands-free, heard without the wake word: true when it was something to
+  /// do anyway ("set a timer for 5 minutes", "all lights off") and is done.
+  bool Function(String text)? onTrigger;
+
   /// The last message sent was spoken (not typed in the box).
   bool lastSpoken = false;
 
@@ -419,7 +423,12 @@ class VoiceController extends ChangeNotifier {
     if (mode == VoiceMode.waiting) {
       final m = wake.find(text);
       if (m == null) {
-        heard = text;
+        if (!talking && text.trim().isNotEmpty && (onTrigger?.call(text.trim()) ?? false)) {
+          heard = '';
+          _armAutoOff();
+        } else {
+          heard = text;
+        }
         notifyListeners();
       } else {
         if (talking) _cutIn();

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'home/voice_monkey.dart';
 import 'log.dart';
 import 'voice/wake_word.dart';
 
@@ -77,6 +78,15 @@ class Settings extends ChangeNotifier {
   int ttsRate = 100; // percent
   int ttsPitch = 100; // percent
   String talkMode = 'single'; // single: one question, one answer. chat: back and forth (listens for a follow-up)
+
+  // Lights (Voice Monkey) and the Vizio TV
+  String vmToken = ''; // Voice Monkey token, or the whole trigger URL from its dashboard
+  String vmDevices = VoiceMonkey.defaultDevices; // one per line: Name = device: phrase, phrase
+  String tvIp = ''; // the Vizio TV on the Wi-Fi
+  String tvName = '';
+  String tvAuth = ''; // from pairing (the TV showed a PIN)
+  String tvDeviceId = '';
+  bool triggerWords = true; // hands-free: timers, lights and the TV without the wake word
   int followUpSec = 8;
   bool autoSend = true; // send when you pause (mic button, TouchBar, follow-ups)
   bool wakeAutoSend = false; // same after "Claude…" (off: say "send")
@@ -191,6 +201,13 @@ class Settings extends ChangeNotifier {
     ttsRate = _i(m['ttsRate'], ttsRate).clamp(50, 200);
     ttsPitch = _i(m['ttsPitch'], ttsPitch).clamp(50, 200);
     talkMode = _s(m['talkMode'], talkMode);
+    vmToken = _s(m['vmToken'], vmToken);
+    vmDevices = _s(m['vmDevices'], vmDevices);
+    tvIp = _s(m['tvIp'], tvIp);
+    tvName = _s(m['tvName'], tvName);
+    tvAuth = _s(m['tvAuth'], tvAuth);
+    tvDeviceId = _s(m['tvDeviceId'], tvDeviceId);
+    triggerWords = _b(m['triggerWords'], triggerWords);
     if (talkMode != 'chat') talkMode = 'single';
     followUpSec = _i(m['followUpSec'], followUpSec).clamp(3, 30);
     autoSend = _b(m['autoSend'], autoSend);
@@ -348,6 +365,20 @@ class Settings extends ChangeNotifier {
         ttsPitch = value as int;
       case 'talkMode':
         talkMode = value as String;
+      case 'vmToken':
+        vmToken = value as String;
+      case 'vmDevices':
+        vmDevices = value as String;
+      case 'tvIp':
+        tvIp = value as String;
+      case 'tvName':
+        tvName = value as String;
+      case 'tvAuth':
+        tvAuth = value as String;
+      case 'tvDeviceId':
+        tvDeviceId = value as String;
+      case 'triggerWords':
+        triggerWords = value as bool;
       case 'followUpSec':
         followUpSec = value as int;
       case 'autoSend':
@@ -430,6 +461,7 @@ class Settings extends ChangeNotifier {
     const quiet = {
       'lastGlasses', 'mirrorX', 'mirrorY', 'mirrorW', 'mirrorH', 'mirrorStrip', //
       'ttsRate', 'ttsPitch', 'dashCustom', 'dashCity', 'lookLayout',
+      'vmToken', 'tvAuth', 'vmDevices', // secrets (and a long list) stay out of the log
     };
     if (!quiet.contains(key)) EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
     notifyListeners();

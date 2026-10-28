@@ -16,6 +16,9 @@ import 'glasses/display_position.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
 import 'glasses/hud_frame.dart';
+import 'home/home_commands.dart';
+import 'home/vizio.dart';
+import 'home/voice_monkey.dart';
 import 'glasses/look_layout.dart';
 import 'log.dart';
 import 'phone_actions.dart';
@@ -88,7 +91,8 @@ class Suite extends ChangeNotifier {
     )
       ..onFollowUpEnd = _onFollowUpEnd
       ..onNothing = _onNothingHeard
-      ..onBargeIn = _onBargeIn;
+      ..onBargeIn = _onBargeIn
+      ..onTrigger = _onTrigger;
     voice.spokenText = () => narrator.recent;
 
     ble.onConnected = (pair) {
@@ -172,6 +176,10 @@ class Suite extends ChangeNotifier {
   late final VoiceController voice;
   late final ScreenMirror mirror;
   late final PhoneActions phoneActions = PhoneActions(system);
+
+  /// The lights (Alexa routines through Voice Monkey) and the Vizio TV.
+  VoiceMonkey voiceMonkey = VoiceMonkey();
+  VizioTv tv = VizioTv();
 
   /// Text height (the Text height page); nothing else draws while it is open.
   late final DisplayPosition position = DisplayPosition(proto);
@@ -896,6 +904,12 @@ class Suite extends ChangeNotifier {
     _sessionTarget = null;
     // "Flashlight on", "next song", "set a timer for 5 minutes": done at once,
     // no Claude needed - in chat or terminal mode alike (never typed in).
+    // The lights and the TV the same way (and the TV remote, once started).
+    final home = _homeCommand(t);
+    if (home != null) {
+      await _doHome(home);
+      return;
+    }
     if (settings.phoneActions) {
       final quick = PhoneAction.parseLocal(t, DateTime.now());
       if (quick != null) {
@@ -1214,7 +1228,111 @@ class Suite extends ChangeNotifier {
     }
   }
 
-  void _onFollowUpEnd() => conversation.ended();
+  void _onFollowUpEnd() {
+    if (tvRemote) _endTvRemote();
+    conversation.ended();
+  }
+
+  // ---------------------------------------------------------- lights, TV
+
+  /// The TV remote is on: "up", "OK", "back" ... go to the TV until "done".
+  bool tvRemote = false;
+  Timer? _tvRemoteOff;
+  static const tvRemoteIdle = Duration(seconds: 30);
+
+  HomeCommand? _homeCommand(String text, {bool trigger = false}) {
+    if (tvRemote && !trigger) return HomeCommands.remote(text);
+    return HomeCommands.parse(text, VoiceMonkey.parse(settings.vmDevices), trigger: trigger);
+  }
+
+  /// Hands-free, heard without the wake word: a timer, a reminder, the
+  /// lights or the TV are done at once when that is all that was said
+  /// ("set a timer for 5 minutes", "all lights off", "TV off"). Anything
+  /// else is ignored, as before.
+  bool _onTrigger(String text) {
+    if (!settings.triggerWords) return false;
+    final home = _homeCommand(text, trigger: true);
+    final phone = settings.phoneActions ? PhoneAction.parseLocal(text, DateTime.now()) : null;
+    if (home == null && phone?.kind != 'remind') return false;
+    EventLog.add('voice', 'trigger', {'what': home?.kind.name ?? phone!.kind});
+    unawaited(submit(text, spoken: true));
+    return true;
+  }
+
+  Future<void> _doHome(HomeCommand c) async {
+    _aiSession = false;
+    conversation.ended();
+    String said;
+    switch (c.kind) {
+      case HomeKind.lights:
+        final d = VoiceMonkey.parse(settings.vmDevices).firstWhere((d) => d.device == c.device);
+        said = await voiceMonkey.trigger(settings.vmToken, d);
+      case HomeKind.tvRemote:
+        _startTvRemote();
+        return;
+      case HomeKind.tvDone:
+        _endTvRemote();
+        if (voice.followUp) unawaited(voice.endFollowUp());
+        return;
+      case HomeKind.tvKeys:
+      case HomeKind.tvInput:
+        said = await _tvDo(c);
+    }
+    EventLog.add('home', c.kind.name, {'result': said});
+    _toast(said);
+    if (tvRemote) {
+      _armTvRemote();
+      _homeNotice('TV remote: $said\nup down left right  OK  back\nhome  volume up/down  done', remote: true);
+      unawaited(_dictate(followUp: tvRemoteIdle)); // the next one, without the wake word
+    } else {
+      _homeNotice(said);
+    }
+  }
+
+  Future<String> _tvDo(HomeCommand c) async {
+    if (settings.tvIp.isEmpty || settings.tvAuth.isEmpty) return 'Pair your TV first: More › Lights and TV';
+    try {
+      if (c.kind == HomeKind.tvInput) {
+        await tv.setInput(settings.tvIp, settings.tvAuth, c.input);
+      } else {
+        await tv.keys(settings.tvIp, settings.tvAuth, c.keys);
+      }
+      return '${c.label} ✓';
+    } on VizioException catch (e) {
+      return '${c.label}: $e';
+    } catch (e) {
+      return 'Could not reach the TV (${settings.tvName.isEmpty ? settings.tvIp : settings.tvName})';
+    }
+  }
+
+  void _startTvRemote() {
+    tvRemote = true;
+    EventLog.add('home', 'tvRemote', {'on': true});
+    _armTvRemote();
+    _homeNotice('TV remote\nup down left right  OK  back\nhome  volume up/down  mute\npause  play  off  - say "done"', remote: true);
+    unawaited(_dictate(followUp: tvRemoteIdle));
+    notifyListeners();
+  }
+
+  void _armTvRemote() {
+    _tvRemoteOff?.cancel();
+    _tvRemoteOff = Timer(tvRemoteIdle, _endTvRemote);
+  }
+
+  void _endTvRemote() {
+    if (!tvRemote) return;
+    tvRemote = false;
+    _tvRemoteOff?.cancel();
+    EventLog.add('home', 'tvRemote', {'on': false});
+    if (_glassesFree() && !conversation.busy) display.notice('TV remote off', duration: const Duration(seconds: 2));
+    notifyListeners();
+  }
+
+  /// What happened, briefly on the glasses (longer while the remote is on).
+  void _homeNotice(String text, {bool remote = false}) {
+    if (!_glassesFree() || conversation.busy) return;
+    display.notice(text, title: 'Home', raw: true, duration: remote ? tvRemoteIdle : const Duration(seconds: 3));
+  }
 
   /// You said the wake word while the phone was talking: it stops at once.
   void _onBargeIn() {
@@ -1615,6 +1733,7 @@ class Suite extends ChangeNotifier {
     _lookTimer?.cancel();
     _leftCheck?.cancel();
     _modeCheck?.cancel();
+    _tvRemoteOff?.cancel();
     _echoTimer?.cancel();
     speechModel.removeListener(_applySpeech);
     settings.removeListener(applySettings);

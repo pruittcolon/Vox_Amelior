@@ -17,6 +17,7 @@ import 'help_page.dart';
 import 'images_page.dart';
 import 'notify_page.dart';
 import 'phone_page.dart';
+import 'smart_home_page.dart';
 import 'text_page.dart';
 
 /// Everything else, grouped: your glasses, Claude, labs, the app.
@@ -70,6 +71,9 @@ class ToolsPage extends StatelessWidget {
           }),
           _Tool(Icons.phone_android_rounded, AppColors.warn, 'Phone actions',
               'Reminders, timers, alarms, apps, calls, texts, music', () => push(const PhonePage())),
+          _Tool(Icons.lightbulb_rounded, AppColors.warn, 'Lights and TV',
+              'Voice Monkey lights and the Vizio TV - by voice, even without the wake word',
+              () => push(const SmartHomePage())),
           _Tool(Icons.tune_rounded, AppColors.claude, 'Claude and voice',
               'Model, effort, the speaking voice, follow-ups, trigger words', () => ClaudeSettingsSheet.show(context)),
           _Tool(Icons.graphic_eq_rounded, AppColors.hud, 'Speech engine',

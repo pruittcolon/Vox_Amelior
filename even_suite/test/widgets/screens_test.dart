@@ -11,6 +11,8 @@ import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/glasses/glasses_display.dart';
 import 'package:even_suite/core/glasses/hud_frame.dart';
 import 'package:even_suite/core/glasses/look_layout.dart';
+import 'package:even_suite/core/home/vizio.dart';
+import 'package:even_suite/core/home/voice_monkey.dart';
 import 'package:even_suite/core/settings.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/core/voice/voice_commands.dart';
@@ -1250,6 +1252,76 @@ void main() {
     expect(suite.voice.dictating, isFalse);
     await tester.pump(const Duration(seconds: 40));
     expect(suite.display.mode, DisplayMode.idle);
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  testWidgets('hands-free, no wake word: a timer, the lights, the TV; "TV remote", then just "up"', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    final lights = <String>[];
+    final tvKeys = <String>[];
+    suite.voiceMonkey = VoiceMonkey(get: (u) async {
+      lights.add(u.queryParameters['device']!);
+      return (200, '{"success":true}');
+    });
+    suite.tv = VizioTv(call: (method, url, headers, body) async {
+      if (url.path == '/key_command/') {
+        final k = (((body as Map)['KEYLIST'] as List).first as Map);
+        tvKeys.add('${k['CODESET']}/${k['CODE']}');
+      }
+      return {
+        'STATUS': {'RESULT': 'SUCCESS'}
+      };
+    });
+    suite.settings
+      ..set('vmToken', 'tok')
+      ..set('tvIp', '192.168.4.21')
+      ..set('tvAuth', 'Z');
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await suite.setHandsFree(true);
+    await tester.pump();
+    Future<void> hear(String text) async {
+      w.speech.say(text);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    await hear('Set a timer for 5 minutes.');
+    expect(w.system.phoneCalls.last['do'], 'remind', reason: 'no "Claude" needed');
+    await hear('All lights off.');
+    expect(lights, ['alllights-di8jv']);
+    expect(w.glasses.screens().last, contains('All lights'));
+    await hear('Turn off the TV');
+    expect(tvKeys, ['11/0']);
+    // Anything else without the wake word is still ignored.
+    await hear('the lights in this movie are amazing');
+    await hear('TV');
+    expect(lights, hasLength(1));
+    expect(suite.tvRemote, isFalse);
+    expect(w.bridge.sentTexts, isEmpty, reason: 'nothing went to Claude');
+
+    // The remote: then just the keys, until "done".
+    await suite.submit('TV remote', spoken: true);
+    await tester.pump();
+    expect(suite.tvRemote, isTrue);
+    expect(suite.voice.followUp, isTrue, reason: 'listening for the next key');
+    w.speech.say('Up.', finishing: true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(tvKeys.last, '3/8');
+    expect(suite.tvRemote, isTrue);
+    w.speech.say('volume down', finishing: true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(tvKeys.sublist(tvKeys.length - 3), ['5/0', '5/0', '5/0']);
+    w.speech.say('done', finishing: true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(suite.tvRemote, isFalse);
+    expect(w.bridge.sentTexts, isEmpty);
+    await suite.setHandsFree(false);
+    await tester.pump(const Duration(seconds: 3));
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
