@@ -899,7 +899,6 @@ void main() {
     expect(suite.settings.holdAction, 'mode', reason: 'a hold fixed to chat would go somewhere else');
     expect(inClaude(find.text('Claude 2')), findsOneWidget);
     expect(find.byType(TerminalScreen), findsOneWidget);
-    await _shot(tester, '22_sessions');
 
     // Typed: word for word ("start" stays), into that session.
     await tester.enterText(inClaude(find.byType(TextField)), 'start the dev server');
