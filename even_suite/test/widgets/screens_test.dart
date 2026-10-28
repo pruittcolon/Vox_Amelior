@@ -1131,10 +1131,13 @@ void main() {
     final picture = after.indexWhere((p) => p[0] == 0x15);
     expect(text, greaterThanOrEqualTo(0), reason: 'the layout text');
     expect(picture, greaterThan(text), reason: 'then the frame, over it');
-    // Unchanged text: the frame is not sent again every refresh.
-    final frames = after.where((p) => p[0] == 0x15 && p[1] == 0).length;
+    // Unchanged text: the frame is not sent again every refresh (once the
+    // phone's battery, read just after the first draw, has filled in).
     await tester.pump(const Duration(seconds: 5));
-    expect(w.glasses.sent['L']!.sublist(before).where((p) => p[0] == 0x15 && p[1] == 0).length, frames);
+    int frames() => w.glasses.sent['L']!.sublist(before).where((p) => p[0] == 0x15 && p[1] == 0).length;
+    final settled = frames();
+    await tester.pump(const Duration(seconds: 6));
+    expect(frames(), settled);
     w.glasses.touch(3, 'R');
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpWidget(const SizedBox());
