@@ -15,7 +15,8 @@ import 'look_layout.dart';
 /// between rows and the strip at the right edge, and never touches a letter:
 ///
 /// * each group of text (an item, or items stacked at the same x in rows next
-///   to each other) gets corner brackets 4 px from its first and last letter,
+///   to each other with the same width) gets corner brackets 4 px from its
+///   first and last letter,
 /// * a scale of ticks runs down the right edge, longer at each row gap.
 ///
 /// Styles: hud (top-left and bottom-right corners), corners (all four),
@@ -53,9 +54,12 @@ class HudFrame {
         e[3] = max(e[3], p.row);
       }
     }
-    final items = [for (final e in ink.entries) (layout.items[e.key].x, e.value)]
+    // Items stacked in rows next to each other with the same box (x and
+    // width) - a column - share one outline.
+    String column(int i) => '${layout.items[i].x}:${layout.items[i].w}';
+    final items = [for (final e in ink.entries) (column(e.key), e.value)]
       ..sort((a, b) => a.$1 != b.$1 ? a.$1.compareTo(b.$1) : a.$2[2].compareTo(b.$2[2]));
-    final out = <(int, List<int>)>[];
+    final out = <(String, List<int>)>[];
     for (final (x, e) in items) {
       if (out.isNotEmpty && out.last.$1 == x && out.last.$2[3] + 1 == e[2]) {
         final g = out.last.$2;

@@ -31,6 +31,16 @@ void main() {
           }
           expect(lit.where((b) => b == 1).length, greaterThan(40), reason: '${e.key} $style draws something');
         }
+        // A column (same x and width, rows next to each other) is one group;
+        // a narrower item above a wide one is not part of it.
+        if (e.key == 'split') {
+          expect(HudFrame.groups(e.value, pieces).where((g) => g.$3 == 0 && g.$4 == 2), hasLength(1),
+              reason: 'time, date and weather');
+        }
+        if (e.key == 'busy') {
+          expect(HudFrame.groups(e.value, pieces).where((g) => g.$1 < 0 && g.$3 == 0 && g.$4 == 0), hasLength(1),
+              reason: 'the clock on its own');
+        }
         // Every group of text has its corners (top-left of its first letter).
         for (final (x0, _, r0, _) in HudFrame.groups(e.value, pieces)) {
           expect(HudFrame.lit('hud', e.value, pieces)[HudFrame.top(r0) * HudFrame.w + (x0 < 0 ? 0 : x0)], 1, reason: e.key);
