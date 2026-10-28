@@ -72,6 +72,8 @@ void main() {
       expect(keys('Television off.'), ['POWER_OFF']);
       expect(keys('T.V. off'), ['POWER_OFF']);
       expect(keys('television on'), ['POWER_ON']);
+      expect(keys('evision off.'), ['POWER_OFF'], reason: 'heard with the start cut off (28 Oct)');
+      expect(keys('Vision off'), ['POWER_OFF']);
       expect(keys('Turn off the TV.'), ['POWER_OFF']);
       expect(keys('turn the tv on'), ['POWER_ON']);
       expect(keys('TV volume up'), ['VOL_UP', 'VOL_UP', 'VOL_UP']);

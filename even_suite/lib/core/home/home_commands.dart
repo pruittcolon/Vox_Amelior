@@ -55,8 +55,10 @@ class HomeCommands {
   static String norm(String s) =>
       s.toLowerCase().replaceAll(RegExp(r"[^a-z0-9' ]"), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 
-  /// "tv", "the tv", "television", "vizio" (also as the recognizer often writes them).
-  static const _tv = r"(?:the )?(?:tv|t v|tv's|television|vizio|visio|vizzio)";
+  /// "tv", "the tv", "television", "vizio" - also as the recognizer writes
+  /// them, including with the start cut off ("evision off": the first
+  /// syllable said before the mic was listening).
+  static const _tv = r"(?:the )?(?:tv|t v|tv's|television|elevision|levision|evision|vision|vizio|visio|vizzio)";
 
   static String _strip(String t) => t.replaceFirst(RegExp(r'^(please |hey |okay |ok )+'), '').replaceFirst(RegExp(r' please$'), '');
 
