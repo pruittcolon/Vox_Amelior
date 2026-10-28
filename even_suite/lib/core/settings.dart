@@ -39,7 +39,7 @@ class Settings extends ChangeNotifier {
   int doneBlinkMs = 3000; // how long the "*" shows when Claude is done
   int termShowSec = 30; // after you send to Termux: its screen on the glasses this long after it last changed (0 = answer like chat, -1 = until you close it)
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
-  bool glassesMic = false; // TouchBar hold listens through the glasses' mic (test: the phone mic is reliable)
+  bool glassesMic = true; // listen through the glasses' mic (hears you, not the room) when Parakeet is the speech engine
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
   int bmpGapMs = 5; // gap between picture packets per arm (tuning)
   int bmpChunk = 194; // picture bytes per packet: 194 (demo) or 236 (tuning)
@@ -76,7 +76,7 @@ class Settings extends ChangeNotifier {
   String ttsVoice = ''; // '' = the engine's default voice
   int ttsRate = 100; // percent
   int ttsPitch = 100; // percent
-  bool conversation = true; // after an answer, listen for a follow-up without the wake word
+  String talkMode = 'single'; // single: one question, one answer. chat: back and forth (listens for a follow-up)
   int followUpSec = 8;
   bool autoSend = true; // send when you pause (mic button, TouchBar, follow-ups)
   bool wakeAutoSend = false; // same after "Claude…" (off: say "send")
@@ -190,7 +190,8 @@ class Settings extends ChangeNotifier {
     ttsVoice = _s(m['ttsVoice'], ttsVoice);
     ttsRate = _i(m['ttsRate'], ttsRate).clamp(50, 200);
     ttsPitch = _i(m['ttsPitch'], ttsPitch).clamp(50, 200);
-    conversation = _b(m['conversation'], conversation);
+    talkMode = _s(m['talkMode'], talkMode);
+    if (talkMode != 'chat') talkMode = 'single';
     followUpSec = _i(m['followUpSec'], followUpSec).clamp(3, 30);
     autoSend = _b(m['autoSend'], autoSend);
     wakeAutoSend = _b(m['wakeAutoSend'], wakeAutoSend);
@@ -345,8 +346,8 @@ class Settings extends ChangeNotifier {
         ttsRate = value as int;
       case 'ttsPitch':
         ttsPitch = value as int;
-      case 'conversation':
-        conversation = value as bool;
+      case 'talkMode':
+        talkMode = value as String;
       case 'followUpSec':
         followUpSec = value as int;
       case 'autoSend':

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -507,8 +506,12 @@ class Suite extends ChangeNotifier {
       _redrawTimer?.cancel();
       _redrawTimer = Timer(const Duration(milliseconds: 150), () {
         if (!_lookShowing) return;
-        display.redraw();
-        _scheduleFrame(); // and the outline over it
+        if (settings.lookFrame == 'off') {
+          display.redraw();
+        } else if (!_painting || _pictureLanded) {
+          // Picture and text again (a picture still on its way covers theirs anyway).
+          unawaited(_paintLook(soon: true));
+        }
       });
     }
     // Both arms report their own dashboard opening; note when the left one
@@ -625,13 +628,7 @@ class Suite extends ChangeNotifier {
     // Holding the TouchBar interrupts whatever is being said.
     await narrator.stop();
     if (_target == Target.claude) unawaited(chat.warm());
-    final useGlassesMic = settings.glassesMic;
-    if (useGlassesMic) {
-      _micOpen = true;
-      unawaited(proto.micOn(true));
-    }
-    await voice.startDictation(
-        pauseSends: true, fresh: true, source: useGlassesMic ? 'glasses' : 'phone');
+    await _dictate(pauseSends: true, fresh: true);
     // A cap on one message, so it can never listen on and on.
     _holdLimit?.cancel();
     _holdLimit = Timer(const Duration(seconds: 45), () {
@@ -652,6 +649,33 @@ class Suite extends ChangeNotifier {
     if (!_micOpen) return;
     _micOpen = false;
     unawaited(proto.micOn(false));
+  }
+
+  void _openGlassesMic() {
+    if (_micOpen) return;
+    _micOpen = true;
+    unawaited(proto.micOn(true));
+  }
+
+  /// Listen through the glasses' own microphone - it hears you, not the TV
+  /// or the people around - while they are connected and Parakeet is the
+  /// speech engine (Android's recognizer hears nothing from it on many phones).
+  bool get glassesMicInUse =>
+      settings.glassesMic && ble.isConnected && settings.speechEngine == 'parakeet' && speechModel.ready;
+
+  /// Start taking a message down, from the glasses' microphone when it can be
+  /// used ([followUp]: the window after an answer).
+  Future<void> _dictate({bool hold = false, bool pauseSends = false, bool fresh = false, Duration? followUp}) async {
+    final glasses = glassesMicInUse;
+    if (glasses) _openGlassesMic();
+    final source = glasses ? 'glasses' : 'phone';
+    if (followUp != null) {
+      await voice.startFollowUp(followUp, source: source);
+    } else {
+      await voice.startDictation(hold: hold, pauseSends: pauseSends, fresh: fresh, source: source);
+    }
+    // (Switching away from the phone's mic can close it on the way.)
+    if (glasses && voice.dictating) _openGlassesMic();
   }
 
   /// Instructions sent with every message (as Claude's system prompt): this
@@ -723,7 +747,7 @@ class Suite extends ChangeNotifier {
     if (!await _micAllowed()) return;
     await narrator.stop();
     unawaited(chat.warm());
-    await voice.startDictation(hold: hold);
+    await _dictate(hold: hold);
   }
 
   Future<void> toggleTalk() async {
@@ -865,6 +889,8 @@ class Suite extends ChangeNotifier {
       return;
     }
     _spokenQuestion = spoken ?? voice.lastSpoken;
+    // A fresh question (not said in the window after an answer) starts the count again.
+    if (spoken != null || !voice.lastFollowUp) _followUps = 0;
     _speakThis = settings.speakReplies == 'always' || (settings.speakReplies == 'voice' && _spokenQuestion);
     final target = _target;
     _sessionTarget = null;
@@ -1165,15 +1191,25 @@ class Suite extends ChangeNotifier {
     }
   }
 
-  /// The answer has been said (or was not to be said): listen for a follow-up.
+  /// Back-and-forth turns in a row without a fresh question: a TV or other
+  /// people in the room can never keep it going on its own.
+  static const maxFollowUps = 6;
+  int _followUps = 0;
+
+  /// The answer has been said (or was not to be said). One question (the
+  /// standard): that is it - the answer stays for its reading time, then
+  /// goes. Back and forth: listen for a follow-up.
   void _onSpoken() {
     unawaited(voice.resume());
     if (conversation.stage == TalkStage.error) return;
-    if (settings.conversation && _spokenQuestion && !voice.dictating) {
+    if (settings.talkMode == 'chat' && _spokenQuestion && !voice.dictating && _followUps < maxFollowUps) {
       _spokenQuestion = false; // one follow-up window per answer
+      _followUps++;
       conversation.followingUp();
-      unawaited(voice.startFollowUp(Duration(seconds: settings.followUpSec)));
+      unawaited(_dictate(followUp: Duration(seconds: settings.followUpSec)));
     } else {
+      if (_followUps >= maxFollowUps) EventLog.add('voice', 'followUpLimit', {'turns': _followUps});
+      _followUps = 0;
       conversation.ended();
     }
   }
@@ -1385,28 +1421,30 @@ class Suite extends ChangeNotifier {
     final data = lookData();
     final rows = LookRenderer.render(lookLayout, data);
     final text = rows.join('\n');
-    display.showStatus(text, title: lookTitle, raw: true, immediate: immediate);
-    // The HUD outline goes over the text once it is up, drawn around exactly
-    // this text (again when it changed: new text clears the picture).
-    final key = '${settings.lookFrame}|$text';
-    if (key != _frameKey) {
-      _frameKey = key;
-      _framePieces = LookRenderer.pieces(lookLayout, data);
-      _scheduleFrame();
+    _lookText = text;
+    if (settings.lookFrame == 'off') {
+      display.showStatus(text, title: lookTitle, raw: true, immediate: immediate);
+      return;
     }
+    // With the HUD outline. A picture replaces whatever the glasses show, so
+    // it goes first and the text after it, over it (_paintLook). Just looked
+    // up: the text at once, so nothing waits on the picture.
+    if (immediate && !_lookShowing) display.showStatus(text, title: lookTitle, raw: true, immediate: true);
+    final key = '${settings.lookFrame}|$text';
+    if (key == _frameKey) return;
+    _frameKey = key;
+    _framePieces = LookRenderer.pieces(lookLayout, data);
+    unawaited(_paintLook(soon: immediate));
   }
 
+  String _lookText = '';
   String _frameKey = '';
   List<LookPiece> _framePieces = const [];
   DateTime _frameSentAt = DateTime.fromMillisecondsSinceEpoch(0);
-
-  /// Shortly after the text (it needs to be up first), and at most every 3 s
-  /// (a picture takes the glasses about a second).
-  void _scheduleFrame() {
-    final since = DateTime.now().difference(_frameSentAt).inMilliseconds;
-    _frameTimer?.cancel();
-    _frameTimer = Timer(Duration(milliseconds: max(450, 3000 - since)), _sendFrame);
-  }
+  bool _painting = false;
+  bool _paintAgain = false;
+  bool _paintSoon = false;
+  bool _pictureLanded = false;
   final _dashShownAt = <String, DateTime>{};
   Timer? _leftCheck;
   bool _leftFixTried = false;
@@ -1435,29 +1473,62 @@ class Suite extends ChangeNotifier {
         ? 'Dashboard startup mode was ${show(before['L'])} (left) / ${show(before['R'])} (right), now ${show(after['L'])} / ${show(after['R'])}. Look up to try.'
         : 'Startup mode ${show(before['L'])} (left) / ${show(before['R'])} (right). Both screens reset. Look up to try.';
   }
-  Timer? _frameTimer;
-  bool _frameBusy = false;
-
-  Future<void> _sendFrame() async {
-    final bmp = HudFrame.bmp(settings.lookFrame, lookLayout, _framePieces);
-    if (bmp == null || !_lookShowing || !ble.isConnected) return;
-    if (_frameBusy) return _scheduleFrame();
-    _frameBusy = true;
-    _frameSentAt = DateTime.now();
+  /// Your layout with its HUD outline: the outline picture first (it
+  /// replaces the screen), then the text over it - each time either changes.
+  /// One picture at a time and at most one every 3 s ([soon]: now - you just
+  /// looked up, or the glasses drew over ours), as each takes them about a
+  /// second. If something else took the screen while the picture was on its
+  /// way, that is put back.
+  Future<void> _paintLook({bool soon = false}) async {
+    if (_painting) {
+      _paintAgain = true;
+      _paintSoon = _paintSoon || soon;
+      return;
+    }
+    _painting = true;
+    _paintSoon = soon;
     try {
-      final ok = await proto.sendBmp(bmp, requireCrc: false);
-      EventLog.add('look', 'frame',
-          {'style': settings.lookFrame, 'ok': ok, 'ms': DateTime.now().difference(_frameSentAt).inMilliseconds});
+      do {
+        _paintAgain = false;
+        _pictureLanded = false;
+        final wait = _paintSoon ? 0 : 3000 - DateTime.now().difference(_frameSentAt).inMilliseconds;
+        _paintSoon = false;
+        if (wait > 0) await Future<void>.delayed(Duration(milliseconds: wait));
+        await display.idle(); // whatever text is on its way lands first
+        if (!_lookShowing || !ble.isConnected) return;
+        final bmp = HudFrame.bmp(settings.lookFrame, lookLayout, _framePieces);
+        if (bmp != null) {
+          _frameSentAt = DateTime.now();
+          final ok = await proto.sendBmp(bmp, requireCrc: false);
+          _pictureLanded = true;
+          EventLog.add('look', 'frame',
+              {'style': settings.lookFrame, 'ok': ok, 'ms': DateTime.now().difference(_frameSentAt).inMilliseconds});
+        }
+        if (!_lookShowing) {
+          // Looked down (or something else came up) meanwhile: don't leave
+          // the outline there.
+          if (display.mode == DisplayMode.idle) {
+            await proto.exit();
+          } else {
+            display.redraw();
+          }
+          return;
+        }
+        // The text, over the picture.
+        display.showStatus(_lookText, title: lookTitle, raw: true, immediate: true);
+        display.redraw();
+        await display.idle();
+      } while (_paintAgain && _lookShowing);
     } finally {
-      _frameBusy = false;
+      _painting = false;
     }
   }
 
   void _stopLook({bool close = false}) {
     _lookTimer?.cancel();
     _lookTimer = null;
-    _frameTimer?.cancel();
     _frameKey = '';
+    _paintAgain = false;
     if (close && _lookShowing) unawaited(display.clear());
   }
 
@@ -1542,7 +1613,6 @@ class Suite extends ChangeNotifier {
     _redrawTimer?.cancel();
     _foreignTimer?.cancel();
     _lookTimer?.cancel();
-    _frameTimer?.cancel();
     _leftCheck?.cancel();
     _modeCheck?.cancel();
     _echoTimer?.cancel();

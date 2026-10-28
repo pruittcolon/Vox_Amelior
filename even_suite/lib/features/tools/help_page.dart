@@ -88,7 +88,7 @@ class HelpPage extends StatelessWidget {
             iconColor: AppColors.claude,
             child: Column(children: [
               step('1', 'It answers out loud', 'Answers to spoken questions are read aloud on the phone while they show on the glasses. Pick the voice and speed in Tools › Claude and voice.'),
-              step('2', 'Then it is your turn', 'Right after, just keep talking - no button, no “$word”. Say “thanks” or stay quiet to finish.'),
+              step('2', 'Back and forth (if you want it)', 'Pick “Back and forth” in the Claude tab’s ⋯ menu: after each answer, just keep talking - no button, no “$word”. Say “thanks” or stay quiet to finish. “One question” (the standard) asks once and the answer goes away by itself.'),
               step('3', 'Interrupt any time', 'Hold the TouchBar or tap the mic to cut in. Double-tap the glasses to stop everything.'),
             ]),
           ),

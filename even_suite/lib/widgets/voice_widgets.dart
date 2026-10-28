@@ -3,12 +3,51 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../core/settings.dart';
 import '../core/talk/conversation.dart';
 import '../core/voice/speaker.dart';
 import '../core/voice/voice_controller.dart';
 
 String clockTime(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// One question (the standard: ask, read the answer, it goes) or back and
+/// forth (after an answer it listens for your follow-up).
+class TalkModeChooser extends StatelessWidget {
+  const TalkModeChooser({super.key, required this.settings, this.glassesMic = false});
+  final Settings settings;
+
+  /// Follow-ups are heard through the glasses' microphone.
+  final bool glassesMic;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: settings,
+        builder: (context, _) {
+          final chat = settings.talkMode == 'chat';
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'single', icon: Icon(Icons.chat_bubble_outline_rounded), label: Text('One question')),
+                ButtonSegment(value: 'chat', icon: Icon(Icons.forum_outlined), label: Text('Back and forth')),
+              ],
+              selected: {settings.talkMode},
+              onSelectionChanged: (v) => settings.set('talkMode', v.first),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              chat
+                  ? 'After each answer it listens for ${settings.followUpSec} s for a follow-up'
+                      '${glassesMic ? ' through the glasses\' mic' : ''}. Silence or “thanks” ends it, and it '
+                      'stops after a few turns in a row.'
+                  : 'Ask, read the answer, and it goes away by itself. Nothing listens afterwards.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+            ),
+          ]);
+        },
+      );
+}
 
 /// The big round talk button. Idle: mic. Taking a message: glowing coral
 /// ring that follows your voice; tap to stop.

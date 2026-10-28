@@ -86,9 +86,9 @@ class SettingsPage extends StatelessWidget {
                 (v) => s.set('holdToTalk', v),
               ),
               _Switch(
-                'Use the glasses microphone (test)',
-                'When holding the TouchBar, listen through the glasses instead of the phone. On some phones the '
-                    'recognizer hears nothing from it - then leave this off.',
+                'Use the glasses microphone',
+                'Hears you, not the TV or people around - for the TouchBar, the talk button and follow-ups. '
+                    'Needs the Parakeet speech engine (More › Speech engine); otherwise the phone listens.',
                 s.glassesMic,
                 (v) => s.set('glassesMic', v),
               ),

@@ -118,6 +118,7 @@ void main() {
 
       final w = _World();
       final suite = w.suite;
+      suite.settings.set('talkMode', 'chat'); // back and forth: the "your turn" screen
       await w.bridge.send('What’s on my calendar today?');
       w.bridge.addReply(_reply);
       await w.control.connectNow();
@@ -481,6 +482,7 @@ void main() {
   testWidgets('glasses TouchBar taps page the reply; hold left to talk', (tester) async {
     final w = _World();
     final suite = w.suite;
+    suite.settings.set('talkMode', 'chat'); // back and forth
     await w.control.connectNow();
     await tester.pumpWidget(EvenSuiteApp(suite: suite));
     suite.display.showText(List.generate(30, (i) => 'Line number $i of the answer').join('\n'));
@@ -1129,8 +1131,9 @@ void main() {
     final after = w.glasses.sent['L']!.sublist(before);
     final text = after.indexWhere((p) => p[0] == 0x4E);
     final picture = after.indexWhere((p) => p[0] == 0x15);
-    expect(text, greaterThanOrEqualTo(0), reason: 'the layout text');
-    expect(picture, greaterThan(text), reason: 'then the frame, over it');
+    expect(text, greaterThanOrEqualTo(0), reason: 'the layout text at once');
+    expect(picture, greaterThan(text), reason: 'then the outline picture (it replaces the screen)');
+    expect(after.indexWhere((p) => p[0] == 0x4E, picture), greaterThan(picture), reason: 'then the text again, over it');
     // Unchanged text: the frame is not sent again every refresh (once the
     // phone's battery, read just after the first draw, has filled in).
     await tester.pump(const Duration(seconds: 5));
@@ -1174,6 +1177,73 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(w.glasses.sent['R']!.where((p) => p[0] == 0x08 && p[4] == 0x03), hasLength(1));
     expect(await suite.fixLeftEye(), contains('Startup mode 0 (left) / 0 (right)'));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  testWidgets('one question (standard): no listening after the answer, and it goes away by itself', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    expect(suite.settings.talkMode, 'single');
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+    w.glasses.touch(23, 'L'); // hold left: talk
+    await tester.pump();
+    await tester.pump();
+    w.glasses.touch(24, 'L');
+    await tester.pump();
+    w.speech.say('how many moons does jupiter have', finishing: true);
+    await tester.pump();
+    w.bridge.addReply('Jupiter has 95 known moons. Want to know about the biggest ones?');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('95 known moons'));
+    await tester.pump(const Duration(seconds: 2));
+    expect(suite.voice.followUp, isFalse, reason: 'one question: nothing listens afterwards');
+    expect(suite.voice.dictating, isFalse);
+    // The answer asks something back, but nobody is listening for it: it
+    // stays for its reading time, then the glasses get their screen back.
+    int exits() => w.glasses.sent['L']!.where((p) => p.length == 1 && p[0] == 0x18).length;
+    final before = exits();
+    await tester.pump(const Duration(seconds: 40));
+    expect(suite.display.mode, DisplayMode.idle);
+    expect(exits(), greaterThan(before), reason: 'the glasses get their screen back');
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('back and forth: follow-ups, but never on and on by itself', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    suite.settings.set('talkMode', 'chat');
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+    w.glasses.touch(23, 'L');
+    await tester.pump();
+    await tester.pump();
+    w.glasses.touch(24, 'L');
+    await tester.pump();
+    w.speech.say('what is on tv', finishing: true);
+    await tester.pump();
+    // A TV in the room keeps "answering": each one sent as a follow-up...
+    var turns = 0;
+    for (var i = 0; i < 10; i++) {
+      w.bridge.addReply('Answer $i. Anything else?');
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      if (!suite.voice.followUp) break;
+      turns++;
+      w.speech.say('the tv says something $i', finishing: true);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2)); // a pause sends it
+    }
+    // ...until the limit: then it stops listening.
+    expect(turns, Suite.maxFollowUps);
+    expect(suite.voice.dictating, isFalse);
+    await tester.pump(const Duration(seconds: 40));
+    expect(suite.display.mode, DisplayMode.idle);
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));

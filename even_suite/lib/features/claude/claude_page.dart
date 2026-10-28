@@ -211,7 +211,7 @@ class _Console extends StatelessWidget {
             lines: chat.state == BridgeState.offline
                 ? ['Start Agent Hub from the Glasses tab, then come back.']
                 : [
-                    'Tap the mic and just talk. It sends when you pause, answers on your glasses and out loud, then listens for a follow-up.',
+                    'Tap the mic and just talk. It sends when you pause and answers on your glasses and out loud. For a back and forth, pick it in ⋯.',
                     'Or hold the left TouchBar, or turn on hands-free and say “${suite.voice.wake.label}…”.',
                   ],
           );
@@ -506,6 +506,8 @@ class _Controls extends StatelessWidget {
               autoOffMinutes: suite.settings.autoOffMinutes,
               onChanged: suite.setHandsFree,
             ),
+            const SizedBox(height: 8),
+            TalkModeChooser(settings: suite.settings, glassesMic: suite.glassesMicInUse),
             const Divider(height: 20),
             if (terminal) ...[
               SwitchListTile(

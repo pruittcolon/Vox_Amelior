@@ -442,6 +442,16 @@ class GlassesDisplay extends ChangeNotifier {
     }
   }
 
+  final _idleWaiters = <Completer<void>>[];
+
+  /// Done sending: the screen on its way has been confirmed (or given up).
+  Future<void> idle() {
+    if (!_sending && _throttle == null) return Future.value();
+    final c = Completer<void>();
+    _idleWaiters.add(c);
+    return c.future;
+  }
+
   Future<void> _render() async {
     if (_sending) {
       _dirty = true;
@@ -462,6 +472,12 @@ class GlassesDisplay extends ChangeNotifier {
       } while (_dirty);
     } finally {
       _sending = false;
+      if (_throttle == null) {
+        for (final c in _idleWaiters) {
+          c.complete();
+        }
+        _idleWaiters.clear();
+      }
     }
   }
 
@@ -524,6 +540,10 @@ class GlassesDisplay extends ChangeNotifier {
     _auto?.cancel();
     _close?.cancel();
     _notice?.cancel();
+    for (final c in _idleWaiters) {
+      c.complete();
+    }
+    _idleWaiters.clear();
     super.dispose();
   }
 }

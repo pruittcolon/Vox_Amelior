@@ -114,6 +114,9 @@ class VoiceController extends ChangeNotifier {
 
   /// The last message sent was spoken (not typed in the box).
   bool lastSpoken = false;
+
+  /// The last message sent was a follow-up (said in the window after an answer).
+  bool lastFollowUp = false;
   bool _draftTyped = false;
   final level = ValueNotifier<double>(0);
 
@@ -207,9 +210,9 @@ class VoiceController extends ChangeNotifier {
 
   /// Right after an answer: listen for a follow-up question for [window],
   /// without the wake word. Saying nothing (or "thanks") ends it.
-  Future<void> startFollowUp(Duration window) async {
+  Future<void> startFollowUp(Duration window, {String source = 'phone'}) async {
     if (dictating) return;
-    await startDictation(followUp: true);
+    await startDictation(followUp: true, source: source);
     _followTimer?.cancel();
     _followTimer = Timer(window, () {
       if (followUp && draft.trim().isEmpty) endFollowUp();
@@ -558,6 +561,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> _submit(String text) async {
     final t = text.trim();
     lastSpoken = !_draftTyped;
+    lastFollowUp = followUp;
     _draftTyped = false;
     EventLog.add('voice', 'submit',
         {'chars': t.length, 'src': source, 'hold': holding || _awaitingRelease, 'followUp': followUp});

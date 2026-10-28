@@ -5,6 +5,7 @@ import '../../app/theme.dart';
 import '../../core/suite.dart';
 import '../../core/voice/speaker.dart';
 import '../../core/voice/wake_word.dart';
+import '../../widgets/voice_widgets.dart';
 
 String effortLabel(String e) => switch (e) {
       'low' => 'low effort',
@@ -152,14 +153,10 @@ class ClaudeSettingsSheet extends StatelessWidget {
             ),
           ],
           const Divider(height: 32),
-          Text('Back and forth', style: Theme.of(context).textTheme.titleMedium),
-          _Switch(
-            'Listen for a follow-up',
-            'After an answer, just keep talking - no button, no wake word. Silence or “thanks” ends it.',
-            s.conversation,
-            (v) => s.set('conversation', v),
-          ),
-          if (s.conversation)
+          Text('Asking', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          TalkModeChooser(settings: s, glassesMic: suite.glassesMicInUse),
+          if (s.talkMode == 'chat')
             _Slider(
               label: 'Wait for a follow-up',
               value: s.followUpSec,
