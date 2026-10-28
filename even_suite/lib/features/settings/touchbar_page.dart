@@ -120,8 +120,8 @@ class TouchBarPage extends StatelessWidget {
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Use the glasses microphone', style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: const Text('Hears you, not the room. Needs the Parakeet speech engine.',
+                  title: const Text('Use the glasses microphone (test)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Hears only you, but much of its sound can get lost. Needs Parakeet.',
                       style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
                   value: s.glassesMic,
                   onChanged: (v) => s.set('glassesMic', v),

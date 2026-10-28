@@ -675,6 +675,7 @@ class Suite extends ChangeNotifier {
   /// used ([followUp]: the window after an answer).
   Future<void> _dictate({bool hold = false, bool pauseSends = false, bool fresh = false, Duration? followUp}) async {
     final glasses = glassesMicInUse;
+    conversation.calmListening = glasses;
     if (glasses) _openGlassesMic();
     final source = glasses ? 'glasses' : 'phone';
     if (followUp != null) {

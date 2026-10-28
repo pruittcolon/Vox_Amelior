@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../log.dart';
+
 /// A Voice Monkey device (it runs an Alexa routine) and what you say for it.
 class LightDevice {
   const LightDevice(this.name, this.device, this.phrases);
@@ -58,11 +60,14 @@ class VoiceMonkey {
   /// The call for [device]: [token] is your Voice Monkey token, or the whole
   /// trigger URL from their dashboard (as the old app kept it).
   static Uri url(String token, String device) {
-    final t = token.trim();
+    var t = token.trim().replaceAll(RegExp(r'\s'), '');
     if (t.startsWith('http')) {
       final u = Uri.parse(t);
-      return u.replace(queryParameters: {...u.queryParameters, 'device': device});
+      // The old v1 links (api.voicemonkey.io, access_token + secret_token) name the device "monkey".
+      final key = u.queryParameters.containsKey('access_token') ? 'monkey' : 'device';
+      return u.replace(queryParameters: {...u.queryParameters, key: device});
     }
+    t = t.replaceFirst(RegExp(r'^token='), '');
     return Uri.https('api-v2.voicemonkey.io', '/trigger', {'token': t, 'device': device});
   }
 
@@ -71,7 +76,19 @@ class VoiceMonkey {
     if (token.trim().isEmpty) return 'Add your Voice Monkey token: More › Lights and TV';
     try {
       final (status, body) = await (get ?? _get)(url(token, d.device)).timeout(const Duration(seconds: 10));
-      if (status != 200) return 'Voice Monkey said $status for ${d.name}';
+      if (status != 200) {
+        var why = '';
+        try {
+          final j = jsonDecode(body);
+          if (j is Map) why = '${j['error'] ?? j['message'] ?? ''}';
+        } catch (_) {}
+        EventLog.add('home', 'voiceMonkey', {'device': d.device, 'status': status, 'error': why});
+        if (why.contains('user could not be retrieved')) {
+          return 'Voice Monkey does not know that token. Copy the API token from voicemonkey.io (Dashboard › API).';
+        }
+        if (why.toLowerCase().contains('device')) return 'Voice Monkey: $why - check the device id ${d.device}';
+        return 'Voice Monkey said $status${why.isEmpty ? '' : ': $why'} (${d.name})';
+      }
       // v2 answers {"success": true}; anything else that is 200 counts too.
       try {
         final j = jsonDecode(body);

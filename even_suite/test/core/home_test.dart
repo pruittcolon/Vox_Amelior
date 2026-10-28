@@ -38,6 +38,13 @@ void main() {
           'https://api-v2.voicemonkey.io/trigger?token=abc123&device=alllights-di8jv');
       expect(VoiceMonkey.url('https://api-v2.voicemonkey.io/trigger?token=abc123', 'alllights-di8jv').queryParameters,
           {'token': 'abc123', 'device': 'alllights-di8jv'});
+      expect(VoiceMonkey.url(' token=abc123 \n', 'alllights-di8jv').queryParameters['token'], 'abc123',
+          reason: 'pasted with its label or a line break');
+      expect(
+          VoiceMonkey.url('https://api.voicemonkey.io/trigger?access_token=a&secret_token=b', 'alllights')
+              .queryParameters,
+          {'access_token': 'a', 'secret_token': 'b', 'monkey': 'alllights'},
+          reason: 'old v1 links name the device "monkey"');
     });
 
     test('trigger: done, refused, no token', () async {
@@ -51,6 +58,9 @@ void main() {
       final no = VoiceMonkey(get: (u) async => (200, '{"success":false,"message":"Invalid token"}'));
       expect(await no.trigger('bad', lights.first), contains('Invalid token'));
       expect(await ok.trigger('', lights.first), contains('Add your Voice Monkey token'));
+      // What Voice Monkey really answers to a token it does not know (checked 28 Oct).
+      final unknown = VoiceMonkey(get: (u) async => (400, '{"status": 400, "error": "Sorry, user could not be retrieved."}'));
+      expect(await unknown.trigger('wrong', lights.first), contains('does not know that token'));
     });
   });
 

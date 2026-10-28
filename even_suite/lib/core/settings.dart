@@ -40,7 +40,7 @@ class Settings extends ChangeNotifier {
   int doneBlinkMs = 3000; // how long the "*" shows when Claude is done
   int termShowSec = 30; // after you send to Termux: its screen on the glasses this long after it last changed (0 = answer like chat, -1 = until you close it)
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
-  bool glassesMic = true; // listen through the glasses' mic (hears you, not the room) when Parakeet is the speech engine
+  bool glassesMic = false; // listen through the glasses' mic (with Parakeet) - test: on 28 Oct most of its sound got lost
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
   int bmpGapMs = 5; // gap between picture packets per arm (tuning)
   int bmpChunk = 194; // picture bytes per packet: 194 (demo) or 236 (tuning)

@@ -82,6 +82,12 @@ class Conversation extends ChangeNotifier {
 
   int _frame = 0;
   Timer? _tick;
+
+  /// Listening through the glasses' microphone: no animated dots - every
+  /// screen sent then shares the arm's Bluetooth link with the sound, and the
+  /// sound loses (the screen changes only when the words do).
+  bool calmListening = false;
+  String _drawnDraft = '';
   Timer? _nothingTimer;
   DateTime? _gotItUntil;
 
@@ -126,6 +132,8 @@ class Conversation extends ChangeNotifier {
     _listenAi = ai;
     _set(TalkStage.listening);
     _startTick(const Duration(milliseconds: 600));
+    if (calmListening && !first && text == _drawnDraft) return; // nothing new to show
+    _drawnDraft = text;
     if (first && _canShow) {
       // At once: this is what replaces the glasses' own listening screen.
       display.showStatus(listeningScreen(draft, level, _frame, header: _header, footer: _footer, prompt: _prompt),
@@ -407,7 +415,8 @@ class Conversation extends ChangeNotifier {
           return;
         }
         // While words are coming in they are what goes to the glasses, not the dots.
-        if (stage == TalkStage.listening && DateTime.now().difference(_draftAt) < const Duration(milliseconds: 700)) {
+        if (stage == TalkStage.listening &&
+            (calmListening || DateTime.now().difference(_draftAt) < const Duration(milliseconds: 700))) {
           return;
         }
         _draw();
