@@ -38,14 +38,17 @@ void main() {
 
     // Alternating, until stopped.
     await send.start();
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await Future<void>.delayed(const Duration(milliseconds: 2000));
     await send.stop();
     final heights = [
       for (final p in glasses.sent['L']!)
         if (p[0] == 0x26 && p[5] == 1) p[6],
     ];
-    expect(heights.length, greaterThan(4));
-    expect(heights.sublist(2, 6), [7, 3, 7, 3]);
+    expect(heights.length, greaterThanOrEqualTo(6));
+    final after = heights.sublist(2); // the two one-offs came first
+    for (var i = 0; i < after.length; i++) {
+      expect(after[i], i.isEven ? 7 : 3, reason: 'top, bottom, top, bottom ...');
+    }
     expect(send.running, isFalse);
     ble.dispose();
   });
