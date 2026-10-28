@@ -166,10 +166,11 @@ class PhoneActions {
     if (at is String) t = DateTime.tryParse(at);
     if (t == null) return null;
     // Claude may not know the time of day: a clock time already past is the next one.
-    while (t.isBefore(now.subtract(const Duration(minutes: 1)))) {
-      t = t.add(const Duration(days: 1));
+    var next = t;
+    while (next.isBefore(now.subtract(const Duration(minutes: 1)))) {
+      next = next.add(const Duration(days: 1));
     }
-    return t;
+    return next;
   }
 
   @visibleForTesting

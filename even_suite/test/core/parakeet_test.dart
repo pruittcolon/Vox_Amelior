@@ -10,8 +10,7 @@ import '../helpers/fakes.dart';
 
 /// Talking = any loud sample; a stretch ends after [quietChunks] quiet chunks.
 class _FakeVad implements SpeechDetector {
-  _FakeVad({this.quietChunks = 3});
-  final int quietChunks;
+  static const quietChunks = 3;
   final _cur = <double>[];
   final _done = <Float32List>[];
   int _quiet = 0;
