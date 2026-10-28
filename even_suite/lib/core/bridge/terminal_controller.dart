@@ -46,6 +46,9 @@ class TerminalController extends ChangeNotifier {
   /// What the last line typed in did: sent, typed, menu, stuck (or an error).
   String lastSend = '';
 
+  /// The session you picked is gone (closed elsewhere): pick another.
+  void Function()? onSessionGone;
+
   String _hash = ''; // last screen seen
   String _serverHash = ''; // the bridge's hash of it (long poll key)
   bool _looping = false;
@@ -121,6 +124,7 @@ class TerminalController extends ChangeNotifier {
       sessions = await client.sessions();
       sessionsSupported = true;
       online = true;
+      if (sessions.isNotEmpty && current == null) onSessionGone?.call();
     } on BridgeException catch (e) {
       // An Agent Hub from before sessions: just the three fixed terminals.
       if (e.message.contains('404')) {
@@ -131,10 +135,10 @@ class TerminalController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Open another Claude Code (or shell) and switch to it. Returns its name.
-  Future<String> openSession({String kind = 'claude', bool resume = false}) async {
-    final name = await client.newSession(kind: kind, resume: resume);
-    EventLog.add('terminal', 'open', {'session': name, 'kind': kind, 'resume': resume});
+  /// Open a Claude Code (or shell), fresh or picking up [resumeId]. Returns its name.
+  Future<String> openSession({String kind = 'claude', String resumeId = ''}) async {
+    final name = await client.newSession(kind: kind, resumeId: resumeId);
+    EventLog.add('terminal', 'open', {'session': name, 'kind': kind, 'resume': resumeId});
     await refreshSessions();
     return name;
   }

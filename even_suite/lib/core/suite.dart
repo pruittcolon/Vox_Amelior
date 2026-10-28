@@ -13,14 +13,12 @@ import 'bridge/work_controller.dart';
 import 'glasses/claude_panel.dart';
 import 'glasses/dashboard.dart';
 import 'glasses/display_position.dart';
-import 'glasses/flicker.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
 import 'glasses/look_layout.dart';
 import 'log.dart';
 import 'phone_actions.dart';
 import 'phone_notifications.dart';
-import 'screen/picture_lab.dart';
 import 'screen/screen_mirror.dart';
 import 'settings.dart';
 import 'system.dart';
@@ -59,7 +57,13 @@ class Suite extends ChangeNotifier {
     this.client = client ?? BridgeClient(settings.bridgeUrl);
     chat = ChatController(this.client);
     work = WorkController(this.client);
-    terminal = TerminalController(this.client, display);
+    terminal = TerminalController(this.client, display)
+      ..onSessionGone = () {
+        // The one picked was closed: the Termux Claude (or the first one left).
+        final next = terminal.claudes.isNotEmpty ? terminal.claudes.first.name : terminal.sessions.first.name;
+        settings.set('terminalAgent', next);
+        terminal.setSession(next);
+      };
     mirror = ScreenMirror(screen ?? PlatformScreen(), proto)..onFallback = _toast;
     // Screen sharing owns the glasses while it runs: our screen (and its
     // auto-close, which would end the sharing) steps aside.
@@ -72,7 +76,7 @@ class Suite extends ChangeNotifier {
     // Claude's screen closes by itself, but not while you or the phone are talking.
     display.holdOpen = () => narrator.speaking || voice.dictating || conversation.busy;
     dashboard = Dashboard(proto, weatherService: weather ?? WeatherService(location: system.location))
-      ..paused = () => mirror.running || flicker.running || display.flashing;
+      ..paused = () => mirror.running || display.flashing;
     phone = PhoneNotifications(proto)..onForwarded = dashboard.addPhoneNote;
     voice = VoiceController(
       speech,
@@ -166,35 +170,10 @@ class Suite extends ChangeNotifier {
   late final PhoneNotifications phone;
   late final VoiceController voice;
   late final ScreenMirror mirror;
-  late final PictureLab lab = PictureLab(proto);
   late final PhoneActions phoneActions = PhoneActions(system);
 
   /// Text height (the Text height page); nothing else draws while it is open.
   late final DisplayPosition position = DisplayPosition(proto);
-  late final Flicker flicker = Flicker(proto);
-
-  /// Flicker owns the glasses while it runs: screen sharing stops and the
-  /// reply screen steps aside.
-  Future<void> startFlicker() async {
-    if (!ble.isConnected) {
-      _toast('Connect your glasses first');
-      return;
-    }
-    if (mirror.running) await mirror.stop(clearGlasses: false);
-    display.onGlassesExit();
-    await flicker.start();
-  }
-
-  /// Picture test (stops screen sharing first so nothing else is sending).
-  Future<void> runPictureTest() async {
-    if (!ble.isConnected) {
-      _toast('Connect your glasses first');
-      return;
-    }
-    if (mirror.running) await mirror.stop(clearGlasses: false);
-    await lab.run();
-    _toast('Picture test done - say "check the logs"');
-  }
 
   StreamSubscription<GlassesEvent>? _events;
   StreamSubscription<Map>? _phoneNotes;
@@ -250,8 +229,8 @@ class Suite extends ChangeNotifier {
   final tabRequests = StreamController<String>.broadcast();
 
   /// The glasses are free for Claude's screens (not sharing the phone screen,
-  /// not running Flicker, replies switched on).
-  bool _glassesFree() => ble.isConnected && settings.repliesOnGlasses && !mirror.running && !flicker.running;
+  /// replies switched on).
+  bool _glassesFree() => ble.isConnected && settings.repliesOnGlasses && !mirror.running;
 
   void _toast(String msg) => toasts.add(msg);
 
@@ -318,7 +297,8 @@ class Suite extends ChangeNotifier {
     final dashKey = '${dashboard.mode}|${dashboard.pane}|${dashboard.claudePanel}|${dashboard.layout}|${dashboard.h24}|${dashboard.fahrenheit}|'
         '${dashboard.weatherOn}|${dashboard.city}|${dashboard.slots}|${dashboard.custom}|${dashboard.enabled}';
     dashboard
-      ..enabled = settings.dashSync
+      // Always kept filled: left alone, the Even app's last write shows.
+      ..enabled = true
       ..mode = const ['full', 'dual', 'minimal'].indexOf(settings.dashMode).clamp(0, 2)
       ..pane = const ['notes', 'stocks', 'news', 'calendar', 'map'].indexOf(settings.dashRight).clamp(0, 4)
       ..claudePanel = settings.dashRight == 'claude'
@@ -381,26 +361,6 @@ class Suite extends ChangeNotifier {
     proto.parallelText = settings.bleParallel;
     voice.stableAfter = Duration(milliseconds: settings.touchPauseMs);
     dashboard.notesOn = settings.lookMode != 'custom';
-    flicker
-      ..topText = settings.flickTop
-      ..bottomText = settings.flickBottom
-      ..topMs = settings.flickTopMs
-      ..bottomMs = settings.flickBottomMs
-      ..topHeight = settings.flickTopPos
-      ..bottomHeight = settings.flickBottomPos
-      ..depth = settings.flickDepth
-      ..homeHeight = settings.flickHomePos
-      ..homeDepth = settings.flickHomeDepth
-      ..method = settings.flickMethod
-      ..clearFirst = settings.flickClear
-      ..clearMs = settings.flickClearMs
-      ..settleMs = settings.flickRedrawMs
-      ..previewMs = settings.flickPreviewMs
-      ..waitForReplies = settings.flickWait
-      ..what = settings.flickWhat
-      ..arms = settings.flickMoveTo
-      ..autoStopSec = settings.flickAutoStop
-      ..changed();
     terminal.mirrorIdle = Duration(minutes: settings.autoOffMinutes);
     if (terminal.session != settings.terminalAgent) terminal.setSession(settings.terminalAgent);
     system.volumeKeys(settings.volumeKeysScroll);
@@ -443,7 +403,6 @@ class Suite extends ChangeNotifier {
     if (connected == _lastConnected) return;
     _lastConnected = connected;
     _heartbeat?.cancel();
-    if (!connected && flicker.running) flicker.stop(reason: 'link', restore: false);
     if (connected) {
       dashboard.onConnected();
     } else {
@@ -477,7 +436,7 @@ class Suite extends ChangeNotifier {
   }
 
   Future<void> _askBattery() async {
-    if (!ble.isConnected || mirror.running || flicker.running) return;
+    if (!ble.isConnected || mirror.running) return;
     if (DateTime.now().difference(_batteryAsked) < const Duration(seconds: 20)) return;
     _batteryAsked = DateTime.now();
     try {
@@ -495,7 +454,7 @@ class Suite extends ChangeNotifier {
     // A late answer to our own packet (same sequence number) is not someone else's.
     if (proto.isOurDashSeq(r.data[3])) return;
     dashboard.noteForeign();
-    if (settings.lookMode != 'dashboard' || !settings.dashSync) return;
+    if (settings.lookMode != 'dashboard') return;
     _foreignTimer?.cancel();
     _foreignTimer = Timer(const Duration(milliseconds: 900), () {
       // At most every 20 s, whatever the other app does.
@@ -902,11 +861,8 @@ class Suite extends ChangeNotifier {
       _onNothingHeard();
       return;
     }
-    // The session picked was closed elsewhere: the Termux one instead.
-    if (terminal.sessions.isNotEmpty && terminal.current == null && terminal.session != 'claude') {
-      _toast('${terminal.label} is gone - typing into Claude Code');
-      useSession('claude');
-    }
+    // The session picked was closed elsewhere: another one instead.
+    if (terminal.sessions.isNotEmpty && terminal.current == null) terminal.onSessionGone?.call();
     final label = terminal.label;
     // The hooks report Claude Code's steps and answer (Work tab).
     final follow = terminal.isClaude && (chat.hub?.hook == true || work.items.any((i) => !i.isMessage));
@@ -1020,7 +976,8 @@ class Suite extends ChangeNotifier {
 
   void _followTerminalJob(List<WorkJob> jobs) {
     final ask = _terminalAsk;
-    if (ask == null || conversation.who != 'Claude Code' || !conversation.busy) return;
+    // Only while that terminal question is still waiting (any session's label).
+    if (ask == null || !conversation.busy) return;
     for (final j in jobs) {
       if (sameAsk(ask, j.prompt)) {
         conversation.externalProgress(j.step, j.recent);
@@ -1057,7 +1014,7 @@ class Suite extends ChangeNotifier {
   /// "*" for 3 seconds: barely there, but you see Claude is done. Only when
   /// the glasses show nothing of ours.
   bool _doneBlink() {
-    if (!settings.doneBlink || mirror.running || flicker.running || position.open) return false;
+    if (!settings.doneBlink || mirror.running || position.open) return false;
     if (voice.dictating || conversation.busy) return false;
     return display.flash('*', duration: Duration(milliseconds: settings.doneBlinkMs));
   }
@@ -1101,7 +1058,7 @@ class Suite extends ChangeNotifier {
   void _onReminder(String id, String text) {
     HapticFeedback.heavyImpact();
     EventLog.add('phone', 'reminder', {'id': id});
-    if (ble.isConnected && !mirror.running && !flicker.running && !voice.dictating && !conversation.busy) {
+    if (ble.isConnected && !mirror.running && !voice.dictating && !conversation.busy) {
       display.showText(text.startsWith('Timer done') ? text : 'Reminder\n$text', title: 'Reminder');
     }
   }
@@ -1349,7 +1306,7 @@ class Suite extends ChangeNotifier {
   /// You looked up: your own layout replaces the glasses' dashboard, and
   /// keeps the clock and Claude's work fresh while you look.
   void lookUp({Duration lasts = const Duration(seconds: 45)}) {
-    if (!ble.isConnected || mirror.running || flicker.running || position.open) return;
+    if (!ble.isConnected || mirror.running || position.open) return;
     // Never over something you are reading, saying or waiting for.
     if (display.mode != DisplayMode.idle && !_lookShowing) return;
     if (voice.dictating || conversation.busy) return;
@@ -1464,7 +1421,6 @@ class Suite extends ChangeNotifier {
     settings.removeListener(applySettings);
     voice.dispose();
     mirror.dispose();
-    flicker.dispose();
     chat.dispose();
     terminal.dispose();
     display.dispose();

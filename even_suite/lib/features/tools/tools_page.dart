@@ -4,7 +4,6 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../widgets/common.dart';
 import '../claude/claude_settings_sheet.dart';
-import '../flicker/flicker_page.dart';
 import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
 import '../screen/screen_page.dart';
@@ -75,10 +74,6 @@ class ToolsPage extends StatelessWidget {
               'Model, effort, the speaking voice, follow-ups, trigger words', () => ClaudeSettingsSheet.show(context)),
           _Tool(Icons.graphic_eq_rounded, AppColors.hud, 'Speech engine',
               'Android, or Parakeet on the phone (fast, accurate, offline)', () => push(const SpeechPage())),
-        ]),
-        _Group('Labs', [
-          _Tool(Icons.swap_vert_rounded, AppColors.glasses, 'Flicker (lab)', 'Text at a high and a low spot, switching',
-              () => pushBody('Flicker', const FlickerPage())),
         ]),
         _Group('App', [
           _Tool(Icons.record_voice_over_rounded, AppColors.claude, 'How to talk to it',

@@ -214,6 +214,26 @@ class TermScreen {
   const TermScreen(this.text, this.hash, {this.cols = 0, this.rows = 0});
 }
 
+/// A past Claude Code conversation (to pick up again in a new session).
+class PastConversation {
+  final String id;
+  final String title; // the first thing you asked
+  final String cwd; // the folder it ran in
+  final double updated; // seconds since 1970
+  final bool active; // written to in the last two minutes (open somewhere)
+  const PastConversation(this.id, this.title, {this.cwd = '', this.updated = 0, this.active = false});
+
+  factory PastConversation.fromMap(Map m) => PastConversation(
+        '${m['id'] ?? ''}',
+        '${m['title'] ?? ''}',
+        cwd: '${m['cwd'] ?? ''}',
+        updated: (m['updated'] as num?)?.toDouble() ?? 0,
+        active: m['active'] == true,
+      );
+
+  DateTime get time => DateTime.fromMillisecondsSinceEpoch((updated * 1000).round());
+}
+
 /// A terminal in Termux (a tmux session): the Claude Code you use in Termux
 /// ("claude"), more opened from the app ("claude-2", ...), shells.
 class TermSession {
@@ -239,11 +259,11 @@ class TermSession {
 
   bool get isClaude => kind == 'claude';
 
-  /// "Claude Code" (the Termux one), "Claude 2", "Shell", "Shell 2", "Antigravity".
+  /// "Termux Claude" (the one Termux shows), "Claude 2", "Shell", "Shell 2", "Antigravity".
   String get label => labelFor(name, main: main);
 
   static String labelFor(String name, {bool? main}) {
-    if (main ?? name == 'claude') return 'Claude Code';
+    if (main ?? name == 'claude') return 'Termux Claude';
     final m = RegExp(r'^(claude|shell|agy)(?:-(\d+))?$').firstMatch(name);
     if (m == null) return name;
     final base = switch (m.group(1)) { 'claude' => 'Claude', 'agy' => 'Antigravity', _ => 'Shell' };
@@ -440,11 +460,18 @@ class BridgeClient {
     return [for (final x in (m['sessions'] as List? ?? const [])) TermSession.fromMap(x as Map)];
   }
 
-  /// Open another Claude Code ([kind] 'claude') or shell; returns its name.
-  /// [resume] picks up the last conversation instead of a fresh one.
-  Future<String> newSession({String kind = 'claude', bool resume = false}) async {
-    final m = await _send('POST', '/api/sessions', body: {'kind': kind, 'resume': resume});
+  /// Open a Claude Code ([kind] 'claude') or a shell; returns its name.
+  /// [resumeId] picks up that past conversation instead of a fresh one.
+  Future<String> newSession({String kind = 'claude', String resumeId = ''}) async {
+    final m = await _send('POST', '/api/sessions',
+        body: {'kind': kind, if (resumeId.isNotEmpty) 'resume_id': resumeId});
     return '${m['name'] ?? ''}';
+  }
+
+  /// Your recent Claude Code conversations, newest first.
+  Future<List<PastConversation>> conversations() async {
+    final m = await _send('GET', '/api/conversations?limit=20', timeout: const Duration(seconds: 8));
+    return [for (final x in (m['conversations'] as List? ?? const [])) PastConversation.fromMap(x as Map)];
   }
 
   /// End a session; returns why not (the Termux one stays), or null.

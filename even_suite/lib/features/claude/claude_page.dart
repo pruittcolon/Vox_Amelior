@@ -93,11 +93,19 @@ class _ClaudePageState extends State<ClaudePage> {
     super.dispose();
   }
 
+  /// Chat: sent as a message. Terminal: typed in word for word, then Enter
+  /// (an empty box just presses Enter).
   Future<void> _send() async {
-    final text = _draft.text.trim();
-    if (text.isEmpty) return;
+    final text = _draft.text;
+    if (suite.settings.target == Target.terminal) {
+      _draft.clear();
+      suite.voice.setDraft('');
+      if (text.trim().isEmpty) return suite.terminal.key('Enter');
+      return suite.typeIntoTerminal(text);
+    }
+    if (text.trim().isEmpty) return;
     _focus.unfocus();
-    await suite.voice.send(text);
+    await suite.voice.send(text.trim());
   }
 
   Future<void> _talk() async {
@@ -107,6 +115,9 @@ class _ClaudePageState extends State<ClaudePage> {
     }
     await suite.toggleTalk();
   }
+
+  /// The keys a phone keyboard lacks (Esc, arrows, Tab ...), under the terminal.
+  bool _keys = false;
 
   @override
   Widget build(BuildContext context) {
@@ -118,12 +129,21 @@ class _ClaudePageState extends State<ClaudePage> {
           _Header(suite: suite),
           SessionBar(suite: suite, active: widget.active, padding: const EdgeInsets.fromLTRB(12, 2, 12, 6)),
           if (terminal)
-            Expanded(child: TerminalPane(suite: suite, draft: _draft, focus: _focus, onTalk: _talk))
+            Expanded(child: TerminalPane(suite: suite, keys: _keys))
           else ...[
             StageStrip(talk: suite.conversation, voice: suite.voice, narrator: suite.narrator),
             Expanded(child: _Console(suite: suite)),
-            _VoiceDock(suite: suite, draft: _draft, focus: _focus, onSend: _send, onTalk: _talk),
           ],
+          _Dock(
+            suite: suite,
+            draft: _draft,
+            focus: _focus,
+            terminal: terminal,
+            keys: _keys,
+            onKeys: () => setState(() => _keys = !_keys),
+            onSend: _send,
+            onTalk: _talk,
+          ),
         ]);
       },
     );
@@ -137,9 +157,9 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 0, 2),
+      padding: const EdgeInsets.fromLTRB(16, 6, 12, 4),
       child: ListenableBuilder(
-        listenable: Listenable.merge([suite.settings, suite.terminal, suite.ble]),
+        listenable: Listenable.merge([suite.settings, suite.terminal]),
         builder: (context, _) {
           final terminal = suite.settings.target == Target.terminal;
           final term = suite.terminal;
@@ -150,84 +170,19 @@ class _Header extends StatelessWidget {
             _ => '',
           };
           return Row(children: [
+            Text('Claude', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(width: 10),
             Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Claude',
-                    style: Theme.of(context).textTheme.headlineSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(
-                  terminal
-                      ? '${term.label}$state${term.current?.main == true ? ' · in Termux' : ''}'
-                      : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)} · '
-                          '${accessLabel(suite.settings.claudeAccess)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
-                ),
-              ]),
+              child: Text(
+                terminal
+                    ? '${term.label}$state'
+                    : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+              ),
             ),
             GlassesBattery(ble: suite.ble),
-            if (terminal)
-              IconButton(
-                tooltip: term.mirroring ? 'Stop showing it on the glasses' : 'Show it on the glasses',
-                isSelected: term.mirroring,
-                selectedIcon: const Icon(Icons.visibility_rounded, color: AppColors.hud),
-                icon: const Icon(Icons.visibility_outlined),
-                onPressed: () {
-                  if (!term.mirroring && !suite.ble.isConnected) {
-                    return showToast(context, 'Connect your glasses first');
-                  }
-                  term.setMirror(!term.mirroring);
-                },
-              )
-            else
-              IconButton(
-                tooltip: 'Model, voice and conversation',
-                onPressed: () => ClaudeSettingsSheet.show(context),
-                icon: const Icon(Icons.tune_rounded),
-              ),
-            PopupMenuButton<String>(
-              tooltip: 'More',
-              icon: const Icon(Icons.more_vert_rounded),
-              onSelected: (v) async {
-                switch (v) {
-                  case 'stop':
-                    await suite.chat.stopReply();
-                    await suite.stopSpeaking();
-                  case 'interrupt':
-                    await term.key('Escape');
-                  case 'settings':
-                    if (context.mounted) ClaudeSettingsSheet.show(context);
-                  case 'new':
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (c) => AlertDialog(
-                        title: const Text('Start a new chat?'),
-                        content: const Text('Claude forgets this conversation. The web page shows the new chat too.'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Keep')),
-                          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('New chat')),
-                        ],
-                      ),
-                    );
-                    if (ok == true) {
-                      try {
-                        await suite.chat.newChat();
-                      } catch (e) {
-                        if (context.mounted) showToast(context, '$e');
-                      }
-                    }
-                }
-              },
-              itemBuilder: (_) => terminal
-                  ? const [
-                      PopupMenuItem(value: 'interrupt', child: Text('Stop what it is doing (Esc)')),
-                      PopupMenuItem(value: 'settings', child: Text('Voice and replies')),
-                    ]
-                  : const [
-                      PopupMenuItem(value: 'stop', child: Text('Stop the reply')),
-                      PopupMenuItem(value: 'new', child: Text('New chat')),
-                    ],
-            ),
           ]);
         },
       ),
@@ -416,13 +371,26 @@ class _WorkingState extends State<_Working> with SingleTickerProviderStateMixin 
   }
 }
 
-class _VoiceDock extends StatelessWidget {
-  const _VoiceDock(
-      {required this.suite, required this.draft, required this.focus, required this.onSend, required this.onTalk});
+/// One slim row under the chat or terminal: more controls, the keys
+/// (terminal), what to send, and the mic.
+class _Dock extends StatelessWidget {
+  const _Dock({
+    required this.suite,
+    required this.draft,
+    required this.focus,
+    required this.terminal,
+    required this.keys,
+    required this.onKeys,
+    required this.onSend,
+    required this.onTalk,
+  });
 
   final Suite suite;
   final TextEditingController draft;
   final FocusNode focus;
+  final bool terminal;
+  final bool keys;
+  final VoidCallback onKeys;
   final VoidCallback onSend;
   final VoidCallback onTalk;
 
@@ -431,93 +399,171 @@ class _VoiceDock extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(top: BorderSide(color: AppColors.outline)),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        ListenableBuilder(
-          listenable: suite.settings,
-          builder: (context, _) => HandsFreeTile(
-            voice: suite.voice,
-            autoOffMinutes: suite.settings.autoOffMinutes,
-            onChanged: suite.setHandsFree,
-          ),
+      padding: const EdgeInsets.fromLTRB(6, 6, 10, 8),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        IconButton(
+          tooltip: 'Controls',
+          onPressed: () => _Controls.show(context, suite, terminal: terminal),
+          icon: const Icon(Icons.more_horiz_rounded),
         ),
-        const SizedBox(height: 8),
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Expanded(
-            child: TextField(
-              controller: draft,
-              focusNode: focus,
-              minLines: 1,
-              maxLines: 4,
-              textCapitalization: TextCapitalization.sentences,
-              onChanged: suite.voice.setDraft,
-              decoration: const InputDecoration(hintText: 'Type, or tap the mic and talk…'),
+        if (terminal)
+          IconButton(
+            tooltip: keys ? 'Hide the keys' : 'Esc, arrows, Tab ...',
+            isSelected: keys,
+            selectedIcon: const Icon(Icons.keyboard_hide_rounded, color: AppColors.glasses),
+            onPressed: onKeys,
+            icon: const Icon(Icons.keyboard_alt_outlined),
+          ),
+        Expanded(
+          child: TextField(
+            controller: draft,
+            focusNode: focus,
+            minLines: 1,
+            maxLines: 4,
+            autocorrect: !terminal,
+            enableSuggestions: !terminal,
+            textCapitalization: terminal ? TextCapitalization.none : TextCapitalization.sentences,
+            textInputAction: terminal ? TextInputAction.send : TextInputAction.newline,
+            onSubmitted: terminal ? (_) => onSend() : null,
+            // Kept in step with the mic's draft (else that clears what you type).
+            onChanged: suite.voice.setDraft,
+            style: terminal ? const TextStyle(fontFamily: 'monospace') : null,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: terminal ? 'Message ${suite.terminal.label}…' : 'Type, or tap the mic…',
             ),
           ),
-          const SizedBox(width: 8),
-          ListenableBuilder(
-            listenable: Listenable.merge([draft, suite.chat]),
-            builder: (context, _) => SizedBox(
-              width: 52,
-              height: 52,
-              child: IconButton.filled(
-                tooltip: 'Send',
-                style: IconButton.styleFrom(backgroundColor: AppColors.claude, foregroundColor: const Color(0xFF1F0E08)),
-                onPressed: draft.text.trim().isEmpty ? null : onSend,
-                icon: const Icon(Icons.arrow_upward_rounded),
-              ),
+        ),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 44,
+          height: 44,
+          child: IconButton.filled(
+            tooltip: terminal ? 'Send (Enter)' : 'Send',
+            style: IconButton.styleFrom(
+              backgroundColor: terminal ? AppColors.glasses : AppColors.claude,
+              foregroundColor: const Color(0xFF0B1220),
             ),
-          ),
-        ]),
-        const SizedBox(height: 8),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          _DockButton(icon: Icons.keyboard_arrow_up_rounded, label: 'Up', onTap: suite.display.up),
-          TalkButton(
-            voice: suite.voice,
-            talk: suite.conversation,
-            narrator: suite.narrator,
-            onTap: onTalk,
-          ),
-          _DockButton(icon: Icons.keyboard_arrow_down_rounded, label: 'Down', onTap: suite.display.down),
-        ]),
-        const SizedBox(height: 4),
-        ListenableBuilder(
-          listenable: suite.settings,
-          builder: (context, _) => TalkStatus(
-            voice: suite.voice,
-            talk: suite.conversation,
-            narrator: suite.narrator,
-            target: suite.settings.target == Target.terminal ? 'the terminal' : 'Claude',
+            onPressed: onSend,
+            icon: Icon(terminal ? Icons.keyboard_return_rounded : Icons.arrow_upward_rounded, size: 20),
           ),
         ),
+        const SizedBox(width: 6),
+        TalkButton(voice: suite.voice, talk: suite.conversation, narrator: suite.narrator, size: 44, onTap: onTalk),
       ]),
     );
   }
 }
 
-class _DockButton extends StatelessWidget {
-  const _DockButton({required this.icon, required this.label, required this.onTap});
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+/// Everything else, one tap away: page the glasses, hands-free, show the
+/// terminal on the glasses, stop, new chat, settings.
+class _Controls extends StatelessWidget {
+  const _Controls({required this.suite, required this.terminal});
+  final Suite suite;
+  final bool terminal;
+
+  static Future<void> show(BuildContext context, Suite suite, {required bool terminal}) =>
+      showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: AppColors.surface,
+        builder: (_) => SuiteScope(suite: suite, child: _Controls(suite: suite, terminal: terminal)),
+      );
 
   @override
   Widget build(BuildContext context) {
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      SizedBox(
-        width: 52,
-        height: 52,
-        child: IconButton.filledTonal(
-          tooltip: 'Glasses: page ${label.toLowerCase()}',
-          onPressed: onTap,
-          icon: Icon(icon, size: 30),
+    final term = suite.terminal;
+    Widget glassesButton(IconData icon, String label, VoidCallback onTap) => Expanded(
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            onPressed: onTap,
+            icon: Icon(icon),
+            label: Text(label),
+          ),
+        );
+    return SafeArea(
+      child: ListenableBuilder(
+        listenable: Listenable.merge([suite.settings, term, suite.voice]),
+        builder: (context, _) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Text('On the glasses', style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Row(children: [
+              glassesButton(Icons.keyboard_arrow_up_rounded, 'Page up', suite.display.up),
+              const SizedBox(width: 8),
+              glassesButton(Icons.keyboard_arrow_down_rounded, 'Page down', suite.display.down),
+              const SizedBox(width: 8),
+              glassesButton(Icons.layers_clear_rounded, 'Clear', suite.display.clear),
+            ]),
+            const SizedBox(height: 10),
+            HandsFreeTile(
+              voice: suite.voice,
+              autoOffMinutes: suite.settings.autoOffMinutes,
+              onChanged: suite.setHandsFree,
+            ),
+            const Divider(height: 20),
+            if (terminal) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.visibility_rounded, color: AppColors.hud),
+                title: Text('Show ${term.label} on the glasses'),
+                value: term.mirroring,
+                onChanged: (v) {
+                  if (v && !suite.ble.isConnected) return showToast(context, 'Connect your glasses first');
+                  term.setMirror(v);
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.stop_circle_outlined, color: AppColors.error),
+                title: const Text('Stop what it is doing (Esc)'),
+                onTap: () {
+                  term.key('Escape');
+                  Navigator.pop(context);
+                },
+              ),
+            ] else ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.stop_circle_outlined, color: AppColors.error),
+                title: const Text('Stop the reply'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await suite.chat.stopReply();
+                  await suite.stopSpeaking();
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.restart_alt_rounded),
+                title: const Text('New chat'),
+                subtitle: const Text('Claude forgets this conversation'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  try {
+                    await suite.chat.newChat();
+                  } catch (e) {
+                    suite.toasts.add('$e');
+                  }
+                },
+              ),
+            ],
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.tune_rounded, color: AppColors.claude),
+              title: const Text('Model, voice and replies'),
+              onTap: () {
+                Navigator.pop(context);
+                ClaudeSettingsSheet.show(context);
+              },
+            ),
+          ]),
         ),
       ),
-      const SizedBox(height: 4),
-      Text('Glasses ${label.toLowerCase()}', style: const TextStyle(color: AppColors.muted, fontSize: 11.5)),
-    ]);
+    );
   }
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Starts Agent Hub inside Ubuntu: Claude Code and Antigravity in tmux sessions,
-# the web server in the foreground, and Chrome pointed at it.
+# Starts Agent Hub inside Ubuntu: the web server in the foreground (and Chrome
+# pointed at it). It shows and types into the tmux sessions in Termux's shared
+# tmp folder - the same ones your `claude` command uses.
 # Run from Termux with `all` (see ~/.bashrc on the Termux side).
 
 PORT="${HUB_PORT:-8787}"
@@ -8,6 +9,8 @@ URL="http://127.0.0.1:$PORT/"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export PATH="$HOME/.local/bin:$PATH"
 export LANG="${LANG:-C.UTF-8}"
+# Shared with the Termux `claude` command (proot keeps /tmp sockets private).
+[ -d /data/data/com.termux/files/usr/tmp ] && export TMUX_TMPDIR="${TMUX_TMPDIR:-/data/data/com.termux/files/usr/tmp}"
 
 open_chrome() {
   am start -a android.intent.action.VIEW -d "$URL" -p com.android.chrome >/dev/null 2>&1 \
@@ -25,8 +28,7 @@ fi
 termux-wake-lock 2>/dev/null
 
 printf '\n  \033[38;2;232;132;107m●\033[38;2;122;167;255m●\033[0m  \033[1mAgent Hub\033[0m\n\n'
-echo "  Claude Code   -> tmux session 'claude'  (type 'claude' in another Termux tab to attach)"
-echo "  Antigravity   -> tmux session 'agy'"
+echo "  Claude Code   -> your 'claude' sessions in Termux (the app lists and opens them)"
 echo "  Web page      -> $URL"
 echo
 echo "  Leave this screen open. Press Ctrl+C here to stop the web page."

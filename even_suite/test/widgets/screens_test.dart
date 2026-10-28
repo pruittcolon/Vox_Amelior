@@ -14,7 +14,6 @@ import 'package:even_suite/core/settings.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/core/voice/voice_commands.dart';
 import 'package:even_suite/features/claude/claude_page.dart';
-import 'package:even_suite/features/flicker/flicker_page.dart';
 import 'package:even_suite/features/home/home_page.dart';
 import 'package:even_suite/features/lookup/look_designer.dart';
 import 'package:even_suite/features/lookup/lookup_page.dart';
@@ -243,6 +242,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(suite.settings.target, Target.terminal);
       expect(find.byType(TerminalScreen), findsOneWidget);
+      await tester.tap(find.byTooltip('Esc, arrows, Tab ...'));
+      await tester.pump();
       expect(find.text('Esc'), findsOneWidget, reason: 'the keys a phone keyboard lacks');
       await _shot(tester, '5_terminal$tag');
       suite.useChat();
@@ -266,45 +267,6 @@ void main() {
       await suite.mirror.stop();
       await tester.pump();
       await back();
-
-      // Flicker (lab), running: text and display height switch on the glasses.
-      await openTool('Flicker (lab)');
-      await tester.tap(find.text('Start flicker'));
-      await tester.pump();
-      await _shot(tester, '5d_flicker$tag');
-      expect(suite.flicker.running, isTrue);
-      final flickerList = find.descendant(of: find.byType(FlickerPage), matching: find.byType(Scrollable)).first;
-      String? boxIn(String card) {
-        final f = find.descendant(
-            of: find.byKey(ValueKey(card), skipOffstage: false),
-            matching: find.byType(EditableText),
-            skipOffstage: false);
-        return f.evaluate().isEmpty ? null : tester.widget<EditableText>(f.first).controller.text.split('\n').first;
-      }
-
-      // Each text box keeps its own text when rows above it appear (running).
-      await tester.scrollUntilVisible(find.text('Top text'), 150, scrollable: flickerList);
-      await tester.pump();
-      expect(boxIn('flick-top'), 'TOP');
-      await tester.scrollUntilVisible(find.text('Bottom text'), 150, scrollable: flickerList);
-      await tester.pump();
-      expect(boxIn('flick-bottom'), 'BOTTOM');
-      await tester.drag(flickerList, const Offset(0, 3000));
-      for (var i = 0; i < 20; i++) {
-        await tester.pump(const Duration(milliseconds: 50));
-      }
-      expect(suite.flicker.steps, greaterThan(2));
-      expect(w.glasses.sent['R']!.where((p) => p[0] == 0x26).map((p) => '${p[5]}:${p[6]}').take(2), ['1:8', '1:0'],
-          reason: 'display moved high, then low (state 1 = it moves)');
-      await tester.tap(find.descendant(of: find.byType(FlickerPage), matching: find.byIcon(Icons.stop_rounded)));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(suite.flicker.running, isFalse);
-      await tester.drag(find.descendant(of: find.byType(FlickerPage), matching: find.byType(ListView)), const Offset(0, -900));
-      await _shot(tester, '5e_flicker_tuning$tag');
-      await tester.pageBack();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
 
       // Each tool page.
       for (final (label, file) in [
@@ -588,7 +550,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(suite.settings.target, Target.terminal);
-    expect(last(), contains('> Claude Code'));
+    expect(last(), contains('> Termux Claude'));
     expect(w.bridge.sentTexts, isEmpty);
     expect(w.bridge.pasted, isEmpty, reason: 'switching is not typed anywhere');
     await tester.pump(const Duration(seconds: 5));
@@ -598,11 +560,11 @@ void main() {
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
-    expect(last(), contains('> Claude Code'));
+    expect(last(), contains('> Termux Claude'));
     expect(last(), contains('"send"'));
     w.speech.partial('start list the files');
     await tester.pump(const Duration(milliseconds: 700));
-    expect(last(), contains('> Claude Code [start]'));
+    expect(last(), contains('> Termux Claude [start]'));
     expect(last(), contains('list the files'));
     expect(last(), isNot(contains('start list')));
     // "send" types it straight away.
@@ -624,7 +586,7 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(last(), contains('Running ls'));
     expect(last(), isNot(contains('Editing a.dart')), reason: 'another session\'s job is not yours');
-    expect(last(), contains('Claude Code'));
+    expect(last(), contains('Termux Claude'));
     suite.work.apply(const WorkSnapshot(3, [
       WorkItem(id: 'j1', ts: 1, prompt: 'list the files', summary: '3 files', text: 'Three files: a, b, c.', ms: 4000),
     ]));
@@ -883,14 +845,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     Finder inClaude(Finder f) => find.descendant(of: find.byType(ClaudePage), matching: f);
     expect(inClaude(find.text('Chat')), findsOneWidget);
-    expect(inClaude(find.text('Claude Code')), findsOneWidget, reason: 'the one in Termux');
-    expect(inClaude(find.text('Shell')), findsOneWidget);
+    expect(inClaude(find.text('Termux Claude')), findsOneWidget, reason: 'the one in Termux');
+    expect(inClaude(find.text('Shell')), findsNothing, reason: 'shells are under Sessions');
 
-    // + New: a fresh Claude Code next to the Termux one, and you talk to it now.
-    await tester.tap(inClaude(find.text('New')));
+    // Sessions: everything open (the shell too), past conversations, and New.
+    await tester.tap(inClaude(find.text('Sessions')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('New Claude Code session'));
+    expect(find.text('Shell'), findsOneWidget);
+    expect(find.text('fix the look up screen on the glasses'), findsOneWidget, reason: 'a past conversation');
+    await tester.tap(find.text('New Claude Code'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(w.bridge.sessionList.map((x) => x.name), contains('claude-2'));
@@ -951,7 +915,18 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(w.bridge.sessionList.map((x) => x.name), isNot(contains('claude-2')));
-    expect(suite.terminal.session, 'claude');
+    await tester.pump(const Duration(seconds: 1));
+    expect(suite.terminal.session, 'claude', reason: 'back to the Termux one');
+
+    // A past conversation, picked up in a new session.
+    await tester.tap(inClaude(find.text('Sessions')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('fix the look up screen on the glasses'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(w.bridge.resumed.last, '0f1e2d3c-4b5a-4968-8776-655443322110');
+    expect(suite.terminal.session, 'claude-2');
 
     // Chat again.
     await tester.tap(inClaude(find.text('Chat')));
@@ -982,9 +957,7 @@ void main() {
   testWidgets('built-in look-up screen: put back when the Even app rewrites the dashboard', (tester) async {
     final w = _World();
     final suite = w.suite;
-    suite.settings
-      ..set('lookMode', 'dashboard')
-      ..set('dashSync', true);
+    suite.settings.set('lookMode', 'dashboard');
     await w.control.connectNow();
     await tester.pumpWidget(EvenSuiteApp(suite: suite));
     await tester.pump(const Duration(seconds: 10));

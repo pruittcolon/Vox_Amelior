@@ -355,14 +355,25 @@ class FakeBridgeClient extends BridgeClient {
   }
 
   @override
-  Future<String> newSession({String kind = 'claude', bool resume = false}) async {
+  Future<String> newSession({String kind = 'claude', String resumeId = ''}) async {
+    var name = kind;
     var n = 2;
-    while (sessionList.any((s) => s.name == '$kind-$n')) {
-      n++;
+    while (sessionList.any((s) => s.name == name)) {
+      name = '$kind-${n++}';
     }
-    sessionList.add(TermSession('$kind-$n', kind: kind, state: kind == 'claude' ? 'idle' : ''));
-    return '$kind-$n';
+    sessionList.add(TermSession(name, kind: kind, main: name == 'claude', state: kind == 'claude' ? 'idle' : ''));
+    resumed.add(resumeId);
+    return name;
   }
+
+  final resumed = <String>[];
+  final pastList = <PastConversation>[
+    const PastConversation('0f1e2d3c-4b5a-4968-8776-655443322110', 'fix the look up screen on the glasses',
+        cwd: '/root', updated: 1793200000),
+  ];
+
+  @override
+  Future<List<PastConversation>> conversations() async => List.of(pastList);
 
   @override
   Future<String?> closeSession(String session) async {

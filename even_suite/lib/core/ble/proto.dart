@@ -467,22 +467,6 @@ class Proto {
     }
   }
 
-  // ----------------------------------------------- building blocks (lab)
-
-  /// Packets + end to one arm; returns stage 'sent' or where it failed.
-  Future<ArmResult> labTransfer(String lr, Uint8List bmp, {int? gapMs}) async {
-    final saved = bmpGapMs;
-    if (gapMs != null) bmpGapMs = gapMs;
-    try {
-      return await _transfer(lr, bmpPackets(bmp, chunk: bmpChunk), endTimeoutMs: 3000, endRetries: 2);
-    } finally {
-      bmpGapMs = saved;
-    }
-  }
-
-  /// Ask one arm to verify [bmp]'s CRC: c9, ca, short or timeout.
-  Future<String> labCrc(String lr, Uint8List bmp) => _crc(lr, bmpCrcCommand(bmp), 2000);
-
   /// One picture (images page etc.): shown when both arms accepted it; with
   /// [requireCrc] false, done once both arms answered.
   Future<bool> sendBmp(Uint8List bmp,

@@ -345,7 +345,7 @@ class BleManager extends ChangeNotifier {
   }
 
   /// Send [data] and wait for the reply with the same command byte.
-  /// [log] off for callers that log every step themselves (flicker).
+  /// [log] off for calls that are logged by the caller (battery checks).
   Future<BleReceive> request(Uint8List data,
       {String? lr, int timeoutMs = 1000, bool useNext = false, bool log = true}) async {
     final lr0 = lr ?? 'R';

@@ -37,7 +37,7 @@ void main() {
 
   group('sessions', () {
     test('names people can read', () {
-      expect(const TermSession('claude', main: true).label, 'Claude Code');
+      expect(const TermSession('claude', main: true).label, 'Termux Claude');
       expect(TermSession.labelFor('claude-2'), 'Claude 2');
       expect(TermSession.labelFor('shell'), 'Shell');
       expect(TermSession.labelFor('shell-3'), 'Shell 3');

@@ -147,14 +147,6 @@ class _LookUpPageState extends State<LookUpPage> {
                 icon: Icons.dashboard_customize_rounded,
                 iconColor: AppColors.hud,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Keep it up to date', style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: const Text('Sent on connect, every 10 min, and the moment you look up.',
-                        style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
-                    value: s.dashSync,
-                    onChanged: (v) => s.set('dashSync', v),
-                  ),
                   _Choices('dashRight', s.dashRight, const [
                     ('claude', 'Claude (live)'),
                     ('notes', 'My notes'),
@@ -360,7 +352,6 @@ class _OtherApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = suite.settings;
     final at = suite.dashboard.foreignAt;
     final ago = at == null ? '' : DateTime.now().difference(at).inSeconds < 90 ? ' (just now)' : '';
     return SectionCard(
@@ -369,18 +360,11 @@ class _OtherApp extends StatelessWidget {
       iconColor: AppColors.warn,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text(
-          'The Even app is running too and resets the glasses’ dashboard about every minute$ago - '
-          'that is why your choice keeps snapping back.',
+          'The Even app is running too and resets the glasses’ dashboard about every minute$ago. '
+          'Even Suite puts yours back within a second, but they keep taking turns until the Even app is stopped.',
           style: const TextStyle(color: AppColors.muted, fontSize: 13),
         ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Put mine back each time', style: TextStyle(fontWeight: FontWeight.w600)),
-          subtitle: const Text('Within a second of every change it makes.',
-              style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
-          value: s.dashSync,
-          onChanged: (v) => s.set('dashSync', v),
-        ),
+        const SizedBox(height: 10),
         OutlinedButton.icon(
           onPressed: () async {
             await suite.system.openAppSettings('com.even.g1');

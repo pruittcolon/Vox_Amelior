@@ -19,7 +19,7 @@ import '../log.dart';
 ///
 /// The glasses take 0.5-1.5 s to answer a move (they redraw first), so only
 /// one move is ever on its way; newer slider values wait and only the
-/// latest is sent. (Flicker failed because it asked for a move every 0.1 s.)
+/// latest is sent.
 class DisplayPosition extends ChangeNotifier {
   DisplayPosition(this.proto);
 

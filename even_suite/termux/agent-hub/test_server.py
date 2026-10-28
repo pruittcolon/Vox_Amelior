@@ -50,10 +50,14 @@ class AgentHubTest(unittest.TestCase):
         for _ in range(100):
             try:
                 cls.get("/api/ping")
-                return
+                break
             except OSError:
                 time.sleep(0.1)
-        raise RuntimeError("server did not start")
+        else:
+            raise RuntimeError("server did not start")
+        # Nothing is started behind your back: the tests open their terminals.
+        assert cls.post("/api/sessions", {"kind": "claude"})["name"] == "claude"
+        assert cls.post("/api/sessions", {"kind": "shell"})["name"] == "shell"
 
     @classmethod
     def tearDownClass(cls):
@@ -415,6 +419,9 @@ class AgentHubTest(unittest.TestCase):
         return seen
 
     def test_sessions_list_new_type_and_close(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.get("/api/term/agy/capture")
+        self.assertEqual(cm.exception.code, 404, "never started just by looking")
         listed = self.get("/api/sessions")
         self.assertEqual(listed["main"], "claude")
         main = listed["sessions"][0]
@@ -452,6 +459,32 @@ class AgentHubTest(unittest.TestCase):
         self.assertEqual(cm.exception.code, 404)
         # The Termux session is never closed from the phone.
         self.assertFalse(self.post("/api/sessions/claude/close", {})["ok"])
+
+    def test_past_conversations_and_resume(self):
+        folder = os.path.join(self.home, ".claude", "projects", "-work-app")
+        os.makedirs(folder, exist_ok=True)
+        cid = "0f1e2d3c-4b5a-4968-8776-655443322110"
+        app = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+        with open(os.path.join(folder, cid + ".jsonl"), "w") as f:
+            f.write(json.dumps({"type": "summary"}) + "\n")
+            f.write(json.dumps({"type": "user", "cwd": self.home, "isMeta": True,
+                                "message": {"content": "<command-name>/clear</command-name>"}}) + "\n")
+            f.write(json.dumps({"type": "user", "cwd": self.home,
+                                "message": {"content": "fix the look up screen on the glasses"}}) + "\n")
+        with open(os.path.join(folder, app + ".jsonl"), "w") as f:
+            f.write(json.dumps({"type": "user", "message": {"content": "[From the user] hello"}}) + "\n")
+        convs = self.get("/api/conversations")["conversations"]
+        self.assertEqual([c["id"] for c in convs], [cid], "the app's own chat is left out")
+        self.assertEqual(convs[0]["title"], "fix the look up screen on the glasses")
+        self.assertTrue(convs[0]["active"])
+        name = self.post("/api/sessions", {"kind": "claude", "resume_id": cid})["name"]
+        self.wait_for(name, "❯")
+        with open(self.spawn_log) as f:
+            self.assertIn(["--resume", cid], [json.loads(l) for l in f])
+        self.assertTrue(self.post(f"/api/sessions/{name}/close", {})["ok"])
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.post("/api/sessions", {"kind": "claude", "resume_id": "not-a-real-one"})
+        self.assertEqual(cm.exception.code, 404)
 
     def test_input_box_reading(self):
         import server

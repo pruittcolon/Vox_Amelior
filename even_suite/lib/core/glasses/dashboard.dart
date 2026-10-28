@@ -104,7 +104,7 @@ class Dashboard extends ChangeNotifier {
   final Proto proto;
   final WeatherService? weatherService;
 
-  /// Something else owns the glasses for now (screen sharing, Flicker).
+  /// Something else owns the glasses for now (screen sharing).
   bool Function() paused = () => false;
 
   // Settings (set by the app)

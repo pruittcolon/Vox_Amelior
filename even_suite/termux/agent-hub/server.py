@@ -63,6 +63,14 @@ for key in list(os.environ):
 os.environ.setdefault("TERM", "xterm-256color")
 os.environ.setdefault("LANG", "C.UTF-8")
 
+# One tmux server for everyone: the Termux `claude` command, this hub and the
+# phone app. proot gives a socket under /tmp a private name in each proot
+# login, so two logins never see each other's tmux; Termux's own tmp folder
+# (the same path in every login) is shared. ~/.bashrc sets the same.
+TERMUX_TMP = "/data/data/com.termux/files/usr/tmp"
+if os.path.isdir(TERMUX_TMP):
+    os.environ.setdefault("TMUX_TMPDIR", TERMUX_TMP)
+
 
 # ---------------------------------------------------------------- tmux
 
@@ -70,26 +78,15 @@ def tmux(*args, input=None):
     return subprocess.run(["tmux", *args], input=input, capture_output=True, text=True)
 
 
-def ensure_session(agent):
-    name = SESSIONS[agent]["session"]
-    if tmux("has-session", "-t", f"={name}").returncode != 0:
-        # Fall back to a shell when the agent exits so the tab never goes dead.
-        cmd = f"{SESSIONS[agent]['cmd']}; echo; echo '[{agent} exited - type {agent} to restart]'; exec bash -i"
-        tmux("new-session", "-d", "-s", name, "-x", "100", "-y", "35", "-c", WORKDIR, cmd)
-    # Whichever screen (phone browser or Termux) was used last sets the size.
-    tmux("set-option", "-t", name, "window-size", "latest")
-    return name
-
-
 # Sessions the app opens are named like these ("claude-2", "shell-3").
 NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
 
 
 def resolve(name):
-    """The tmux session for `name`: an agent (started if needed) or any
-    session that exists. None when there is no such session."""
-    if name in SESSIONS:
-        return ensure_session(name)
+    """The tmux session called `name` (or the agent's session), or None.
+    Nothing is started here: sessions are opened on purpose (POST
+    /api/sessions), never behind your back."""
+    name = SESSIONS.get(name, {}).get("session", name)
     if NAME_RE.match(name) and tmux("has-session", "-t", f"={name}").returncode == 0:
         return name
     return None
@@ -264,18 +261,83 @@ def list_sessions():
     return out
 
 
-def new_session(kind, resume=False):
-    """Open another Claude Code (or shell): "claude-2", "claude-3", ..."""
+def new_session(kind, resume_id=""):
+    """Open a Claude Code (or a shell). The first is "claude" (what Termux's
+    `claude` command attaches to), then "claude-2", ... [resume_id] picks up
+    a past conversation (see conversations()) in its own folder."""
     existing = set(tmux("list-sessions", "-F", "#{session_name}").stdout.split())
-    n = 2
-    while f"{kind}-{n}" in existing:
-        n += 1
-    name = f"{kind}-{n}"
-    cmd = SESSIONS[kind]["cmd"] + (" --continue" if resume and kind == "claude" else "")
-    tmux("new-session", "-d", "-s", name, "-x", "60", "-y", "40", "-c", WORKDIR,
+    name, n = kind, 2
+    while name in existing:
+        name, n = f"{kind}-{n}", n + 1
+    cmd, cwd = SESSIONS[kind]["cmd"], WORKDIR
+    if kind == "claude" and resume_id:
+        conv = next((c for c in conversations(200) if c["id"] == resume_id), None)
+        if conv is None:
+            raise ValueError("no such conversation")
+        cmd += f" --resume {resume_id}"
+        if os.path.isdir(conv["cwd"]):
+            cwd = conv["cwd"]
+    tmux("new-session", "-d", "-s", name, "-x", "60", "-y", "40", "-c", cwd,
          f"{cmd}; echo; echo '[{name} ended - close it in the app]'; exec bash -i")
     tmux("set-option", "-t", name, "window-size", "latest")
     return name
+
+
+PROJECTS = os.path.expanduser("~/.claude/projects")
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def _first_ask(path):
+    """(folder it ran in, first thing you asked) from a Claude Code transcript."""
+    cwd, title = "", ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i > 400:
+                    break
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                cwd = cwd or str(rec.get("cwd") or "")
+                msg = rec.get("message") if isinstance(rec.get("message"), dict) else {}
+                text = msg.get("content")
+                if rec.get("type") != "user" or rec.get("isSidechain") or rec.get("isMeta") or not isinstance(text, str):
+                    continue
+                text = " ".join(text.split())
+                if text and not text.startswith("<"):
+                    title = text
+                    break
+    except OSError:
+        pass
+    return cwd, title
+
+
+def conversations(limit=20):
+    """Your recent Claude Code conversations, newest first. The app's own chat
+    (questions marked "[From the user]") is left out; "active" means it was
+    written to in the last two minutes (probably open somewhere)."""
+    files = []
+    try:
+        for d in os.listdir(PROJECTS):
+            folder = os.path.join(PROJECTS, d)
+            if os.path.isdir(folder):
+                files += [os.path.join(folder, f) for f in os.listdir(folder)
+                          if f.endswith(".jsonl") and UUID_RE.match(f[:-6])]
+    except OSError:
+        return []
+    files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    out, now = [], time.time()
+    for path in files[:limit * 3]:
+        cwd, title = _first_ask(path)
+        if not title or title.startswith("[From ") or title.startswith("[Agent Hub"):
+            continue
+        updated = os.path.getmtime(path)
+        out.append({"id": os.path.basename(path)[:-6], "cwd": cwd, "title": title[:160],
+                    "updated": updated, "active": now - updated < 120})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def close_session(name):
@@ -997,10 +1059,12 @@ class Handler(BaseHTTPRequestHandler):
                                                   int(q.get("tail", 0))))
         if url.path == "/api/ping":
             return self.send_json({"ok": True, "name": "agent-hub", "api": 4, "hook": hook_installed(),
-                                   "features": ["live", "warm", "work", "sessions", "submit"],
+                                   "features": ["live", "warm", "work", "sessions", "submit", "conversations"],
                                    "sessions": sorted(SESSIONS)})
         if url.path == "/api/sessions":
             return self.send_json({"sessions": list_sessions(), "main": SESSIONS["claude"]["session"]})
+        if url.path == "/api/conversations":
+            return self.send_json({"conversations": conversations(int(q.get("limit", 20)))})
         if url.path == "/api/work":
             return self.send_json(bridge.work_snapshot(int(q.get("v", -1)), float(q.get("wait", 0)),
                                                        int(q.get("tail", 30))))
@@ -1042,7 +1106,11 @@ class Handler(BaseHTTPRequestHandler):
             kind = d.get("kind", "claude")
             if kind not in ("claude", "shell"):
                 return self.send_json({"error": "bad kind"}, 400)
-            return self.send_json({"ok": True, "name": new_session(kind, bool(d.get("resume")))})
+            try:
+                name = new_session(kind, str(d.get("resume_id") or ""))
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 404)
+            return self.send_json({"ok": True, "name": name})
         if len(parts) == 4 and parts[:2] == ["api", "sessions"] and parts[3] == "close":
             error = close_session(parts[2])
             return self.send_json({"ok": error is None, **({"error": error} if error else {})})
@@ -1187,9 +1255,6 @@ def open_browser(url):
 def main():
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
-    # Antigravity is big; it starts the first time someone opens it.
-    for agent in ("claude", "shell"):
-        ensure_session(agent)
     srv = Server((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}/"
     print(f"  Agent Hub running at {url}")

@@ -7,9 +7,10 @@ import '../core/settings.dart';
 import '../core/suite.dart';
 import 'common.dart';
 
-/// Where what you say (and type) goes: Claude chat, or one of the terminals
-/// in Termux - the Claude Code you use there, and more you open here. Tap
-/// one to talk to it, hold one for more, + opens another.
+/// Where what you say (and type) goes: Claude chat, or one of your Claude
+/// Code sessions in Termux. Tap one to talk to it, hold it for more;
+/// "Sessions" lists everything open (shells too), opens new ones and picks
+/// up past conversations.
 class SessionBar extends StatefulWidget {
   const SessionBar({super.key, required this.suite, required this.active, this.padding = EdgeInsets.zero});
 
@@ -62,11 +63,13 @@ class _SessionBarState extends State<SessionBar> {
       builder: (context, _) {
         final term = suite.terminal;
         final chat = suite.settings.target == Target.claude;
-        var list = term.sessions;
-        // Not listed yet (or an older Agent Hub): at least the one picked.
-        if (!list.any((s) => s.name == term.session)) list = [TermSession(term.session), ...list];
+        // Claude Code sessions here; shells and the rest under "Sessions".
+        final list = [
+          ...term.claudes,
+          if (!chat && term.current != null && !term.current!.isClaude) term.current!,
+        ];
         return SizedBox(
-          height: 44,
+          height: 40,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: widget.padding,
@@ -80,26 +83,21 @@ class _SessionBarState extends State<SessionBar> {
               ),
               for (final s in list)
                 _Chip(
-                  icon: s.isClaude ? Icons.auto_awesome_rounded : Icons.terminal_rounded,
+                  icon: s.isClaude ? Icons.terminal_rounded : Icons.code_rounded,
                   label: s.label,
                   color: AppColors.glasses,
                   selected: !chat && s.name == term.session,
-                  dot: switch (s.state) {
-                    'working' => AppColors.warn,
-                    'asking' => AppColors.claude,
-                    'idle' => AppColors.ok,
-                    _ => null,
-                  },
+                  dot: _stateColor(s.state),
                   pulse: s.state == 'working' || s.state == 'asking',
                   onTap: () => suite.useSession(s.name),
-                  onLongPress: () => _details(context, s),
+                  onLongPress: () => SessionsSheet.details(context, suite, s),
                 ),
               _Chip(
-                icon: Icons.add_rounded,
-                label: 'New',
+                icon: Icons.view_list_rounded,
+                label: 'Sessions',
                 color: AppColors.muted,
                 selected: false,
-                onTap: () => term.sessionsSupported ? _new(context) : _old(context),
+                onTap: () => SessionsSheet.show(context, suite),
               ),
             ],
           ),
@@ -107,54 +105,39 @@ class _SessionBarState extends State<SessionBar> {
       },
     );
   }
+}
 
-  void _old(BuildContext context) => showToast(context, 'Update Agent Hub first: in Termux type  even restart');
+Color? _stateColor(String state) => switch (state) {
+      'working' => AppColors.warn,
+      'asking' => AppColors.claude,
+      'idle' => AppColors.ok,
+      _ => null,
+    };
 
-  Future<void> _new(BuildContext context) async {
-    final suite = widget.suite;
-    final pick = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: AppColors.surface,
-      builder: (c) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.auto_awesome_rounded, color: AppColors.claude),
-            title: const Text('New Claude Code session', style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: const Text('A fresh conversation, next to the one in Termux'),
-            onTap: () => Navigator.pop(c, 'claude'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.history_rounded, color: AppColors.glasses),
-            title: const Text('Continue the last conversation', style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: const Text('Claude Code --continue in a new session'),
-            onTap: () => Navigator.pop(c, 'resume'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.terminal_rounded, color: AppColors.muted),
-            title: const Text('New shell', style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: const Text('A plain Termux (Ubuntu) command line'),
-            onTap: () => Navigator.pop(c, 'shell'),
-          ),
-          const SizedBox(height: 8),
-        ]),
-      ),
-    );
-    if (pick == null) return;
-    try {
-      final name = await suite.terminal.openSession(kind: pick == 'shell' ? 'shell' : 'claude', resume: pick == 'resume');
-      suite.useSession(name);
-      if (context.mounted) {
-        Shell.goTo(context, Shell.claude);
-        showToast(context, 'Opened ${TermSession.labelFor(name)} - what you say goes there');
-      }
-    } catch (e) {
-      if (context.mounted) showToast(context, 'Could not open it: $e');
-    }
-  }
+/// Every session in Termux, new ones, and past conversations to pick up.
+class SessionsSheet extends StatefulWidget {
+  const SessionsSheet({super.key, required this.suite, required this.goToClaude});
+  final Suite suite;
 
-  Future<void> _details(BuildContext context, TermSession s) async {
-    final suite = widget.suite;
+  /// Switch to the Claude tab (the sheet sits above the tabs, so it is
+  /// handed in from the screen that opened it).
+  final VoidCallback goToClaude;
+
+  static Future<void> show(BuildContext context, Suite suite) => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: AppColors.surface,
+        builder: (_) => SessionsSheet(
+          suite: suite,
+          goToClaude: () {
+            if (context.mounted) Shell.goTo(context, Shell.claude);
+          },
+        ),
+      );
+
+  /// One session: talk to it, show it on the glasses, end it.
+  static Future<void> details(BuildContext context, Suite suite, TermSession s) async {
     final pick = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -165,20 +148,7 @@ class _SessionBarState extends State<SessionBar> {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(s.label, style: Theme.of(c).textTheme.titleLarge),
-              const SizedBox(height: 2),
-              Text(
-                [
-                  if (s.main) 'The one you use in Termux',
-                  if (!s.main && s.attached > 0) 'Open in Termux too',
-                  switch (s.state) {
-                    'working' => 'Working',
-                    'asking' => 'Asking you something',
-                    'idle' => 'Waiting for you',
-                    _ => '',
-                  },
-                ].where((x) => x.isNotEmpty).join(' · '),
-                style: const TextStyle(color: AppColors.muted),
-              ),
+              Text(_describe(s), style: const TextStyle(color: AppColors.muted)),
               if (s.topic.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text('Last asked: ${s.topic}', maxLines: 3, overflow: TextOverflow.ellipsis),
@@ -228,11 +198,208 @@ class _SessionBarState extends State<SessionBar> {
         );
         if (ok != true) return;
         final error = await suite.terminal.closeSession(s.name);
-        // It was the one you talked to: back to the Termux one.
-        if (error == null && suite.terminal.session == s.name) suite.useSession('claude');
         if (context.mounted) showToast(context, error ?? 'Ended ${s.label}');
     }
   }
+
+  static String _describe(TermSession s) => [
+        if (s.main) 'The one Termux shows',
+        if (!s.main && s.attached > 0) 'Open in Termux too',
+        switch (s.state) {
+          'working' => 'Working',
+          'asking' => 'Asking you something',
+          'idle' => 'Waiting for you',
+          _ => s.isClaude ? '' : 'A command line',
+        },
+      ].where((x) => x.isNotEmpty).join(' · ');
+
+  @override
+  State<SessionsSheet> createState() => _SessionsSheetState();
+}
+
+class _SessionsSheetState extends State<SessionsSheet> {
+  late Future<List<PastConversation>> _past = _loadPast();
+
+  Future<List<PastConversation>> _loadPast() async {
+    try {
+      return await widget.suite.client.conversations();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _open({String kind = 'claude', String resumeId = ''}) async {
+    final suite = widget.suite;
+    final nav = Navigator.of(context);
+    try {
+      final name = await suite.terminal.openSession(kind: kind, resumeId: resumeId);
+      suite.useSession(name);
+      if (mounted) showToast(context, 'Opened ${TermSession.labelFor(name)} - what you say goes there');
+      nav.pop();
+      widget.goToClaude();
+    } catch (e) {
+      if (mounted) showToast(context, 'Could not open it: $e');
+    }
+  }
+
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inHours < 1) return '${d.inMinutes} min ago';
+    if (d.inDays < 1) return '${d.inHours} h ago';
+    return '${d.inDays} d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final suite = widget.suite;
+    return ListenableBuilder(
+      listenable: suite.terminal,
+      builder: (context, _) {
+        final term = suite.terminal;
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.75,
+          maxChildSize: 0.95,
+          builder: (context, scroll) => ListView(
+            controller: scroll,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            children: [
+              Text('Sessions', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              const Text('Tap one to talk to it - by voice, the TouchBar or typing.',
+                  style: TextStyle(color: AppColors.muted)),
+              if (!term.sessionsSupported) ...[
+                const SizedBox(height: 12),
+                const _Note('Agent Hub needs the update: in Termux, type  even restart'),
+              ] else if (!term.sessions.any((s) => s.main)) ...[
+                const SizedBox(height: 12),
+                const _Note('Your Termux Claude is not visible yet. Close it (type /exit), then type  claude  '
+                    'in Termux - it picks the conversation up and shows here.'),
+              ],
+              const SizedBox(height: 14),
+              const _Heading('Open now'),
+              if (term.sessions.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text('None yet.', style: TextStyle(color: AppColors.muted)),
+                ),
+              for (final s in term.sessions)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(s.isClaude ? Icons.terminal_rounded : Icons.code_rounded,
+                      color: s.name == term.session && suite.settings.target == Target.terminal
+                          ? AppColors.glasses
+                          : AppColors.muted),
+                  title: Row(children: [
+                    Flexible(child: Text(s.label, style: const TextStyle(fontWeight: FontWeight.w700))),
+                    if (_stateColor(s.state) != null) ...[
+                      const SizedBox(width: 8),
+                      StatusPill.dot(_stateColor(s.state)!, pulse: s.state == 'working' || s.state == 'asking'),
+                    ],
+                  ]),
+                  subtitle: Text(
+                    [SessionsSheet._describe(s), if (s.topic.isNotEmpty) s.topic].where((x) => x.isNotEmpty).join('\n'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+                  ),
+                  trailing: s.main
+                      ? null
+                      : IconButton(
+                          tooltip: 'End it',
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => SessionsSheet.details(context, suite, s),
+                        ),
+                  onTap: () {
+                    suite.useSession(s.name);
+                    Navigator.pop(context);
+                    widget.goToClaude();
+                  },
+                ),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: term.sessionsSupported ? () => _open() : null,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('New Claude Code'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: term.sessionsSupported ? () => _open(kind: 'shell') : null,
+                  icon: const Icon(Icons.code_rounded),
+                  label: const Text('Shell'),
+                ),
+              ]),
+              const SizedBox(height: 20),
+              const _Heading('Pick up a past conversation'),
+              FutureBuilder<List<PastConversation>>(
+                future: _past,
+                builder: (context, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final past = snap.data ?? const [];
+                  if (past.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('None found.', style: TextStyle(color: AppColors.muted)),
+                    );
+                  }
+                  return Column(children: [
+                    for (final c in past)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.history_rounded, color: AppColors.muted),
+                        title: Text(c.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(
+                          [_ago(c.time), if (c.cwd.isNotEmpty) c.cwd, if (c.active) 'open somewhere now'].join(' · '),
+                          style: TextStyle(color: c.active ? AppColors.warn : AppColors.muted, fontSize: 12),
+                        ),
+                        onTap: term.sessionsSupported ? () => _open(resumeId: c.id) : null,
+                      ),
+                  ]);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Heading extends StatelessWidget {
+  const _Heading(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Text(text.toUpperCase(),
+            style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.1)),
+      );
+}
+
+class _Note extends StatelessWidget {
+  const _Note(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.warn.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.warn.withOpacity(0.4)),
+        ),
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+      );
 }
 
 class _Chip extends StatelessWidget {

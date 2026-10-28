@@ -5,29 +5,15 @@ import '../../core/bridge/terminal_controller.dart';
 import '../../core/suite.dart';
 import '../../widgets/common.dart';
 import '../../widgets/terminal_view.dart';
-import '../../widgets/voice_widgets.dart';
 
-/// The terminal you picked, live, as in Termux: its screen in colour, the
-/// keys a phone keyboard lacks, and a line to type into it (or the mic).
+/// The terminal you picked, live, as in Termux: its screen in colour, a
+/// note when it asks you something, and (when shown) the keys a phone
+/// keyboard lacks. Typing and the mic are in the dock under it.
 class TerminalPane extends StatelessWidget {
-  const TerminalPane(
-      {super.key, required this.suite, required this.draft, required this.focus, required this.onTalk});
+  const TerminalPane({super.key, required this.suite, this.keys = false});
 
   final Suite suite;
-  final TextEditingController draft;
-  final FocusNode focus;
-  final VoidCallback onTalk;
-
-  Future<void> _send(BuildContext context) async {
-    final text = draft.text;
-    if (text.trim().isEmpty) {
-      await suite.terminal.key('Enter');
-      return;
-    }
-    draft.clear();
-    suite.voice.setDraft('');
-    await suite.typeIntoTerminal(text);
-  }
+  final bool keys;
 
   @override
   Widget build(BuildContext context) {
@@ -37,10 +23,10 @@ class TerminalPane extends StatelessWidget {
       builder: (context, _) => Column(children: [
         Expanded(
           child: Container(
-            margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+            margin: const EdgeInsets.fromLTRB(8, 0, 8, 6),
             decoration: BoxDecoration(
               color: TerminalScreen.background,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.outline),
             ),
             clipBehavior: Clip.antiAlias,
@@ -57,50 +43,7 @@ class TerminalPane extends StatelessWidget {
           ),
         ),
         _Notice(term: term),
-        _KeyBar(term: term),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Expanded(
-              child: TextField(
-                controller: draft,
-                focusNode: focus,
-                minLines: 1,
-                maxLines: 4,
-                autocorrect: false,
-                enableSuggestions: false,
-                textInputAction: TextInputAction.send,
-                // Kept in step with the mic's draft (else that clears what you type).
-                onChanged: suite.voice.setDraft,
-                onSubmitted: (_) => _send(context),
-                style: const TextStyle(fontFamily: 'monospace'),
-                decoration: InputDecoration(
-                  hintText: 'Message ${term.label}…',
-                  prefixIcon: const Icon(Icons.chevron_right_rounded, color: AppColors.glasses),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 40),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: IconButton.filled(
-                tooltip: 'Send (Enter)',
-                onPressed: () => _send(context),
-                icon: const Icon(Icons.keyboard_return_rounded),
-              ),
-            ),
-            const SizedBox(width: 8),
-            TalkButton(
-              voice: suite.voice,
-              talk: suite.conversation,
-              narrator: suite.narrator,
-              size: 48,
-              onTap: onTalk,
-            ),
-          ]),
-        ),
+        if (keys) _KeyBar(term: term),
       ]),
     );
   }

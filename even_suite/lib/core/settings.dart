@@ -53,22 +53,6 @@ class Settings extends ChangeNotifier {
   String mirrorFit = 'fit'; // fit, fill, stretch
   int mirrorRows = 68; // picture height: 68 (half, faster - the default), 102, 136 (full)
   bool mirrorFast = false; // experimental: verify the previous picture (one transfer per frame)
-  // Flicker: text at a high and a low spot in your view, switching on a timer
-  String flickTop = 'TOP\nThis text sits high in your view';
-  String flickBottom = 'BOTTOM\nThis text sits low in your view';
-  int flickTopMs = 100, flickBottomMs = 100; // time at each spot
-  int flickTopPos = 8, flickBottomPos = 0; // display height 0 (low) .. 8 (high)
-  int flickDepth = 3; // display depth 1 .. 9
-  int flickHomePos = 7, flickHomeDepth = 3; // normal spot, restored at stop
-  String flickMethod = 'live'; // live (state 1 per move) or apply (state 1, then 0)
-  bool flickClear = true; // clear the text before each move (the glasses ignore moves while text is up)
-  int flickClearMs = 80; // pause after clearing
-  int flickRedrawMs = 150; // pause after a move (the glasses redraw there), before the text
-  int flickPreviewMs = 300; // apply: time between state 1 and state 0
-  bool flickWait = true; // wait for the glasses to answer each command
-  String flickWhat = 'both'; // both, move, text
-  String flickMoveTo = 'both'; // moves to both arms or the right arm only
-  int flickAutoStop = 60; // seconds
   Target target = Target.claude;
   String terminalAgent = 'claude';
   bool volumeKeysScroll = false;
@@ -114,7 +98,6 @@ class Settings extends ChangeNotifier {
   bool workPhone = true; // phone notification
   bool workGlasses = true; // short notification on the glasses
   // Look up (the glasses dashboard)
-  bool dashSync = true;
   String dashMode = 'dual'; // full, dual, minimal (Claude on the right always uses dual)
   String dashRight = 'claude'; // right side: claude (live panel), notes, calendar, news, stocks, map
   String panelLayout = 'asked:1,claude,meta:0'; // Claude's panel: block order, lines for your question / the project
@@ -185,24 +168,6 @@ class Settings extends ChangeNotifier {
     mirrorFit = _s(m['mirrorFit'], mirrorFit);
     mirrorRows = _i(m['mirrorRows'], mirrorRows).clamp(16, 136);
     mirrorFast = _b(m['mirrorFast'], mirrorFast);
-    flickTop = _s(m['flickTop'], flickTop);
-    flickBottom = _s(m['flickBottom'], flickBottom);
-    flickTopMs = _i(m['flickTopMs'], flickTopMs).clamp(20, 5000);
-    flickBottomMs = _i(m['flickBottomMs'], flickBottomMs).clamp(20, 5000);
-    flickTopPos = _i(m['flickTopPos'], flickTopPos).clamp(0, 8);
-    flickBottomPos = _i(m['flickBottomPos'], flickBottomPos).clamp(0, 8);
-    flickDepth = _i(m['flickDepth'], flickDepth).clamp(1, 9);
-    flickHomePos = _i(m['flickHomePos'], flickHomePos).clamp(0, 8);
-    flickHomeDepth = _i(m['flickHomeDepth'], flickHomeDepth).clamp(1, 9);
-    flickMethod = _s(m['flickMethod'], flickMethod);
-    flickClear = _b(m['flickClear'], flickClear);
-    flickClearMs = _i(m['flickClearMs'], flickClearMs).clamp(0, 2000);
-    flickRedrawMs = _i(m['flickRedrawMs'], flickRedrawMs).clamp(0, 2000);
-    flickPreviewMs = _i(m['flickPreviewMs'], flickPreviewMs).clamp(0, 3000);
-    flickWait = _b(m['flickWait'], flickWait);
-    flickWhat = _s(m['flickWhat'], flickWhat);
-    flickMoveTo = _s(m['flickMoveTo'], flickMoveTo);
-    flickAutoStop = _i(m['flickAutoStop'], flickAutoStop).clamp(5, 600);
     target = _s(m['target'], target.name) == 'terminal' ? Target.terminal : Target.claude;
     terminalAgent = _s(m['terminalAgent'], terminalAgent);
     volumeKeysScroll = _b(m['volumeKeysScroll'], volumeKeysScroll);
@@ -241,7 +206,6 @@ class Settings extends ChangeNotifier {
     workMinSec = _i(m['workMinSec'], workMinSec).clamp(0, 3600);
     workPhone = _b(m['workPhone'], workPhone);
     workGlasses = _b(m['workGlasses'], workGlasses);
-    dashSync = _b(m['dashSync'], dashSync);
     dashMode = _s(m['dashMode'], dashMode);
     dashRight = _s(m['dashRight'], dashRight);
     panelLayout = _s(m['panelLayout'], panelLayout);
@@ -335,42 +299,6 @@ class Settings extends ChangeNotifier {
         mirrorRows = value as int;
       case 'mirrorFast':
         mirrorFast = value as bool;
-      case 'flickTop':
-        flickTop = value as String;
-      case 'flickBottom':
-        flickBottom = value as String;
-      case 'flickTopMs':
-        flickTopMs = value as int;
-      case 'flickBottomMs':
-        flickBottomMs = value as int;
-      case 'flickTopPos':
-        flickTopPos = value as int;
-      case 'flickBottomPos':
-        flickBottomPos = value as int;
-      case 'flickDepth':
-        flickDepth = value as int;
-      case 'flickHomePos':
-        flickHomePos = value as int;
-      case 'flickHomeDepth':
-        flickHomeDepth = value as int;
-      case 'flickMethod':
-        flickMethod = value as String;
-      case 'flickClear':
-        flickClear = value as bool;
-      case 'flickClearMs':
-        flickClearMs = value as int;
-      case 'flickRedrawMs':
-        flickRedrawMs = value as int;
-      case 'flickPreviewMs':
-        flickPreviewMs = value as int;
-      case 'flickWait':
-        flickWait = value as bool;
-      case 'flickWhat':
-        flickWhat = value as String;
-      case 'flickMoveTo':
-        flickMoveTo = value as String;
-      case 'flickAutoStop':
-        flickAutoStop = value as int;
       case 'target':
         target = value as Target;
         value = target.name;
@@ -448,8 +376,6 @@ class Settings extends ChangeNotifier {
         workPhone = value as bool;
       case 'workGlasses':
         workGlasses = value as bool;
-      case 'dashSync':
-        dashSync = value as bool;
       case 'dashMode':
         dashMode = value as String;
       case 'dashRight':
@@ -489,13 +415,11 @@ class Settings extends ChangeNotifier {
         throw ArgumentError('Unknown setting $key');
     }
     _save?.call(key, value);
-    // Slider and text keys change many times a second; the screen and flicker
+    // Slider, drag and text keys change many times a second; the screen
     // logs record the result.
     const quiet = {
       'lastGlasses', 'mirrorX', 'mirrorY', 'mirrorW', 'mirrorH', 'mirrorStrip', //
-      'flickTop', 'flickBottom', 'flickTopMs', 'flickBottomMs', 'flickTopPos', 'flickBottomPos',
-      'flickDepth', 'flickHomePos', 'flickHomeDepth', 'flickClearMs', 'flickRedrawMs', 'flickPreviewMs',
-      'ttsRate', 'ttsPitch', 'dashCustom', 'dashCity',
+      'ttsRate', 'ttsPitch', 'dashCustom', 'dashCity', 'lookLayout',
     };
     if (!quiet.contains(key)) EventLog.add('app', 'setting', {'key': key, 'value': '$value'});
     notifyListeners();
