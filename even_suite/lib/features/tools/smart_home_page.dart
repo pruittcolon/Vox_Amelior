@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/shell.dart';
 import '../../app/theme.dart';
@@ -46,6 +47,18 @@ class _SmartHomePageState extends State<SmartHomePage> {
     _devices.dispose();
     _ip.dispose();
     super.dispose();
+  }
+
+  /// What is saved, without showing it: its length and last characters.
+  static String _savedToken(String t) {
+    if (t.isEmpty) return 'Not saved yet';
+    if (t.startsWith('http')) {
+      final u = Uri.tryParse(t);
+      final tok = u?.queryParameters['token'] ?? u?.queryParameters['access_token'] ?? '';
+      return 'Saved: a Trigger URL${tok.isEmpty ? ' (no token in it?)' : ' with a ${tok.length}-character token'}';
+    }
+    final end = t.length > 4 ? t.substring(t.length - 4) : t;
+    return 'Saved: ${t.length} characters, ending …$end';
   }
 
   Future<void> _checkTv() async {
@@ -158,22 +171,48 @@ class _SmartHomePageState extends State<SmartHomePage> {
                 iconColor: AppColors.warn,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   const Text(
-                      'Alexa routines through Voice Monkey, as in the old app. Paste your token from the Voice Monkey '
-                      'dashboard (or a device’s whole trigger URL). It stays on this phone.',
+                      'Alexa routines through Voice Monkey, as in the old app. Easiest: open your device on the Voice '
+                      'Monkey dashboard and copy its whole Trigger URL (it has your token in it). Or just the API '
+                      'token. It stays on this phone.',
                       style: TextStyle(color: AppColors.muted, fontSize: 13)),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _token,
                     obscureText: !_showToken,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    textInputAction: TextInputAction.done,
                     decoration: InputDecoration(
-                      labelText: 'Voice Monkey token',
-                      suffixIcon: IconButton(
-                        tooltip: _showToken ? 'Hide' : 'Show',
-                        icon: Icon(_showToken ? Icons.visibility_off_rounded : Icons.visibility_rounded),
-                        onPressed: () => setState(() => _showToken = !_showToken),
-                      ),
+                      labelText: 'Voice Monkey token or Trigger URL',
+                      helperText: _savedToken(s.vmToken),
+                      helperStyle: TextStyle(color: s.vmToken.isEmpty ? AppColors.muted : AppColors.ok),
+                      suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton(
+                          tooltip: 'Paste',
+                          icon: const Icon(Icons.content_paste_rounded),
+                          onPressed: () async {
+                            final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim() ?? '';
+                            if (text.isEmpty) {
+                              if (context.mounted) showToast(context, 'Nothing copied yet');
+                              return;
+                            }
+                            _token.text = text;
+                            s.set('vmToken', text);
+                            if (context.mounted) showToast(context, 'Saved');
+                          },
+                        ),
+                        IconButton(
+                          tooltip: _showToken ? 'Hide' : 'Show',
+                          icon: Icon(_showToken ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+                          onPressed: () => setState(() => _showToken = !_showToken),
+                        ),
+                      ]),
                     ),
                     onChanged: (v) => s.set('vmToken', v.trim()),
+                    onSubmitted: (v) {
+                      s.set('vmToken', v.trim());
+                      showToast(context, v.trim().isEmpty ? 'Cleared' : 'Saved');
+                    },
                   ),
                   const SizedBox(height: 12),
                   for (final d in devices)
