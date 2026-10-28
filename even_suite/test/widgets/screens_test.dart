@@ -1190,6 +1190,8 @@ void main() {
     w.glasses.touch(23, 'L'); // hold left: talk
     await tester.pump();
     await tester.pump();
+    w.speech.partial('how many moons does jupiter have');
+    await tester.pump(const Duration(milliseconds: 500));
     w.glasses.touch(24, 'L');
     await tester.pump();
     w.speech.say('how many moons does jupiter have', finishing: true);
@@ -1222,6 +1224,8 @@ void main() {
     w.glasses.touch(23, 'L');
     await tester.pump();
     await tester.pump();
+    w.speech.partial('what is on tv');
+    await tester.pump(const Duration(milliseconds: 500));
     w.glasses.touch(24, 'L');
     await tester.pump();
     w.speech.say('what is on tv', finishing: true);
