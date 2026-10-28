@@ -928,8 +928,8 @@ class Suite extends ChangeNotifier {
       _terminalAsk = null;
       conversation.ended();
       final text = result == 'menu'
-          ? '$label is asking you something\nSay "one", "two" or "escape",\nor answer it on the phone'
-          : 'Typed into $label but it did not send\nSay "enter" to send it';
+          ? '$label is asking you something\nSay "one", "two" or "escape"'
+          : 'Typed into $label, not sent yet\nSay "enter" to send it';
       _toast(text.split('\n').first);
       if (_glassesFree()) {
         display.notice(text, duration: const Duration(seconds: 6));

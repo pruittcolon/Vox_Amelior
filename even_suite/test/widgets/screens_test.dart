@@ -927,7 +927,7 @@ void main() {
     w.bridge.pasteResult = 'menu';
     await suite.typeIntoTerminal('yes do it');
     await tester.pump();
-    expect(w.glasses.screens().last, contains('asking you something'));
+    expect(w.glasses.screens().last.replaceAll('\n', ' '), contains('asking you something'));
     w.bridge.pasteResult = 'sent';
     await tester.pump(const Duration(seconds: 7));
 
