@@ -429,6 +429,12 @@ void main() {
     await tester.pump();
     expect(suite.display.mode, DisplayMode.idle);
     expect(w.glasses.sent['L']!.last, [0x18]);
+    // The glasses follow a head-down with an F5 00 of their own: not a double tap, so no listening.
+    w.glasses.touch(31, 'R');
+    w.glasses.touch(0, 'R');
+    await tester.pump();
+    expect(suite.voice.dictating, isFalse);
+    await tester.pump(const Duration(seconds: 1));
 
     // Not over something you are reading.
     suite.display.showText('An answer you are reading');

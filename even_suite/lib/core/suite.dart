@@ -54,11 +54,7 @@ class Suite extends ChangeNotifier {
     // newest waiting), so what you say shows up without lag.
     display = GlassesDisplay(proto, liveGap: const Duration(milliseconds: 150));
     // The glasses answer every exit we send with a "double tap" (F5 00): not you.
-    proto.onExit = () {
-      _exitEcho = true;
-      _echoTimer?.cancel();
-      _echoTimer = Timer(const Duration(milliseconds: 800), () => _exitEcho = false);
-    };
+    proto.onExit = _expectExitEcho;
     this.client = client ?? BridgeClient(settings.bridgeUrl);
     chat = ChatController(this.client);
     work = WorkController(this.client);
@@ -446,7 +442,17 @@ class Suite extends ChangeNotifier {
     _updateService();
   }
 
+  /// For a moment after we close a screen, you look down, or their
+  /// dashboard closes, an F5 00 is the glasses reporting that - not a
+  /// double tap (the logs show it about 0.15 s after each).
+  void _expectExitEcho() {
+    _exitEcho = true;
+    _echoTimer?.cancel();
+    _echoTimer = Timer(const Duration(milliseconds: 800), () => _exitEcho = false);
+  }
+
   void _onGlassesEvent(GlassesEvent e) {
+    if (e.code == GlassesEvent.dashboardClosed) _expectExitEcho();
     switch (e.code) {
       case GlassesEvent.tap:
         if (voice.dictating && conversation.stage == TalkStage.listening) {
@@ -495,6 +501,7 @@ class Suite extends ChangeNotifier {
           dashboard.onHeadUp();
         }
       case GlassesEvent.headDown:
+        _expectExitEcho();
         dashboard.onHeadDown();
         _stopLook(close: true);
       case GlassesEvent.evenAiStart:

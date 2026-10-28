@@ -28,6 +28,8 @@ class GlassesEvent {
   static const int tap = 1; // single tap: left = up, right = down
   static const int headUp = 2; // looked up: the glasses show their dashboard
   static const int headDown = 3; // looked down again
+  static const int dashboardShown = 30; // the glasses' own dashboard came up
+  static const int dashboardClosed = 31; // ... and went away (an F5 00 follows)
   static const int evenAiStart = 23; // long press left: start talking
   static const int evenAiEnd = 24; // long press released
 
