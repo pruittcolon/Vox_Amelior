@@ -1,4 +1,5 @@
 import 'package:even_suite/core/glasses/g1_font.dart';
+import 'package:even_suite/core/glasses/hud_frame.dart';
 import 'package:even_suite/core/glasses/look_layout.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,6 +8,36 @@ void main() {
   final data = LookData.sample(now);
 
   group('look-up layout', () {
+    test('the HUD outline never touches a letter, and hugs each group of text', () {
+      for (final e in LookLayout.presets.entries) {
+        final pieces = LookRenderer.pieces(e.value, data);
+        for (final (style, _) in HudFrame.styles) {
+          final lit = HudFrame.lit(style, e.value, pieces);
+          if (style == 'off') {
+            expect(lit.where((b) => b == 1), isEmpty);
+            continue;
+          }
+          // Letters: from the first to the last of each piece, y 3..22 of its row.
+          for (final p in pieces) {
+            final text = p.text.trim();
+            if (text.isEmpty) continue;
+            final a = p.x + G1Font.width(p.text.substring(0, p.text.length - p.text.trimLeft().length));
+            final b = a + G1Font.width(text) - 2;
+            for (var y = p.row * 27 + 3; y <= p.row * 27 + 22; y++) {
+              for (var x = a; x <= b && x < HudFrame.w; x++) {
+                expect(lit[y * HudFrame.w + x], 0, reason: '${e.key} $style: ($x,$y) is on "$text"');
+              }
+            }
+          }
+          expect(lit.where((b) => b == 1).length, greaterThan(40), reason: '${e.key} $style draws something');
+        }
+        // Every group of text has its corners (top-left of its first letter).
+        for (final (x0, _, r0, _) in HudFrame.groups(e.value, pieces)) {
+          expect(HudFrame.lit('hud', e.value, pieces)[HudFrame.top(r0) * HudFrame.w + (x0 < 0 ? 0 : x0)], 1, reason: e.key);
+        }
+      }
+    });
+
     test('every preset fits the glasses: 5 rows, none too wide', () {
       for (final e in LookLayout.presets.entries) {
         final rows = LookRenderer.render(e.value, data);

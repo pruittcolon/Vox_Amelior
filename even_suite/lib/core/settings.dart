@@ -87,7 +87,7 @@ class Settings extends ChangeNotifier {
   bool doneBlink = true; // a tiny "*" on the glasses for 3 s when Claude is done
   // Look up: 'custom' = your own layout (drawn by the app), 'dashboard' = the glasses' own
   String lookMode = 'custom';
-  String lookFrame = 'frame'; // HUD picture around your layout: corners, frame, grid, off
+  String lookFrame = 'hud'; // HUD outline drawn around your layout's text: hud, corners, underline, off
   String lookLayout = ''; // LookLayout JSON ('' = the Split preset)
   // TouchBar: what a hold and a double tap do
   String holdAction = 'mode'; // mode (chat or terminal, whichever is on), chat, terminal
@@ -201,6 +201,7 @@ class Settings extends ChangeNotifier {
     doneBlink = _b(m['doneBlink'], doneBlink);
     lookMode = _s(m['lookMode'], lookMode);
     lookFrame = _s(m['lookFrame'], lookFrame);
+    if (!const ['hud', 'corners', 'underline', 'off'].contains(lookFrame)) lookFrame = 'hud';
     lookLayout = _s(m['lookLayout'], lookLayout);
     holdAction = _s(m['holdAction'], holdAction);
     doubleTapAction = _s(m['doubleTapAction'], doubleTapAction);

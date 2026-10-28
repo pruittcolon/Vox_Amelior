@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../core/glasses/g1_font.dart';
+import '../../core/glasses/hud_frame.dart';
 import '../../core/glasses/look_layout.dart';
 import '../../widgets/common.dart';
 
@@ -58,7 +60,7 @@ class _LookDesignerState extends State<LookDesigner> {
         final sel = _selected != null && _selected! < layout.items.length ? _selected : null;
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _HudFrame(
-            child: LookScreen(layout: layout, data: data, highlight: sel),
+            child: LookScreen(layout: layout, data: data, highlight: sel, frame: suite.settings.lookFrame),
           ),
           const SizedBox(height: 10),
           Row(children: [
@@ -181,28 +183,44 @@ class _HudFrame extends StatelessWidget {
 /// The look-up screen as the glasses draw it: every piece where the spaces
 /// put it, every letter at the G1 font's width.
 class LookScreen extends StatelessWidget {
-  const LookScreen({super.key, required this.layout, required this.data, this.highlight});
+  const LookScreen({super.key, required this.layout, required this.data, this.highlight, this.frame = 'off'});
 
   final LookLayout layout;
   final LookData data;
   final int? highlight;
 
+  /// The HUD outline drawn over it, as the glasses get it ([HudFrame.styles]).
+  final String frame;
+
   @override
-  Widget build(BuildContext context) => AspectRatio(
-        aspectRatio: LookLayout.widthPx / 136,
-        child: CustomPaint(painter: _LookPainter(LookRenderer.pieces(layout, data), highlight)),
-      );
+  Widget build(BuildContext context) {
+    final pieces = LookRenderer.pieces(layout, data);
+    return AspectRatio(
+      aspectRatio: LookLayout.widthPx / 136,
+      child: CustomPaint(
+          painter: _LookPainter(pieces, highlight, frame == 'off' ? null : HudFrame.lit(frame, layout, pieces))),
+    );
+  }
 }
 
 class _LookPainter extends CustomPainter {
-  _LookPainter(this.pieces, this.highlight);
+  _LookPainter(this.pieces, this.highlight, this.frame);
   final List<LookPiece> pieces;
   final int? highlight;
+  final Uint8List? frame;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save();
     canvas.scale(size.width / LookLayout.widthPx);
+    final lit = frame;
+    if (lit != null) {
+      // The outline, pixel for pixel as the glasses get it.
+      final paint = Paint()..color = AppColors.hud.withOpacity(0.85);
+      for (var i = 0; i < lit.length; i++) {
+        if (lit[i] == 1) canvas.drawRect(Rect.fromLTWH((i % HudFrame.w).toDouble(), (i ~/ HudFrame.w).toDouble(), 1, 1), paint);
+      }
+    }
     for (final p in pieces) {
       final color = highlight == null || highlight == p.item ? AppColors.hud : AppColors.hud.withOpacity(0.45);
       var x = p.x.toDouble();

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -418,6 +419,13 @@ class Suite extends ChangeNotifier {
     _batteryTimer?.cancel();
     _batterySoon?.cancel();
     if (connected) {
+      _leftFixTried = false;
+      _modeCheck?.cancel();
+      _modeCheck = Timer(const Duration(seconds: 6), () async {
+        if (!ble.isConnected || mirror.running || settings.lookMode != 'dashboard') return;
+        final l = await proto.dashStartupMode('L'), r = await proto.dashStartupMode('R');
+        EventLog.add('dash', 'startupMode', {'L': l, 'R': r});
+      });
       // The glasses' battery, now and every 5 minutes (shown in the app).
       _askBatterySoon(const Duration(seconds: 3));
       _batteryTimer = Timer.periodic(const Duration(minutes: 5), (_) => _askBattery());
@@ -500,9 +508,7 @@ class Suite extends ChangeNotifier {
       _redrawTimer = Timer(const Duration(milliseconds: 150), () {
         if (!_lookShowing) return;
         display.redraw();
-        _frameKey = ''; // and the frame over it
-        _frameTimer?.cancel();
-        _frameTimer = Timer(const Duration(milliseconds: 450), _sendFrame);
+        _scheduleFrame(); // and the outline over it
       });
     }
     // Both arms report their own dashboard opening; note when the left one
@@ -516,6 +522,11 @@ class Suite extends ChangeNotifier {
           final l = _dashShownAt['L'];
           if (l == null || at.difference(l).inMilliseconds > 800) {
             EventLog.add('dash', 'leftMissing', {'look': settings.lookMode});
+            // Built-in look-up with the left eye dark: repair it once per connection.
+            if (settings.lookMode == 'dashboard' && !_leftFixTried) {
+              _leftFixTried = true;
+              unawaited(fixLeftEye());
+            }
           }
         });
       }
@@ -1371,31 +1382,72 @@ class Suite extends ChangeNotifier {
   void showLookNow() => lookUp(lasts: const Duration(seconds: 8));
 
   void _drawLook({bool immediate = false}) {
-    final rows = LookRenderer.render(lookLayout, lookData());
+    final data = lookData();
+    final rows = LookRenderer.render(lookLayout, data);
     final text = rows.join('\n');
     display.showStatus(text, title: lookTitle, raw: true, immediate: immediate);
-    // The HUD frame goes over the text once it is up (again when the text changed).
+    // The HUD outline goes over the text once it is up, drawn around exactly
+    // this text (again when it changed: new text clears the picture).
     final key = '${settings.lookFrame}|$text';
     if (key != _frameKey) {
       _frameKey = key;
-      _frameTimer?.cancel();
-      _frameTimer = Timer(const Duration(milliseconds: 450), _sendFrame);
+      _framePieces = LookRenderer.pieces(lookLayout, data);
+      _scheduleFrame();
     }
   }
 
   String _frameKey = '';
+  List<LookPiece> _framePieces = const [];
+  DateTime _frameSentAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Shortly after the text (it needs to be up first), and at most every 3 s
+  /// (a picture takes the glasses about a second).
+  void _scheduleFrame() {
+    final since = DateTime.now().difference(_frameSentAt).inMilliseconds;
+    _frameTimer?.cancel();
+    _frameTimer = Timer(Duration(milliseconds: max(450, 3000 - since)), _sendFrame);
+  }
   final _dashShownAt = <String, DateTime>{};
   Timer? _leftCheck;
+  bool _leftFixTried = false;
+  Timer? _modeCheck;
+
+  /// The built-in look-up screen only on the right eye: the right arm tells
+  /// the left one to open its dashboard only while the dashboard startup
+  /// mode both keep in flash is 0 (firmware imu_fusion_thread), and the left
+  /// one ignores the right one while their screens differ
+  /// (local_esbs_ipc_service_recv "screen id is not same"). So: read the
+  /// mode on both arms, put it back to 0 if it is not, close whatever is on
+  /// either screen, and send the dashboard again. Returns what it found.
+  Future<String> fixLeftEye() async {
+    if (!ble.isConnected) return 'Connect your glasses first';
+    final before = {'L': await proto.dashStartupMode('L'), 'R': await proto.dashStartupMode('R')};
+    var reset = false;
+    if (before.values.any((m) => m != null && m != 0)) {
+      reset = await proto.setDashStartupMode(0);
+    }
+    final after = reset ? {'L': await proto.dashStartupMode('L'), 'R': await proto.dashStartupMode('R')} : before;
+    await proto.exit(); // both screens idle, the same on both arms
+    await dashboard.sync(force: true);
+    EventLog.add('dash', 'fixLeft', {'before': '${before['L']}/${before['R']}', 'reset': reset, 'after': '${after['L']}/${after['R']}'});
+    String show(int? m) => m == null ? 'no answer' : '$m';
+    return reset
+        ? 'Dashboard startup mode was ${show(before['L'])} (left) / ${show(before['R'])} (right), now ${show(after['L'])} / ${show(after['R'])}. Look up to try.'
+        : 'Startup mode ${show(before['L'])} (left) / ${show(before['R'])} (right). Both screens reset. Look up to try.';
+  }
   Timer? _frameTimer;
   bool _frameBusy = false;
 
   Future<void> _sendFrame() async {
-    final bmp = HudFrame.bmp(settings.lookFrame);
-    if (bmp == null || _frameBusy || !_lookShowing || !ble.isConnected) return;
+    final bmp = HudFrame.bmp(settings.lookFrame, lookLayout, _framePieces);
+    if (bmp == null || !_lookShowing || !ble.isConnected) return;
+    if (_frameBusy) return _scheduleFrame();
     _frameBusy = true;
+    _frameSentAt = DateTime.now();
     try {
       final ok = await proto.sendBmp(bmp, requireCrc: false);
-      EventLog.add('look', 'frame', {'style': settings.lookFrame, 'ok': ok});
+      EventLog.add('look', 'frame',
+          {'style': settings.lookFrame, 'ok': ok, 'ms': DateTime.now().difference(_frameSentAt).inMilliseconds});
     } finally {
       _frameBusy = false;
     }
@@ -1492,6 +1544,7 @@ class Suite extends ChangeNotifier {
     _lookTimer?.cancel();
     _frameTimer?.cancel();
     _leftCheck?.cancel();
+    _modeCheck?.cancel();
     _echoTimer?.cancel();
     speechModel.removeListener(_applySpeech);
     settings.removeListener(applySettings);

@@ -30,6 +30,9 @@ class FakeGlasses implements BleTransport {
   /// Each arm's battery, answered to 2C 01.
   final Map<String, int> battery = {'L': 73, 'R': 77};
 
+  /// Each arm's dashboard startup mode (0 = factory default).
+  final Map<String, int> startupMode = {'L': 0, 'R': 0};
+
   @override
   Stream<BleReceive> get receive => _rx.stream;
 
@@ -70,6 +73,12 @@ class FakeGlasses implements BleTransport {
 
   Uint8List? _reply(Uint8List d, String arm) {
     switch (d[0]) {
+      case 0x08: // dashboard startup mode: 04 reads it, 03 sets it (on the right arm, passed to the left)
+        if (d.length > 5 && d[4] == 0x03 && arm == 'R') {
+          startupMode['L'] = d[5];
+          startupMode['R'] = d[5];
+        }
+        return Uint8List.fromList([0x08, 0x06, 0x00, d[3], d[4], d[4] == 0x04 ? startupMode[arm]! : d[5]]);
       case 0x2C: // battery: 2C 66 <percent>
         return Uint8List.fromList([0x2C, 0x66, battery[arm]!, 0, 0]);
       case 0x25: // heartbeat echoes its sequence

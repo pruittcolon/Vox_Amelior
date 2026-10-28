@@ -190,6 +190,30 @@ class Proto {
   Future<bool> sendNote(int slot, String title, String text) =>
       _toBoth(notePacket(_dashSeq++, slot, title, text), 'dashNote');
 
+  // ------------------------------------------ dashboard startup mode (0x08)
+
+  int _modeSeq = 0;
+
+  /// The dashboard startup mode one arm keeps in its flash (firmware
+  /// ble_process_put_req case 8: `08 06 00 seq 04 00` reads it, the answer
+  /// echoes the packet with the mode in byte 5). 0 is the factory default;
+  /// only then does the right arm, on a look-up, tell the left one to open
+  /// its dashboard too. Null when the arm does not answer.
+  Future<int?> dashStartupMode(String lr) async {
+    final r = await ble.request(Uint8List.fromList([0x08, 0x06, 0x00, _modeSeq++ & 0xff, 0x04, 0x00]),
+        lr: lr, timeoutMs: 1500);
+    if (r.isTimeout || r.data.length < 6 || r.data[0] != 0x08 || r.data[4] != 0x04) return null;
+    return r.data[5];
+  }
+
+  /// Set it (`08 06 00 seq 03 <mode>`, mode 0-2) on the right arm, which
+  /// saves it and passes it to the left one.
+  Future<bool> setDashStartupMode(int mode) async {
+    final r = await ble.request(Uint8List.fromList([0x08, 0x06, 0x00, _modeSeq++ & 0xff, 0x03, mode & 0xff]),
+        lr: 'R', timeoutMs: 1500);
+    return !r.isTimeout && r.data.isNotEmpty && r.data[0] == 0x08;
+  }
+
   // ------------------------------------------------------- microphone (0x0E)
 
   /// Ask each arm for its battery. The answer, `2C 66 <percent> ...`, is read

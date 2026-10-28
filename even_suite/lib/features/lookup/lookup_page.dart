@@ -133,6 +133,16 @@ class _LookUpPageState extends State<LookUpPage> {
     return [
               if (dash.foreignWrites > 0) ...[_OtherApp(suite: suite), const SizedBox(height: 12)],
               _Preview(suite: suite, sample: s.dashRight == 'claude' ? _sample : 'live'),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  if (!suite.ble.isConnected) return showToast(context, 'Connect your glasses first');
+                  final msg = await suite.fixLeftEye();
+                  if (context.mounted) showToast(context, msg);
+                },
+                icon: const Icon(Icons.visibility_off_outlined),
+                label: const Text('Left eye stays dark? Fix it'),
+              ),
               if (s.dashRight == 'claude') ...[
                 const SizedBox(height: 8),
                 Wrap(spacing: 6, runSpacing: 6, children: [

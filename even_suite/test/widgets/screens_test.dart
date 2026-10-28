@@ -388,6 +388,27 @@ void main() {
           ..createSync(recursive: true)
           ..writeAsBytesSync(png!.buffer.asUint8List());
       });
+      // And with each HUD outline over it, as the glasses get it.
+      for (final (style, _) in HudFrame.styles.where((s) => s.$1 != 'off')) {
+        final hudKey = GlobalKey();
+        await tester.pumpWidget(MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: RepaintBoundary(
+            key: hudKey,
+            child: ColoredBox(
+                color: const Color(0xFF050A08), child: LookScreen(layout: e.value, data: data, frame: style)),
+          ),
+        ));
+        await tester.pump();
+        final b = tester.renderObject<RenderRepaintBoundary>(find.byKey(hudKey));
+        await tester.runAsync(() async {
+          final image = await b.toImage(pixelRatio: 2);
+          final png = await image.toByteData(format: ui.ImageByteFormat.png);
+          File('test/screenshots/out/18_look_${e.key}_$style.png')
+            ..createSync(recursive: true)
+            ..writeAsBytesSync(png!.buffer.asUint8List());
+        });
+      }
     }
     expect(tester.takeException(), isNull);
   });
@@ -1096,7 +1117,7 @@ void main() {
   testWidgets('look up: the HUD frame picture goes over the text, once it is up', (tester) async {
     final w = _World();
     final suite = w.suite;
-    suite.settings.set('lookFrame', 'frame');
+    suite.settings.set('lookFrame', 'hud');
     await w.control.connectNow();
     await tester.pumpWidget(EvenSuiteApp(suite: suite));
     await tester.pump();
@@ -1114,9 +1135,42 @@ void main() {
     final frames = after.where((p) => p[0] == 0x15 && p[1] == 0).length;
     await tester.pump(const Duration(seconds: 5));
     expect(w.glasses.sent['L']!.sublist(before).where((p) => p[0] == 0x15 && p[1] == 0).length, frames);
-    expect(HudFrame.lit('corners').where((b) => b == 1).length, lessThan(HudFrame.lit('grid').where((b) => b == 1).length));
     w.glasses.touch(3, 'R');
     await tester.pump(const Duration(seconds: 1));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  testWidgets('built-in look-up dark on the left: the startup mode goes back to 0, both screens reset', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    suite.settings.set('lookMode', 'dashboard');
+    w.glasses.startupMode
+      ..['L'] = 1
+      ..['R'] = 1;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump(const Duration(seconds: 7)); // read once after connecting
+    expect(w.glasses.sent['R']!.where((p) => p[0] == 0x08 && p[4] == 0x04), isNotEmpty);
+    final dashBefore = w.glasses.sent['L']!.where((p) => p[0] == 0x06).length;
+
+    // You look up: only the right arm opens its dashboard.
+    w.glasses.touch(2, 'R');
+    w.glasses.touch(30, 'R');
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    final set = w.glasses.sent['R']!.where((p) => p[0] == 0x08 && p[4] == 0x03).toList();
+    expect(set, hasLength(1), reason: 'set once, on the right arm (it passes it on)');
+    expect(set.single[5], 0);
+    expect(w.glasses.startupMode, {'L': 0, 'R': 0});
+    expect(w.glasses.sent['L']!.where((p) => p[0] == 0x18), isNotEmpty, reason: 'both screens back to idle');
+    expect(w.glasses.sent['L']!.where((p) => p[0] == 0x06).length, greaterThan(dashBefore), reason: 'dashboard sent again');
+
+    // Not again on the next look-up (once per connection).
+    w.glasses.touch(30, 'R');
+    await tester.pump(const Duration(seconds: 2));
+    expect(w.glasses.sent['R']!.where((p) => p[0] == 0x08 && p[4] == 0x03), hasLength(1));
+    expect(await suite.fixLeftEye(), contains('Startup mode 0 (left) / 0 (right)'));
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
