@@ -61,6 +61,14 @@ class BridgeMessage {
 
   bool get isMine => who == 'you';
 
+  /// Belongs in [agent]'s conversation ('claude' or 'agy'): what you sent it
+  /// (or both, or a bubble not yet filed by the hub) and what it answered.
+  bool belongsTo(String agent) {
+    if (isMine) return to.isEmpty || to == 'both' || to == agent;
+    if (who == 'claude' || who == 'agy') return who == agent;
+    return true;
+  }
+
   /// Still on its way (waiting its turn, or being written).
   bool get isPending => status == 'pending' || status == 'queued';
   bool get isQueued => status == 'queued';
@@ -205,6 +213,9 @@ class HubInfo {
 
   /// Antigravity answers live (stays running, streams its steps, gets the glasses rules).
   bool get agyLive => features.contains('agy-live');
+
+  /// Ctrl, Alt and Shift with a key (C-x, M-b, S-Up ...) and Antigravity sessions.
+  bool get modKeys => features.contains('modkeys');
 }
 
 class TermScreen {
@@ -261,6 +272,7 @@ class TermSession {
       );
 
   bool get isClaude => kind == 'claude';
+  bool get isAgy => kind == 'agy';
 
   /// "Termux Claude" (the one Termux shows), "Claude 2", "Shell", "Shell 2", "Antigravity".
   String get label => labelFor(name, main: main);

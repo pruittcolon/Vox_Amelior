@@ -12,6 +12,7 @@ class AppColors {
   static const text = Color(0xFFE6EDF7);
   static const muted = Color(0xFF8A97AD);
   static const claude = Color(0xFFE8846B);
+  static const agy = Color(0xFF9D8CFF);
   static const glasses = Color(0xFF7AA7FF);
   static const ok = Color(0xFF3DD68C);
   static const warn = Color(0xFFF5B946);

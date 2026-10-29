@@ -64,7 +64,7 @@ class HelpPage extends StatelessWidget {
             icon: Icons.hearing_rounded,
             iconColor: AppColors.claude,
             child: Column(children: [
-              step('1', 'Turn on “Hands-free”', 'On the Claude tab. It turns itself off after the minutes you pick in Settings, and the notification has a Stop button.'),
+              step('1', 'Turn on “Hands-free”', 'On the Terminal tab. It turns itself off after the minutes you pick in Settings, and the notification has a Stop button.'),
               step('2', 'Say “$word”', 'At the start of what you say (or “Hey $word”). Mentions mid-sentence are ignored, so talk around you does not wake it. Stricter or looser: Tools › Claude and voice.'),
               step('3', 'Say your message, then “send”', '“$word, what’s on my calendar… send.” Say “cancel” or “never mind” to drop it. Nothing is sent without “send” (unless you turn that on).'),
             ]),
@@ -90,7 +90,7 @@ class HelpPage extends StatelessWidget {
             iconColor: AppColors.claude,
             child: Column(children: [
               step('1', 'It answers out loud', 'Answers to spoken questions are read aloud on the phone while they show on the glasses. Pick the voice and speed in Tools › Claude and voice.'),
-              step('2', 'Back and forth (if you want it)', 'Pick “Back and forth” in the Claude tab’s ⋯ menu: after each answer, just keep talking - no button, no “$word”. Say “thanks” or stay quiet to finish. “One question” (the standard) asks once and the answer goes away by itself.'),
+              step('2', 'Back and forth (if you want it)', 'Pick “Back and forth” in the Terminal tab’s ⋯ menu: after each answer, just keep talking - no button, no “$word”. Say “thanks” or stay quiet to finish. “One question” (the standard) asks once and the answer goes away by itself.'),
               step('3', 'Interrupt any time', 'Hold the TouchBar or tap the mic to cut in. Double-tap the glasses to stop everything.'),
             ]),
           ),

@@ -26,6 +26,7 @@ import 'package:even_suite/features/settings/settings_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
 import 'package:even_suite/main.dart';
 import 'package:even_suite/widgets/glasses_widgets.dart';
+import 'package:even_suite/widgets/session_bar.dart';
 import 'package:even_suite/widgets/terminal_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -137,7 +138,7 @@ void main() {
       await _shot(tester, '2_home_actions$tag');
 
       // Claude tab, hands-free on, in the middle of a message.
-      await tester.tap(find.byIcon(Icons.auto_awesome_outlined));
+      await tester.tap(find.byIcon(Icons.terminal_outlined));
       await tester.pump();
       await suite.setHandsFree(true);
       await tester.pump();
@@ -928,7 +929,7 @@ void main() {
     await suite.chat.check();
     suite.work.apply(const WorkSnapshot(1, []));
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.auto_awesome_outlined));
+    await tester.tap(find.byIcon(Icons.terminal_outlined));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     Finder inClaude(Finder f) => find.descendant(of: find.byType(ClaudePage), matching: f);
@@ -1024,6 +1025,152 @@ void main() {
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('Terminal tab: Claude and Antigravity sections, Termux-style keys with sticky Ctrl, Alt and Shift',
+      (tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    w.bridge.sessionList.add(const TermSession('agy', kind: 'agy'));
+    await tester.pumpWidget(RepaintBoundary(key: _shotKey, child: EvenSuiteApp(suite: suite)));
+    await suite.chat.check();
+    suite.work.apply(const WorkSnapshot(1, []));
+    await tester.pump();
+
+    // The tab is called Terminal.
+    Finder inNav(Finder f) => find.descendant(of: find.byType(NavigationBar), matching: f);
+    Finder inTab(Finder f) => find.descendant(of: find.byType(ClaudePage), matching: f);
+    expect(inNav(find.text('Terminal')), findsOneWidget);
+    expect(inNav(find.text('Claude')), findsNothing);
+    await tester.tap(inNav(find.byIcon(Icons.terminal_outlined)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Two sections, each with its own chat.
+    expect(find.byKey(const ValueKey('section-claude')), findsOneWidget);
+    expect(find.byKey(const ValueKey('section-agy')), findsOneWidget);
+    expect(suite.settings.agent, 'claude');
+    BridgeMessage msg(String id, String who, String text, {String to = ''}) =>
+        BridgeMessage(id: id, who: who, to: to, text: text, status: 'done', ts: 1);
+    w.bridge.post([
+      msg('1', 'you', 'ask claude something', to: 'claude'),
+      msg('2', 'claude', 'claude says hi'),
+      msg('3', 'you', 'ask agy something', to: 'agy'),
+      msg('4', 'agy', 'agy says hi'),
+    ]);
+    await tester.pump();
+    await tester.pump();
+    expect(inTab(find.textContaining('claude says hi')), findsOneWidget);
+    expect(inTab(find.textContaining('ask claude something')), findsOneWidget);
+    expect(inTab(find.textContaining('agy says hi')), findsNothing);
+    expect(inTab(find.textContaining('ask agy something')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('section-agy')));
+    await tester.pump();
+    expect(suite.settings.agent, 'agy');
+    expect(suite.chat.agent, 'agy');
+    expect(inTab(find.textContaining('agy says hi')), findsOneWidget);
+    expect(inTab(find.textContaining('ask agy something')), findsOneWidget);
+    expect(inTab(find.textContaining('claude says hi')), findsNothing);
+
+    // Antigravity has sessions of its own; Claude Code's stay in the Claude section.
+    await tester.pump(const Duration(seconds: 1));
+    expect(inTab(find.text('Termux Claude')), findsNothing);
+    final chip = find.descendant(of: find.byType(SessionBar), matching: find.text('Antigravity'));
+    expect(chip, findsOneWidget);
+    await tester.tap(chip);
+    await tester.pump();
+    await tester.pump();
+    expect(suite.settings.target, Target.terminal);
+    expect(suite.terminal.session, 'agy');
+    expect(find.byType(TerminalScreen), findsOneWidget);
+
+    // The keys: hidden until asked for.
+    expect(find.byKey(const ValueKey('key-ctrl')), findsNothing);
+    await tester.tap(inTab(find.byIcon(Icons.keyboard_alt_outlined)));
+    await tester.pump();
+    for (final k in [
+      'Escape', 'Tab', 'ctrl', 'alt', 'shift', 'Home', 'End', 'BSpace', //
+      'Left', 'Up', 'Down', 'Right', 'PageUp', 'PageDown', 'DC', 'Enter',
+    ]) {
+      expect(find.byKey(ValueKey('key-$k')), findsOneWidget, reason: k);
+    }
+    await _shot(tester, '23_terminal_agy_keys');
+
+    Future<void> tap(String key) async {
+      await tester.tap(find.byKey(ValueKey('key-$key')));
+      await tester.pump();
+    }
+
+    final sent = w.bridge.keysSent;
+    await tap('Left');
+    expect(sent.last, 'Left');
+    // Ctrl: armed for the next key only.
+    await tap('ctrl');
+    await tap('Left');
+    expect(sent.last, 'C-Left');
+    await tap('Left');
+    expect(sent.last, 'Left');
+    // Tapped twice, Alt stays until tapped a third time.
+    await tap('alt');
+    await tap('alt');
+    await tap('Up');
+    await tap('Down');
+    expect(sent.sublist(sent.length - 2), ['M-Up', 'M-Down']);
+    await tap('alt');
+    await tap('Up');
+    expect(sent.last, 'Up');
+    // Shift+Tab is its own key.
+    await tap('shift');
+    await tap('Tab');
+    expect(sent.last, 'BTab');
+
+    // Armed, then a letter on the phone keyboard: sent as that key, never typed in the box.
+    final box = inTab(find.byType(TextField));
+    String boxText() => tester.widget<TextField>(box).controller!.text;
+    await tap('ctrl');
+    await tester.enterText(box, 'c');
+    await tester.pump();
+    expect(sent.last, 'C-c');
+    expect(boxText(), '');
+    await tap('shift');
+    await tester.enterText(box, 'q');
+    await tester.pump();
+    expect(w.bridge.pasted.last, 'Q');
+    expect(boxText(), '');
+    // Nothing armed: it types as usual.
+    final keys = sent.length;
+    await tester.enterText(box, 'ls');
+    await tester.pump();
+    expect(boxText(), 'ls');
+    expect(sent.length, keys);
+
+    // Back to Claude's section: the terminal moves to a Claude Code session.
+    await tester.tap(find.byKey(const ValueKey('section-claude')));
+    await tester.pump();
+    await tester.pump();
+    expect(suite.settings.agent, 'claude');
+    expect(suite.settings.target, Target.terminal);
+    expect(suite.terminal.session, 'claude');
+    expect(inTab(find.text('Termux Claude')), findsOneWidget);
+
+    // Antigravity with no session open: chat. Picking its session later brings its section along.
+    w.bridge.sessionList.removeWhere((x) => x.name == 'agy');
+    await suite.terminal.refreshSessions();
+    suite.openSection('agy');
+    await tester.pump();
+    expect(suite.settings.agent, 'agy');
+    expect(suite.settings.target, Target.claude, reason: 'no Antigravity session to show: its chat');
+    await suite.newSession();
+    expect(suite.terminal.session, 'agy', reason: 'a new session is the section\'s own kind');
+    suite.openSection('claude');
+    suite.useSession('agy');
+    expect(suite.settings.agent, 'agy', reason: 'its session brings its section');
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   testWidgets('glasses battery shows in the app', (tester) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 3;
@@ -1045,7 +1192,7 @@ void main() {
     expect(onHome('Glasses 73%'), findsOneWidget);
     await _shot(tester, '22_battery_home');
     // And on the Claude tab, whatever it talks to.
-    await tester.tap(find.byIcon(Icons.auto_awesome_outlined));
+    await tester.tap(find.byIcon(Icons.terminal_outlined));
     await tester.pump();
     expect(inClaude('Glasses 73%'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.visibility_outlined));

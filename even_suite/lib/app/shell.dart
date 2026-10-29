@@ -24,16 +24,24 @@ class SuiteScope extends InheritedWidget {
   bool updateShouldNotify(SuiteScope oldWidget) => suite != oldWidget.suite;
 }
 
-/// Bottom navigation: Home (talk, your glasses), Claude, Work, More (the
-/// terminal, screen sharing and every other tool).
+/// Bottom navigation: Home (talk, your glasses), Terminal (Claude and
+/// Antigravity: chat and their sessions in Termux), Work, More (screen
+/// sharing and every other tool).
 class Shell extends StatefulWidget {
   const Shell({super.key});
 
   static void goTo(BuildContext context, int tab) =>
       context.findAncestorStateOfType<_ShellState>()?.select(tab);
 
-  static const home = 0, claude = 1, work = 2, more = 3;
-  static const names = {'home': home, 'claude': claude, 'work': work, 'more': more, 'tools': more};
+  static const home = 0, terminal = 1, work = 2, more = 3;
+  static const names = {
+    'home': home,
+    'terminal': terminal,
+    'claude': terminal,
+    'work': work,
+    'more': more,
+    'tools': more,
+  };
 
   @override
   State<Shell> createState() => _ShellState();
@@ -105,7 +113,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           Expanded(
             child: IndexedStack(index: _tab, children: [
               HomePage(active: _foreground && _tab == Shell.home),
-              ClaudePage(active: _foreground && _tab == Shell.claude),
+              ClaudePage(active: _foreground && _tab == Shell.terminal),
               WorkPage(active: _foreground && _tab == Shell.work),
               const ToolsPage(),
             ]),
@@ -122,7 +130,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             const NavigationDestination(
                 icon: Icon(Icons.visibility_outlined), selectedIcon: Icon(Icons.visibility), label: 'Home'),
             const NavigationDestination(
-                icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Claude'),
+                icon: Icon(Icons.terminal_outlined), selectedIcon: Icon(Icons.terminal), label: 'Terminal'),
             NavigationDestination(
               icon: ListenableBuilder(
                 listenable: suite.work,

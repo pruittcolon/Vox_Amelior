@@ -105,7 +105,7 @@ class HomePage extends StatelessWidget {
                     caption: 'Claude Code as in Termux - open more, switch',
                     onTap: () {
                       suite.useSession(suite.terminal.session);
-                      Shell.goTo(context, Shell.claude);
+                      Shell.goTo(context, Shell.terminal);
                     },
                   ),
                 ],
@@ -271,7 +271,7 @@ class _TalkHero extends StatelessWidget {
               ),
               if (terminal)
                 TextButton.icon(
-                  onPressed: () => Shell.goTo(context, Shell.claude),
+                  onPressed: () => Shell.goTo(context, Shell.terminal),
                   icon: const Icon(Icons.open_in_full_rounded, size: 18),
                   label: const Text('Watch it'),
                 ),
@@ -579,7 +579,7 @@ class _BridgeCardState extends State<_BridgeCard> {
                 Expanded(
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(backgroundColor: AppColors.claude),
-                    onPressed: () => Shell.goTo(context, Shell.claude),
+                    onPressed: () => Shell.goTo(context, Shell.terminal),
                     icon: const Icon(Icons.chat_bubble_rounded),
                     label: const Text('Open chat'),
                   ),

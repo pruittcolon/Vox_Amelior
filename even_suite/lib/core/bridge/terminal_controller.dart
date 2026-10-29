@@ -8,6 +8,7 @@ import '../glasses/glasses_text.dart';
 import '../log.dart';
 import 'ansi.dart';
 import 'bridge_client.dart';
+import 'key_modifiers.dart';
 
 /// The terminals in Termux (tmux sessions Agent Hub runs): the Claude Code
 /// you use in Termux ("claude"), more Claude Codes opened from the app
@@ -83,6 +84,12 @@ class TerminalController extends ChangeNotifier {
 
   /// Claude Code sessions, the Termux one first.
   List<TermSession> get claudes => [for (final s in sessions) if (s.isClaude) s];
+
+  /// Antigravity sessions.
+  List<TermSession> get agies => [for (final s in sessions) if (s.isAgy) s];
+
+  /// The sessions of one agent: 'agy' or (anything else) 'claude'.
+  List<TermSession> ofAgent(String agent) => agent == 'agy' ? agies : claudes;
 
   /// Keep [session]'s screen live while [owner] (a screen) shows it.
   void watch(Object owner) {
@@ -221,6 +228,15 @@ class TerminalController extends ChangeNotifier {
       error = '$e';
       notifyListeners();
     }
+  }
+
+  /// A key from the extra-keys row, or a character typed with Ctrl, Alt or
+  /// Shift armed (see [KeyModifiers]).
+  Future<void> press(KeyPress p) async {
+    if (!p.text) return key(p.value);
+    try {
+      await sendLine(p.value, enter: false);
+    } catch (_) {}
   }
 
   void _armMirrorOff() {

@@ -65,9 +65,9 @@ class ToolsPage extends StatelessWidget {
         _Group('Claude', [
           _Tool(Icons.terminal_rounded, AppColors.glasses, 'Terminal sessions',
               'Claude Code as in Termux - open more, switch between them', () {
-            // One place for terminals: the Claude tab, on the one you used last.
+            // One place for terminals: the Terminal tab, on the one you used last.
             suite.useSession(suite.terminal.session);
-            Shell.goTo(context, Shell.claude);
+            Shell.goTo(context, Shell.terminal);
           }),
           _Tool(Icons.phone_android_rounded, AppColors.warn, 'Phone actions',
               'Reminders, timers, alarms, apps, calls, texts, music', () => push(const PhonePage())),

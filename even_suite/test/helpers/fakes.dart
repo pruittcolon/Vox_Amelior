@@ -236,6 +236,12 @@ class FakeBridgeClient extends BridgeClient {
   final sentTo = <String>[];
   String lastWarmTo = '';
 
+  /// Messages the hub already holds (another app, an earlier chat).
+  void post(List<BridgeMessage> list) {
+    messages.addAll(list);
+    _bump();
+  }
+
   void addReply(String text, {String status = 'done'}) {
     messages.add(BridgeMessage(
         id: 'r$version', who: replyWho, text: text, status: status, ts: DateTime.now().millisecondsSinceEpoch / 1000));
@@ -267,7 +273,7 @@ class FakeBridgeClient extends BridgeClient {
     replyWho = to;
     lastSystem = system;
     lastOptions = options;
-    messages.add(BridgeMessage(id: 'u$version', who: 'you', text: text, status: 'done'));
+    messages.add(BridgeMessage(id: 'u$version', who: 'you', to: to, text: text, status: 'done'));
     _bump();
   }
 
@@ -309,7 +315,9 @@ class FakeBridgeClient extends BridgeClient {
   bool hook = true;
 
   @override
-  Future<HubInfo> ping() async => HubInfo(4, const {'live', 'warm', 'work', 'sessions', 'submit'}, hook: hook);
+  Future<HubInfo> ping() async => HubInfo(
+      5, const {'live', 'warm', 'work', 'sessions', 'submit', 'agy-live', 'modkeys', 'agy-session'},
+      hook: hook);
 
   @override
   Future<bool> installHook() async => hook = true;

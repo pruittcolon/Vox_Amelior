@@ -84,8 +84,9 @@ class AgentHubTest(unittest.TestCase):
     def test_ping_lists_sessions(self):
         data = self.get("/api/ping")
         self.assertTrue(data["ok"])
-        self.assertEqual(data["api"], 4)
+        self.assertEqual(data["api"], 5)
         self.assertIn("live", data["features"])
+        self.assertIn("modkeys", data["features"])
         self.assertIn("shell", data["sessions"])
         status = self.get("/api/status")
         self.assertTrue(status["shell"])
@@ -410,6 +411,41 @@ class AgentHubTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self.post("/api/term/shell/keys", {"keys": ["rm -rf /"]})
         self.assertEqual(cm.exception.code, 400)
+
+    def test_modifier_keys_like_termux_extra_keys(self):
+        # Ctrl / Alt / Shift with a letter, a digit or a named key; function keys; Insert.
+        ok = ["C-a", "M-b", "C-M-Left", "S-Up", "C-S-Tab", "M-1", "F5", "F12", "IC", "C-PageUp"]
+        self.assertTrue(self.post("/api/term/shell/keys", {"keys": ok})["ok"])
+        # One bad key refuses the whole batch (nothing is half-sent).
+        for bad in ["C-", "X-a", "C-ab", "C-;", "M-M-M-M-a", "C-Foo", "F13", "F0", "c-a", "C-a;ls", "-a"]:
+            with self.assertRaises(urllib.error.HTTPError, msg=bad) as cm:
+                self.post("/api/term/shell/keys", {"keys": ["Enter", bad]})
+            self.assertEqual(cm.exception.code, 400, bad)
+
+    def test_modifier_key_reaches_the_pane(self):
+        # Ctrl+U clears the line: type text, send C-u, then type what should be all that is left.
+        self.post("/api/term/shell/paste", {"text": "echo gone-gone-gone", "enter": False})
+        self.post("/api/term/shell/keys", {"keys": ["C-u"]})
+        self.post("/api/term/shell/paste", {"text": "echo kept-$((20+1))", "enter": True})
+        seen = self.wait_for("shell", "kept-21")
+        self.assertIn("kept-21", seen)
+        self.assertNotIn("gone-gone-goneecho", seen, "Ctrl+U did not clear the line")
+
+    def test_agy_session_kind_opens_and_closes(self):
+        # Antigravity gets sessions of its own, named agy, agy-2, ... and listed as kind "agy".
+        name = self.post("/api/sessions", {"kind": "agy"})["name"]
+        self.assertEqual(name, "agy")
+        self.assertEqual(self.post("/api/sessions", {"kind": "agy"})["name"], "agy-2")
+        info = {s["name"]: s for s in self.get("/api/sessions")["sessions"]}
+        self.assertEqual((info["agy"]["kind"], info["agy-2"]["kind"]), ("agy", "agy"))
+        self.assertFalse(info["agy"]["main"], "the Termux session stays the Claude one")
+        self.assertTrue(self.post("/api/term/agy-2/keys", {"keys": ["Escape", "C-c"]})["ok"])
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.post("/api/sessions", {"kind": "gemini"})
+        self.assertEqual(cm.exception.code, 400)
+        self.assertTrue(self.post("/api/sessions/agy-2/close", {})["ok"])
+        self.assertTrue(self.post("/api/sessions/agy/close", {})["ok"])
+        self.assertNotIn("agy", [s["name"] for s in self.get("/api/sessions")["sessions"]])
 
     def wait_for(self, session, needle, timeout=10):
         deadline, seen, h = time.time() + timeout, "", ""

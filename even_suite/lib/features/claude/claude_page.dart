@@ -7,6 +7,7 @@ import '../../app/shell.dart';
 import '../../app/theme.dart';
 import '../../core/bridge/bridge_client.dart';
 import '../../core/bridge/chat_controller.dart';
+import '../../core/bridge/key_modifiers.dart';
 import '../../core/bridge/work_controller.dart';
 import '../../core/phone_actions.dart';
 import '../../core/settings.dart';
@@ -15,6 +16,7 @@ import '../../widgets/common.dart';
 import '../../widgets/glasses_widgets.dart';
 import '../../widgets/session_bar.dart';
 import '../../widgets/voice_widgets.dart';
+import 'agent_sections.dart';
 import 'claude_settings_sheet.dart';
 import 'terminal_pane.dart';
 
@@ -32,6 +34,7 @@ class _ClaudePageState extends State<ClaudePage> {
   late Suite suite;
   final _draft = TextEditingController();
   final _focus = FocusNode();
+  final _mods = KeyModifiers();
   bool _watching = false;
   bool _watchingTerm = false;
 
@@ -90,6 +93,7 @@ class _ClaudePageState extends State<ClaudePage> {
     if (_watchingTerm) suite.terminal.unwatch(this);
     _draft.dispose();
     _focus.dispose();
+    _mods.dispose();
     super.dispose();
   }
 
@@ -125,11 +129,18 @@ class _ClaudePageState extends State<ClaudePage> {
       listenable: suite.settings,
       builder: (context, _) {
         final terminal = suite.settings.target == Target.terminal;
+        final agent = suite.settings.agent == 'agy' ? 'agy' : 'claude';
+        // While the phone keyboard is up the screen is short: the terminal gets the room.
+        final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
         return Column(children: [
           _Header(suite: suite),
-          SessionBar(suite: suite, active: widget.active, padding: const EdgeInsets.fromLTRB(12, 2, 12, 6)),
+          if (!typing) AgentSections(suite: suite),
+          SessionBar(
+              suite: suite, active: widget.active, agent: agent, padding: const EdgeInsets.fromLTRB(12, 2, 12, 6)),
           if (terminal)
-            Expanded(child: TerminalPane(suite: suite, keys: _keys))
+            Expanded(
+                child: TerminalPane(
+                    suite: suite, mods: _mods, keys: _keys, accent: agent == 'agy' ? AppColors.agy : AppColors.glasses))
           else ...[
             StageStrip(talk: suite.conversation, voice: suite.voice, narrator: suite.narrator),
             Expanded(child: _Console(suite: suite)),
@@ -140,7 +151,12 @@ class _ClaudePageState extends State<ClaudePage> {
             focus: _focus,
             terminal: terminal,
             keys: _keys,
-            onKeys: () => setState(() => _keys = !_keys),
+            mods: _mods,
+            onKeys: () {
+              // Hiding the keys lets go of a held Ctrl, Alt or Shift (it would catch letters unseen).
+              if (_keys) _mods.clear();
+              setState(() => _keys = !_keys);
+            },
             onSend: _send,
             onTalk: _talk,
           ),
@@ -157,7 +173,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 12, 4),
+      padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
       child: ListenableBuilder(
         listenable: Listenable.merge([suite.settings, suite.terminal]),
         builder: (context, _) {
@@ -170,33 +186,17 @@ class _Header extends StatelessWidget {
             _ => '',
           };
           final agy = suite.settings.agent == 'agy';
-          final title = Text(ChatController.agentLabel(suite.settings.agent),
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800));
           return Row(children: [
-            // One tap flips between Claude and Antigravity (chat only).
-            if (terminal)
-              title
-            else
-              InkWell(
-                borderRadius: BorderRadius.circular(10),
-                onTap: () => suite.switchAgent(agy ? 'claude' : 'agy'),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    title,
-                    const SizedBox(width: 4),
-                    const Icon(Icons.swap_horiz_rounded, size: 20, color: AppColors.muted),
-                  ]),
-                ),
-              ),
+            Text('Terminal',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 terminal
                     ? '${term.label}$state'
                     : agy
-                        ? '${effortLabel(suite.settings.claudeEffort)} · ${accessLabel(suite.settings.claudeAccess)}'
-                        : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)}',
+                        ? 'Chat · ${effortLabel(suite.settings.claudeEffort)} · ${accessLabel(suite.settings.claudeAccess)}'
+                        : 'Chat · ${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
@@ -224,9 +224,12 @@ class _Console extends StatelessWidget {
       listenable: suite.chat,
       builder: (context, _) {
         final chat = suite.chat;
-        if (chat.messages.isEmpty) {
+        final agent = chat.agent;
+        // Each section keeps its own conversation: Claude's here, Antigravity's there.
+        final mine = [for (final m in chat.messages) if (m.belongsTo(agent)) m];
+        if (mine.isEmpty) {
           return EmptyHint(
-            icon: Icons.auto_awesome_rounded,
+            icon: AgentSections.iconOf(agent),
             title: chat.state == BridgeState.offline ? 'Termux bridge is offline' : 'Talk to ${chat.agentName}',
             lines: chat.state == BridgeState.offline
                 ? ['Start Agent Hub from the Glasses tab, then come back.']
@@ -236,7 +239,7 @@ class _Console extends StatelessWidget {
                   ],
           );
         }
-        final items = chat.messages.reversed.toList();
+        final items = mine.reversed.toList();
         return Container(
           margin: const EdgeInsets.fromLTRB(12, 2, 12, 8),
           decoration: BoxDecoration(
@@ -253,7 +256,8 @@ class _Console extends StatelessWidget {
               itemBuilder: (context, i) => _Entry(
                 message: items[i],
                 onShow: () {
-                  suite.display.showText(PhoneAction.strip(items[i].text), title: items[i].isMine ? 'You' : 'Claude');
+                  suite.display.showText(PhoneAction.strip(items[i].text),
+                      title: items[i].isMine ? 'You' : ChatController.agentLabel(agent));
                   showToast(context, suite.ble.isConnected ? 'Showing on your glasses' : 'Glasses are not connected');
                 },
               ),
@@ -295,7 +299,9 @@ class _Entry extends StatelessWidget {
           TextSpan(children: [
             TextSpan(
                 text: '• ',
-                style: TextStyle(color: m.isError ? AppColors.error : AppColors.claude, fontWeight: FontWeight.w700)),
+                style: TextStyle(
+                    color: m.isError ? AppColors.error : AgentSections.colorOf(m.who),
+                    fontWeight: FontWeight.w700)),
             TextSpan(text: PhoneAction.strip(m.text), style: TextStyle(color: m.isError ? AppColors.error : null)),
           ]),
           style: _mono,
@@ -400,6 +406,7 @@ class _Dock extends StatelessWidget {
     required this.focus,
     required this.terminal,
     required this.keys,
+    required this.mods,
     required this.onKeys,
     required this.onSend,
     required this.onTalk,
@@ -410,6 +417,7 @@ class _Dock extends StatelessWidget {
   final FocusNode focus;
   final bool terminal;
   final bool keys;
+  final KeyModifiers mods;
   final VoidCallback onKeys;
   final VoidCallback onSend;
   final VoidCallback onTalk;
@@ -430,7 +438,7 @@ class _Dock extends StatelessWidget {
         ),
         if (terminal)
           IconButton(
-            tooltip: keys ? 'Hide the keys' : 'Esc, arrows, Tab ...',
+            tooltip: keys ? 'Hide the keys' : 'Esc, Ctrl, Alt, Shift, Tab, arrows ...',
             isSelected: keys,
             selectedIcon: const Icon(Icons.keyboard_hide_rounded, color: AppColors.glasses),
             onPressed: onKeys,
@@ -449,6 +457,15 @@ class _Dock extends StatelessWidget {
             onSubmitted: terminal ? (_) => onSend() : null,
             // Kept in step with the mic's draft (else that clears what you type).
             onChanged: suite.voice.setDraft,
+            // Ctrl, Alt or Shift armed on the key bar: the next letter goes to the terminal as that key.
+            inputFormatters: [
+              if (terminal)
+                ModifiedCharFormatter(mods, (ch) {
+                  final p = mods.char(ch);
+                  mods.used();
+                  suite.terminal.press(p);
+                }),
+            ],
             style: terminal ? const TextStyle(fontFamily: 'monospace') : null,
             decoration: InputDecoration(
               isDense: true,
@@ -464,7 +481,7 @@ class _Dock extends StatelessWidget {
           child: IconButton.filled(
             tooltip: terminal ? 'Send (Enter)' : 'Send',
             style: IconButton.styleFrom(
-              backgroundColor: terminal ? AppColors.glasses : AppColors.claude,
+              backgroundColor: terminal ? AppColors.glasses : AgentSections.colorOf(suite.settings.agent),
               foregroundColor: const Color(0xFF0B1220),
             ),
             onPressed: onSend,
@@ -526,8 +543,6 @@ class _Controls extends StatelessWidget {
               autoOffMinutes: suite.settings.autoOffMinutes,
               onChanged: suite.setHandsFree,
             ),
-            const SizedBox(height: 8),
-            AgentChooser(settings: suite.settings, onChanged: suite.switchAgent, hub: suite.chat.hub),
             const SizedBox(height: 8),
             TalkModeChooser(settings: suite.settings, glassesMic: suite.glassesMicInUse),
             const Divider(height: 20),

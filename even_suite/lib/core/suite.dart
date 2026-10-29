@@ -63,8 +63,15 @@ class Suite extends ChangeNotifier {
     work = WorkController(this.client);
     terminal = TerminalController(this.client, display)
       ..onSessionGone = () {
-        // The one picked was closed: the Termux Claude (or the first one left).
-        final next = terminal.claudes.isNotEmpty ? terminal.claudes.first.name : terminal.sessions.first.name;
+        // The one picked was closed: another of the same agent, else the Termux
+        // Claude (or the first one left). Antigravity with none left: back to chat.
+        final mine = terminal.ofAgent(settings.agent);
+        if (mine.isEmpty && settings.agent == 'agy') return useChat();
+        final next = mine.isNotEmpty
+            ? mine.first.name
+            : terminal.claudes.isNotEmpty
+                ? terminal.claudes.first.name
+                : terminal.sessions.first.name;
         settings.set('terminalAgent', next);
         terminal.setSession(next);
       };
@@ -1105,8 +1112,29 @@ class Suite extends ChangeNotifier {
     if (settings.target == Target.claude) unawaited(chat.warm());
   }
 
+  /// Open the Claude or the Antigravity section of the Terminal tab: that one
+  /// answers from now on, and a terminal you were watching moves to a session
+  /// of that agent (chat when it has none open).
+  void openSection(String agent) {
+    final next = agent == 'agy' ? 'agy' : 'claude';
+    if (settings.agent == next) return;
+    final inTerminal = settings.target == Target.terminal;
+    switchAgent(next);
+    if (!inTerminal) return;
+    final mine = terminal.ofAgent(next);
+    if (mine.isEmpty) return useChat();
+    if (terminal.current == null || !mine.any((s) => s.name == terminal.current!.name)) useSession(mine.first.name);
+  }
+
   /// Talk to terminal [name] from now on ("claude" is the one Termux shows).
   void useSession(String name) {
+    // Its section comes with it: an Antigravity session is Antigravity's.
+    final kind = terminal.sessions.where((s) => s.name == name).map((s) => s.kind).firstOrNull ??
+        (name.startsWith('agy') ? 'agy' : name.startsWith('claude') ? 'claude' : '');
+    if ((kind == 'agy' || kind == 'claude') && settings.agent != kind) {
+      settings.set('agent', kind);
+      _applyAgent();
+    }
     settings.set('terminalAgent', name);
     terminal.setSession(name);
     _setTarget(Target.terminal);
@@ -1121,10 +1149,11 @@ class Suite extends ChangeNotifier {
     }
   }
 
-  /// Open another Claude Code session and talk to it.
+  /// Open another session (of the section you are in: Claude Code, or
+  /// Antigravity) and talk to it.
   Future<void> newSession() async {
     try {
-      final name = await terminal.openSession();
+      final name = await terminal.openSession(kind: settings.agent == 'agy' ? 'agy' : 'claude');
       useSession(name);
       _modeNotice('New session: ${TermSession.labelFor(name)}\nWhat you say goes there');
     } catch (e) {
@@ -1135,7 +1164,7 @@ class Suite extends ChangeNotifier {
   /// The next Claude Code session (by voice: "next session").
   Future<void> nextSession() async {
     await terminal.refreshSessions();
-    final list = terminal.claudes;
+    final list = terminal.ofAgent(settings.agent);
     if (list.isEmpty) return newSession();
     final at = list.indexWhere((s) => s.name == terminal.session);
     final next = settings.target == Target.terminal ? list[(at + 1) % list.length] : list[at < 0 ? 0 : at];

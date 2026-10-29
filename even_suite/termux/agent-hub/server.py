@@ -55,6 +55,16 @@ ALLOWED_KEYS = {"Enter", "Escape", "Up", "Down", "Left", "Right", "Tab", "BTab",
                 "C-r", "C-t", "C-u", "C-a", "C-e", "y", "n",
                 "1", "2", "3", "4", "5", "6", "7", "8", "9"}
 
+# Termux-style extra keys: Ctrl / Alt / Shift held with a letter, digit or one
+# of the named keys ("C-x", "M-b", "C-M-Left", "S-Up"), plus F1-F12 and Insert.
+_KEY_NAMES = ("Enter|Escape|Up|Down|Left|Right|Tab|BTab|Space|BSpace|DC|IC|Home|End|PageUp|PageDown"
+              "|F[1-9]|F1[0-2]")
+KEY_RE = re.compile(r"^(?:(?:[CMS]-){1,3}(?:[A-Za-z0-9]|" + _KEY_NAMES + r")|F[1-9]|F1[0-2]|IC)$")
+
+
+def key_ok(key):
+    return isinstance(key, str) and (key in ALLOWED_KEYS or bool(KEY_RE.match(key)))
+
 # Started from inside a Claude session, these would make child Claudes think
 # they are nested. Drop them so every agent starts clean.
 for key in list(os.environ):
@@ -223,7 +233,7 @@ def fit_session(name, cols, rows):
 
 def send_keys(name, keys):
     for key in keys:
-        if key in ALLOWED_KEYS:
+        if key_ok(key):
             tmux("send-keys", "-t", pane(name), key)
 
 
@@ -277,8 +287,9 @@ def list_sessions():
 
 
 def new_session(kind, resume_id=""):
-    """Open a Claude Code (or a shell). The first is "claude" (what Termux's
-    `claude` command attaches to), then "claude-2", ... [resume_id] picks up
+    """Open a Claude Code, an Antigravity ("agy", "agy-2", ...) or a shell. The
+    first Claude is "claude" (what Termux's `claude` command attaches to),
+    then "claude-2", ... [resume_id] picks up
     a past conversation (see conversations()) in its own folder."""
     existing = set(tmux("list-sessions", "-F", "#{session_name}").stdout.split())
     name, n = kind, 2
@@ -464,6 +475,10 @@ def clean_options(d):
     # "quick": a second Claude without tools (much faster to answer); "full": Claude Code.
     if d.get("lane") in ("quick", "full"):
         opts["lane"] = d["lane"]
+    # Antigravity cannot ask before running a command, so this is an explicit yes
+    # (it then runs with --dangerously-skip-permissions).
+    if d.get("agy_commands") in (True, "true", "1", "on"):
+        opts["agy_commands"] = True
     return opts
 
 
@@ -500,6 +515,32 @@ def describe_tool(name, inp):
     if name == "TodoWrite":
         return "Planning"
     return "Using " + (name.split("__")[-1] if name else "a tool")
+
+
+def describe_agy_tool(name, params):
+    """An Antigravity tool step as a few words for the glasses."""
+    p = params if isinstance(params, dict) else {}
+
+    def pick(*keys):
+        for k in keys:
+            if p.get(k):
+                return p[k]
+        return ""
+
+    n = (name or "").lower()
+    if n == "run_command":
+        return describe_tool("Bash", {"command": pick("CommandLine", "command")})
+    if "search_web" in n or "web_search" in n:
+        return describe_tool("WebSearch", {"query": pick("query", "Query")})
+    if "read_url" in n or "fetch" in n:
+        return describe_tool("WebFetch", {"url": pick("Url", "url")})
+    if n.startswith(("view_", "read_", "list_dir")):
+        return describe_tool("Read", {"file_path": pick("AbsolutePath", "Path", "DirectoryPath", "path")})
+    if n.startswith(("write_", "replace_", "edit_", "multi_replace")):
+        return describe_tool("Edit", {"file_path": pick("TargetFile", "AbsolutePath", "path")})
+    if "grep" in n or n.startswith("find_") or "search" in n:
+        return describe_tool("Grep", {"pattern": pick("Query", "Pattern", "query")})
+    return "Using " + (name.replace("_", " ") if name else "a tool")
 
 
 class LiveClaude:
@@ -710,7 +751,214 @@ class LiveClaude:
 
 
 class ResultError(RuntimeError):
-    """Claude answered with an error (the process itself is fine)."""
+    """The agent answered with an error (the process itself is fine)."""
+
+
+class LiveAgy:
+    """One long-running `agy --print` in stream-json mode, the Antigravity twin
+    of LiveClaude: a question skips the ~3 s start-up (the app warms it when
+    you start talking) and the reply streams in as it is written. Antigravity
+    has no system-prompt flag, so the glasses rules ride in front of the first
+    message (and again whenever they change)."""
+
+    def __init__(self, bridge):
+        self.bridge = bridge
+        self.proc = None
+        self.key = None
+        self.events = None
+        self.stderr = []
+        self.stopped = False
+        self.sent_system = None  # the glasses rules this conversation has been told
+        self.turn = bridge.locks["agy"]
+        self.spawn_lock = threading.Lock()
+        self.last_used = time.time()
+        threading.Thread(target=self._reap, daemon=True).start()
+
+    # A phone has little memory: an Antigravity nobody has asked for a while is
+    # closed (the conversation resumes from its id on the next question).
+    IDLE_SECS = int(os.environ.get("HUB_AGY_IDLE", "600"))
+
+    def _reap(self):
+        while True:
+            time.sleep(30)
+            if self.alive() and not self.turn.locked() and time.time() - self.last_used > self.IDLE_SECS:
+                with self.spawn_lock:
+                    if self.alive() and not self.turn.locked():
+                        self.close()
+
+    @staticmethod
+    def args(opts, convo):
+        a = [AGY_BIN, "--input-format", "stream-json", "--output-format", "stream-json", "--print="]
+        if opts.get("effort"):
+            a += ["--effort", opts["effort"]]
+        # Claude's "edit"/"auto" both mean: may change files. Commands need their own yes.
+        if opts.get("access") in ("edit", "auto"):
+            a += ["--mode", "accept-edits"]
+        if opts.get("agy_commands"):
+            a.append("--dangerously-skip-permissions")
+        if convo:
+            a += ["--conversation", convo]
+        return a
+
+    def alive(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def ensure(self, opts):
+        """The Antigravity process for these options, started (or restarted) if needed."""
+        with self.spawn_lock:
+            key = json.dumps([opts.get("effort"), opts.get("access") in ("edit", "auto"),
+                              bool(opts.get("agy_commands"))])
+            if self.alive() and key == self.key:
+                return self.proc
+            self.close()
+            self.last_used = time.time()
+            proc = subprocess.Popen(self.args(opts, self.bridge.convo.get("agy")), cwd=WORKDIR,
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, encoding="utf-8", errors="replace", bufsize=1)
+            self.proc, self.key, self.events, self.stderr = proc, key, queue.Queue(), []
+            threading.Thread(target=LiveClaude._read, args=(proc, self.events), daemon=True).start()
+            threading.Thread(target=LiveClaude._read_err, args=(proc, self.stderr), daemon=True).start()
+            return proc
+
+    def err_tail(self):
+        return "".join(self.stderr).strip()[-1500:]
+
+    def close(self):
+        p, self.proc = self.proc, None
+        if p is not None and p.poll() is None:
+            try:
+                p.stdin.close()
+            except OSError:
+                pass
+            p.terminate()
+            try:
+                p.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                p.kill()
+
+    def warm(self, opts):
+        """Start Antigravity now (the user started talking), unless it is answering."""
+        if self.turn.locked():
+            return
+        try:
+            self.ensure(opts)
+        except OSError:
+            pass
+
+    def stop(self):
+        self.stopped = True
+        self.close()
+
+    def forget(self):
+        """A new chat: close the process; the next one starts a new conversation."""
+        self.close()
+        self.sent_system = None
+
+    def framed(self, prompt, system):
+        """The prompt with the intro (first message) and the glasses rules (when new) in front."""
+        head = ""
+        if self.bridge.convo.get("agy") is None:
+            head += INTRO
+        if system and system != self.sent_system:
+            head += "[Rules for answering on the glasses]\n" + system + "\n\n"
+        return head + prompt
+
+    def run(self, prompt, msg, opts, system):
+        """Ask one question; fills msg's stage/tool/live as the answer comes in."""
+        self.stopped = False
+        b = self.bridge
+        for attempt in (1, 2):
+            self.last_used = time.time()
+            try:
+                proc = self.ensure(opts)
+            except OSError as e:
+                raise RuntimeError(f"Could not start Antigravity: {e}")
+            events = self.events
+            with b.cond:
+                b.busy["agy"] = proc
+            try:
+                proc.stdin.write(json.dumps({"event": "user", "message": {"content": self.framed(prompt, system)}})
+                                 + "\n")
+                proc.stdin.flush()
+                self.sent_system = system or self.sent_system
+                got_any, result = self._consume(events, msg)
+            except ResultError:
+                if self.stopped:  # Stop ends the turn with an "interrupted" result
+                    raise RuntimeError("Stopped.")
+                raise
+            except (OSError, ValueError):
+                got_any, result = False, None
+            finally:
+                self.last_used = time.time()
+                with b.cond:
+                    b.busy.pop("agy", None)
+            if result is not None:
+                return result
+            err = self.err_tail()
+            self.close()
+            if self.stopped:
+                raise RuntimeError("Stopped.")
+            if attempt == 1 and not got_any and b.convo.get("agy"):
+                b.convo["agy"] = None  # the old conversation could not be resumed: start a new one
+                self.sent_system = None
+                continue
+            raise RuntimeError(err or "Antigravity stopped without answering.")
+        raise RuntimeError("Antigravity stopped without answering.")
+
+    def _consume(self, events, msg):
+        """Read events until the turn's result. Returns (got anything, final text or None)."""
+        b = self.bridge
+        got_any = False
+        last_touch = 0.0
+        step = None  # index of the answer step being written (a new one is a new block)
+        while True:
+            ev = events.get()
+            if ev is None:
+                return got_any, None
+            got_any = True
+            kind = ev.get("event")
+            changed = False
+            if kind == "init":
+                if ev.get("conversation_id"):
+                    b.convo["agy"] = ev["conversation_id"]
+                if msg["stage"] == "starting":
+                    msg["stage"], changed = "thinking", True
+            elif kind == "step_update":
+                u = ev.get("step_update") or {}
+                what = u.get("step_type")
+                if what == "agent_response" and u.get("text_delta"):
+                    if u.get("step_index") != step:
+                        step = u.get("step_index")
+                        msg["block"] += 1
+                        msg["live"] = ""
+                    msg["live"] += u["text_delta"]
+                    msg["stage"], changed = "writing", True
+                elif what == "tool" and u.get("state") == "ACTIVE":
+                    desc = describe_agy_tool(u.get("tool_name", ""), (u.get("tool_info") or {}).get("parameters"))
+                    msg["stage"], msg["tool"] = "tool", desc
+                    msg["steps"] = (msg["steps"] + [desc])[-20:]
+                    changed = True
+                elif what == "tool" and msg["stage"] == "tool":
+                    msg["stage"], changed = "thinking", True
+            elif kind == "result":
+                r = ev.get("result") or {}
+                if r.get("conversation_id"):
+                    b.convo["agy"] = r["conversation_id"]
+                if r.get("status") not in (None, "SUCCESS"):
+                    raise ResultError(r.get("error") or r.get("response") or str(r.get("status")))
+                text = (r.get("response") or msg["live"] or "").strip()
+                if not text and r.get("denied_actions"):
+                    names = sorted({a.get("display_name") or a.get("action") or "a tool"
+                                    for a in r["denied_actions"] if isinstance(a, dict)})
+                    raise ResultError(
+                        "Antigravity wanted to use " + ", ".join(names) + " but cannot ask you first. "
+                        "In the app: Claude settings > Antigravity > Let it run commands (or turn Access to Edit "
+                        "for file changes).")
+                return True, text
+            now = time.time()
+            if changed and now - last_touch > 0.15:
+                last_touch = now
+                b.touch()
 
 
 HOOK_EVENTS = ("Stop", "UserPromptSubmit", "PreToolUse")
@@ -751,6 +999,7 @@ class Bridge:
         self.lives = {"full": LiveClaude(self, "claude", turn), "quick": LiveClaude(self, "claude-quick", turn)}
         self.live = self.lives["full"]
         self.locks = {"claude": turn, "agy": threading.Lock()}
+        self.agy = LiveAgy(self)
         # Finished Claude Code jobs (from the Stop hook) for the app's Work tab.
         self.work = []
         self.work_version = 0
@@ -826,36 +1075,7 @@ class Bridge:
                 if first:
                     self.convo[live.convo_key] = None
                 raise
-        first = self.convo.get(agent) is None
-        if first:
-            prompt = INTRO + prompt
-        args = [AGY_BIN, "--output-format", "json"]
-        if not first:
-            args += ["--conversation", self.convo["agy"]]
-        args.append("--print=" + prompt)
-        proc = subprocess.Popen(args, cwd=WORKDIR, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        with self.cond:
-            self.busy[agent] = proc
-        self.changed()
-        try:
-            out, err = proc.communicate()
-        finally:
-            with self.cond:
-                self.busy.pop(agent, None)
-        if proc.returncode and proc.returncode < 0:
-            raise RuntimeError("Stopped.")
-        try:
-            data = json.loads(out.strip().splitlines()[-1])
-        except (ValueError, IndexError):
-            if first:
-                self.convo[agent] = None
-            raise RuntimeError((err or out or "No output").strip()[-1500:])
-        if data.get("conversation_id"):
-            self.convo["agy"] = data["conversation_id"]
-        if data.get("status") not in (None, "SUCCESS"):
-            raise RuntimeError(data.get("response") or data.get("status"))
-        return (data.get("response") or "").strip()
+        return self.agy.run(prompt, msg, dict(self.options), self.system)
 
     def ask(self, agent, prompt, src):
         """Post a bubble for agent (queued behind an answer in progress), fill it with the reply."""
@@ -901,19 +1121,23 @@ class Bridge:
         for agent in targets:
             threading.Thread(target=worker, args=(agent,), daemon=True).start()
 
-    def warm(self, system=None, options=None):
+    def warm(self, system=None, options=None, agent="claude"):
         if system is not None:
             self.system = system[:4000]
         if options is not None:
             self.options = clean_options(options)
+        if agent == "agy":
+            threading.Thread(target=self.agy.warm, args=(dict(self.options),), daemon=True).start()
+            return
         threading.Thread(target=self.lane().warm, args=(dict(self.options), self.system), daemon=True).start()
 
     def stop(self):
         with self.cond:
             self.relay_token += 1
-            procs = [p for a, p in self.busy.items() if a != "claude"]
+            procs = [p for a, p in self.busy.items() if a not in ("claude", "agy")]
         for live in self.lives.values():
             live.stop()
+        self.agy.stop()
         for p in procs:
             p.terminate()
 
@@ -921,6 +1145,7 @@ class Bridge:
         self.stop()
         with self.cond:
             self.messages, self.convo = [], {"claude": None, "agy": None}
+        self.agy.forget()
         self.changed()
 
     # ---- finished Claude Code jobs (the app's Work tab)
@@ -1073,8 +1298,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(bridge.snapshot(int(q.get("v", -1)), float(q.get("wait", 0)),
                                                   int(q.get("tail", 0))))
         if url.path == "/api/ping":
-            return self.send_json({"ok": True, "name": "agent-hub", "api": 4, "hook": hook_installed(),
-                                   "features": ["live", "warm", "work", "sessions", "submit", "conversations"],
+            return self.send_json({"ok": True, "name": "agent-hub", "api": 5, "hook": hook_installed(),
+                                   "features": ["live", "warm", "work", "sessions", "submit", "conversations",
+                                                "agy-live", "modkeys", "agy-session"],
                                    "sessions": sorted(SESSIONS)})
         if url.path == "/api/sessions":
             sessions = list_sessions()
@@ -1121,7 +1347,7 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["api", "sessions"]:
             d = self.json_body()
             kind = d.get("kind", "claude")
-            if kind not in ("claude", "shell"):
+            if kind not in ("claude", "agy", "shell"):
                 return self.send_json({"error": "bad kind"}, 400)
             try:
                 name = new_session(kind, str(d.get("resume_id") or ""))
@@ -1142,7 +1368,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts[3] == "size":
                 return self.send_json({"ok": True, "fitted": fit_session(name, d.get("cols", 60), d.get("rows", 40))})
             keys = d.get("keys") or []
-            if not isinstance(keys, list) or not all(isinstance(k, str) and k in ALLOWED_KEYS for k in keys):
+            if not isinstance(keys, list) or not all(key_ok(k) for k in keys):
                 return self.send_json({"error": "bad keys"}, 400)
             send_keys(name, keys)
             return self.send_json({"ok": True})
@@ -1158,7 +1384,8 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["api", "bridge", "warm"]:
             d = self.json_body()
             system = d.get("system")
-            bridge.warm(system if isinstance(system, str) else None, d.get("options"))
+            bridge.warm(system if isinstance(system, str) else None, d.get("options"),
+                        "agy" if d.get("to") == "agy" else "claude")
             return self.send_json({"ok": True})
         if parts == ["api", "work", "done"]:
             d = self.json_body()

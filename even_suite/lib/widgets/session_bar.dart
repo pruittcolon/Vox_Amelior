@@ -7,14 +7,23 @@ import '../core/settings.dart';
 import '../core/suite.dart';
 import 'common.dart';
 
-/// Where what you say (and type) goes: Claude chat, or one of your Claude
-/// Code sessions in Termux. Tap one to talk to it, hold it for more;
-/// "Sessions" lists everything open (shells too), opens new ones and picks
-/// up past conversations.
+/// Where what you say (and type) goes: chat, or one of your sessions in
+/// Termux (Claude Code, or Antigravity in its section). Tap one to talk to it,
+/// hold it for more; "Sessions" lists everything open (shells too), opens new
+/// ones and picks up past conversations.
 class SessionBar extends StatefulWidget {
-  const SessionBar({super.key, required this.suite, required this.active, this.padding = EdgeInsets.zero});
+  const SessionBar({
+    super.key,
+    required this.suite,
+    required this.active,
+    this.padding = EdgeInsets.zero,
+    this.agent = 'claude',
+  });
 
   final Suite suite;
+
+  /// Whose sessions to list: 'claude' or 'agy'.
+  final String agent;
 
   /// On screen and the app in front: keep the list fresh.
   final bool active;
@@ -63,10 +72,12 @@ class _SessionBarState extends State<SessionBar> {
       builder: (context, _) {
         final term = suite.terminal;
         final chat = suite.settings.target == Target.claude;
-        // Claude Code sessions here; shells and the rest under "Sessions".
+        // This agent's sessions here; shells and the rest under "Sessions".
+        final mine = term.ofAgent(widget.agent);
+        final agy = widget.agent == 'agy';
         final list = [
-          ...term.claudes,
-          if (!chat && term.current != null && !term.current!.isClaude) term.current!,
+          ...mine,
+          if (!chat && term.current != null && !mine.any((s) => s.name == term.current!.name)) term.current!,
         ];
         return SizedBox(
           height: 40,
@@ -77,15 +88,15 @@ class _SessionBarState extends State<SessionBar> {
               _Chip(
                 icon: Icons.chat_bubble_rounded,
                 label: 'Chat',
-                color: AppColors.claude,
+                color: agy ? AppColors.agy : AppColors.claude,
                 selected: chat,
                 onTap: suite.useChat,
               ),
               for (final s in list)
                 _Chip(
-                  icon: s.isClaude ? Icons.terminal_rounded : Icons.code_rounded,
+                  icon: _iconFor(s),
                   label: s.label,
-                  color: AppColors.glasses,
+                  color: s.isAgy ? AppColors.agy : AppColors.glasses,
                   selected: !chat && s.name == term.session,
                   dot: _stateColor(s.state),
                   pulse: s.state == 'working' || s.state == 'asking',
@@ -107,6 +118,12 @@ class _SessionBarState extends State<SessionBar> {
   }
 }
 
+IconData _iconFor(TermSession s) => s.isAgy
+    ? Icons.rocket_launch_rounded
+    : s.isClaude
+        ? Icons.terminal_rounded
+        : Icons.code_rounded;
+
 Color? _stateColor(String state) => switch (state) {
       'working' => AppColors.warn,
       'asking' => AppColors.claude,
@@ -119,7 +136,7 @@ class SessionsSheet extends StatefulWidget {
   const SessionsSheet({super.key, required this.suite, required this.goToClaude});
   final Suite suite;
 
-  /// Switch to the Claude tab (the sheet sits above the tabs, so it is
+  /// Switch to the Terminal tab (the sheet sits above the tabs, so it is
   /// handed in from the screen that opened it).
   final VoidCallback goToClaude;
 
@@ -131,7 +148,7 @@ class SessionsSheet extends StatefulWidget {
         builder: (_) => SessionsSheet(
           suite: suite,
           goToClaude: () {
-            if (context.mounted) Shell.goTo(context, Shell.claude);
+            if (context.mounted) Shell.goTo(context, Shell.terminal);
           },
         ),
       );
@@ -209,7 +226,7 @@ class SessionsSheet extends StatefulWidget {
           'working' => 'Working',
           'asking' => 'Asking you something',
           'idle' => 'Waiting for you',
-          _ => s.isClaude ? '' : 'A command line',
+          _ => s.isClaude || s.isAgy ? '' : 'A command line',
         },
       ].where((x) => x.isNotEmpty).join(' · ');
 
@@ -290,9 +307,9 @@ class _SessionsSheetState extends State<SessionsSheet> {
               for (final s in term.sessions)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(s.isClaude ? Icons.terminal_rounded : Icons.code_rounded,
+                  leading: Icon(_iconFor(s),
                       color: s.name == term.session && suite.settings.target == Target.terminal
-                          ? AppColors.glasses
+                          ? (s.isAgy ? AppColors.agy : AppColors.glasses)
                           : AppColors.muted),
                   title: Row(children: [
                     Flexible(child: Text(s.label, style: const TextStyle(fontWeight: FontWeight.w700))),
@@ -321,15 +338,17 @@ class _SessionsSheetState extends State<SessionsSheet> {
                   },
                 ),
               const SizedBox(height: 10),
-              Row(children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: term.sessionsSupported ? () => _open() : null,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('New Claude Code'),
-                  ),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                FilledButton.icon(
+                  onPressed: term.sessionsSupported ? () => _open() : null,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('New Claude Code'),
                 ),
-                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: term.sessionsSupported ? () => _open(kind: 'agy') : null,
+                  icon: const Icon(Icons.rocket_launch_rounded, color: AppColors.agy),
+                  label: const Text('Antigravity'),
+                ),
                 OutlinedButton.icon(
                   onPressed: term.sessionsSupported ? () => _open(kind: 'shell') : null,
                   icon: const Icon(Icons.code_rounded),
