@@ -433,19 +433,29 @@ class AgentHubTest(unittest.TestCase):
 
     def test_agy_session_kind_opens_and_closes(self):
         # Antigravity gets sessions of its own, named agy, agy-2, ... and listed as kind "agy".
-        name = self.post("/api/sessions", {"kind": "agy"})["name"]
-        self.assertEqual(name, "agy")
-        self.assertEqual(self.post("/api/sessions", {"kind": "agy"})["name"], "agy-2")
-        info = {s["name"]: s for s in self.get("/api/sessions")["sessions"]}
-        self.assertEqual((info["agy"]["kind"], info["agy-2"]["kind"]), ("agy", "agy"))
-        self.assertFalse(info["agy"]["main"], "the Termux session stays the Claude one")
-        self.assertTrue(self.post("/api/term/agy-2/keys", {"keys": ["Escape", "C-c"]})["ok"])
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            self.post("/api/sessions", {"kind": "gemini"})
-        self.assertEqual(cm.exception.code, 400)
-        self.assertTrue(self.post("/api/sessions/agy-2/close", {})["ok"])
-        self.assertTrue(self.post("/api/sessions/agy/close", {})["ok"])
+        opened = []
+        try:
+            name = self.post("/api/sessions", {"kind": "agy"})["name"]
+            opened.append(name)
+            self.assertEqual(name, "agy")
+            second = self.post("/api/sessions", {"kind": "agy"})["name"]
+            opened.append(second)
+            self.assertEqual(second, "agy-2")
+            info = {s["name"]: s for s in self.get("/api/sessions")["sessions"]}
+            self.assertEqual((info["agy"]["kind"], info["agy-2"]["kind"]), ("agy", "agy"))
+            self.assertFalse(info["agy"]["main"], "the Termux session stays the Claude one")
+            # Keys reach it once it is up (not Ctrl+C: the fake has no handler and would end).
+            self.wait_for("agy-2", "❯")
+            self.assertTrue(self.post("/api/term/agy-2/keys", {"keys": ["Escape", "Tab"]})["ok"])
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self.post("/api/sessions", {"kind": "gemini"})
+            self.assertEqual(cm.exception.code, 400)
+        finally:
+            # Whatever happened, leave nothing behind for the tests that run after this one.
+            for n in opened:
+                self.post(f"/api/sessions/{n}/close", {})
         self.assertNotIn("agy", [s["name"] for s in self.get("/api/sessions")["sessions"]])
+        self.assertNotIn("agy-2", [s["name"] for s in self.get("/api/sessions")["sessions"]])
 
     def wait_for(self, session, needle, timeout=10):
         deadline, seen, h = time.time() + timeout, "", ""
