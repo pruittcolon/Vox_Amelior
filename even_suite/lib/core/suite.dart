@@ -303,8 +303,7 @@ class Suite extends ChangeNotifier {
       ..autoSend = settings.autoSend
       ..wakeAutoSend = settings.wakeAutoSend
       ..silenceMs = settings.pauseMs;
-    chat.agent = settings.agent;
-    conversation.agent = dashboard.agent = chat.agentName;
+    _applyAgent();
     chat.options = _claudeOptions();
     narrator.enabled = settings.speakReplies != 'off';
     final voiceKey = '${settings.ttsEngine}|${settings.ttsVoice}|${settings.ttsRate}|${settings.ttsPitch}';
@@ -750,6 +749,12 @@ class Suite extends ChangeNotifier {
         : {...settings.claudeOptions, 'lane': 'full'};
   }
 
+  /// Who answers, pushed to everything that talks to it or names it on the glasses.
+  void _applyAgent() {
+    chat.agent = settings.agent;
+    conversation.agent = dashboard.agent = chat.agentName;
+  }
+
   /// The quick Claude (no tools) answers first - only Claude has one.
   bool get _quickLane => settings.answerSpeed == 'quick' && settings.agent == 'claude';
 
@@ -981,6 +986,7 @@ class Suite extends ChangeNotifier {
       } else {
         _lastQuestion = t;
         _terminalAsk = null;
+        _applyAgent();
         _lane = _quickLane && !wantsFull(t) ? 'quick' : 'full';
         chat.system = glassesPrimer(quick: _lane == 'quick');
         chat.options = _claudeOptions(full: _lane == 'full');
@@ -1092,6 +1098,7 @@ class Suite extends ChangeNotifier {
       return;
     }
     settings.set('agent', next);
+    _applyAgent();
     EventLog.add('chat', 'agent', {'agent': next});
     _toast('Now talking to $name');
     _modeNotice('$name\nAnswers from now on');

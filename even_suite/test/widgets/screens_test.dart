@@ -786,7 +786,7 @@ void main() {
     await tester.pump();
     expect(suite.settings.agent, 'claude');
     await tester.pump(const Duration(seconds: 30));
-    await suite.submit('what time is it in tokyo', spoken: false);
+    await suite.submit('how many moons does jupiter have', spoken: false);
     await tester.pump();
     expect(w.bridge.sentTo.last, 'claude');
     expect(w.bridge.lastOptions?['lane'], 'quick');
