@@ -466,7 +466,7 @@ class Suite extends ChangeNotifier {
       // that left them 30 s without a word from us, so they hung up (four of
       // six drops in the log). The native side backs this up (BleManager).
       _heartbeat = Timer.periodic(const Duration(seconds: 8), (_) {
-        if (DateTime.now().difference(ble.lastWrite) < const Duration(seconds: 4)) return;
+        if (ble.clock().difference(ble.lastWrite) < const Duration(seconds: 4)) return;
         proto.sendHeartBeat();
       });
     }

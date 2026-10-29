@@ -1327,6 +1327,7 @@ void main() {
   testWidgets('the link: heartbeats keep coming while the glasses chatter (looking up and down)', (tester) async {
     final w = _World();
     final suite = w.suite;
+    suite.ble.clock = () => tester.binding.clock.now(); // (DateTime.now is not the test's time)
     await w.control.connectNow();
     await tester.pumpWidget(EvenSuiteApp(suite: suite));
     await tester.pump(const Duration(seconds: 12)); // the start-up writes are done

@@ -177,6 +177,9 @@ class BleManager extends ChangeNotifier {
   /// nothing is written to for about 30 s - what THEY send does not count.
   DateTime lastWrite = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// The clock for [lastWrite] (tests use the fake one).
+  DateTime Function() clock = DateTime.now;
+
   // ------------------------------------------------------------ link state
 
   Future<void> startScan() async {
@@ -340,12 +343,12 @@ class BleManager extends ChangeNotifier {
       '$lr${cmd.toRadixString(16).padLeft(2, '0')}';
 
   Future<void> sendData(Uint8List data, {String? lr}) {
-    lastWrite = DateTime.now();
+    lastWrite = clock();
     return transport.send(data, lr);
   }
 
   Future<int> sendBatch(List<Uint8List> packets, String lr, {int gapMs = 0}) async {
-    lastWrite = DateTime.now();
+    lastWrite = clock();
     final sw = Stopwatch()..start();
     final sent = await transport.sendBatch(packets, lr, gapMs: gapMs);
     EventLog.add('ble', 'batch', {
@@ -386,7 +389,7 @@ class BleManager extends ChangeNotifier {
     }
 
     final sw = Stopwatch()..start();
-    lastWrite = DateTime.now();
+    lastWrite = clock();
     try {
       await transport.send(data, lr0).timeout(const Duration(seconds: 2));
     } catch (_) {
