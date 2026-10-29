@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/bridge/ansi.dart';
 
@@ -126,20 +127,27 @@ class _TerminalScreenState extends State<TerminalScreen> {
       // Fitted to the width: the phone's text size would push lines over.
       return MediaQuery.withNoTextScaling(
         child: DefaultTextStyle(
-        style: style,
-        child: SelectionArea(
-          child: Scrollbar(
-            controller: _scroll,
-            child: ListView.builder(
+          style: style,
+          child: GestureDetector(
+            onLongPress: widget.text.trim().isEmpty
+                ? null
+                : () {
+                    Clipboard.setData(ClipboardData(text: Ansi.strip(widget.text).trimRight()));
+                    ScaffoldMessenger.maybeOf(context)
+                        ?.showSnackBar(const SnackBar(content: Text('Copied terminal screen')));
+                  },
+            child: Scrollbar(
               controller: _scroll,
-              reverse: true,
-              padding: const EdgeInsets.all(pad),
-              itemCount: _lines.length,
-              itemBuilder: (context, i) => _line(_lines[_lines.length - 1 - i], size),
+              child: ListView.builder(
+                controller: _scroll,
+                reverse: true,
+                padding: const EdgeInsets.all(pad),
+                itemCount: _lines.length,
+                itemBuilder: (context, i) => _line(_lines[_lines.length - 1 - i], size),
+              ),
             ),
           ),
         ),
-      ),
       );
     });
   }

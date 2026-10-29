@@ -759,25 +759,31 @@ void main() {
     await suite.submit('what is in my notes folder', spoken: false);
     await tester.pump();
     expect(w.bridge.sentTo.last, 'agy');
-    expect(w.bridge.lastOptions, {'effort': 'medium', 'access': 'auto', 'lane': 'full'},
-        reason: 'no quick lane, no Claude model, and no commands unless allowed');
+    expect(w.bridge.lastOptions,
+        {'agy_model': 'argon', 'effort': 'medium', 'access': 'auto', 'agy_commands': 'true', 'lane': 'full'},
+        reason: 'Argon model and commands on by default so Antigravity works without hassle');
     expect(w.bridge.lastSystem, contains('Google Antigravity'));
     expect(w.bridge.lastSystem, isNot(contains('[[full]]')));
     w.bridge.progress(stage: 'tool', tool: 'Running ls');
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
-    expect(w.glasses.screens().last, contains('Running ls'));
+    expect(suite.conversation.step, 'Running ls', reason: 'phone UI tracks progress');
+    expect(w.glasses.screens().where((s) => s.contains('Running ls')), isEmpty,
+        reason: 'Antigravity does not stream working steps to the glasses');
     w.bridge.finish('Three files: a.md, b.md, c.md');
     await tester.pump();
     await tester.pump();
-    expect(w.glasses.screens().last, contains('Three files'));
+    expect(w.glasses.screens().last, contains('Three files'),
+        reason: 'glasses receive the final completed response');
     await tester.pump(const Duration(seconds: 30));
 
-    // Running commands is its own yes.
-    suite.settings.set('agyCommands', true);
+    // Can switch to Gemini Flash or turn off running commands.
+    suite.settings.set('agyModel', 'flash');
+    suite.settings.set('agyCommands', false);
     await suite.submit('list my files', spoken: false);
     await tester.pump();
-    expect(w.bridge.lastOptions?['agy_commands'], 'true');
+    expect(w.bridge.lastOptions?['agy_model'], 'flash');
+    expect(w.bridge.lastOptions?.containsKey('agy_commands'), isFalse);
     w.bridge.addReply('ok');
     await tester.pump();
     await tester.pump(const Duration(seconds: 30));

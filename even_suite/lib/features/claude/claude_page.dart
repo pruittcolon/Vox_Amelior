@@ -195,7 +195,7 @@ class _Header extends StatelessWidget {
                 terminal
                     ? '${term.label}$state'
                     : agy
-                        ? 'Chat · ${effortLabel(suite.settings.claudeEffort)} · ${accessLabel(suite.settings.claudeAccess)}'
+                        ? 'Chat · ${suite.settings.agyModel == 'flash' ? 'Gemini 3.8 Flash' : 'Gemini 4 Argon'} · ${effortLabel(suite.settings.claudeEffort)}'
                         : 'Chat · ${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

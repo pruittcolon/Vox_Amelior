@@ -745,6 +745,7 @@ class Suite extends ChangeNotifier {
     // it may do carry over, running commands is a separate yes.
     if (settings.agent == 'agy') {
       return {
+        'agy_model': settings.agyModel,
         'effort': settings.claudeEffort,
         'access': settings.claudeAccess,
         if (settings.agyCommands) 'agy_commands': 'true',
@@ -760,6 +761,7 @@ class Suite extends ChangeNotifier {
   void _applyAgent() {
     chat.agent = settings.agent;
     conversation.agent = dashboard.agent = chat.agentName;
+    conversation.quietWork = settings.agent == 'agy';
   }
 
   /// The quick Claude (no tools) answers first - only Claude has one.
@@ -1023,11 +1025,13 @@ class Suite extends ChangeNotifier {
     // The session picked was closed elsewhere: another one instead.
     if (terminal.sessions.isNotEmpty && terminal.current == null) terminal.onSessionGone?.call();
     final label = terminal.label;
-    // The hooks report Claude Code's steps and answer (Work tab).
-    // With "Terminal on glasses" set, the terminal itself shows instead.
-    final follow = settings.termShowSec == 0 &&
-        terminal.isClaude &&
-        (chat.hub?.hook == true || work.items.any((i) => !i.isMessage));
+    // The hooks report Claude Code's steps and answer (Work tab), and Agent Hub
+    // watches Antigravity transcripts for final completion or user-input prompts.
+    // With "Terminal on glasses" set (for non-agy), the terminal itself shows instead.
+    final follow = terminal.isAgy ||
+        (settings.termShowSec == 0 &&
+            terminal.isClaude &&
+            (chat.hub?.hook == true || work.items.any((i) => !i.isMessage)));
     if (follow) {
       _terminalAsk = line;
       conversation.asked(line, ai: _aiSession, who: label, gotIt: '[send] typed into $label', firstStep: _typedStep);
@@ -1055,13 +1059,14 @@ class Suite extends ChangeNotifier {
       return;
     }
     if (!follow) {
-      if (settings.repliesOnGlasses && ble.isConnected) {
+      if (settings.repliesOnGlasses && ble.isConnected && !terminal.isAgy) {
         // Already showing: start its time again from now.
         terminal.setMirror(false);
         terminal.setMirror(true);
       }
       return;
     }
+    if (terminal.isAgy) return;
     // Claude Code never picked it up (hooks off): show the terminal itself
     // instead of waiting.
     _terminalWatch?.cancel();
@@ -1205,7 +1210,7 @@ class Suite extends ChangeNotifier {
       _shownJob = item.id;
       final text = item.text.isEmpty ? item.summary : item.text;
       HapticFeedback.mediumImpact();
-      if (conversation.externalAnswer(text)) {
+      if (conversation.externalAnswer(text, title: item.isAgy ? 'Antigravity' : 'Claude Code')) {
         dashboard.lastReply = text;
         if (_speakThis && narrator.enabled && text.isNotEmpty) {
           unawaited(voice.suspend());
@@ -1275,7 +1280,7 @@ class Suite extends ChangeNotifier {
   void _onProgress(BridgeMessage raw) {
     final m = _clean(raw);
     conversation.progress(m);
-    if (_speakThis && narrator.enabled && m.stage == 'writing' && m.live.isNotEmpty) {
+    if (!conversation.quietWork && _speakThis && narrator.enabled && m.stage == 'writing' && m.live.isNotEmpty) {
       unawaited(voice.suspend());
       narrator.feed(m.id, m.block, m.live);
       if (narrator.speaking) conversation.speaking();
@@ -1465,18 +1470,20 @@ class Suite extends ChangeNotifier {
     dashboard.workChanged();
   }
 
-  /// Claude Code finished a job (Work tab): say so briefly, only now.
+  /// Claude Code / Antigravity finished a job (Work tab): say so briefly, only now.
   void _onWorkDone(WorkItem item) {
     dashboard.lastWork = item;
     if (settings.noteSlots.contains('work') || dashboard.claudePanel) dashboard.markDirty();
     if (!settings.workAlerts) return;
     if (item.id == _shownJob) return; // already on the glasses as the answer
     final where = item.project.isEmpty ? '' : ' · ${item.project}';
-    if (item.isMessage) {
-      // A Claude Code session in /even mode talking to you: read it on the glasses.
-      if (settings.workPhone) unawaited(system.notify(_workNotice++, 'Claude Code$where', item.summary));
+    final who = item.isAgy ? 'Antigravity' : 'Claude Code';
+    if (item.isMessage || item.isAgy) {
+      // A session talking to you, or Antigravity finishing its final task / asking for input: read it on the glasses.
+      final title = item.isAgy && !item.isMessage ? 'Antigravity finished$where' : '$who$where';
+      if (settings.workPhone) unawaited(system.notify(_workNotice++, title, item.summary));
       if (_glassesFree() && !conversation.busy && !voice.dictating) {
-        display.showText(item.text.isEmpty ? item.summary : item.text, title: 'Claude Code');
+        display.showText(item.text.isEmpty ? item.summary : item.text, title: who);
       }
       return;
     }

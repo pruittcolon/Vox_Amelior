@@ -43,7 +43,8 @@ AGY_BIN = shutil.which("agy", path=os.path.expanduser("~/.local/bin")) or "agy"
 # command attaches to, so the web page and the terminal share one Claude.
 SESSIONS = {
     "claude": {"session": os.environ.get("HUB_CLAUDE_SESSION", "claude"), "cmd": CLAUDE_BIN},
-    "agy": {"session": os.environ.get("HUB_AGY_SESSION", "agy"), "cmd": AGY_BIN},
+    "agy": {"session": os.environ.get("HUB_AGY_SESSION", "agy"),
+            "cmd": f"{AGY_BIN} --dangerously-skip-permissions"},
     # Plain shell for the Even Suite phone app's Terminal tab.
     "shell": {"session": os.environ.get("HUB_SHELL_SESSION", "shell"), "cmd": "bash -l"},
 }
@@ -237,16 +238,18 @@ def send_keys(name, keys):
             tmux("send-keys", "-t", pane(name), key)
 
 
-# Claude Code's spinner while it works: "● Hullaballooing… (5m 27s)" (the
-# "esc to interrupt" hint is cut off in a phone-wide pane).
-SPINNER_RE = re.compile(r"…\s*\((\d+[hms]\s*)+")
+# Claude Code's / Antigravity's spinner while it works: "● Hullaballooing… (5m 27s)"
+# or Braille spinner "⡿ Running command..." (the "esc to interrupt" / "esc to cancel"
+# hint is cut off in a phone-wide pane).
+SPINNER_RE = re.compile(r"(…\s*\((\d+[hms]\s*)+|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⡿⣟⣯⣷⣾⣽⣻⢿]\s+\w)")
+ASKING_RE = re.compile(r"(Do you want to proceed\?|Allow\s+.*\bDeny\b|\[y/n\]|\(y/n\)|space to select.*enter to confirm)", re.I)
 
 
 def claude_state(lines):
-    """working / asking / idle, and the last thing asked, from a Claude Code screen."""
+    """working / asking / idle, and the last thing asked, from a Claude Code or Antigravity screen."""
     tail = lines[-10:]
-    working = any("esc to interrupt" in l or SPINNER_RE.search(l) for l in tail)
-    state = "working" if working else "idle"
+    working = any("esc to interrupt" in l or "esc to cancel" in l or SPINNER_RE.search(l) for l in tail)
+    state = "working" if working else ("asking" if any(ASKING_RE.search(l) for l in tail) else "idle")
     prompts = [i for i, l in enumerate(lines) if PROMPT_RE.match(l)]
     topic = ""
     if prompts:
@@ -264,7 +267,7 @@ def claude_state(lines):
 
 def list_sessions():
     """Every tmux session (Claude Code ones first, the Termux one on top),
-    with what each Claude is doing."""
+    with what each Claude or Antigravity is doing."""
     fmt = "\t".join(["#{session_name}", "#{session_created}", "#{session_activity}", "#{session_attached}",
                      "#{pane_start_command}", "#{pane_width}", "#{pane_height}", "#{pane_active}#{window_active}"])
     panes = {}
@@ -279,7 +282,7 @@ def list_sessions():
         info = {"name": name, "kind": kind, "main": name == main, "attached": int(f[3] or 0),
                 "created": int(f[1] or 0), "activity": int(f[2] or 0),
                 "cols": int(f[5] or 0), "rows": int(f[6] or 0)}
-        if kind == "claude":
+        if kind in ("claude", "agy"):
             info.update(claude_state([l for l in capture_session(name, 300).splitlines() if l.strip()]))
         out.append(info)
     out.sort(key=lambda s: (not s["main"], s["kind"] != "claude", s["created"], s["name"]))
@@ -296,12 +299,12 @@ def new_session(kind, resume_id=""):
     while name in existing:
         name, n = f"{kind}-{n}", n + 1
     cmd, cwd = SESSIONS[kind]["cmd"], WORKDIR
-    if kind == "claude" and resume_id:
+    if kind in ("claude", "agy") and resume_id:
         conv = next((c for c in conversations(200) if c["id"] == resume_id), None)
         if conv is None:
             raise ValueError("no such conversation")
-        cmd += f" --resume {resume_id}"
-        if os.path.isdir(conv["cwd"]):
+        cmd += f" --resume {resume_id}" if kind == "claude" else f" --conversation {resume_id}"
+        if conv.get("cwd") and os.path.isdir(conv["cwd"]):
             cwd = conv["cwd"]
     tmux("new-session", "-d", "-s", name, "-x", "60", "-y", "40", "-c", cwd,
          f"{cmd}; echo; echo '[{name} ended - close it in the app]'; exec bash -i")
@@ -310,6 +313,7 @@ def new_session(kind, resume_id=""):
 
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
+AGY_BRAIN = os.path.expanduser("~/.gemini/antigravity-cli/brain")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
@@ -339,27 +343,60 @@ def _first_ask(path):
     return cwd, title
 
 
+def _agy_first_ask(path):
+    """(folder it ran in, first thing you asked) from an Antigravity transcript."""
+    title = ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i > 100:
+                    break
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("type") != "USER_INPUT" or rec.get("source") != "USER_EXPLICIT":
+                    continue
+                raw = str(rec.get("content") or "")
+                m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", raw, re.S)
+                text = " ".join((m.group(1) if m else raw).split())
+                if text and not text.startswith("/"):
+                    title = text
+                    break
+    except OSError:
+        pass
+    return WORKDIR, title
+
+
 def conversations(limit=20):
-    """Your recent Claude Code conversations, newest first. The app's own chat
-    (questions marked "[From the user]") is left out; "active" means it was
-    written to in the last two minutes (probably open somewhere)."""
+    """Your recent Claude Code and Antigravity conversations, newest first. The
+    app's own chat (questions marked "[From the user]") is left out; "active"
+    means it was written to in the last two minutes (probably open somewhere)."""
     files = []
     try:
         for d in os.listdir(PROJECTS):
             folder = os.path.join(PROJECTS, d)
             if os.path.isdir(folder):
-                files += [os.path.join(folder, f) for f in os.listdir(folder)
-                          if f.endswith(".jsonl") and UUID_RE.match(f[:-6])]
+                files += [("claude", os.path.basename(f)[:-6], os.path.join(folder, f))
+                          for f in os.listdir(folder) if f.endswith(".jsonl") and UUID_RE.match(f[:-6])]
     except OSError:
-        return []
-    files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+        pass
+    try:
+        for d in os.listdir(AGY_BRAIN):
+            if UUID_RE.match(d):
+                t = os.path.join(AGY_BRAIN, d, ".system_generated", "logs", "transcript.jsonl")
+                if os.path.isfile(t):
+                    files.append(("agy", d, t))
+    except OSError:
+        pass
+    files.sort(key=lambda item: os.path.getmtime(item[2]), reverse=True)
     out, now = [], time.time()
-    for path in files[:limit * 3]:
-        cwd, title = _first_ask(path)
-        if not title or title.startswith("[From ") or title.startswith("[Agent Hub"):
+    for kind, cid, path in files[:limit * 3]:
+        cwd, title = _agy_first_ask(path) if kind == "agy" else _first_ask(path)
+        if not title or title.startswith("[From ") or title.startswith("[Agent Hub") or "[Agent Hub bridge]" in title:
             continue
         updated = os.path.getmtime(path)
-        out.append({"id": os.path.basename(path)[:-6], "cwd": cwd, "title": title[:160],
+        out.append({"id": cid, "kind": kind, "cwd": cwd, "title": title[:160],
                     "updated": updated, "active": now - updated < 120})
         if len(out) >= limit:
             break
@@ -456,6 +493,13 @@ INTRO = (
 # refused (--permission-prompts none).
 ACCESS_MODES = {"read": None, "edit": "acceptEdits", "auto": "auto"}
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+AGY_EFFORTS = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
+AGY_MODELS = {
+    "argon": "gemini-4-argon",
+    "gemini-4-argon": "gemini-4-argon",
+    "flash": "gemini-3.8-flash",
+    "gemini-3.8-flash": "gemini-3.8-flash",
+}
 WORK_FILE = os.path.join(DATA_DIR, "work.json")
 # Claude jobs that finished while Agent Hub was not running (claude_done_hook.py).
 WORK_PENDING = os.path.join(DATA_DIR, "work-pending.jsonl")
@@ -468,6 +512,8 @@ def clean_options(d):
     model = str(d.get("model") or "").strip()
     if model and model != "default" and re.fullmatch(r"[A-Za-z0-9._\-\[\]]{1,60}", model):
         opts["model"] = model
+    if d.get("agy_model") in AGY_MODELS:
+        opts["agy_model"] = AGY_MODELS[d["agy_model"]]
     if d.get("effort") in EFFORTS:
         opts["effort"] = d["effort"]
     if d.get("access") in ACCESS_MODES:
@@ -789,8 +835,12 @@ class LiveAgy:
     @staticmethod
     def args(opts, convo):
         a = [AGY_BIN, "--input-format", "stream-json", "--output-format", "stream-json", "--print="]
-        if opts.get("effort"):
-            a += ["--effort", opts["effort"]]
+        model = AGY_MODELS.get(opts.get("agy_model") or opts.get("model") or "")
+        if model:
+            a += ["--model", model]
+        effort = AGY_EFFORTS.get(opts.get("effort") or "")
+        if effort:
+            a += ["--effort", effort]
         # Claude's "edit"/"auto" both mean: may change files. Commands need their own yes.
         if opts.get("access") in ("edit", "auto"):
             a += ["--mode", "accept-edits"]
@@ -806,7 +856,9 @@ class LiveAgy:
     def ensure(self, opts):
         """The Antigravity process for these options, started (or restarted) if needed."""
         with self.spawn_lock:
-            key = json.dumps([opts.get("effort"), opts.get("access") in ("edit", "auto"),
+            model = AGY_MODELS.get(opts.get("agy_model") or opts.get("model") or "")
+            effort = AGY_EFFORTS.get(opts.get("effort") or "")
+            key = json.dumps([model, effort, opts.get("access") in ("edit", "auto"),
                               bool(opts.get("agy_commands"))])
             if self.alive() and key == self.key:
                 return self.proc
@@ -964,6 +1016,176 @@ class LiveAgy:
 HOOK_EVENTS = ("Stop", "UserPromptSubmit", "PreToolUse")
 
 
+def clean_agy_text(s):
+    """Strip file:// markdown links and wrapper tags so text reads cleanly on G1 glasses."""
+    s = str(s or "")
+    s = re.sub(r"</?USER_REQUEST>\s*", "", s)
+    s = re.sub(r"\[([^\]]+)\]\(file://[^)]*\)", r"\1", s)
+    return s.strip()
+
+
+def _iso_epoch(ts):
+    if not ts or not isinstance(ts, str):
+        return 0.0
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def agy_transcript_turn(path):
+    """Inspect an Antigravity transcript.jsonl and return the latest turn state.
+    Returns dict with state in ('working', 'asking', 'done') or None."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            raw_lines = f.readlines()
+    except OSError:
+        return None
+    entries = []
+    for idx, line in enumerate(raw_lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if isinstance(obj, dict):
+                obj["_line_idx"] = idx
+                entries.append(obj)
+        except ValueError:
+            pass
+    if not entries:
+        return None
+    user_pos = -1
+    for i in range(len(entries) - 1, -1, -1):
+        if entries[i].get("type") == "USER_INPUT":
+            user_pos = i
+            break
+    if user_pos < 0:
+        for i in range(len(entries) - 1, -1, -1):
+            if entries[i].get("type") == "CONTEXT_SUMMARY":
+                user_pos = i
+                break
+    if user_pos < 0:
+        return None
+
+    user_entry = entries[user_pos]
+    prompt_raw = clean_agy_text(user_entry.get("content") or "")
+    prompt = next((ln.strip() for ln in prompt_raw.splitlines() if ln.strip() and not ln.strip().startswith("<")), "")[:200]
+    turn_entries = entries[user_pos + 1:]
+    if not turn_entries:
+        return {
+            "state": "working",
+            "step_index": user_entry.get("step_index", user_pos),
+            "prompt": prompt,
+            "summary": "",
+            "text": "",
+            "ms": 0,
+            "tools": 0,
+            "step": "Thinking",
+            "recent": [],
+        }
+
+    tools = 0
+    steps = []
+    planners = []
+    for e in turn_entries:
+        if e.get("type") == "PLANNER_RESPONSE":
+            planners.append(e)
+            for tc in e.get("tool_calls") or []:
+                if not isinstance(tc, dict):
+                    continue
+                tools += 1
+                args = tc.get("arguments") or tc.get("parameters") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except ValueError:
+                        args = {}
+                steps.append(describe_agy_tool(tc.get("name", ""), args))
+
+    step_label = steps[-1] if steps else "Thinking"
+    recent = steps[-4:]
+    last_entry = turn_entries[-1]
+    if last_entry.get("type") == "PLANNER_RESPONSE":
+        tcalls = [tc for tc in (last_entry.get("tool_calls") or []) if isinstance(tc, dict)]
+        for tc in tcalls:
+            if tc.get("name") == "ask_question":
+                args = tc.get("arguments") or tc.get("parameters") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except ValueError:
+                        args = {}
+                qs = args.get("questions") if isinstance(args, dict) else None
+                q_texts = []
+                for q in qs if isinstance(qs, list) else []:
+                    if isinstance(q, dict) and q.get("question"):
+                        opts = [str(o) for o in (q.get("options") or []) if o]
+                        q_texts.append(str(q["question"]) + (f" ({' / '.join(opts[:4])})" if opts else ""))
+                text = clean_agy_text("\n".join(q_texts) or last_entry.get("content") or "Antigravity needs your input.")
+                summary = next((ln.strip() for ln in text.splitlines() if ln.strip()), "Needs your input")[:200]
+                return {
+                    "state": "asking",
+                    "step_index": last_entry.get("step_index", len(entries)),
+                    "prompt": prompt,
+                    "summary": summary,
+                    "text": text[:6000],
+                    "ms": 0,
+                    "tools": tools,
+                    "step": "Waiting for your input",
+                    "recent": recent,
+                }
+        if not tcalls and last_entry.get("status") == "DONE":
+            content = last_entry.get("content") or ""
+            if "content" in (last_entry.get("truncated_fields") or []):
+                full_path = os.path.join(os.path.dirname(path), "transcript_full.jsonl")
+                try:
+                    with open(full_path, encoding="utf-8", errors="replace") as ff:
+                        for idx, fline in enumerate(ff):
+                            if idx == last_entry.get("_line_idx"):
+                                fobj = json.loads(fline)
+                                content = fobj.get("content") or content
+                                break
+                except (OSError, ValueError):
+                    pass
+            text = clean_agy_text(content)
+            if not text:
+                text = "Task complete."
+            summary = ""
+            for ln in text.splitlines():
+                s = ln.strip().lstrip("#*-•> ").strip()
+                if s:
+                    summary = (s if len(s) <= 200 else s[:197] + "...")
+                    break
+            t0 = _iso_epoch(user_entry.get("created_at"))
+            t1 = _iso_epoch(last_entry.get("created_at"))
+            ms = int(max(0.0, t1 - t0) * 1000) if (t0 and t1 and t1 >= t0) else 0
+            return {
+                "state": "done",
+                "step_index": last_entry.get("step_index", len(entries)),
+                "prompt": prompt,
+                "summary": summary or "Task complete.",
+                "text": text[:6000],
+                "ms": ms,
+                "tools": tools,
+                "step": "Done",
+                "recent": recent,
+            }
+
+    return {
+        "state": "working",
+        "step_index": last_entry.get("step_index", len(entries)),
+        "prompt": prompt,
+        "summary": "",
+        "text": "",
+        "ms": 0,
+        "tools": tools,
+        "step": step_label,
+        "recent": recent,
+    }
+
+
 def hook_installed():
     """Are the Work hooks (claude_done_hook.py on start, each step and done) in Claude Code's settings?"""
     try:
@@ -1000,13 +1222,18 @@ class Bridge:
         self.live = self.lives["full"]
         self.locks = {"claude": turn, "agy": threading.Lock()}
         self.agy = LiveAgy(self)
-        # Finished Claude Code jobs (from the Stop hook) for the app's Work tab.
+        # Finished Claude Code / Antigravity jobs for the app's Work tab.
         self.work = []
         self.work_version = 0
-        # Claude Code jobs in progress (from the start / step hooks), by session.
+        # Active jobs in progress, by session.
         self.jobs = {}
+        self._agy_mtimes = {}
+        self._agy_emitted = set()
+        self._agy_pane_asking = {}
         self.load()
         self.load_work()
+        self.scan_agy(prime=True)
+        threading.Thread(target=self._watch_agy, daemon=True).start()
 
     # ---- persistence & change notification
     def load(self):
@@ -1186,6 +1413,7 @@ class Bridge:
 
         item = {"id": uuid.uuid4().hex[:10],
                 "ts": float(d.get("ts") or time.time()),
+                "agent": "agy" if d.get("agent") == "agy" else "claude",
                 "project": str(d.get("project") or "")[:60],
                 "where": str(d.get("where") or "")[:60],
                 "session": str(d.get("session") or "")[:40],
@@ -1193,7 +1421,7 @@ class Bridge:
                 "text": str(d.get("text") or "")[:6000],
                 "ms": num(d.get("ms")),
                 "tools": num(d.get("tools")),
-                # "job" (the Stop hook) or "message" (`glasses "..."` from a Claude Code session)
+                # "job" (the Stop hook / completed turn) or "message" (`glasses "..."` / user input needed)
                 "kind": "message" if d.get("kind") == "message" else "job"}
         with self.cond:
             job = self.jobs.pop(item["session"], None) if item["session"] else None
@@ -1206,7 +1434,7 @@ class Bridge:
         return item
 
     def job_progress(self, d):
-        """A Claude Code job started (state "start", with the prompt) or took a step."""
+        """A Claude Code / Antigravity job started (state "start", with the prompt) or took a step."""
         session = str(d.get("session") or "")[:40]
         if not session:
             return None
@@ -1214,20 +1442,147 @@ class Bridge:
         with self.cond:
             job = self.jobs.get(session)
             if d.get("state") == "start" or job is None:
-                job = {"session": session, "project": str(d.get("project") or "")[:60],
+                job = {"session": session,
+                       "agent": "agy" if d.get("agent") == "agy" else "claude",
+                       "project": str(d.get("project") or "")[:60],
                        "prompt": "", "step": "Thinking", "steps": 0, "started": now, "recent": [], "where": ""}
                 self.jobs[session] = job
             if d.get("state") == "start":
                 job["prompt"] = str(d.get("prompt") or "")[:200]
                 job["where"] = str(d.get("where") or "")[:40]
             else:
-                job["step"] = describe_tool(str(d.get("tool") or ""), d.get("input"))
+                job["step"] = str(d.get("step") or describe_tool(str(d.get("tool") or ""), d.get("input")))[:80]
                 job["steps"] += 1
                 job["recent"] = (job.get("recent", []) + [job["step"]])[-4:]
             job["updated"] = now
             self.work_version += 1
             self.cond.notify_all()
             return job
+
+    def scan_agy(self, prime=False):
+        """Inspect Antigravity transcripts and tmux panes.
+        Only emits Work items when Antigravity finishes its final task or needs user input."""
+        now = time.time()
+        try:
+            cids = os.listdir(AGY_BRAIN) if os.path.isdir(AGY_BRAIN) else []
+        except OSError:
+            cids = []
+        for cid in cids:
+            if not re.fullmatch(r"[0-9a-f\-]{8,64}", cid):
+                continue
+            if cid == self.convo.get("agy"):
+                continue
+            tpath = os.path.join(AGY_BRAIN, cid, ".system_generated", "logs", "transcript.jsonl")
+            try:
+                mtime = os.path.getmtime(tpath)
+            except OSError:
+                continue
+            if not prime and now - mtime > 3600 and cid not in self._agy_mtimes:
+                continue
+            if self._agy_mtimes.get(cid) == mtime:
+                continue
+            self._agy_mtimes[cid] = mtime
+            turn = agy_transcript_turn(tpath)
+            if not turn:
+                continue
+            sess_key = f"agy:{cid[:8]}"
+            state = turn["state"]
+            step_idx = turn["step_index"]
+            if prime:
+                if state in ("done", "asking"):
+                    self._agy_emitted.add((cid, state, step_idx))
+                continue
+            if state == "working":
+                with self.cond:
+                    prev = self.jobs.get(sess_key)
+                    started = prev["started"] if prev else now
+                    changed = (not prev or prev.get("step") != turn["step"]
+                               or prev.get("steps") != turn["tools"]
+                               or prev.get("prompt") != turn["prompt"])
+                    self.jobs[sess_key] = {
+                        "session": sess_key,
+                        "agent": "agy",
+                        "project": "Antigravity",
+                        "where": "Antigravity",
+                        "prompt": turn["prompt"],
+                        "step": turn["step"],
+                        "steps": turn["tools"],
+                        "started": started,
+                        "updated": now,
+                        "recent": turn["recent"],
+                    }
+                    if changed:
+                        self.work_version += 1
+                        self.cond.notify_all()
+            elif state == "asking":
+                key = (cid, "asking", step_idx)
+                if key not in self._agy_emitted:
+                    self._agy_emitted.add(key)
+                    self.add_work({
+                        "agent": "agy",
+                        "kind": "message",
+                        "project": "Antigravity",
+                        "where": "Antigravity",
+                        "session": sess_key,
+                        "prompt": turn["prompt"],
+                        "summary": turn["summary"],
+                        "text": turn["text"],
+                        "tools": turn["tools"],
+                    })
+            elif state == "done":
+                key = (cid, "done", step_idx)
+                if key not in self._agy_emitted:
+                    self._agy_emitted.add(key)
+                    self.add_work({
+                        "agent": "agy",
+                        "kind": "job",
+                        "project": "Antigravity",
+                        "where": "Antigravity",
+                        "session": sess_key,
+                        "prompt": turn["prompt"],
+                        "summary": turn["summary"],
+                        "text": turn["text"],
+                        "ms": turn["ms"],
+                        "tools": turn["tools"],
+                    })
+                else:
+                    with self.cond:
+                        if self.jobs.pop(sess_key, None) is not None:
+                            self.work_version += 1
+                            self.cond.notify_all()
+
+        if prime or not has("tmux"):
+            return
+        try:
+            sessions = [s for s in list_sessions() if s.get("kind") == "agy"]
+        except Exception:  # noqa: BLE001
+            sessions = []
+        for s in sessions:
+            sid = s["id"]
+            if s.get("state") == "asking":
+                sig = s.get("topic") or "asking"
+                if self._agy_pane_asking.get(sid) != sig:
+                    self._agy_pane_asking[sid] = sig
+                    pane_tail = "\n".join(ln.strip() for ln in capture(sid, 12).splitlines() if ln.strip())[-600:]
+                    self.add_work({
+                        "agent": "agy",
+                        "kind": "message",
+                        "project": "Antigravity",
+                        "where": s.get("title") or sid,
+                        "session": sid,
+                        "summary": f"Needs input: {sig}"[:240],
+                        "text": pane_tail or f"Antigravity is waiting for your input in {sid}: {sig}",
+                    })
+            else:
+                self._agy_pane_asking.pop(sid, None)
+
+    def _watch_agy(self):
+        while True:
+            time.sleep(2.0)
+            try:
+                self.scan_agy(prime=False)
+            except Exception:  # noqa: BLE001
+                pass
 
     def active_jobs(self):
         now = time.time()

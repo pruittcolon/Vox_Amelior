@@ -97,8 +97,8 @@ class WorkController extends ChangeNotifier {
     if (active.map((j) => j.key).join(',') != activeKey) onActive?.call(active);
     for (final item in fresh) {
       onFinished?.call(item);
-      // A message (`glasses "..."`) is always news; a job only if it took a while.
-      if (!item.isMessage && item.took < minDuration) continue;
+      // A message (`glasses "..."`) or a finished Antigravity task is always news; a Claude job only if it took a while.
+      if (!item.isMessage && !item.isAgy && item.took < minDuration) continue;
       unread++;
       EventLog.add('work', 'done', {'project': item.project, 'ms': item.ms, 'tools': item.tools});
       onDone?.call(item);

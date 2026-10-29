@@ -103,6 +103,14 @@ class _SessionBarState extends State<SessionBar> {
                   onTap: () => suite.useSession(s.name),
                   onLongPress: () => SessionsSheet.details(context, suite, s),
                 ),
+              if (agy && list.isEmpty && term.sessionsSupported)
+                _Chip(
+                  icon: Icons.rocket_launch_rounded,
+                  label: 'New Antigravity',
+                  color: AppColors.agy,
+                  selected: false,
+                  onTap: suite.newSession,
+                ),
               _Chip(
                 icon: Icons.view_list_rounded,
                 label: 'Sessions',
@@ -377,13 +385,21 @@ class _SessionsSheetState extends State<SessionsSheet> {
                     for (final c in past)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.history_rounded, color: AppColors.muted),
+                        leading: Icon(
+                          c.isAgy ? Icons.rocket_launch_rounded : Icons.history_rounded,
+                          color: c.isAgy ? AppColors.agy : AppColors.muted,
+                        ),
                         title: Text(c.title, maxLines: 2, overflow: TextOverflow.ellipsis),
                         subtitle: Text(
-                          [_ago(c.time), if (c.cwd.isNotEmpty) c.cwd, if (c.active) 'open somewhere now'].join(' · '),
+                          [
+                            if (c.isAgy) 'Antigravity',
+                            _ago(c.time),
+                            if (c.cwd.isNotEmpty) c.cwd,
+                            if (c.active) 'open somewhere now',
+                          ].join(' · '),
                           style: TextStyle(color: c.active ? AppColors.warn : AppColors.muted, fontSize: 12),
                         ),
-                        onTap: term.sessionsSupported ? () => _open(resumeId: c.id) : null,
+                        onTap: term.sessionsSupported ? () => _open(kind: c.kind, resumeId: c.id) : null,
                       ),
                   ]);
                 },

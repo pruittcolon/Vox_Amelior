@@ -80,13 +80,17 @@ class _Notice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final asking = term.current?.state == 'asking';
-    final text = asking || term.lastSend == 'menu'
+    final asking = term.current?.state == 'asking' || term.lastSend == 'menu';
+    final stuck = !asking && term.lastSend == 'stuck';
+    final text = asking
         ? '${term.label} is asking you something - answer with 1, 2, 3 or Esc below.'
-        : term.lastSend == 'stuck'
+        : stuck
             ? 'Your message is still in its input box - tap Enter.'
             : null;
     if (text == null) return const SizedBox.shrink();
+    final quick = asking
+        ? const [('1', '1'), ('2', '2'), ('3', '3'), ('y', 'y'), ('n', 'n'), ('Esc', 'Escape')]
+        : const [('Enter', 'Enter')];
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -95,10 +99,21 @@ class _Notice extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.claude.withOpacity(0.5)),
       ),
-      child: Row(children: [
-        const Icon(Icons.help_outline_rounded, size: 18, color: AppColors.claude),
-        const SizedBox(width: 8),
-        Expanded(child: Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.help_outline_rounded, size: 18, color: AppColors.claude),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+        ]),
+        const SizedBox(height: 6),
+        Wrap(spacing: 6, runSpacing: 4, children: [
+          for (final (label, key) in quick)
+            ActionChip(
+              visualDensity: VisualDensity.compact,
+              label: Text(label, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700)),
+              onPressed: () => term.key(key),
+            ),
+        ]),
       ]),
     );
   }

@@ -38,7 +38,7 @@ class Settings extends ChangeNotifier {
   int pageSec = 0; // every page stays this many seconds (0 = by reading speed)
   int firstPageMs = 600; // extra time on an answer's first page
   int doneBlinkMs = 3000; // how long the "*" shows when Claude is done
-  int termShowSec = 30; // after you send to Termux: its screen on the glasses this long after it last changed (0 = answer like chat, -1 = until you close it)
+  int termShowSec = 0; // after you send to Termux: its screen on the glasses this long after it last changed (0 = answer like chat, -1 = until you close it)
   int readingWpm = 180; // teleprompter speed for replies; 0 = page by hand
   bool glassesMic = true; // TouchBar hold and follow-ups: the glasses' own mic (with Parakeet), their Even AI screen kept
   bool diagnostics = true; // timing log uploaded to Agent Hub (~/.agent-hub/logs)
@@ -68,7 +68,8 @@ class Settings extends ChangeNotifier {
   String answerSpeed = 'quick'; // quick (no tools, hands off to Claude Code when needed) or full
   String quickModel = 'sonnet'; // the quick lane's model: sonnet or haiku
   String agent = 'claude'; // who answers: claude, or agy (Google Antigravity - for when Claude has run out)
-  bool agyCommands = false; // Antigravity may run commands (it cannot ask first, so this is a plain yes)
+  String agyModel = 'argon'; // argon (Gemini 4 Argon) or flash (Gemini 3.8 Flash)
+  bool agyCommands = true; // Antigravity may run commands (it cannot ask first, so this is a plain yes)
   int touchPauseMs = 900; // TouchBar / double tap: this much quiet sends what you said
   bool bleParallel = false; // send text screens to both arms at once (test)
   int displayHeight = 4; // where text sits: 0 (low) .. 8 (high), as last set from the app
@@ -194,6 +195,7 @@ class Settings extends ChangeNotifier {
     answerSpeed = _s(m['answerSpeed'], answerSpeed);
     quickModel = _s(m['quickModel'], quickModel);
     agent = _s(m['agent'], agent) == 'agy' ? 'agy' : 'claude';
+    agyModel = _s(m['agyModel'], agyModel) == 'flash' ? 'flash' : 'argon';
     agyCommands = _b(m['agyCommands'], agyCommands);
     touchPauseMs = _i(m['touchPauseMs'], touchPauseMs).clamp(500, 3000);
     bleParallel = _b(m['bleParallel'], bleParallel);
@@ -345,6 +347,8 @@ class Settings extends ChangeNotifier {
         quickModel = value as String;
       case 'agent':
         agent = value == 'agy' ? 'agy' : 'claude';
+      case 'agyModel':
+        agyModel = value == 'flash' ? 'flash' : 'argon';
       case 'agyCommands':
         agyCommands = value as bool;
       case 'touchPauseMs':

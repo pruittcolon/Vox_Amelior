@@ -62,7 +62,14 @@ class ClaudeSettingsSheet extends StatelessWidget {
               style: const TextStyle(color: AppColors.muted, fontSize: 13)),
           const _Head('Who answers'),
           AgentChooser(settings: s, onChanged: suite.switchAgent, hub: suite.chat.hub),
-          if (s.agent != 'agy') ...[
+          if (s.agent == 'agy') ...[
+            const _Head('Antigravity model'),
+            _Choices(
+              value: s.agyModel,
+              options: const [('argon', 'Gemini 4 Argon'), ('flash', 'Gemini 3.8 Flash')],
+              onChanged: (v) => s.set('agyModel', v),
+            ),
+          ] else ...[
           const _Head('Answer speed'),
           _Choices(
             value: s.answerSpeed,
@@ -97,8 +104,10 @@ class ClaudeSettingsSheet extends StatelessWidget {
           ],
           const _Head('Effort (how hard it thinks)'),
           _Choices(
-            value: s.claudeEffort,
-            options: const [('low', 'Low'), ('medium', 'Medium'), ('high', 'High'), ('xhigh', 'Extra'), ('max', 'Max')],
+            value: s.agent == 'agy' && (s.claudeEffort == 'xhigh' || s.claudeEffort == 'max') ? 'high' : s.claudeEffort,
+            options: s.agent == 'agy'
+                ? const [('low', 'Low'), ('medium', 'Medium'), ('high', 'High')]
+                : const [('low', 'Low'), ('medium', 'Medium'), ('high', 'High'), ('xhigh', 'Extra'), ('max', 'Max')],
             onChanged: (v) => s.set('claudeEffort', v),
           ),
           _Head('What ${ChatController.agentLabel(s.agent)} may do on this phone'),

@@ -82,6 +82,9 @@ class TerminalController extends ChangeNotifier {
   /// A Claude Code session (its hooks report steps and answers).
   bool get isClaude => current?.isClaude ?? session.startsWith('claude');
 
+  /// An Antigravity session.
+  bool get isAgy => current?.isAgy ?? session.startsWith('agy');
+
   /// Claude Code sessions, the Termux one first.
   List<TermSession> get claudes => [for (final s in sessions) if (s.isClaude) s];
 

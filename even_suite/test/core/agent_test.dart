@@ -30,14 +30,18 @@ void main() {
     test('the setting is claude unless it says agy, and is kept', () {
       final s = Settings();
       expect(s.agent, 'claude');
-      expect(s.agyCommands, isFalse, reason: 'running commands is never on by itself');
+      expect(s.agyModel, 'argon');
+      expect(s.agyCommands, isTrue, reason: 'commands on by default so Antigravity works without hassle');
       s.set('agent', 'agy');
+      s.set('agyModel', 'flash');
       expect(s.agent, 'agy');
+      expect(s.agyModel, 'flash');
       s.set('agent', 'nonsense');
       expect(s.agent, 'claude');
-      final loaded = Settings()..load({'agent': 'agy', 'agyCommands': true});
+      final loaded = Settings()..load({'agent': 'agy', 'agyModel': 'flash', 'agyCommands': false});
       expect(loaded.agent, 'agy');
-      expect(loaded.agyCommands, isTrue);
+      expect(loaded.agyModel, 'flash');
+      expect(loaded.agyCommands, isFalse);
       expect((Settings()..load({'agent': 'gemini'})).agent, 'claude');
     });
 

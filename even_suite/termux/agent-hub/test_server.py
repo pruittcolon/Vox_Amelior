@@ -562,6 +562,93 @@ class AgentHubTest(unittest.TestCase):
         self.assertEqual(server.claude_state(done)["state"], "idle")
         asking = ["❯ delete the logs", "Do you want to proceed?", "❯ 1. Yes", "  2. No"]
         self.assertEqual(server.claude_state(asking)["state"], "asking")
+        agy_busy = ["> update the argon section", "⠋ Reading server.py (esc to cancel)", "> "]
+        self.assertEqual(server.claude_state(agy_busy), {"state": "working", "topic": "update the argon section"})
+        agy_ask = ["> deploy it", "Allow running command? (y/n)"]
+        self.assertEqual(server.claude_state(agy_ask)["state"], "asking")
+
+    def test_agy_transcript_turn_and_options(self):
+        import server
+        opts = server.clean_options({"agy_model": "argon", "effort": "max", "agy_commands": True})
+        self.assertEqual(opts["agy_model"], "gemini-4-argon")
+        args = server.LiveAgy.args(opts, "conv-123")
+        self.assertIn("--model", args)
+        self.assertIn("gemini-4-argon", args)
+        self.assertIn("--effort", args)
+        self.assertIn("high", args)
+        self.assertIn("--dangerously-skip-permissions", args)
+        self.assertIn("--conversation", args)
+
+        tdir = os.path.join(self.home, "agy-test-logs")
+        os.makedirs(tdir, exist_ok=True)
+        tpath = os.path.join(tdir, "transcript.jsonl")
+        fpath = os.path.join(tdir, "transcript_full.jsonl")
+        # 1) Intermediate tool step -> state is "working" (never "done")
+        with open(tpath, "w") as f:
+            f.write(json.dumps({
+                "step_index": 1,
+                "type": "USER_INPUT",
+                "created_at": "2026-10-29T19:00:00Z",
+                "content": "<USER_REQUEST>\nfix the argon section\n</USER_REQUEST>",
+            }) + "\n")
+            f.write(json.dumps({
+                "step_index": 2,
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "created_at": "2026-10-29T19:00:02Z",
+                "content": "Let me read the file.",
+                "tool_calls": [{"name": "read_file", "arguments": {"Path": "/root/server.py"}}],
+            }) + "\n")
+        turn = server.agy_transcript_turn(tpath)
+        self.assertEqual(turn["state"], "working")
+        self.assertEqual(turn["prompt"], "fix the argon section")
+        self.assertEqual(turn["step"], "Reading server.py")
+        self.assertEqual(turn["tools"], 1)
+
+        # 2) ask_question tool call -> state is "asking"
+        with open(tpath, "a") as f:
+            f.write(json.dumps({
+                "step_index": 3,
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "created_at": "2026-10-29T19:00:04Z",
+                "tool_calls": [{
+                    "name": "ask_question",
+                    "arguments": {"questions": [{"question": "Which model?", "options": ["Argon", "Flash"]}]},
+                }],
+            }) + "\n")
+        turn = server.agy_transcript_turn(tpath)
+        self.assertEqual(turn["state"], "asking")
+        self.assertIn("Which model? (Argon / Flash)", turn["text"])
+
+        # 3) Final PLANNER_RESPONSE with no tool_calls -> state is "done", strips file:// links and reads full transcript
+        with open(tpath, "w") as f:
+            f.write(json.dumps({
+                "step_index": 1,
+                "type": "USER_INPUT",
+                "created_at": "2026-10-29T19:00:00Z",
+                "content": "fix the argon section",
+            }) + "\n")
+            f.write(json.dumps({
+                "step_index": 4,
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "created_at": "2026-10-29T19:00:09Z",
+                "content": "truncated...",
+                "truncated_fields": ["content"],
+            }) + "\n")
+        with open(fpath, "w") as f:
+            f.write(json.dumps({"step_index": 1, "type": "USER_INPUT", "content": "fix the argon section"}) + "\n")
+            f.write(json.dumps({
+                "step_index": 4,
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "content": "Updated [server.py](file:///root/server.py#L10) and finished the task.",
+            }) + "\n")
+        turn = server.agy_transcript_turn(tpath)
+        self.assertEqual(turn["state"], "done")
+        self.assertEqual(turn["text"], "Updated server.py and finished the task.")
+        self.assertEqual(turn["ms"], 9000)
 
     def test_glasses_text_is_plain(self):
         self.post("/api/term/shell/paste", {"text": "echo '● done → ok'", "enter": True})

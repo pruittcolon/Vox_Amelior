@@ -84,6 +84,11 @@ class Conversation extends ChangeNotifier {
   /// putting its screens back up.
   bool quiet = false;
 
+  /// When true (Antigravity), intermediate working steps, 1-second timer ticks
+  /// and partial streaming deltas stay on the phone and Look-Up dashboard only;
+  /// the glasses are only sent the final answer when the task completes.
+  bool quietWork = false;
+
   /// The answer on its way (or the last one).
   BridgeMessage? reply;
 
@@ -196,7 +201,7 @@ class Conversation extends ChangeNotifier {
     _set(TalkStage.sent);
     _startTick(const Duration(seconds: 1));
     // Straight away, not behind the live-text throttle: this is the "it heard you" moment.
-    if (_canShow) display.showStatus(workingScreen(), title: _title, ai: ai, immediate: true);
+    if (_canShow && !quietWork) display.showStatus(workingScreen(), title: _title, ai: ai, immediate: true);
   }
 
   /// Progress from a Claude Code job in the terminal (the Work hooks).
@@ -238,7 +243,7 @@ class Conversation extends ChangeNotifier {
     };
     if (m.stage == 'writing' && m.live.trim().isNotEmpty) {
       _set(TalkStage.answering);
-      if (_canShow && !quiet) display.updateReply(m.live, title: _title, ai: ai);
+      if (_canShow && !quiet && !quietWork) display.updateReply(m.live, title: _title, ai: ai);
     } else {
       _set(TalkStage.working);
       _draw();
@@ -307,7 +312,7 @@ class Conversation extends ChangeNotifier {
             title: 'Listening', ai: _listenAi);
       case TalkStage.sent:
       case TalkStage.working:
-        display.showStatus(workingScreen(), title: _title, ai: ai);
+        if (!quietWork) display.showStatus(workingScreen(), title: _title, ai: ai);
       default:
         break;
     }

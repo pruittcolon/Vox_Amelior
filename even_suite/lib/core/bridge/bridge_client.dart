@@ -108,8 +108,10 @@ class WorkItem {
   /// "job" (Claude finished, from the Stop hook) or "message" (a Claude Code
   /// session sent an update with `glasses "..."`).
   final String kind;
+  final String agent;
 
   bool get isMessage => kind == 'message';
+  bool get isAgy => agent == 'agy';
 
   const WorkItem({
     required this.id,
@@ -121,6 +123,7 @@ class WorkItem {
     this.tools = 0,
     this.prompt = '',
     this.kind = 'job',
+    this.agent = 'claude',
   });
 
   factory WorkItem.fromMap(Map m) => WorkItem(
@@ -133,15 +136,17 @@ class WorkItem {
         tools: (m['tools'] as num?)?.toInt() ?? 0,
         prompt: '${m['prompt'] ?? ''}',
         kind: '${m['kind'] ?? 'job'}',
+        agent: '${m['agent'] ?? 'claude'}',
       );
 
   DateTime get time => DateTime.fromMillisecondsSinceEpoch((ts * 1000).round());
   Duration get took => Duration(milliseconds: ms);
 }
 
-/// A Claude Code job still going (from the start and step hooks).
+/// A Claude Code / Antigravity job still going.
 class WorkJob {
   final String session;
+  final String agent;
   final String project;
   final String prompt;
   final String step;
@@ -152,8 +157,11 @@ class WorkJob {
   /// The last few steps, oldest first (the newest is [step]).
   final List<String> recent;
 
+  bool get isAgy => agent == 'agy';
+
   const WorkJob({
     required this.session,
+    this.agent = 'claude',
     this.project = '',
     this.prompt = '',
     this.step = '',
@@ -165,6 +173,7 @@ class WorkJob {
 
   factory WorkJob.fromMap(Map m) => WorkJob(
         session: '${m['session'] ?? ''}',
+        agent: '${m['agent'] ?? 'claude'}',
         project: '${m['project'] ?? ''}',
         prompt: '${m['prompt'] ?? ''}',
         step: '${m['step'] ?? ''}',
@@ -228,14 +237,18 @@ class TermScreen {
   const TermScreen(this.text, this.hash, {this.cols = 0, this.rows = 0});
 }
 
-/// A past Claude Code conversation (to pick up again in a new session).
+/// A past Claude Code or Antigravity conversation (to pick up again in a new session).
 class PastConversation {
   final String id;
   final String title; // the first thing you asked
   final String cwd; // the folder it ran in
   final double updated; // seconds since 1970
   final bool active; // written to in the last two minutes (open somewhere)
-  const PastConversation(this.id, this.title, {this.cwd = '', this.updated = 0, this.active = false});
+  final String kind; // claude or agy
+  const PastConversation(this.id, this.title,
+      {this.cwd = '', this.updated = 0, this.active = false, this.kind = 'claude'});
+
+  bool get isAgy => kind == 'agy';
 
   factory PastConversation.fromMap(Map m) => PastConversation(
         '${m['id'] ?? ''}',
@@ -243,6 +256,7 @@ class PastConversation {
         cwd: '${m['cwd'] ?? ''}',
         updated: (m['updated'] as num?)?.toDouble() ?? 0,
         active: m['active'] == true,
+        kind: '${m['kind'] ?? 'claude'}',
       );
 
   DateTime get time => DateTime.fromMillisecondsSinceEpoch((updated * 1000).round());
