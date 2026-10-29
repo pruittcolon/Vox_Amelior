@@ -23,6 +23,11 @@ class BleDevice(
     @Volatile var mtu: Int = 23
     @Volatile var phy: String = "1M"
 
+    /** When something was last written to this arm (the glasses drop a link nothing is written to for ~30 s). */
+    @Volatile var lastWriteAt: Long = 0L
+
+    fun idleMs(): Long = System.currentTimeMillis() - lastWriteAt
+
     fun isLeft() = name.contains("_L_")
     fun isRight() = name.contains("_R_")
 
@@ -127,6 +132,7 @@ class BleDevice(
                 false
             }
             if (accepted) {
+                lastWriteAt = System.currentTimeMillis()
                 latch.await(200, TimeUnit.MILLISECONDS)
                 record(data.size, (System.nanoTime() - start) / 1000, busy)
                 return true

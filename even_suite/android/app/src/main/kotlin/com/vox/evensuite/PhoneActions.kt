@@ -286,9 +286,19 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 }
 
-/** Reminders survive a restart of the phone. */
+/** Reminders survive a restart of the phone, and so does the glasses link (if it was wanted). */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) PhoneActions.rescheduleAll(ctx)
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        PhoneActions.rescheduleAll(ctx)
+        if (com.vox.evensuite.ble.BleManager.hasSavedLink(ctx)) {
+            try {
+                ctx.startForegroundService(
+                    Intent(ctx, SuiteService::class.java).setAction(SuiteService.ACTION_LINK)
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("BootReceiver", "glasses link: $e")
+            }
+        }
     }
 }

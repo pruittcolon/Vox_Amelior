@@ -15,21 +15,51 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import com.vox.evensuite.ble.BleManager
 
 /**
  * Keeps the app alive with the screen off: microphone while hands-free
  * listening is on, connected device while the glasses are linked. The
  * notification's Stop button turns listening off ("so it doesn't go forever").
+ *
+ * The glasses link counts as wanted from the moment the user connects until
+ * they disconnect - not only while it is up. That is what keeps Android from
+ * freezing or killing the app while the link is down and being rebuilt (it
+ * used to stop with the link, and then nothing could reconnect). If the
+ * process is killed anyway, the system restarts this service (sticky) and it
+ * dials the saved pair again by itself.
  */
 class SuiteService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        if (intent == null) {
+            // The system restarted us after the process died: take the glasses link up again.
+            Log.i(TAG, "restarted by the system")
+            if (BleManager.restore(this)) {
+                goForeground()
+                return START_STICKY
+            }
+            stopSelfCompat()
+            return START_NOT_STICKY
+        }
+        when (intent.action) {
             ACTION_STOP_LISTENING -> {
                 onStopListening?.invoke()
-                return START_NOT_STICKY
+                return if (keepLink) START_STICKY else START_NOT_STICKY
+            }
+            ACTION_DISCONNECT -> {
+                // "Disconnect" in the notification: the user is done with the glasses for now.
+                BleManager.init(this) // (the process may have been restarted just for this)
+                BleManager.disconnect()
+                if (!listening && !mirroring) {
+                    stopSelfCompat()
+                    return START_NOT_STICKY
+                }
+            }
+            ACTION_LINK -> {
+                if (!keepLink && BleManager.hasSavedLink(this)) BleManager.restore(this) // e.g. at boot
             }
             ACTION_UPDATE -> {
                 listening = intent.getBooleanExtra("listening", false)
@@ -51,12 +81,12 @@ class SuiteService : Service() {
                 return START_NOT_STICKY
             }
         }
-        if (!listening && !glasses && !mirroring) {
+        if (!listening && !keepLink && !mirroring) {
             stopSelfCompat()
             return START_NOT_STICKY
         }
         goForeground()
-        return START_NOT_STICKY
+        return if (keepLink) START_STICKY else START_NOT_STICKY
     }
 
     private fun goForeground(): Boolean {
@@ -139,7 +169,7 @@ class SuiteService : Service() {
     }
 
     private fun refreshAfterMirror() {
-        if (!listening && !glasses) stopSelfCompat() else goForeground()
+        if (!listening && !keepLink) stopSelfCompat() else goForeground()
     }
 
     private fun serviceTypes(): Int {
@@ -149,7 +179,7 @@ class SuiteService : Service() {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         }
         val btOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || granted(Manifest.permission.BLUETOOTH_CONNECT)
-        if (glasses && btOk) {
+        if (keepLink && btOk) {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         }
         if (mirroring) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
@@ -190,10 +220,15 @@ class SuiteService : Service() {
             listening -> "Listening for “Claude”"
             else -> "Glasses connected"
         }
+        val idle = when {
+            !BleManager.appAttached -> "Kept linked to your G1. Open Even Suite to use it."
+            keepLink -> "Even Suite is linked to your G1"
+            else -> "Even Suite"
+        }
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(text.ifEmpty { if (glasses) "Even Suite is linked to your G1" else "Even Suite" })
+            .setContentText(text.ifEmpty { idle })
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -205,6 +240,14 @@ class SuiteService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             builder.addAction(Notification.Action.Builder(null as Icon?, "Stop listening", stop).build())
+        }
+        if (keepLink) {
+            val off = PendingIntent.getService(
+                this, 3,
+                Intent(this, SuiteService::class.java).setAction(ACTION_DISCONNECT),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            builder.addAction(Notification.Action.Builder(null as Icon?, "Disconnect glasses", off).build())
         }
         if (mirroring) {
             val stop = PendingIntent.getService(
@@ -222,12 +265,17 @@ class SuiteService : Service() {
         private const val CHANNEL_ID = "suite"
         private const val NOTIFICATION_ID = 7
         const val ACTION_UPDATE = "com.vox.evensuite.UPDATE"
+        const val ACTION_LINK = "com.vox.evensuite.LINK"
+        const val ACTION_DISCONNECT = "com.vox.evensuite.DISCONNECT"
         const val ACTION_STOP_LISTENING = "com.vox.evensuite.STOP_LISTENING"
         const val ACTION_START_MIRROR = "com.vox.evensuite.START_MIRROR"
         const val ACTION_STOP_MIRROR = "com.vox.evensuite.STOP_MIRROR"
 
         private var listening = false
         private var glasses = false
+
+        /** The glasses link is wanted (by the app, or saved natively) - keeps this service up. */
+        private val keepLink: Boolean get() = glasses || BleManager.isWanted
         private var mic = false
         private var text = ""
         @Volatile private var mirroring = false
@@ -287,6 +335,21 @@ class SuiteService : Service() {
         /** Set by MainActivity; tells Flutter to turn hands-free off. */
         var onStopListening: (() -> Unit)? = null
 
+        /** The glasses link was asked for, or given up: the service follows (see the class comment). */
+        fun linkChanged(context: Context) {
+            try {
+                val intent = Intent(context, SuiteService::class.java).setAction(ACTION_LINK)
+                if (BleManager.isWanted) {
+                    context.startForegroundService(intent)
+                } else if (!listening && !mirroring) {
+                    glasses = false
+                    context.startService(intent) // nothing keeps it: it stops itself
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "linkChanged: $e")
+            }
+        }
+
         /** Returns null on success, or why Android refused. */
         fun update(context: Context, listening: Boolean, glasses: Boolean, text: String, mic: Boolean = false): String? {
             val intent = Intent(context, SuiteService::class.java)
@@ -296,7 +359,7 @@ class SuiteService : Service() {
                 .putExtra("mic", mic)
                 .putExtra("text", text)
             return try {
-                if (!listening && !glasses && !mirroring) {
+                if (!listening && !glasses && !mirroring && !BleManager.isWanted) {
                     // Nothing to keep alive: just let a running service stop itself.
                     if (Companion.listening || Companion.glasses) context.startService(intent)
                     Companion.listening = false

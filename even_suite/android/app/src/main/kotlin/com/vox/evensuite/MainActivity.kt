@@ -1,6 +1,7 @@
 package com.vox.evensuite
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,6 +15,7 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.KeyEvent
 import com.vox.evensuite.ble.BleManager
@@ -161,21 +163,40 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         if (isFinishing) {
-            // Swiped away: nothing is left to drive the mic or the glasses.
+            // Swiped away: nothing is left to drive the mic. The glasses link
+            // is NOT dropped: it belongs to the service (heartbeat included),
+            // and opening the app again finds it still up.
             speech?.dispose()
             pcm?.stop()
             PhoneActions.onReminder = null
             tts?.dispose()
             NotifyListener.onPosted = null
             BleManager.listener = null
-            BleManager.disconnect()
-            SuiteService.update(this, listening = false, glasses = false, text = "")
+            SuiteService.update(this, listening = false, glasses = BleManager.isWanted, text = "")
             SuiteService.onStopListening = null
             SuiteService.stopMirror(this)
             SuiteService.onMirrorFrame = null
             SuiteService.onMirrorStopped = null
         }
         super.onDestroy()
+    }
+
+    /** Why this app's process ended the last few times (Android 11+): killed for memory, frozen, swiped away... */
+    private fun exitReasons(): List<Map<String, Any>> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return emptyList()
+        return try {
+            getSystemService(ActivityManager::class.java).getHistoricalProcessExitReasons(packageName, 0, 6).map {
+                mapOf(
+                    "reason" to it.reason,
+                    "desc" to (it.description ?: ""),
+                    "status" to it.status,
+                    "importance" to it.importance,
+                    "at" to it.timestamp,
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     // ------------------------------------------------------------ bluetooth
@@ -308,6 +329,23 @@ class MainActivity : FlutterActivity() {
             "permissions" -> askPermissions(
                 (args?.get("kinds") as? List<*>)?.filterIsInstance<String>() ?: emptyList(), result
             )
+            "batteryUnrestricted" ->
+                result.success(getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName))
+            "requestBatteryUnrestricted" -> {
+                try {
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: Exception) {
+                    // Some phones do not offer the one-tap dialog: the list of apps instead.
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+                result.success(null)
+            }
+            "notificationsAllowed" ->
+                result.success(getSystemService(NotificationManager::class.java).areNotificationsEnabled())
+            "exitReasons" -> result.success(exitReasons())
             "termuxInstalled" -> result.success(termuxInstalled())
             "runTermux" -> result.success(runTermux(args?.get("command") as? String ?: ""))
             "openAppSettings" -> {

@@ -101,6 +101,25 @@ class SystemBridge {
   Future<String?> service({required bool listening, required bool glasses, bool mic = false, String text = ''}) =>
       _invoke<String>('service', {'listening': listening, 'glasses': glasses, 'mic': mic, 'text': text});
 
+  /// The app is left out of battery restrictions (Android would otherwise
+  /// freeze or kill it in the background). True where it cannot be told.
+  Future<bool> batteryUnrestricted() async => await _invoke<bool>('batteryUnrestricted') ?? true;
+
+  /// Ask for that (a one-tap system dialog).
+  Future<void> requestBatteryUnrestricted() => _invoke('requestBatteryUnrestricted');
+
+  /// Notifications are allowed (the one the linked-glasses service shows). Only reads - never asks.
+  Future<bool> notificationsAllowed() async => await _invoke<bool>('notificationsAllowed') ?? true;
+
+  /// Why the app's process ended the last few times (Android 11+).
+  Future<List<Map<String, Object?>>> exitReasons() async {
+    final l = await _invoke<List>('exitReasons');
+    return [
+      for (final m in l ?? const [])
+        if (m is Map) {for (final e in m.entries) '${e.key}': e.value},
+    ];
+  }
+
   Future<bool> termuxInstalled() async => await _invoke<bool>('termuxInstalled') ?? false;
 
   /// 'ok', 'not-installed', 'no-permission', or an error message.

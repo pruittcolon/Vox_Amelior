@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:even_suite/core/ble/ble_manager.dart';
 import 'package:even_suite/core/bridge/bridge_client.dart';
 import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
@@ -21,6 +22,7 @@ import 'package:even_suite/features/home/home_page.dart';
 import 'package:even_suite/features/lookup/look_designer.dart';
 import 'package:even_suite/features/lookup/lookup_page.dart';
 import 'package:even_suite/features/screen/screen_page.dart';
+import 'package:even_suite/features/settings/settings_page.dart';
 import 'package:even_suite/features/tools/tools_page.dart';
 import 'package:even_suite/main.dart';
 import 'package:even_suite/widgets/glasses_widgets.dart';
@@ -1319,6 +1321,81 @@ void main() {
     expect(w.bridge.sentTexts, isEmpty);
     await suite.setHandsFree(false);
     await tester.pump(const Duration(seconds: 3));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  testWidgets('the link: heartbeats keep coming while the glasses chatter (looking up and down)', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump(const Duration(seconds: 12)); // the start-up writes are done
+    int beats() => w.glasses.sent['L']!.where((p) => p[0] == 0x25).length;
+    final before = beats();
+    // The glasses answer their own head-up screen every few seconds (22 0a
+    // on the right arm, as in the log before each drop). What they send is
+    // not a sign of life they count: they hang up 30 s after our last write.
+    for (var i = 0; i < 12; i++) {
+      w.glasses.injectReply('R', Uint8List.fromList([0x22, 0x0a, 0, 0, 1, 0, 0, 1, 0, 1]));
+      await tester.pump(const Duration(seconds: 3));
+    }
+    expect(beats() - before, greaterThanOrEqualTo(3), reason: '36 s of chatter: at least 3 heartbeats of ours');
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('the link: the background service follows what is wanted, not what is up', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+    final calls = w.system.serviceCalls;
+    expect(calls.last, contains('glasses=true'));
+
+    // The link drops (they stopped answering: GATT status 8): it is being rebuilt, so the
+    // service stays - Android must not freeze the app while it reconnects.
+    await w.control.emit('glassesDisconnected', {'arm': 'R', 'reason': 'link', 'gattStatus': 8});
+    await tester.pump();
+    expect(suite.ble.state, LinkState.connecting);
+    expect(suite.ble.wantsLink, isTrue);
+    expect(calls.where((c) => c.contains('glasses=false')), isEmpty, reason: 'not stopped by a drop');
+
+    // Back up, then the user lets go of them: now it may stop.
+    await w.control.connectNow();
+    await tester.pump();
+    await w.control.emit('glassesDisconnected', {'reason': 'user'});
+    await tester.pump();
+    expect(suite.ble.wantsLink, isFalse);
+    expect(calls.last, contains('glasses=false'));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('Settings: "Stay connected" shows what Android is allowed to do, and asks in one tap', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    w.system.batteryOk = false;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+    final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
+    nav.push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Stay connected'), findsWidgets);
+    expect(find.text('The glasses: Linked'), findsOneWidget);
+    expect(find.text('Battery: restricted'), findsOneWidget);
+    await tester.tap(find.text('Allow'));
+    await tester.pump();
+    expect(w.system.batteryRequests, 1);
+    // Allowed (as the phone's dialog would leave it): back from it, the card says so.
+    w.system.batteryOk = true;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Battery: not restricted'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));

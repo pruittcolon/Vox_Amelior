@@ -217,6 +217,7 @@ class Suite extends ChangeNotifier {
   /// Talking with the TouchBar held: the glasses' own Even AI screen is up.
   bool _holdTalk = false;
   bool _lastConnected = false;
+  bool _lastWantsLink = false;
   bool _lastHandsFree = false;
   DateTime? _lastAutoOffAt;
   bool _spokenQuestion = false; // the question on its way was spoken (a follow-up makes sense)
@@ -264,6 +265,7 @@ class Suite extends ChangeNotifier {
       'glassesMic': settings.glassesMic,
       'recognizer': settings.recognizer,
     });
+    unawaited(_logLastExit());
     unawaited(log.flush());
     work.start();
     unawaited(system.launchTab().then((t) {
@@ -276,6 +278,16 @@ class Suite extends ChangeNotifier {
       if (granted['bluetooth'] == true) await ble.connect(GlassesPair.fromMap(last));
     }
     unawaited(chat.check());
+  }
+
+  /// Why Android ended the app's process the last few times (killed for
+  /// memory, frozen, swiped away...) - the answer when the link went down
+  /// while the app was out of sight.
+  Future<void> _logLastExit() async {
+    try {
+      final list = await system.exitReasons();
+      if (list.isNotEmpty) EventLog.add('app', 'exitReasons', {'last': list});
+    } catch (_) {}
   }
 
   void applySettings() {
@@ -416,6 +428,12 @@ class Suite extends ChangeNotifier {
   }
 
   void _onLinkChanged() {
+    // The background service follows what is WANTED (up, or being rebuilt),
+    // not what is up: a dropped link must not let Android freeze the app.
+    if (ble.wantsLink != _lastWantsLink) {
+      _lastWantsLink = ble.wantsLink;
+      _updateService();
+    }
     final connected = ble.isConnected;
     if (connected == _lastConnected) return;
     _lastConnected = connected;
@@ -442,10 +460,13 @@ class Suite extends ChangeNotifier {
     }
     if (connected) {
       // Same 8 s heartbeat as the demo keeps the link from idling out - but
-      // not while other traffic (pictures, screens) already does, so it never
-      // cuts into a transfer.
+      // not right after we wrote something ourselves (pictures, screens), so
+      // it never cuts into a transfer. What the glasses SEND does not count:
+      // looking up and down makes them chatter, and a heartbeat skipped for
+      // that left them 30 s without a word from us, so they hung up (four of
+      // six drops in the log). The native side backs this up (BleManager).
       _heartbeat = Timer.periodic(const Duration(seconds: 8), (_) {
-        if (DateTime.now().difference(ble.lastReply) < const Duration(seconds: 6)) return;
+        if (DateTime.now().difference(ble.lastWrite) < const Duration(seconds: 4)) return;
         proto.sendHeartBeat();
       });
     }
@@ -884,7 +905,7 @@ class Suite extends ChangeNotifier {
       text = 'Say “${voice.wake.label}”, then your message and “send”. Turns off at $hh:$mm.';
     }
     final error = await system.service(
-        listening: voice.handsFree, glasses: ble.isConnected, mic: ble.isConnected && settings.holdToTalk, text: text);
+        listening: voice.handsFree, glasses: ble.wantsLink, mic: ble.isConnected && settings.holdToTalk, text: text);
     if (error != null && voice.handsFree) {
       _toast('Android blocked background listening: $error');
     }

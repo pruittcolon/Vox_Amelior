@@ -5,6 +5,7 @@ import '../../app/theme.dart';
 import '../../core/glasses/glasses_text.dart';
 import '../../core/settings.dart';
 import '../../widgets/common.dart';
+import '../../widgets/stay_connected.dart';
 import '../claude/claude_settings_sheet.dart';
 import '../lookup/layout_page.dart';
 import '../lookup/lookup_page.dart';
@@ -24,6 +25,9 @@ class SettingsPage extends StatelessWidget {
         builder: (context, _) => ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
           children: [
+            _Section('Stay connected', Icons.bluetooth_connected_rounded, AppColors.glasses, [
+              const StayConnectedCard(),
+            ]),
             _Section('Claude, voice and look up', Icons.tune_rounded, AppColors.claude, [
               const Text('Model and effort, what Claude may do, the speaking voice, follow-ups and trigger words.',
                   style: TextStyle(color: AppColors.muted)),

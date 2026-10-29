@@ -444,6 +444,22 @@ class FakeSystem extends SystemBridge {
   }
 
   @override
+  Future<bool> batteryUnrestricted() async => batteryOk;
+
+  bool batteryOk = true;
+  bool notificationsOk = true;
+  int batteryRequests = 0;
+
+  @override
+  Future<bool> notificationsAllowed() async => notificationsOk;
+
+  @override
+  Future<void> requestBatteryUnrestricted() async => batteryRequests++;
+
+  @override
+  Future<List<Map<String, Object?>>> exitReasons() async => const [];
+
+  @override
   Future<bool> termuxInstalled() async => true;
 
   @override

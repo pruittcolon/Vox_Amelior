@@ -169,6 +169,14 @@ class BleManager extends ChangeNotifier {
 
   bool get isConnected => state == LinkState.connected;
 
+  /// The link is wanted: up, or being rebuilt after a drop (not given up on).
+  /// The app's background service follows this, not [isConnected].
+  bool get wantsLink => state == LinkState.connected || state == LinkState.connecting;
+
+  /// When the app last wrote anything to the glasses. The glasses drop a link
+  /// nothing is written to for about 30 s - what THEY send does not count.
+  DateTime lastWrite = DateTime.fromMillisecondsSinceEpoch(0);
+
   // ------------------------------------------------------------ link state
 
   Future<void> startScan() async {
@@ -223,7 +231,11 @@ class BleManager extends ChangeNotifier {
 
   Future<void> _onNative(String method, Map args) async {
     if (method != 'foundPairedGlasses') {
-      EventLog.add('glasses', method, {'arm': args['arm'], 'reason': args['reason']});
+      EventLog.add('glasses', method, {
+        'arm': args['arm'],
+        'reason': args['reason'],
+        if (args['gattStatus'] != null) 'gattStatus': args['gattStatus'],
+      });
     }
     switch (method) {
       case 'foundPairedGlasses':
@@ -327,10 +339,13 @@ class BleManager extends ChangeNotifier {
   static String _key(String lr, int cmd) =>
       '$lr${cmd.toRadixString(16).padLeft(2, '0')}';
 
-  Future<void> sendData(Uint8List data, {String? lr}) =>
-      transport.send(data, lr);
+  Future<void> sendData(Uint8List data, {String? lr}) {
+    lastWrite = DateTime.now();
+    return transport.send(data, lr);
+  }
 
   Future<int> sendBatch(List<Uint8List> packets, String lr, {int gapMs = 0}) async {
+    lastWrite = DateTime.now();
     final sw = Stopwatch()..start();
     final sent = await transport.sendBatch(packets, lr, gapMs: gapMs);
     EventLog.add('ble', 'batch', {
@@ -371,6 +386,7 @@ class BleManager extends ChangeNotifier {
     }
 
     final sw = Stopwatch()..start();
+    lastWrite = DateTime.now();
     try {
       await transport.send(data, lr0).timeout(const Duration(seconds: 2));
     } catch (_) {

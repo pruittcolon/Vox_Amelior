@@ -18,8 +18,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
+import com.vox.evensuite.SuiteService
 import com.vox.evensuite.speech.GlassesMic
 import java.util.UUID
 
@@ -31,6 +34,16 @@ import java.util.UUID
  * arm (see [BleDevice]), notifications also arrive on Android 12 and older,
  * disconnects are reported, and a pair the user connected to is reconnected
  * automatically until they disconnect it.
+ *
+ * Staying connected with the app out of sight:
+ * - The link belongs to this object (and the foreground service), not to the
+ *   screen: closing the app does not drop it, and opening it again finds it.
+ * - The glasses drop a link nothing is written to for ~30 s. The app's own
+ *   heartbeat (Flutter) can stall in the background, so this object sends one
+ *   too whenever an arm has been quiet for [IDLE_BEFORE_BEAT_MS], holding a
+ *   partial wake lock while linked so the phone does not sleep through it.
+ * - The pair is saved, so a restarted process (the system restarts the
+ *   service) dials it again with no screen at all.
  */
 @SuppressLint("MissingPermission")
 object BleManager {
@@ -60,6 +73,17 @@ object BleManager {
     @Volatile var prefer2M = true // ask for Bluetooth 5's 2M radio mode
     private val retries = mutableMapOf<String, Int>()
 
+    /** The user wants this pair connected (until they disconnect it). */
+    val isWanted: Boolean get() = wanted
+
+    private const val PREFS = "even_suite_ble"
+    private const val BEAT_EVERY_MS = 4_000L
+    private const val IDLE_BEFORE_BEAT_MS = 12_000L
+    private val beatThread = HandlerThread("G1-heartbeat").apply { start() }
+    private val beat = Handler(beatThread.looper)
+    private var beatSeq = 0
+    private var wakeLock: PowerManager.WakeLock? = null
+
     private val scanSettings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
         .build()
@@ -77,6 +101,39 @@ object BleManager {
     }
 
     // ------------------------------------------------------------- public
+
+    /** A link was wanted when the process last ran (it was killed, not disconnected). */
+    fun hasSavedLink(context: Context): Boolean =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("wanted", false)
+
+    /**
+     * The process was restarted (by the system, or at boot): dial the saved
+     * pair again, with no app screen. Returns false when nothing was saved.
+     */
+    fun restore(context: Context): Boolean {
+        init(context)
+        if (wanted && pair != null) return true
+        val sp = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!sp.getBoolean("wanted", false)) return false
+        val channel = sp.getString("channel", null) ?: return false
+        val saved = mapOf(
+            "leftDeviceName" to sp.getString("leftName", ""), "leftAddress" to sp.getString("leftAddress", ""),
+            "rightDeviceName" to sp.getString("rightName", ""), "rightAddress" to sp.getString("rightAddress", ""),
+        )
+        return connect(channel, saved, fromRestore = true) == null
+    }
+
+    private fun persist(p: BlePairDevice?) {
+        val e = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        if (p == null) {
+            e.clear()
+        } else {
+            e.putBoolean("wanted", true).putString("channel", p.channelNumber)
+                .putString("leftName", p.leftDevice.name).putString("leftAddress", p.leftDevice.address)
+                .putString("rightName", p.rightDevice.name).putString("rightAddress", p.rightDevice.address)
+        }
+        e.apply()
+    }
 
     /** Returns an error message, or null when scanning started. */
     fun startScan(): String? {
@@ -104,9 +161,33 @@ object BleManager {
      * Connect to the pair on [channel]. Scan results are used when present;
      * otherwise the saved addresses (from an earlier session) are dialled directly.
      */
-    fun connect(channel: String, saved: Map<*, *>?): String? {
+    fun connect(channel: String, saved: Map<*, *>?, fromRestore: Boolean = false): String? {
         val a = adapter ?: return "This phone has no Bluetooth"
         if (!a.isEnabled) return "Bluetooth is off. Turn it on and try again."
+        // Already linked to this pair (the app was closed and opened again):
+        // keep the link, just tell the app where it stands. Arms that are
+        // not up are dialled again.
+        val existing = pair
+        if (wanted && existing != null && existing.channelNumber == channel) {
+            if (existing.isBothConnected()) {
+                emitStatus("glassesConnected", existing.toInfoJson() + ("status" to "connected"))
+            } else {
+                emitStatus("glassesConnecting", existing.toInfoJson())
+                for (arm in listOf(existing.leftDevice, existing.rightDevice)) {
+                    if (arm.isConnected) continue
+                    try {
+                        arm.gatt?.disconnect()
+                        arm.gatt?.close()
+                    } catch (_: Exception) {
+                    }
+                    arm.gatt = null
+                    retries[arm.address] = 0
+                    dial(arm, autoConnect = false)
+                }
+            }
+            startBeat()
+            return null
+        }
         val left = found.firstOrNull { it.name.contains("_${channel}_L_") }
             ?: savedArm(saved, "left", channel)
         val right = found.firstOrNull { it.name.contains("_${channel}_R_") }
@@ -118,6 +199,9 @@ object BleManager {
         pair = p
         wanted = true
         retries.clear()
+        persist(p)
+        if (!fromRestore) SuiteService.linkChanged(appContext)
+        startBeat()
         emitStatus("glassesConnecting", p.toInfoJson())
         dial(left, autoConnect = false)
         dial(right, autoConnect = false)
@@ -127,10 +211,16 @@ object BleManager {
     fun disconnect() {
         wanted = false
         val p = pair
+        stopBeat()
         closeAll()
         pair = null
+        persist(null)
+        SuiteService.linkChanged(appContext)
         if (p != null) emitStatus("glassesDisconnected", p.toInfoJson() + ("reason" to "user"))
     }
+
+    /** True once an app screen listens to this link (the notification says so when not). */
+    val appAttached: Boolean get() = listener != null
 
     fun send(data: ByteArray, lr: String?) {
         val p = pair ?: return
@@ -200,6 +290,63 @@ object BleManager {
         main.post { listener?.onStatus(method, info) }
     }
 
+    // ------------------------------------------------- keeping the link alive
+
+    private fun startBeat() {
+        beat.removeCallbacks(beatTick)
+        beat.postDelayed(beatTick, BEAT_EVERY_MS)
+    }
+
+    private fun stopBeat() {
+        beat.removeCallbacks(beatTick)
+        releaseAwake()
+    }
+
+    /** Every few seconds: an arm nothing was written to for a while gets a heartbeat (and the phone stays awake for it). */
+    private val beatTick = object : Runnable {
+        override fun run() {
+            val p = pair
+            if (p != null && wanted) {
+                val up = listOf(p.leftDevice, p.rightDevice).filter { it.isConnected }
+                if (up.isNotEmpty()) {
+                    holdAwake()
+                    for (arm in up) {
+                        if (arm.idleMs() > IDLE_BEFORE_BEAT_MS) {
+                            // 0x25 <len> 0 <seq> 4 <seq>, as the app's own heartbeat (its sequence numbers are below 0x80).
+                            val s = (0x80 + (beatSeq++ % 0x7e)).toByte()
+                            arm.sendData(byteArrayOf(0x25, 6, 0, s, 0x04, s))
+                        }
+                    }
+                } else {
+                    releaseAwake()
+                }
+                beat.postDelayed(this, BEAT_EVERY_MS)
+            } else {
+                releaseAwake()
+            }
+        }
+    }
+
+    /** Partial wake lock while linked; re-armed on every tick, so a hung process lets go by itself. */
+    private fun holdAwake() {
+        try {
+            val wl = wakeLock ?: appContext.getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EvenSuite:glasses")
+                .apply { setReferenceCounted(false) }
+                .also { wakeLock = it }
+            wl.acquire(30_000L)
+        } catch (e: Exception) {
+            Log.w(TAG, "wake lock: $e")
+        }
+    }
+
+    private fun releaseAwake() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {
+        }
+    }
+
     private fun armLabel(arm: BleDevice) = if (arm.isLeft()) "L" else "R"
 
     private val scanCallback = object : ScanCallback() {
@@ -250,7 +397,10 @@ object BleManager {
             } catch (_: Exception) {
             }
             if (wasConnected) {
-                emitStatus("glassesDisconnected", p.toInfoJson() + mapOf("arm" to armLabel(arm), "reason" to "link"))
+                // status: 8 = the glasses stopped answering (supervision timeout), 19 = they hung up,
+                // 22 = this phone hung up, 133 = a failed attempt.
+                emitStatus("glassesDisconnected",
+                    p.toInfoJson() + mapOf("arm" to armLabel(arm), "reason" to "link", "gattStatus" to status))
             }
             if (wanted && pair === p) {
                 val n = (retries[arm.address] ?: 0) + 1
@@ -377,6 +527,7 @@ object BleManager {
             } else if (state == BluetoothAdapter.STATE_ON && wanted) {
                 emitStatus("glassesConnecting", p.toInfoJson())
                 retries.clear()
+                startBeat()
                 dial(p.leftDevice, autoConnect = false)
                 dial(p.rightDevice, autoConnect = false)
             }
