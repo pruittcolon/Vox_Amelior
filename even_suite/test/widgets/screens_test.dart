@@ -1087,7 +1087,9 @@ void main() {
     expect(find.byType(TerminalScreen), findsOneWidget);
 
     // The keys: hidden until asked for (the "Now talking to ..." toast has to be gone first).
-    await tester.pump(const Duration(seconds: 6));
+    await tester.pump(const Duration(seconds: 6)); // its 3 s run out ...
+    await tester.pump(const Duration(seconds: 1)); // ... and it slides away
+    await tester.pump(const Duration(seconds: 1));
     expect(find.byKey(const ValueKey('key-ctrl')), findsNothing);
     await tester.tap(inTab(find.byIcon(Icons.keyboard_alt_outlined)));
     await tester.pump();
