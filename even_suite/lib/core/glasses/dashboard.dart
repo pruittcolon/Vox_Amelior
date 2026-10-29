@@ -136,6 +136,9 @@ class Dashboard extends ChangeNotifier {
   /// How Claude's panel is arranged (set in the app's look-up editor).
   PanelLayout layout = PanelLayout.standard;
 
+  /// Who answers a question from this app ("Claude", "Antigravity").
+  String agent = 'Claude';
+
   /// You are looking up (between the glasses' look-up and look-down events).
   bool lookingUp = false;
 
@@ -255,7 +258,8 @@ class Dashboard extends ChangeNotifier {
   }
 
   /// Claude's panel as it is now (title, bright and dim lines).
-  ClaudePanel get panel => ClaudePanel.build(jobs: jobs, asking: asking, last: lastWork, h24: h24, layout: layout);
+  ClaudePanel get panel =>
+      ClaudePanel.build(jobs: jobs, asking: asking, last: lastWork, h24: h24, layout: layout, agent: agent);
 
   /// The layout actually sent: Claude's panel always uses the dual layout and the notes pane.
   int get sentMode => claudePanel ? 1 : mode;
@@ -289,7 +293,7 @@ class Dashboard extends ChangeNotifier {
             );
           }
           final a = asking;
-          if (a != null) return ('Claude working', '${a.$1}\n"${a.$2}"');
+          if (a != null) return ('$agent working', '${a.$1}\n"${a.$2}"');
           final w = lastWork;
           if (w == null) return ('Claude', 'No finished jobs yet.');
           return (

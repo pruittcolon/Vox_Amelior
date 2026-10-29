@@ -740,6 +740,64 @@ void main() {
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('Antigravity answers when Claude has run out: say it, ask, same glasses, and back', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(EvenSuiteApp(suite: suite));
+    await tester.pump();
+
+    // By voice: "use agy" is a command, not a question for anyone.
+    await suite.submit('use agy', spoken: false);
+    await tester.pump();
+    expect(suite.settings.agent, 'agy');
+    expect(w.bridge.sentTexts, isEmpty);
+    expect(w.bridge.lastWarmTo, 'agy', reason: 'Antigravity starts before the question');
+    await tester.pump(const Duration(seconds: 30));
+
+    await suite.submit('what is in my notes folder', spoken: false);
+    await tester.pump();
+    expect(w.bridge.sentTo.last, 'agy');
+    expect(w.bridge.lastOptions, {'effort': 'medium', 'access': 'auto', 'lane': 'full'},
+        reason: 'no quick lane, no Claude model, and no commands unless allowed');
+    expect(w.bridge.lastSystem, contains('Google Antigravity'));
+    expect(w.bridge.lastSystem, isNot(contains('[[full]]')));
+    w.bridge.progress(stage: 'tool', tool: 'Running ls');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(w.glasses.screens().last, contains('Running ls'));
+    w.bridge.finish('Three files: a.md, b.md, c.md');
+    await tester.pump();
+    await tester.pump();
+    expect(w.glasses.screens().last, contains('Three files'));
+    await tester.pump(const Duration(seconds: 30));
+
+    // Running commands is its own yes.
+    suite.settings.set('agyCommands', true);
+    await suite.submit('list my files', spoken: false);
+    await tester.pump();
+    expect(w.bridge.lastOptions?['agy_commands'], 'true');
+    w.bridge.addReply('ok');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+
+    // And back to Claude: the quick lane and the Claude model return.
+    await suite.submit('use claude', spoken: false);
+    await tester.pump();
+    expect(suite.settings.agent, 'claude');
+    await tester.pump(const Duration(seconds: 30));
+    await suite.submit('what time is it in tokyo', spoken: false);
+    await tester.pump();
+    expect(w.bridge.sentTo.last, 'claude');
+    expect(w.bridge.lastOptions?['lane'], 'quick');
+    expect(w.bridge.lastOptions?.containsKey('agy_commands'), isFalse);
+    w.bridge.addReply('Eight pm.');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  });
+
   testWidgets('quick answers: a light Claude first, Claude Code when it needs tools', (tester) async {
     final w = _World();
     final suite = w.suite;

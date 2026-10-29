@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/shell.dart';
 import '../../app/theme.dart';
+import '../../core/bridge/chat_controller.dart';
 import '../../core/suite.dart';
 import '../../core/voice/speaker.dart';
 import '../../core/voice/wake_word.dart';
@@ -52,10 +53,16 @@ class ClaudeSettingsSheet extends StatelessWidget {
         controller: scroll,
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
         children: [
-          Text('Talking to Claude', style: Theme.of(context).textTheme.titleLarge),
+          Text('Talking to ${ChatController.agentLabel(s.agent)}', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
-          const Text('Claude Code runs in Termux on this phone - no API key, your own Claude login.',
-              style: TextStyle(color: AppColors.muted, fontSize: 13)),
+          Text(
+              s.agent == 'agy'
+                  ? 'Google Antigravity runs in Termux on this phone - your own Google login, no API key.'
+                  : 'Claude Code runs in Termux on this phone - no API key, your own Claude login.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+          const _Head('Who answers'),
+          AgentChooser(settings: s, onChanged: suite.switchAgent, hub: suite.chat.hub),
+          if (s.agent != 'agy') ...[
           const _Head('Answer speed'),
           _Choices(
             value: s.answerSpeed,
@@ -87,13 +94,14 @@ class ClaudeSettingsSheet extends StatelessWidget {
             options: const [('opus', 'Opus'), ('sonnet', 'Sonnet'), ('haiku', 'Haiku (fastest)')],
             onChanged: (v) => s.set('claudeModel', v),
           ),
+          ],
           const _Head('Effort (how hard it thinks)'),
           _Choices(
             value: s.claudeEffort,
             options: const [('low', 'Low'), ('medium', 'Medium'), ('high', 'High'), ('xhigh', 'Extra'), ('max', 'Max')],
             onChanged: (v) => s.set('claudeEffort', v),
           ),
-          const _Head('What Claude may do on this phone'),
+          _Head('What ${ChatController.agentLabel(s.agent)} may do on this phone'),
           _Choices(
             value: s.claudeAccess,
             options: const [('read', 'Look only'), ('edit', 'Edit files'), ('auto', 'Do things')],
@@ -102,14 +110,24 @@ class ClaudeSettingsSheet extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
-              switch (s.claudeAccess) {
-                'read' => 'Reads files and searches, changes nothing.',
-                'edit' => 'Also edits files; anything else that would need your OK is skipped.',
+              switch ((s.agent, s.claudeAccess)) {
+                ('agy', 'read') => 'Reads files and searches; anything it would have to ask about is refused.',
+                ('agy', _) => 'Also edits files. Running commands is the separate switch below.',
+                (_, 'read') => 'Reads files and searches, changes nothing.',
+                (_, 'edit') => 'Also edits files; anything else that would need your OK is skipped.',
                 _ => 'Runs commands and edits files, with Claude Code’s own safety checks (auto mode).',
               },
               style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
             ),
           ),
+          if (s.agent == 'agy')
+            _Switch(
+              'Let Antigravity run commands',
+              'It cannot ask first in this chat, so this is a plain yes: with it on, Antigravity runs commands '
+                  'on this phone with no safety checks. Off: a command it wants is refused and it says so.',
+              s.agyCommands,
+              (v) => s.set('agyCommands', v),
+            ),
           const _Head('Answer length (on the glasses)'),
           _Choices(
             value: s.answerLength,

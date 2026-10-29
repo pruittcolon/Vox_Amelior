@@ -16,6 +16,8 @@ enum VoiceCommand {
   toChat,
   newSession,
   nextSession,
+  useAgy,
+  useClaude,
   enter,
   escape,
   choice1,
@@ -99,6 +101,18 @@ class VoiceCommands {
     VoiceCommand.nextSession: [
       'next session', 'switch session', 'switch sessions', 'other session', 'next claude', 'next terminal',
       'previous session', 'change session',
+    ],
+    // Who answers. "Agy" is rarely written right, so its sound-alikes count.
+    VoiceCommand.useAgy: [
+      'agy', 'use agy', 'switch to agy', 'talk to agy', 'go to agy', 'agy mode', 'switch over to agy',
+      'antigravity', 'use antigravity', 'switch to antigravity', 'talk to antigravity', 'go to antigravity',
+      'anti gravity', 'use anti gravity', 'switch to anti gravity', 'talk to anti gravity',
+      'a g y', 'use a g y', 'switch to a g y', 'talk to a g y', 'use aggie', 'switch to aggie',
+      'use ajay', 'switch to ajay', 'use eggy', 'switch to eggy', 'use gemini', 'switch to gemini',
+    ],
+    VoiceCommand.useClaude: [
+      'use claude', 'switch to claude', 'switch back to claude', 'back to claude', 'go back to claude',
+      'claude mode', 'switch over to claude', 'use cloud', 'switch to cloud',
     ],
     VoiceCommand.enter: ['enter', 'press enter', 'hit enter', 'return'],
     VoiceCommand.escape: ['escape', 'press escape', 'hit escape'],

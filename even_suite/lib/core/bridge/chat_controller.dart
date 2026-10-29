@@ -28,7 +28,27 @@ class ChatController extends ChangeNotifier {
   /// What the running Agent Hub supports (null until checked).
   HubInfo? hub;
 
-  /// Sent with every message as Claude's system prompt (glasses formatting).
+  /// Who answers: 'claude', or 'agy' (Google Antigravity - for when Claude has run out).
+  String get agent => _agent;
+  String _agent = 'claude';
+  set agent(String value) {
+    final next = value == 'agy' ? 'agy' : 'claude';
+    if (next == _agent) return;
+    _agent = next;
+    // An answer on its way from the other one is no longer ours to wait for.
+    _awaitingSince = null;
+    active = null;
+    _activeKey = '';
+    _pending.clear();
+    busy = false;
+    notifyListeners();
+  }
+
+  String get agentName => agentLabel(_agent);
+
+  static String agentLabel(String agent) => agent == 'agy' ? 'Antigravity' : 'Claude';
+
+  /// Sent with every message as the system prompt (glasses formatting).
   String? system;
 
   /// Model, effort and access, sent with every message.
@@ -59,7 +79,7 @@ class ChatController extends ChangeNotifier {
 
   BridgeMessage? get lastReply {
     for (final m in messages.reversed) {
-      if (m.who == 'claude' && m.status == 'done') return m;
+      if (m.who == _agent && m.status == 'done') return m;
     }
     return null;
   }
@@ -107,7 +127,7 @@ class ChatController extends ChangeNotifier {
   /// Start Claude early (the user started talking). Errors are ignored.
   Future<void> warm() async {
     try {
-      await client.warm(system: system, options: options);
+      await client.warm(system: system, options: options, to: _agent);
     } catch (_) {}
   }
 
@@ -117,7 +137,7 @@ class ChatController extends ChangeNotifier {
     _awaitingSince = DateTime.now();
     active = null;
     _activeKey = '';
-    EventLog.add('chat', 'send', {'chars': t.length, 'system': system?.length ?? 0, ...?options});
+    EventLog.add('chat', 'send', {'chars': t.length, 'system': system?.length ?? 0, 'agent': _agent, ...?options});
     // Show the bubble straight away; the next poll replaces it.
     messages = [
       ...messages,
@@ -126,7 +146,7 @@ class ChatController extends ChangeNotifier {
     busy = true;
     notifyListeners();
     try {
-      await client.send(t, to: 'claude', system: system, options: options);
+      await client.send(t, to: _agent, system: system, options: options);
       state = BridgeState.online;
       error = null;
     } catch (e) {
@@ -201,10 +221,10 @@ class ChatController extends ChangeNotifier {
     _version = snap.version;
     state = BridgeState.online;
     error = null;
-    busy = snap.busy.contains('claude') || snap.messages.any((m) => m.who == 'claude' && m.isQueued);
+    busy = snap.busy.contains(_agent) || snap.messages.any((m) => m.who == _agent && m.isQueued);
     BridgeMessage? progress;
     for (final m in snap.messages) {
-      if (m.who != 'claude') continue;
+      if (m.who != _agent) continue;
       if (m.isPending) {
         _pending.add(m.id);
         if (_awaiting && !firstLook) progress = m;

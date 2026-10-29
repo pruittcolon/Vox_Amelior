@@ -231,9 +231,14 @@ class FakeBridgeClient extends BridgeClient {
     c.complete();
   }
 
+  /// Who the replies come from: whoever the last message went to.
+  String replyWho = 'claude';
+  final sentTo = <String>[];
+  String lastWarmTo = '';
+
   void addReply(String text, {String status = 'done'}) {
     messages.add(BridgeMessage(
-        id: 'r$version', who: 'claude', text: text, status: status, ts: DateTime.now().millisecondsSinceEpoch / 1000));
+        id: 'r$version', who: replyWho, text: text, status: status, ts: DateTime.now().millisecondsSinceEpoch / 1000));
     _bump();
   }
 
@@ -258,6 +263,8 @@ class FakeBridgeClient extends BridgeClient {
   Future<void> send(String text,
       {String to = 'claude', int turns = 0, String? system, Map<String, String>? options}) async {
     sentTexts.add(text);
+    sentTo.add(to);
+    replyWho = to;
     lastSystem = system;
     lastOptions = options;
     messages.add(BridgeMessage(id: 'u$version', who: 'you', text: text, status: 'done'));
@@ -269,7 +276,7 @@ class FakeBridgeClient extends BridgeClient {
     messages.removeWhere((m) => m.id == 'p$_turn');
     messages.add(BridgeMessage(
         id: 'p$_turn',
-        who: 'claude',
+        who: replyWho,
         text: '',
         status: 'pending',
         stage: stage,
@@ -285,7 +292,7 @@ class FakeBridgeClient extends BridgeClient {
   void finish(String text, {int block = 1}) {
     messages.removeWhere((m) => m.id == 'p$_turn');
     messages.add(BridgeMessage(
-        id: 'p$_turn', who: 'claude', text: text, status: 'done', stage: 'done', block: block,
+        id: 'p$_turn', who: replyWho, text: text, status: 'done', stage: 'done', block: block,
         ts: DateTime.now().millisecondsSinceEpoch / 1000));
     _turn++;
     _bump();
@@ -294,7 +301,10 @@ class FakeBridgeClient extends BridgeClient {
   int _turn = 0;
 
   @override
-  Future<void> warm({String? system, Map<String, String>? options}) async => warms++;
+  Future<void> warm({String? system, Map<String, String>? options, String to = 'claude'}) async {
+    warms++;
+    lastWarmTo = to;
+  }
 
   bool hook = true;
 

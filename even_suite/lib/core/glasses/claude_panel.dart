@@ -98,6 +98,7 @@ class ClaudePanel {
     DateTime? now,
     bool h24 = false,
     PanelLayout layout = PanelLayout.standard,
+    String agent = 'Claude',
   }) {
     final t = now ?? DateTime.now();
     const w = DashLayout.bodyMaxPx;
@@ -126,7 +127,7 @@ class ClaudePanel {
       claude = (room) => steps.take(room).toList();
     } else if (asking != null) {
       final (step, question, live) = asking;
-      title = 'Claude - answering you';
+      title = '$agent - answering you';
       prompt = question;
       final text = _clean(live);
       // The newest lines of what Claude is writing; before it writes, the step.

@@ -202,6 +202,9 @@ class HubInfo {
 
   /// Sessions can be listed, opened and closed from the app.
   bool get sessions => features.contains('sessions');
+
+  /// Antigravity answers live (stays running, streams its steps, gets the glasses rules).
+  bool get agyLive => features.contains('agy-live');
 }
 
 class TermScreen {
@@ -398,9 +401,11 @@ class BridgeClient {
         if (options != null) 'options': options,
       });
 
-  /// Start Claude now (the user started talking), so the question does not
-  /// wait for Claude Code to start.
-  Future<void> warm({String? system, Map<String, String>? options}) => _send('POST', '/api/bridge/warm', body: {
+  /// Start Claude (or, with [to] 'agy', Antigravity) now - the user started
+  /// talking - so the question does not wait for it to start.
+  Future<void> warm({String? system, Map<String, String>? options, String to = 'claude'}) =>
+      _send('POST', '/api/bridge/warm', body: {
+        'to': to,
         if (system != null) 'system': system,
         if (options != null) 'options': options,
       });

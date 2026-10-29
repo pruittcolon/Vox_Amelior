@@ -248,7 +248,7 @@ class _TalkHero extends StatelessWidget {
         final hold = switch (s.holdAction) {
           'chat' => 'Claude chat',
           'terminal' => label,
-          _ => terminal ? label : 'Claude',
+          _ => terminal ? label : ChatController.agentLabel(s.agent),
         };
         return Container(
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
@@ -266,7 +266,7 @@ class _TalkHero extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               Expanded(
-                child: Text(terminal ? label : 'Ask Claude',
+                child: Text(terminal ? label : 'Ask ${ChatController.agentLabel(s.agent)}',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
               ),
               if (terminal)
@@ -303,7 +303,7 @@ class _TalkHero extends StatelessWidget {
               voice: suite.voice,
               talk: suite.conversation,
               narrator: suite.narrator,
-              target: terminal ? label : 'Claude',
+              target: terminal ? label : ChatController.agentLabel(s.agent),
             ),
             const SizedBox(height: 14),
             Row(children: [

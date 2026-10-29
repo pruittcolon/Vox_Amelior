@@ -169,14 +169,34 @@ class _Header extends StatelessWidget {
             'idle' => ' · ready',
             _ => '',
           };
+          final agy = suite.settings.agent == 'agy';
+          final title = Text(ChatController.agentLabel(suite.settings.agent),
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800));
           return Row(children: [
-            Text('Claude', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            // One tap flips between Claude and Antigravity (chat only).
+            if (terminal)
+              title
+            else
+              InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => suite.switchAgent(agy ? 'claude' : 'agy'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    title,
+                    const SizedBox(width: 4),
+                    const Icon(Icons.swap_horiz_rounded, size: 20, color: AppColors.muted),
+                  ]),
+                ),
+              ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 terminal
                     ? '${term.label}$state'
-                    : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)}',
+                    : agy
+                        ? '${effortLabel(suite.settings.claudeEffort)} · ${accessLabel(suite.settings.claudeAccess)}'
+                        : '${_cap(suite.settings.claudeModel)} · ${effortLabel(suite.settings.claudeEffort)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
@@ -207,7 +227,7 @@ class _Console extends StatelessWidget {
         if (chat.messages.isEmpty) {
           return EmptyHint(
             icon: Icons.auto_awesome_rounded,
-            title: chat.state == BridgeState.offline ? 'Termux bridge is offline' : 'Talk to Claude',
+            title: chat.state == BridgeState.offline ? 'Termux bridge is offline' : 'Talk to ${chat.agentName}',
             lines: chat.state == BridgeState.offline
                 ? ['Start Agent Hub from the Glasses tab, then come back.']
                 : [
@@ -506,6 +526,8 @@ class _Controls extends StatelessWidget {
               autoOffMinutes: suite.settings.autoOffMinutes,
               onChanged: suite.setHandsFree,
             ),
+            const SizedBox(height: 8),
+            AgentChooser(settings: suite.settings, onChanged: suite.switchAgent, hub: suite.chat.hub),
             const SizedBox(height: 8),
             TalkModeChooser(settings: suite.settings, glassesMic: suite.glassesMicInUse),
             const Divider(height: 20),

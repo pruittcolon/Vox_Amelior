@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../core/bridge/bridge_client.dart';
 import '../core/settings.dart';
 import '../core/talk/conversation.dart';
 import '../core/voice/speaker.dart';
@@ -10,6 +11,53 @@ import '../core/voice/voice_controller.dart';
 
 String clockTime(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// Who answers: Claude, or Google Antigravity (agy) for when Claude has run
+/// out. The same voice and glasses; each keeps its own conversation.
+class AgentChooser extends StatelessWidget {
+  const AgentChooser({super.key, required this.settings, required this.onChanged, this.hub});
+  final Settings settings;
+  final void Function(String agent) onChanged;
+
+  /// What the running Agent Hub can do (null: not checked yet).
+  final HubInfo? hub;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: settings,
+        builder: (context, _) {
+          final agy = settings.agent == 'agy';
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'claude', icon: Icon(Icons.auto_awesome_rounded), label: Text('Claude')),
+                ButtonSegment(value: 'agy', icon: Icon(Icons.rocket_launch_rounded), label: Text('Antigravity')),
+              ],
+              selected: {settings.agent},
+              onSelectionChanged: (v) => onChanged(v.first),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              agy
+                  ? 'Google Antigravity answers instead - for when Claude has run out. Same voice, same glasses; '
+                      'say “use Claude” to switch back.'
+                  : 'Claude Code answers. If you run out, switch to Antigravity here or say “use agy”.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+            ),
+            if (agy && hub != null && !hub!.agyLive)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'Your Agent Hub is older: in Termux type  even restart  so Antigravity answers live '
+                  'and knows it is on the glasses.',
+                  style: TextStyle(color: AppColors.warn, fontSize: 12.5),
+                ),
+              ),
+          ]);
+        },
+      );
+}
 
 /// One question (the standard: ask, read the answer, it goes) or back and
 /// forth (after an answer it listens for your follow-up).

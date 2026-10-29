@@ -303,6 +303,8 @@ class Suite extends ChangeNotifier {
       ..autoSend = settings.autoSend
       ..wakeAutoSend = settings.wakeAutoSend
       ..silenceMs = settings.pauseMs;
+    chat.agent = settings.agent;
+    conversation.agent = dashboard.agent = chat.agentName;
     chat.options = _claudeOptions();
     narrator.enabled = settings.speakReplies != 'off';
     final voiceKey = '${settings.ttsEngine}|${settings.ttsVoice}|${settings.ttsRate}|${settings.ttsPitch}';
@@ -381,7 +383,7 @@ class Suite extends ChangeNotifier {
       _mirrorTimer?.cancel();
       _mirrorTimer = Timer(const Duration(milliseconds: 400), mirror.reconfigure);
     }
-    chat.system = glassesPrimer(quick: settings.answerSpeed == 'quick');
+    chat.system = glassesPrimer(quick: _quickLane);
     proto.parallelText = settings.bleParallel;
     voice.stableAfter = Duration(milliseconds: settings.touchPauseMs);
     dashboard.notesOn = settings.lookMode != 'custom';
@@ -727,13 +729,29 @@ class Suite extends ChangeNotifier {
         spoken: settings.speakReplies != 'off',
         phone: settings.phoneActions,
         quick: quick,
+        agent: settings.agent,
       );
 
   /// Model and options for the next question: the quick Claude (no tools,
   /// answers in about a second) or full Claude Code.
-  Map<String, String> _claudeOptions({bool full = false}) => settings.answerSpeed == 'quick' && !full
-      ? {'model': settings.quickModel, 'effort': 'low', 'access': settings.claudeAccess, 'lane': 'quick'}
-      : {...settings.claudeOptions, 'lane': 'full'};
+  Map<String, String> _claudeOptions({bool full = false}) {
+    // Antigravity has no quick lane and its own model names: effort and what
+    // it may do carry over, running commands is a separate yes.
+    if (settings.agent == 'agy') {
+      return {
+        'effort': settings.claudeEffort,
+        'access': settings.claudeAccess,
+        if (settings.agyCommands) 'agy_commands': 'true',
+        'lane': 'full',
+      };
+    }
+    return _quickLane && !full
+        ? {'model': settings.quickModel, 'effort': 'low', 'access': settings.claudeAccess, 'lane': 'quick'}
+        : {...settings.claudeOptions, 'lane': 'full'};
+  }
+
+  /// The quick Claude (no tools) answers first - only Claude has one.
+  bool get _quickLane => settings.answerSpeed == 'quick' && settings.agent == 'claude';
 
   /// "Think harder", "use Claude Code": straight to the full Claude.
   static bool wantsFull(String q) =>
@@ -742,7 +760,12 @@ class Suite extends ChangeNotifier {
           .hasMatch(q);
 
   static String buildPrimer(
-      {required ScreenSize size, String length = 'brief', bool spoken = false, bool phone = false, bool quick = false}) {
+      {required ScreenSize size,
+      String length = 'brief',
+      bool spoken = false,
+      bool phone = false,
+      bool quick = false,
+      String agent = 'claude'}) {
     final chars = size.chars;
     final aim = switch (length) {
       'normal' => 'Aim for about 150 characters. Go up to $chars (one screen) only if it needs it.',
@@ -764,7 +787,7 @@ class Suite extends ChangeNotifier {
         '${spoken ? '- Your reply is also read aloud: write it to sound natural spoken, no symbols or abbreviations that read badly.\n' : ''}'
         '${quick ? '- Quick mode: you have no tools here. If the request needs them (the user\'s files, running '
             'commands, Termux, git, the web or anything current), reply with exactly [[full]] and nothing else - '
-            'Claude Code with its tools takes over.' : '- You run as Claude Code on the user\'s phone (Termux). You can use your tools to do what '
+            'Claude Code with its tools takes over.' : '- You run as ${agent == 'agy' ? 'Google Antigravity (agy)' : 'Claude Code'} on the user\'s phone (Termux). You can use your tools to do what '
             'they ask; then report the result in one short line.'}'
         '${phone ? '\n${PhoneAction.primer}' : ''}';
   }
@@ -772,7 +795,7 @@ class Suite extends ChangeNotifier {
   void _showLastReply({bool speak = false}) {
     final r = chat.lastReply;
     if (r == null) return;
-    display.showText(PhoneAction.strip(r.text), title: 'Claude');
+    display.showText(PhoneAction.strip(r.text), title: chat.agentName);
     if (speak && narrator.enabled) {
       unawaited(voice.suspend());
       _speakThis = true;
@@ -924,7 +947,9 @@ class Suite extends ChangeNotifier {
     if (mode == VoiceCommand.toTerminal ||
         mode == VoiceCommand.toChat ||
         mode == VoiceCommand.newSession ||
-        mode == VoiceCommand.nextSession) {
+        mode == VoiceCommand.nextSession ||
+        mode == VoiceCommand.useAgy ||
+        mode == VoiceCommand.useClaude) {
       _aiSession = false;
       runCommand(mode!);
       return;
@@ -956,7 +981,7 @@ class Suite extends ChangeNotifier {
       } else {
         _lastQuestion = t;
         _terminalAsk = null;
-        _lane = settings.answerSpeed == 'quick' && !wantsFull(t) ? 'quick' : 'full';
+        _lane = _quickLane && !wantsFull(t) ? 'quick' : 'full';
         chat.system = glassesPrimer(quick: _lane == 'quick');
         chat.options = _claudeOptions(full: _lane == 'full');
         // "Got it" first: the glasses answer at once, the rest can take a moment.
@@ -1052,6 +1077,26 @@ class Suite extends ChangeNotifier {
 
   /// Talk to Claude chat from now on (the TouchBar hold too).
   void useChat() => _setTarget(Target.claude);
+
+  /// Who answers from now on: 'claude', or 'agy' (Google Antigravity - for
+  /// when Claude has run out). The same voice, glasses and screens; each one
+  /// keeps its own conversation in Agent Hub. [toChat]: said by voice, so
+  /// messages go to chat, not the terminal.
+  void switchAgent(String agent, {bool toChat = false}) {
+    final next = agent == 'agy' ? 'agy' : 'claude';
+    final name = ChatController.agentLabel(next);
+    if (toChat && settings.target != Target.claude) useChat();
+    if (settings.agent == next) {
+      _toast('Already talking to $name');
+      if (toChat) _modeNotice('$name\nAlready answering');
+      return;
+    }
+    settings.set('agent', next);
+    EventLog.add('chat', 'agent', {'agent': next});
+    _toast('Now talking to $name');
+    _modeNotice('$name\nAnswers from now on');
+    if (settings.target == Target.claude) unawaited(chat.warm());
+  }
 
   /// Talk to terminal [name] from now on ("claude" is the one Termux shows).
   void useSession(String name) {
@@ -1456,6 +1501,10 @@ class Suite extends ChangeNotifier {
         unawaited(newSession());
       case VoiceCommand.nextSession:
         unawaited(nextSession());
+      case VoiceCommand.useAgy:
+        switchAgent('agy', toChat: true);
+      case VoiceCommand.useClaude:
+        switchAgent('claude', toChat: true);
       case VoiceCommand.enter:
         terminal.key('Enter');
       case VoiceCommand.escape:

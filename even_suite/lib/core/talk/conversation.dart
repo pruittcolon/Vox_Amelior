@@ -60,6 +60,13 @@ class Conversation extends ChangeNotifier {
   bool ai = false;
   DateTime? sentAt;
 
+  /// The chat's answerer on the glasses ("Claude", or "Antigravity").
+  String agent = 'Claude';
+
+  /// The title of the screens for the question on its way: [agent], or
+  /// "Claude" when it was typed into a terminal.
+  String _title = 'Claude';
+
   /// Who is answering ("Claude", or "Claude Code" in terminal mode).
   String who = 'Claude';
   String _gotIt = 'Got it';
@@ -149,7 +156,7 @@ class Conversation extends ChangeNotifier {
     _stopTick();
     _set(TalkStage.idle);
     if (!_canShow) return;
-    display.showStatus("Didn't catch that.\nHold the TouchBar and try again.", title: 'Claude', ai: ai, immediate: true);
+    display.showStatus("Didn't catch that.\nHold the TouchBar and try again.", title: agent, ai: ai, immediate: true);
     _nothingTimer?.cancel();
     _nothingTimer = Timer(const Duration(milliseconds: 2500), () {
       if (stage == TalkStage.idle && display.mode == DisplayMode.status) display.clear();
@@ -170,11 +177,12 @@ class Conversation extends ChangeNotifier {
   // --------------------------------------------------------------- asking
 
   void asked(String text,
-      {bool ai = false, String who = 'Claude', String gotIt = 'Got it', String firstStep = 'Sending'}) {
+      {bool ai = false, String? who, String gotIt = 'Got it', String firstStep = 'Sending'}) {
     _nothingTimer?.cancel();
     question = text.trim();
     this.ai = ai;
-    this.who = who;
+    this.who = who ?? agent;
+    _title = who == null ? agent : 'Claude';
     _gotIt = gotIt;
     sentAt = DateTime.now();
     _lastProgress = sentAt!;
@@ -188,7 +196,7 @@ class Conversation extends ChangeNotifier {
     _set(TalkStage.sent);
     _startTick(const Duration(seconds: 1));
     // Straight away, not behind the live-text throttle: this is the "it heard you" moment.
-    if (_canShow) display.showStatus(workingScreen(), title: 'Claude', ai: ai, immediate: true);
+    if (_canShow) display.showStatus(workingScreen(), title: _title, ai: ai, immediate: true);
   }
 
   /// Progress from a Claude Code job in the terminal (the Work hooks).
@@ -230,7 +238,7 @@ class Conversation extends ChangeNotifier {
     };
     if (m.stage == 'writing' && m.live.trim().isNotEmpty) {
       _set(TalkStage.answering);
-      if (_canShow && !quiet) display.updateReply(m.live, title: 'Claude', ai: ai);
+      if (_canShow && !quiet) display.updateReply(m.live, title: _title, ai: ai);
     } else {
       _set(TalkStage.working);
       _draw();
@@ -253,7 +261,7 @@ class Conversation extends ChangeNotifier {
     step = 'Done';
     _set(TalkStage.idle);
     if (wasQuiet) return false;
-    if (_canShow) display.updateReply(m.text, title: 'Claude', ai: ai, done: true);
+    if (_canShow) display.updateReply(m.text, title: _title, ai: ai, done: true);
     return true;
   }
 
@@ -264,7 +272,7 @@ class Conversation extends ChangeNotifier {
     _set(TalkStage.error);
     if (_canShow) {
       display.showStatus('$who did not answer\n${_short(error, 90)}\nTap right to try again',
-          title: 'Claude', ai: ai);
+          title: _title, ai: ai);
     }
   }
 
@@ -299,7 +307,7 @@ class Conversation extends ChangeNotifier {
             title: 'Listening', ai: _listenAi);
       case TalkStage.sent:
       case TalkStage.working:
-        display.showStatus(workingScreen(), title: 'Claude', ai: ai);
+        display.showStatus(workingScreen(), title: _title, ai: ai);
       default:
         break;
     }

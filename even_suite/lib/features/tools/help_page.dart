@@ -25,6 +25,8 @@ class HelpPage extends StatelessWidget {
     (VoiceCommand.toChat, 'Send messages to Claude chat'),
     (VoiceCommand.newSession, 'Open another Claude Code session and talk to it'),
     (VoiceCommand.nextSession, 'Switch to the next Claude Code session'),
+    (VoiceCommand.useAgy, 'Antigravity answers instead (when Claude has run out)'),
+    (VoiceCommand.useClaude, 'Claude answers again'),
     (VoiceCommand.enter, 'Press Enter in the terminal'),
     (VoiceCommand.escape, 'Press Escape in the terminal'),
     (VoiceCommand.choice1, 'Pick option 1 (e.g. “Yes” in Claude Code)'),

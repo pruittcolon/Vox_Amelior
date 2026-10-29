@@ -67,6 +67,8 @@ class Settings extends ChangeNotifier {
   String answerLength = 'brief'; // brief (~50 characters), normal (~150), long (screens)
   String answerSpeed = 'quick'; // quick (no tools, hands off to Claude Code when needed) or full
   String quickModel = 'sonnet'; // the quick lane's model: sonnet or haiku
+  String agent = 'claude'; // who answers: claude, or agy (Google Antigravity - for when Claude has run out)
+  bool agyCommands = false; // Antigravity may run commands (it cannot ask first, so this is a plain yes)
   int touchPauseMs = 900; // TouchBar / double tap: this much quiet sends what you said
   bool bleParallel = false; // send text screens to both arms at once (test)
   int displayHeight = 4; // where text sits: 0 (low) .. 8 (high), as last set from the app
@@ -191,6 +193,8 @@ class Settings extends ChangeNotifier {
     answerLength = _s(m['answerLength'], answerLength);
     answerSpeed = _s(m['answerSpeed'], answerSpeed);
     quickModel = _s(m['quickModel'], quickModel);
+    agent = _s(m['agent'], agent) == 'agy' ? 'agy' : 'claude';
+    agyCommands = _b(m['agyCommands'], agyCommands);
     touchPauseMs = _i(m['touchPauseMs'], touchPauseMs).clamp(500, 3000);
     bleParallel = _b(m['bleParallel'], bleParallel);
     displayHeight = _i(m['displayHeight'], displayHeight).clamp(0, 8);
@@ -339,6 +343,10 @@ class Settings extends ChangeNotifier {
         answerSpeed = value as String;
       case 'quickModel':
         quickModel = value as String;
+      case 'agent':
+        agent = value == 'agy' ? 'agy' : 'claude';
+      case 'agyCommands':
+        agyCommands = value as bool;
       case 'touchPauseMs':
         touchPauseMs = value as int;
       case 'bleParallel':
