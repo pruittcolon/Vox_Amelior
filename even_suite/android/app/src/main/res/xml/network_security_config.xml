@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Termux bridge is plain HTTP on this phone (127.0.0.1) or on your own
+     network, so cleartext is allowed. The app talks to nothing else. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
