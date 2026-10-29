@@ -219,7 +219,7 @@ class ExtraKeys extends StatelessWidget {
           _row(_top),
           _row(_bottom),
           SizedBox(
-            height: 38,
+            height: 44,
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.fromLTRB(2, 4, 2, 0),

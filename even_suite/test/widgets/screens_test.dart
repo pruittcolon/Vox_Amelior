@@ -254,7 +254,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(suite.settings.target, Target.terminal);
       expect(find.byType(TerminalScreen), findsOneWidget);
-      await tester.tap(find.byTooltip('Esc, arrows, Tab ...'));
+      await tester.tap(find.byTooltip('Esc, Ctrl, Alt, Shift, Tab, arrows ...'));
       await tester.pump();
       expect(find.text('Esc'), findsOneWidget, reason: 'the keys a phone keyboard lacks');
       await _shot(tester, '5_terminal$tag');
@@ -1086,7 +1086,8 @@ void main() {
     expect(suite.terminal.session, 'agy');
     expect(find.byType(TerminalScreen), findsOneWidget);
 
-    // The keys: hidden until asked for.
+    // The keys: hidden until asked for (the "Now talking to ..." toast has to be gone first).
+    await tester.pump(const Duration(seconds: 6));
     expect(find.byKey(const ValueKey('key-ctrl')), findsNothing);
     await tester.tap(inTab(find.byIcon(Icons.keyboard_alt_outlined)));
     await tester.pump();
@@ -1167,6 +1168,7 @@ void main() {
     suite.openSection('claude');
     suite.useSession('agy');
     expect(suite.settings.agent, 'agy', reason: 'its session brings its section');
+    await tester.pump(const Duration(seconds: 30));
     await tester.pumpWidget(const SizedBox());
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
