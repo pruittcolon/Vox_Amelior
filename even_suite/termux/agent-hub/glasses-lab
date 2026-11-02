@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""glasses-lab - try things on the Even G1 glasses from a terminal, through the
+Even Suite app (its "Claude lab" switch must be on).
+
+  glasses-lab status                    is the app listening?
+  glasses-lab help                      what the app can do (it answers)
+  glasses-lab CMD [key=value ...]       run a command, print the answer (JSON)
+
+Values: numbers, true/false and JSON lists/objects are read as such; text
+stays text; key=@file reads a file (binary files are sent as base64).
+Examples:
+  glasses-lab text text="Hello from Claude"
+  glasses-lab screen lines='["one","two","three","four","five","six"]'
+  glasses-lab textbmp text="Small text, more of it" size=12
+  glasses-lab raw hex=2c side=L
+  glasses-lab events n=20 cat=ble
+Options: --wait SECONDS (default 30), --hub URL (default http://127.0.0.1:8787)
+"""
+import base64
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+
+def call(hub, method, path, body=None, timeout=40):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(hub + path, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def value(v):
+    if v.startswith("@"):
+        raw = open(os.path.expanduser(v[1:]), "rb").read()
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(raw).decode()
+    if v in ("true", "false"):
+        return v == "true"
+    try:
+        return json.loads(v) if v[:1] in "[{" else (int(v) if v.lstrip("-").isdigit() else float(v))
+    except ValueError:
+        return v
+
+
+def main(argv):
+    hub, wait = os.environ.get("HUB_URL", "http://127.0.0.1:8787"), 30.0
+    rest = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--wait":
+            wait, i = float(argv[i + 1]), i + 2
+        elif argv[i] == "--hub":
+            hub, i = argv[i + 1].rstrip("/"), i + 2
+        else:
+            rest.append(argv[i])
+            i += 1
+    if not rest or rest[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    try:
+        if rest[0] == "status":
+            out = call(hub, "GET", "/api/lab/status", timeout=5)
+            print(json.dumps(out, indent=2))
+            return 0 if out.get("listening") else 1
+        args = {}
+        for kv in rest[1:]:
+            k, sep, v = kv.partition("=")
+            if not sep:
+                print(f"glasses-lab: expected key=value, got {kv!r}", file=sys.stderr)
+                return 2
+            args[k] = value(v)
+        out = call(hub, "POST", "/api/lab/run", {"cmd": rest[0], "args": args, "wait": wait}, timeout=wait + 10)
+    except urllib.error.HTTPError as e:
+        print(f"glasses-lab: hub answered {e.code}: {e.read().decode(errors='replace')}", file=sys.stderr)
+        return 2
+    except OSError as e:
+        print(f"glasses-lab: no Agent Hub at {hub} ({e}). Start it with: even", file=sys.stderr)
+        return 2
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+    return 0 if out.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

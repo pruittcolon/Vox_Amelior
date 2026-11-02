@@ -1,0 +1,84 @@
+name: Even Suite (G1 app)
+on:
+  workflow_dispatch:
+  push:
+    branches: [even-suite]
+    paths: ['even_suite/**', '.github/workflows/even-suite.yml']
+  pull_request:
+    paths: ['even_suite/**', '.github/workflows/even-suite.yml']
+permissions:
+  contents: write
+concurrency:
+  group: even-suite-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: even_suite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      # Same Flutter as the open-source EvenDemoApp (Dart ^3.5.3).
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.24.5', channel: stable, cache: true }
+
+      - name: tmux for the Termux bridge tests
+        run: command -v tmux || (sudo apt-get update -qq && sudo apt-get install -y -qq tmux)
+      - name: Agent Hub API tests (fake Claude, private tmux)
+        working-directory: even_suite/termux/agent-hub
+        run: python3 -m unittest -v test_server
+      - name: Start a test bridge for the app tests
+        run: bash termux/agent-hub/ci_bridge.sh
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - name: App tests (simulated glasses, voice, live bridge, screenshots)
+        run: flutter test -r expanded
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: even-suite-screenshots
+          path: even_suite/test/screenshots/out/
+          if-no-files-found: ignore
+
+      - name: Release signing key
+        if: github.event_name != 'pull_request'
+        # The same key every time, so each new APK installs over the old one.
+        env:
+          VOX_KEYSTORE_B64: ${{ secrets.VOX_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$VOX_KEYSTORE_B64" ]; then
+            echo "::error::Secret VOX_KEYSTORE_B64 is missing."
+            exit 1
+          fi
+          echo "$VOX_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/vox-release.p12"
+          echo "VOX_KEYSTORE_PATH=$RUNNER_TEMP/vox-release.p12" >> "$GITHUB_ENV"
+      - name: Build APK
+        if: github.event_name != 'pull_request'
+        env:
+          VOX_KEYSTORE_PASSWORD: ${{ secrets.VOX_KEYSTORE_PASSWORD }}
+        run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
+      - name: Name the APK
+        if: github.event_name != 'pull_request'
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../even-suite.apk
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: even-suite-apk
+          path: even-suite.apk
+      - name: Publish release (download from your phone)
+        if: github.event_name != 'pull_request'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete even-suite-latest --cleanup-tag --yes || true
+          gh release create even-suite-latest even-suite.apk \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Even Suite for G1 (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7}. On your phone: download even-suite.apk, open it, allow installing from this source. Needs a 64-bit Android 8+ phone. Start Agent Hub in Termux (or tap Start in Termux in the app)."
