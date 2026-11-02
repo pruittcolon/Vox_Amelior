@@ -32,4 +32,16 @@ echo
 echo "  Leave this screen open. Press Ctrl+C here to stop the web page."
 echo
 
-exec python3 "$HERE/server.py"
+# Turned on: forget an earlier "turned off on purpose" (see ensure-hub).
+STOP_FLAG="${HUB_STOP_FLAG:-/data/data/com.termux/files/home/.agent-hub-stopped}"
+[ -d "$(dirname "$STOP_FLAG")" ] || STOP_FLAG="$HOME/.agent-hub/stopped"
+rm -f "$STOP_FLAG"
+
+python3 "$HERE/server.py"
+rc=$?
+# A clean exit is you turning it off (even stop, Stop in the app, Ctrl+C here):
+# then nothing starts it again by itself until you do. A crash is not.
+if [ $rc -eq 0 ]; then
+  mkdir -p "$(dirname "$STOP_FLAG")" && touch "$STOP_FLAG"
+fi
+exit $rc

@@ -419,6 +419,14 @@ class FakeBridgeClient extends BridgeClient {
   @override
   Future<void> stop() async {}
 
+  int quits = 0;
+
+  @override
+  Future<void> quit() async {
+    quits++;
+    online = false;
+  }
+
   @override
   Future<void> reset() async {
     messages.clear();
@@ -480,14 +488,26 @@ class FakeSystem extends SystemBridge {
   @override
   Future<bool> termuxInstalled() async => true;
 
+  /// Every command run in Termux, what it answers, and what running it does.
+  final termuxRuns = <String>[];
+  String termuxResult = 'ok';
+  void Function(String command)? onTermux;
+  int appSettingsOpened = 0;
+
   @override
-  Future<String> runTermux(String command) async => 'ok';
+  Future<String> runTermux(String command) async {
+    termuxRuns.add(command);
+    if (termuxResult == 'ok') onTermux?.call(command);
+    return termuxResult;
+  }
 
   @override
   Future<bool> openTermux() async => true;
 
   @override
-  Future<void> openAppSettings([String? package]) async {}
+  Future<void> openAppSettings([String? package]) async {
+    appSettingsOpened++;
+  }
 
   bool evenAppInstalled = false;
 

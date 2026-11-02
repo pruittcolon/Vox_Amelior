@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# ensure-hub - keep the Termux bridge (Agent Hub) running. Safe to run any
+# time, as often as you like: when it is up this answers in a few ms, and only
+# one start runs at a time.
+#   ensure-hub              start it if it is not running (waits up to 30 s)
+#   ensure-hub --watch PID  while PID runs, check every 20 s and start it again
+#                           if it went away (claude-keepalive: on with Claude)
+# Turned off on purpose (even stop, Stop in the app, Ctrl+C on its screen), it
+# stays off until you start it again (even, or Start in the app).
+PORT="${HUB_PORT:-8787}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DATA="$HOME/.agent-hub"
+# Where Termux's `even` can see it too.
+STOP_FLAG="${HUB_STOP_FLAG:-/data/data/com.termux/files/home/.agent-hub-stopped}"
+[ -d "$(dirname "$STOP_FLAG")" ] || STOP_FLAG="$DATA/stopped"
+
+up() { curl -fs -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/ping"; }
+
+start() {
+  up && return 0
+  [ -e "$STOP_FLAG" ] && return 2
+  mkdir -p "$DATA"
+  (
+    flock -n 9 || exit 0 # a start is already on its way
+    up && exit 0
+    echo "$(date -Is) starting it ($1)" >> "$DATA/ensure.log"
+    # Its own session, so nothing that started this (or Ctrl+C there) takes it down.
+    setsid nohup env HUB_NO_BROWSER=1 bash -lc "$HERE/start.sh" >> "$DATA/hub.log" 2>&1 < /dev/null 9>&- &
+    for _ in $(seq 60); do
+      sleep 0.5
+      up && exit 0
+    done
+    echo "$(date -Is) not answering after 30 s (see $DATA/hub.log)" >> "$DATA/ensure.log"
+    exit 1
+  ) 9> "$DATA/start.lock"
+}
+
+case "$1" in
+  --watch)
+    pid="${2:-$PPID}"
+    while kill -0 "$pid" 2>/dev/null; do
+      start "with Claude"
+      sleep 20
+    done
+    ;;
+  *)
+    start "${1:-by hand}"
+    rc=$?
+    [ $rc -eq 2 ] && echo "Off - it was turned off on purpose. Start it with: even (in Termux) or Start in the app."
+    exit $rc
+    ;;
+esac

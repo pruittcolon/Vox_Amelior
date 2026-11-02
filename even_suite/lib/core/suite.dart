@@ -284,7 +284,8 @@ class Suite extends ChangeNotifier {
       final granted = await system.permissions(['bluetooth']);
       if (granted['bluetooth'] == true) await ble.connect(GlassesPair.fromMap(last));
     }
-    unawaited(chat.check());
+    chat.addListener(_watchBridge);
+    unawaited(ensureBridge('app start'));
   }
 
   /// Why Android ended the app's process the last few times (killed for
@@ -990,6 +991,7 @@ class Suite extends ChangeNotifier {
       }
     }
     try {
+      await _bridgeFirst();
       if (target == Target.terminal) {
         await _toTerminal(t);
       } else {
@@ -1085,6 +1087,7 @@ class Suite extends ChangeNotifier {
     _spokenQuestion = false;
     _speakThis = settings.speakReplies == 'always';
     try {
+      await _bridgeFirst();
       await _toTerminal(text, typed: true);
     } catch (e) {
       _toast('$e');
@@ -1781,10 +1784,73 @@ class Suite extends ChangeNotifier {
 
   /// Start Agent Hub in Termux (runs the one-word `even`, the same as typing
   /// it in Termux). Returns a message for the user.
-  Future<String> startBridge() => _termux(settings.startCommand, 'Claude is ready.');
+  Future<String> startBridge() {
+    _bridgeStopped = false;
+    return _termux(settings.startCommand, 'Claude is ready.');
+  }
+
+  // You stopped it here: it is not started again by itself until you Start it.
+  bool _bridgeStopped = false;
+  bool _autoStarting = false;
+  DateTime? _lastAutoStart;
+  bool _bridgeWasUp = false;
+
+  /// What Termux runs to start the bridge by itself: `even auto` (which stays
+  /// off after `even stop`), or your own start command.
+  String get autoStartCommand =>
+      settings.startCommand == Settings.defaultStartCommand ? 'even auto' : settings.startCommand;
+
+  /// Make sure the Termux bridge (Agent Hub) answers, starting it in Termux by
+  /// itself when it does not: quietly (no dialogs; without the permission it
+  /// just says so on the Home tab), at most once every 90 s unless you are
+  /// waiting on it ([patient]), and never after you stopped it here or turned
+  /// "Start it by itself" off. True when it answers.
+  Future<bool> ensureBridge(String why, {bool patient = false}) async {
+    if (await chat.check()) return true;
+    if (!settings.autoStartBridge || _bridgeStopped || _autoStarting) return false;
+    final last = _lastAutoStart;
+    if (!patient && last != null && DateTime.now().difference(last) < const Duration(seconds: 90)) return false;
+    _autoStarting = true;
+    _lastAutoStart = DateTime.now();
+    try {
+      final r = await system.runTermux(autoStartCommand);
+      EventLog.add('termux', 'autoStart', {'why': why, 'result': r});
+      if (r != 'ok') return false;
+      chat.markStarting();
+      // Ubuntu and the hub take a few seconds on a phone.
+      for (var i = 0; i < 60; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        if (await chat.check()) {
+          unawaited(terminal.refreshSessions());
+          return true;
+        }
+      }
+      EventLog.add('termux', 'autoNoAnswer', {'why': why});
+      chat.markOffline();
+      return false;
+    } finally {
+      _autoStarting = false;
+    }
+  }
+
+  /// The bridge went away while the app had it (Termux closed, the phone
+  /// restarted Termux): start it again by itself.
+  void _watchBridge() {
+    if (_bridgeWasUp && chat.state == BridgeState.offline) unawaited(ensureBridge('lost'));
+    _bridgeWasUp = chat.state == BridgeState.online;
+  }
+
+  /// Asked something with the bridge off: start it first, then go on.
+  Future<void> _bridgeFirst() async {
+    if (chat.state != BridgeState.offline || !settings.autoStartBridge || _bridgeStopped) return;
+    _toast('Starting the Termux bridge…');
+    if (_glassesFree()) display.notice('Starting the Termux bridge...', duration: const Duration(seconds: 4));
+    await ensureBridge('ask', patient: true);
+  }
 
   /// Stop and start Agent Hub again (`even restart`), e.g. after an update.
   Future<String> restartBridge() async {
+    _bridgeStopped = false;
     final cmd = settings.startCommand == Settings.defaultStartCommand ? 'even restart' : settings.startCommand;
     if (cmd != 'even restart') {
       try {
@@ -1797,6 +1863,7 @@ class Suite extends ChangeNotifier {
 
   /// Turn Agent Hub off (`even stop`).
   Future<String> stopBridge() async {
+    _bridgeStopped = true;
     try {
       await client.quit();
     } catch (e) {
@@ -1839,6 +1906,7 @@ class Suite extends ChangeNotifier {
 
   @override
   void dispose() {
+    chat.removeListener(_watchBridge);
     _events?.cancel();
     _phoneNotes?.cancel();
     work.dispose();

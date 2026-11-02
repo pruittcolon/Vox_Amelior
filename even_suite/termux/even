@@ -7,13 +7,17 @@
 #   even log       what it printed last time
 #   even web       start it and open the web page
 #   even setup     let Claude Code tell the app what it is doing (Work tab, look-up screen)
+#   even auto      start it unless you turned it off (what Termux and the app run by themselves)
 URL=http://127.0.0.1:8787
 LOG="$HOME/.agent-hub.log"
+# There when you turned it off on purpose: then it only starts when you ask.
+STOP_FLAG="$HOME/.agent-hub-stopped"
 
 up() { curl -fs -m 2 "$URL/api/ping" >/dev/null 2>&1; }
 
 stop() {
   if curl -fs -m 3 -X POST "$URL/api/quit" >/dev/null 2>&1; then
+    touch "$STOP_FLAG"
     for _ in $(seq 20); do up || break; sleep 0.5; done
     echo "Stopped."
   else
@@ -27,8 +31,15 @@ start() {
     echo "✓ Ready (already running). Open Even Suite."
     return 0
   fi
+  # One start at a time: the app, a new Termux window and you may all ask at once.
+  exec 9>"${TMPDIR:-$PREFIX/tmp}/even-start.lock"
+  flock -w 120 9 2>/dev/null
+  if up; then
+    echo "✓ Ready. Open Even Suite."
+    return 0
+  fi
   printf 'Starting Claude for Even Suite'
-  nohup proot-distro login ubuntu -- env HUB_NO_BROWSER="${1:-1}" bash -lc '~/agent-hub/start.sh' >"$LOG" 2>&1 &
+  nohup proot-distro login ubuntu -- env HUB_NO_BROWSER="${1:-1}" bash -lc '~/agent-hub/start.sh' >"$LOG" 2>&1 9>&- &
   disown 2>/dev/null
   for _ in $(seq 90); do
     sleep 1
@@ -43,12 +54,19 @@ start() {
 }
 
 case "$1" in
-  "" | start) start 1 ;;
+  "" | start) rm -f "$STOP_FLAG"; start 1 ;;
+  auto)
+    if [ -e "$STOP_FLAG" ]; then
+      echo "Off - you turned it off. Type: even"
+      exit 3
+    fi
+    start 1
+    ;;
   stop) stop ;;
-  restart) stop; start 1 ;;
+  restart) stop; rm -f "$STOP_FLAG"; start 1 ;;
   log) tail -n 40 "$LOG" ;;
-  web) start 0 && termux-open-url "$URL/" 2>/dev/null ;;
+  web) rm -f "$STOP_FLAG"; start 0 && termux-open-url "$URL/" 2>/dev/null ;;
   setup) proot-distro login ubuntu -- python3 /root/agent-hub/install_hook.py ;;
-  help | -h | --help) sed -n '2,9p' "$0" ;;
+  help | -h | --help) sed -n '2,10p' "$0" ;;
   *) echo "even: no '$1' (type: even help)"; exit 1 ;;
 esac

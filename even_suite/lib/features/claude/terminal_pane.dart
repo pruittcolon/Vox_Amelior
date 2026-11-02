@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
 import '../../core/bridge/bridge_client.dart';
+import '../../core/bridge/chat_controller.dart';
 import '../../core/bridge/key_modifiers.dart';
 import '../../core/bridge/terminal_controller.dart';
 import '../../core/suite.dart';
@@ -33,7 +34,7 @@ class TerminalPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final term = suite.terminal;
     return ListenableBuilder(
-      listenable: term,
+      listenable: Listenable.merge([term, suite.chat]),
       builder: (context, _) => Column(children: [
         Expanded(
           child: Container(
@@ -57,11 +58,17 @@ class TerminalPane extends StatelessWidget {
                 : !term.online && term.text.isEmpty
                 ? EmptyHint(
                     icon: Icons.terminal_rounded,
-                    title: term.error == null ? 'Connecting to Termux…' : 'Termux bridge is offline',
-                    lines: [
-                      if (term.error != null) term.error!,
-                      'Start it on the Home tab, or type even in Termux.',
-                    ],
+                    title: suite.chat.state == BridgeState.starting
+                        ? 'Starting the Termux bridge…'
+                        : term.error == null
+                            ? 'Connecting to Termux…'
+                            : 'Termux bridge is offline',
+                    lines: suite.chat.state == BridgeState.starting
+                        ? const ['It starts by itself. A few seconds on a phone.']
+                        : [
+                            if (term.error != null) term.error!,
+                            'Tap Start on the Home tab, or type even in Termux.',
+                          ],
                   )
                 : TerminalScreen(text: term.text, cols: term.cols, onFit: term.fit),
           ),

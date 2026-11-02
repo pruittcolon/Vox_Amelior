@@ -83,7 +83,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     final fg = state == AppLifecycleState.resumed;
     if (fg != _foreground) setState(() => _foreground = fg);
     if (fg) {
-      SuiteScope.of(context).chat.check();
+      // Back in front: the bridge is checked, and started by itself if it went away.
+      unawaited(SuiteScope.of(context).ensureBridge('resume'));
       unawaited(SuiteScope.of(context).askBattery()); // fresh when you look
     }
   }

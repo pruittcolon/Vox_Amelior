@@ -111,6 +111,12 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A start did not bring it up.
+  void markOffline() {
+    state = BridgeState.offline;
+    notifyListeners();
+  }
+
   /// Keep the conversation live while [owner] (a screen) is visible.
   void watch(Object owner) {
     _owners.add(owner);

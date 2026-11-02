@@ -182,6 +182,13 @@ class SettingsPage extends StatelessWidget {
                 maxLines: 3,
                 onSave: (v) => s.set('startCommand', v.trim().isEmpty ? Settings.defaultStartCommand : v.trim()),
               ),
+              _Switch(
+                'Start it by itself',
+                'When the app opens or comes back, when the link drops, or when you ask something with it off. '
+                    'Not after you turn it off (even stop, or Stop on the Home tab).',
+                s.autoStartBridge,
+                (v) => s.set('autoStartBridge', v),
+              ),
               Row(children: [
                 Expanded(
                   child: OutlinedButton.icon(

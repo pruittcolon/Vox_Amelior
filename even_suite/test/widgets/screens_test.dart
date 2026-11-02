@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 
 import 'package:even_suite/core/ble/ble_manager.dart';
 import 'package:even_suite/core/bridge/bridge_client.dart';
+import 'package:even_suite/core/bridge/chat_controller.dart';
 import 'package:even_suite/core/glasses/claude_panel.dart';
 import 'package:even_suite/core/glasses/dashboard.dart';
 import 'package:even_suite/core/glasses/glasses_display.dart';
@@ -1178,6 +1179,87 @@ void main() {
     expect(suite.settings.agent, 'agy', reason: 'its session brings its section');
     await tester.pump(const Duration(seconds: 30));
     await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('the Termux bridge starts by itself, and stays off when you turned it off', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    w.bridge.online = false;
+    // Termux runs the command and, a moment later, the hub answers.
+    w.system.onTermux = (_) => Future.delayed(const Duration(seconds: 2), () => w.bridge.online = true);
+
+    // Down when needed: `even auto` runs (no dialog), the app says "Starting", then it answers.
+    final up = suite.ensureBridge('test');
+    await tester.pump();
+    expect(w.system.termuxRuns, ['even auto']);
+    expect(suite.chat.state, BridgeState.starting);
+    await tester.pump(const Duration(seconds: 4));
+    expect(await up, isTrue);
+    expect(suite.chat.state, BridgeState.online);
+    expect(w.system.appSettingsOpened, 0, reason: 'started quietly');
+
+    // Up already: nothing to run.
+    expect(await suite.ensureBridge('again'), isTrue);
+    expect(w.system.termuxRuns, hasLength(1));
+
+    // Lost again within 90 s: not started over and over by itself ...
+    w.bridge.online = false;
+    expect(await suite.ensureBridge('lost'), isFalse);
+    expect(w.system.termuxRuns, hasLength(1));
+    // ... but at once when you are waiting on it (a question asked).
+    final asked = suite.ensureBridge('ask', patient: true);
+    await tester.pump(const Duration(seconds: 4));
+    expect(await asked, isTrue);
+    expect(w.system.termuxRuns, hasLength(2));
+
+    // Turned off on purpose: it stays off until you start it.
+    final stopped = suite.stopBridge();
+    await tester.pump(const Duration(seconds: 1));
+    expect(await stopped, startsWith('Stopped.'));
+    expect(w.bridge.quits, 1);
+    expect(await suite.ensureBridge('ask', patient: true), isFalse);
+    expect(w.system.termuxRuns, hasLength(2));
+    final started = suite.startBridge();
+    await tester.pump(const Duration(seconds: 4));
+    expect(await started, 'Claude is ready.');
+    expect(w.system.termuxRuns.last, 'even', reason: 'Start is the plain command (it also clears even stop)');
+
+    // Switched off in Settings: never by itself.
+    suite.settings.set('autoStartBridge', false);
+    w.bridge.online = false;
+    expect(await suite.ensureBridge('ask', patient: true), isFalse);
+    expect(w.system.termuxRuns, hasLength(3));
+
+    // Your own start command is what runs by itself.
+    suite.settings.set('autoStartBridge', true);
+    suite.settings.set('startCommand', 'my-start');
+    expect(suite.autoStartCommand, 'my-start');
+    // No permission for Termux: no dialog by itself, just not started.
+    w.system.termuxResult = 'no-permission';
+    expect(await suite.ensureBridge('ask', patient: true), isFalse);
+    expect(w.system.termuxRuns.last, 'my-start');
+    expect(w.system.appSettingsOpened, 0);
+    await tester.pump(const Duration(seconds: 5));
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('a question with the bridge off starts it first, then goes through', (tester) async {
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    w.bridge.online = false;
+    await suite.chat.check();
+    expect(suite.chat.state, BridgeState.offline);
+    w.system.onTermux = (_) => Future.delayed(const Duration(seconds: 2), () => w.bridge.online = true);
+    final asked = suite.submit('explain how rainbows form', spoken: false);
+    await tester.pump();
+    expect(w.system.termuxRuns, ['even auto']);
+    await tester.pump(const Duration(seconds: 4));
+    await asked;
+    expect(w.bridge.sentTexts.last, 'explain how rainbows form', reason: 'sent once the bridge answered');
+    w.bridge.addReply('It is 3 am.');
+    await tester.pump(const Duration(seconds: 30));
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
 

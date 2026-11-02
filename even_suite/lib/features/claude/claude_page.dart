@@ -230,9 +230,15 @@ class _Console extends StatelessWidget {
         if (mine.isEmpty) {
           return EmptyHint(
             icon: AgentSections.iconOf(agent),
-            title: chat.state == BridgeState.offline ? 'Termux bridge is offline' : 'Talk to ${chat.agentName}',
+            title: chat.state == BridgeState.offline
+                ? 'Termux bridge is offline'
+                : chat.state == BridgeState.starting
+                    ? 'Starting the Termux bridge…'
+                    : 'Talk to ${chat.agentName}',
             lines: chat.state == BridgeState.offline
-                ? ['Start Agent Hub from the Glasses tab, then come back.']
+                ? ['Tap Start on the Home tab, or type even in Termux.']
+                : chat.state == BridgeState.starting
+                ? ['It starts by itself. A few seconds on a phone.']
                 : [
                     'Tap the mic and just talk. It sends when you pause and answers on your glasses and out loud. For a back and forth, pick it in ⋯.',
                     'Or hold the left TouchBar, or turn on hands-free and say “${suite.voice.wake.label}…”.',

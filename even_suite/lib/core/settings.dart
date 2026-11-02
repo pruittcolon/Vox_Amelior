@@ -24,6 +24,11 @@ class Settings extends ChangeNotifier {
 
   String bridgeUrl = defaultBridgeUrl;
   String startCommand = defaultStartCommand;
+
+  /// Start the Termux bridge by itself - the app opening or coming back, the
+  /// link lost, a question asked with it off - with `even auto`, which stays
+  /// off after you turned it off (`even stop`, or Stop in the app).
+  bool autoStartBridge = true;
   /// "Start" (and what recognizers often hear instead) begins a hands-free
   /// message; "send" sends it.
   static const defaultWakeWords = ['start', 'tart', 'starts'];
@@ -152,6 +157,7 @@ class Settings extends ChangeNotifier {
     bridgeUrl = _s(m['bridgeUrl'], bridgeUrl);
     startCommand = _s(m['startCommand'], startCommand);
     if (startCommand == legacyStartCommand) startCommand = defaultStartCommand;
+    autoStartBridge = _b(m['autoStartBridge'], autoStartBridge);
     final words = _s(m['wakeWords'], '');
     if (words.trim().isNotEmpty && words != WakeWord.defaults.join(',')) {
       wakeWords = words.split(',').map((w) => w.trim()).where((w) => w.isNotEmpty).toList();
@@ -271,6 +277,8 @@ class Settings extends ChangeNotifier {
         bridgeUrl = value as String;
       case 'startCommand':
         startCommand = value as String;
+      case 'autoStartBridge':
+        autoStartBridge = value as bool;
       case 'wakeWords':
         wakeWords = (value as List<String>);
         value = wakeWords.join(',');
