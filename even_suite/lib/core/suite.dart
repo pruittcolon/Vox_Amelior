@@ -16,6 +16,7 @@ import 'glasses/display_position.dart';
 import 'glasses/glasses_display.dart';
 import 'glasses/glasses_text.dart';
 import 'glasses/hud_frame.dart';
+import 'lab/glasses_lab.dart';
 import 'home/home_commands.dart';
 import 'home/vizio.dart';
 import 'home/voice_monkey.dart';
@@ -184,6 +185,9 @@ class Suite extends ChangeNotifier {
   late final ScreenMirror mirror;
   late final PhoneActions phoneActions = PhoneActions(system);
 
+  /// Claude lab: Claude in Termux controls the glasses, when switched on.
+  late final GlassesLab lab = GlassesLab(this);
+
   /// The lights (Alexa routines through Voice Monkey) and the Vizio TV.
   VoiceMonkey voiceMonkey = VoiceMonkey();
   VizioTv tv = VizioTv();
@@ -286,6 +290,7 @@ class Suite extends ChangeNotifier {
     }
     chat.addListener(_watchBridge);
     unawaited(ensureBridge('app start'));
+    if (settings.labOn) lab.setOn(true);
   }
 
   /// Why Android ended the app's process the last few times (killed for
@@ -1907,6 +1912,7 @@ class Suite extends ChangeNotifier {
   @override
   void dispose() {
     chat.removeListener(_watchBridge);
+    lab.dispose();
     _events?.cancel();
     _phoneNotes?.cancel();
     work.dispose();

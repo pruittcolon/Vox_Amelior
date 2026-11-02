@@ -485,6 +485,18 @@ class BridgeClient {
   Future<void> keys(String session, List<String> keys) =>
       _send('POST', '/api/term/${Uri.encodeComponent(session)}/keys', body: {'keys': keys});
 
+  /// Claude lab: the next command from `glasses-lab` (null when none came in [waitSec]).
+  Future<Map<String, dynamic>?> labNext({int waitSec = 25}) async {
+    final m = await _send('GET', '/api/lab/next?wait=$waitSec',
+        timeout: Duration(seconds: waitSec + 8), tag: 'lab');
+    return m['id'] == null ? null : m;
+  }
+
+  /// Claude lab: what a command did.
+  Future<void> labResult(String id, {required bool ok, Object? result, String? error, int ms = 0}) =>
+      _send('POST', '/api/lab/result',
+          body: {'id': id, 'ok': ok, 'result': result, if (error != null) 'error': error, 'ms': ms});
+
   /// Every terminal running in Termux (needs Agent Hub with sessions).
   /// [denied]: tmux turned Agent Hub away (allow-app has not been run).
   Future<({List<TermSession> list, bool denied})> sessions() async {

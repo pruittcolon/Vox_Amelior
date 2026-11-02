@@ -9,6 +9,7 @@ import '../features/home/home_page.dart';
 import '../features/tools/tools_page.dart';
 import '../features/work/work_page.dart';
 import '../widgets/common.dart';
+import '../widgets/lab_banner.dart';
 import '../widgets/voice_widgets.dart';
 
 /// Gives every screen the app's [Suite].
@@ -111,6 +112,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               suite.setHandsFree(false);
             },
           ),
+          LabBanner(lab: suite.lab),
           Expanded(
             child: IndexedStack(index: _tab, children: [
               HomePage(active: _foreground && _tab == Shell.home),

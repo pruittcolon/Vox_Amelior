@@ -213,6 +213,36 @@ class SettingsPage extends StatelessWidget {
                 ),
               ]),
             ]),
+            _Section('Claude lab', Icons.science_rounded, AppColors.claude, [
+              ListenableBuilder(
+                listenable: suite.lab,
+                builder: (context, _) {
+                  final lab = suite.lab;
+                  final at = lab.lastAt;
+                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    _Switch(
+                      'Let Claude control the glasses',
+                      'Claude, in Termux, can show text and pictures and send raw commands to your glasses '
+                          '(glasses-lab), to try ideas out. Turns itself off after ${lab.idleOff.inMinutes} min '
+                          'without a command.',
+                      lab.on,
+                      lab.setOn,
+                    ),
+                    if (lab.on)
+                      Text(
+                        lab.error != null
+                            ? 'Not reaching Agent Hub: ${lab.error}'
+                            : at == null
+                                ? 'Listening - nothing yet.'
+                                : 'Listening - last: ${lab.lastCommand} at '
+                                    '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')} '
+                                    '(${lab.count} so far)',
+                        style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+                      ),
+                  ]);
+                },
+              ),
+            ]),
             _Section('Permissions', Icons.shield_rounded, AppColors.warn, [
               const Text(
                   'Bluetooth (“Nearby devices”), Microphone, Notifications and “Run commands in Termux”.',

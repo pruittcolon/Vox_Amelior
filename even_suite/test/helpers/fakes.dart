@@ -419,6 +419,23 @@ class FakeBridgeClient extends BridgeClient {
   @override
   Future<void> stop() async {}
 
+  /// Claude lab: commands waiting for the app, and what it answered.
+  final labJobs = <Map<String, dynamic>>[];
+  final labResults = <Map<String, Object?>>[];
+
+  @override
+  Future<Map<String, dynamic>?> labNext({int waitSec = 25}) async {
+    if (labJobs.isEmpty) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      return null;
+    }
+    return labJobs.removeAt(0);
+  }
+
+  @override
+  Future<void> labResult(String id, {required bool ok, Object? result, String? error, int ms = 0}) async =>
+      labResults.add({'id': id, 'ok': ok, 'result': result, 'error': error});
+
   int quits = 0;
 
   @override

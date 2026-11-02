@@ -14,7 +14,9 @@ import 'package:even_suite/core/glasses/glasses_display.dart';
 import 'package:even_suite/core/glasses/hud_frame.dart';
 import 'package:even_suite/core/glasses/look_layout.dart';
 import 'package:even_suite/core/home/vizio.dart';
+import 'package:even_suite/core/lab/glasses_lab.dart';
 import 'package:even_suite/core/home/voice_monkey.dart';
+import 'package:even_suite/core/screen/mono_encoder.dart';
 import 'package:even_suite/core/settings.dart';
 import 'package:even_suite/core/suite.dart';
 import 'package:even_suite/core/voice/voice_commands.dart';
@@ -1262,6 +1264,86 @@ void main() {
     await tester.pump(const Duration(seconds: 30));
     suite.dispose();
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('Claude lab: commands from Termux run on the glasses, and it turns itself off', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    final w = _World();
+    final suite = w.suite;
+    await w.control.connectNow();
+    await tester.pumpWidget(RepaintBoundary(key: _shotKey, child: EvenSuiteApp(suite: suite)));
+    await tester.pump();
+    expect(find.textContaining('Claude lab is on'), findsNothing, reason: 'off unless you turn it on');
+    suite.lab.idleOff = const Duration(seconds: 20);
+    suite.lab.setOn(true);
+    await tester.pump();
+    expect(suite.settings.labOn, isTrue, reason: 'kept for next time');
+    expect(find.textContaining('Claude lab is on'), findsOneWidget, reason: 'it says so on every screen');
+
+    Future<Map<String, Object?>> run(String cmd, Map<String, dynamic> args) async {
+      final before = w.bridge.labResults.length;
+      w.bridge.labJobs.add({'id': 'j${before + 1}', 'cmd': cmd, 'args': args});
+      for (var i = 0; i < 20 && w.bridge.labResults.length == before; i++) {
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      expect(w.bridge.labResults.length, before + 1, reason: '$cmd got an answer');
+      return w.bridge.labResults.last;
+    }
+
+    // Text the app's normal way.
+    var r = await run('text', {'text': 'hello from the lab'});
+    expect(r['ok'], isTrue, reason: '$r');
+    expect(w.glasses.screens().last, contains('hello from the lab'));
+    await _shot(tester, '24_lab_on');
+
+    // One exact screen: six lines, nothing wrapped or cut by the app.
+    r = await run('screen', {
+      'lines': ['one', 'two', 'three', 'four', 'five', 'line six'],
+    });
+    expect(r['ok'], isTrue, reason: '$r');
+    expect((r['result'] as Map)['lines'], 6);
+    expect(w.glasses.screens().last, contains('line six'));
+
+    // Raw bytes to one arm.
+    r = await run('raw', {'hex': '4d 01', 'side': 'L', 'timeoutMs': 300});
+    expect(r['ok'], isTrue, reason: '$r');
+    expect(w.glasses.sent['L']!.any((p) => p.length == 2 && p[0] == 0x4d && p[1] == 0x01), isTrue);
+    expect(w.glasses.sent['R']!.any((p) => p.length == 2 && p[0] == 0x4d && p[1] == 0x01), isFalse);
+
+    // Its own log, and an honest answer to a command that does not exist.
+    r = await run('events', {'n': 5, 'cat': 'lab'});
+    expect(r['ok'], isTrue);
+    expect((r['result'] as List).isNotEmpty, isTrue);
+    r = await run('teleport', {});
+    expect(r['ok'], isFalse);
+    expect('${r['error']}', contains('textbmp'), reason: 'lists what does exist');
+    r = await run('raw', {'hex': 'abc'});
+    expect(r['ok'], isFalse, reason: 'odd hex is refused, not guessed');
+
+    // Quiet for a while: it turns itself off, and the banner goes.
+    await tester.pump(const Duration(seconds: 25));
+    expect(suite.lab.on, isFalse);
+    expect(suite.settings.labOn, isFalse);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.textContaining('Claude lab is on'), findsNothing);
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpWidget(const SizedBox());
+    suite.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('Claude lab draws text as a picture and says how much fitted', (tester) async {
+    final small = await tester.runAsync(() => GlassesLab.drawText('one two three', size: 12));
+    expect(small!.bmp.length, MonoEncoder.bmpSize);
+    expect(small.bmp.sublist(62, 62 + MonoEncoder.dataSize).any((b) => b != 0xFF), isTrue, reason: 'some pixels lit');
+    expect(small.cut, isFalse);
+    final long = List.filled(60, 'many words here').join(' ');
+    final big = await tester.runAsync(() => GlassesLab.drawText(long, size: 30));
+    expect(big!.cut, isTrue);
+    expect(big.charsShown, lessThan(long.length));
+    final tiny = await tester.runAsync(() => GlassesLab.drawText(long, size: 10));
+    expect(tiny!.linesShown, greaterThan(big.linesShown), reason: 'smaller text, more lines');
+  });
 
   testWidgets('glasses battery shows in the app', (tester) async {
     tester.view.physicalSize = const Size(1080, 2340);

@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -75,10 +76,10 @@ class AgentHubTest(unittest.TestCase):
             return json.loads(r.read())
 
     @classmethod
-    def post(cls, path, body):
+    def post(cls, path, body, timeout=10):
         req = urllib.request.Request(cls.base + path, data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
 
     def test_ping_lists_sessions(self):
@@ -457,6 +458,46 @@ class AgentHubTest(unittest.TestCase):
         self.assertNotIn("agy", [s["name"] for s in self.get("/api/sessions")["sessions"]])
         self.assertNotIn("agy-2", [s["name"] for s in self.get("/api/sessions")["sessions"]])
 
+    def test_lab_relay_app_answers_the_terminal(self):
+        # Nobody listening: a clear answer at once, not a hang.
+        out = self.post("/api/lab/run", {"cmd": "text", "args": {"text": "hi"}, "wait": 5})
+        self.assertFalse(out["ok"])
+        self.assertIn("Claude lab", out["error"])
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.post("/api/lab/run", {"cmd": "rm -rf /", "args": {}})
+        self.assertEqual(cm.exception.code, 400)
+
+        # The app: long-polls for a command, carries it out, answers.
+        seen = []
+
+        def app():
+            for _ in range(2):
+                job = self.get("/api/lab/next?wait=5", timeout=10)
+                if not job:
+                    continue
+                seen.append(job)
+                self.post("/api/lab/result", {"id": job["id"], "ok": True,
+                                               "result": {"echo": job["args"].get("text"), "cmd": job["cmd"]}})
+                return
+
+        t = threading.Thread(target=app, daemon=True)
+        t.start()
+        for _ in range(50):
+            if self.get("/api/lab/status")["listening"]:
+                break
+            time.sleep(0.1)
+        out = self.post("/api/lab/run", {"cmd": "text", "args": {"text": "hello glasses"}, "wait": 10}, timeout=20)
+        t.join(5)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["result"], {"echo": "hello glasses", "cmd": "text"})
+        self.assertEqual(seen[0]["cmd"], "text")
+
+        # Listening but never answering: gives up after the wait, and the command is not left queued.
+        out = self.post("/api/lab/run", {"cmd": "status", "args": {}, "wait": 1}, timeout=10)
+        self.assertFalse(out["ok"])
+        self.assertIn("No answer", out["error"])
+        self.assertEqual(self.get("/api/lab/status")["waiting"], 0)
+
     def wait_for(self, session, needle, timeout=10):
         deadline, seen, h = time.time() + timeout, "", ""
         while time.time() < deadline and needle not in seen:
@@ -573,7 +614,10 @@ class AgentHubTest(unittest.TestCase):
         self.assertEqual(opts["agy_model"], "gemini-4-argon")
         args = server.LiveAgy.args(opts, "conv-123")
         self.assertIn("--model", args)
-        self.assertIn("gemini-4-argon", args)
+        self.assertIn("gemini-4-argon-high", args, "agy only knows the model with its level on the end")
+        self.assertNotIn("gemini-4-argon", args)
+        self.assertEqual(server.agy_model_id({"agy_model": "gemini-3.8-flash"}), "gemini-3.8-flash-medium")
+        self.assertEqual(server.agy_model_id({}), "")
         self.assertIn("--effort", args)
         self.assertIn("high", args)
         self.assertIn("--dangerously-skip-permissions", args)

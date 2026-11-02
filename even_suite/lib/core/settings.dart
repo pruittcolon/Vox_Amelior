@@ -29,6 +29,9 @@ class Settings extends ChangeNotifier {
   /// link lost, a question asked with it off - with `even auto`, which stays
   /// off after you turned it off (`even stop`, or Stop in the app).
   bool autoStartBridge = true;
+
+  /// Claude lab: Claude (in Termux) may control the glasses (glasses-lab).
+  bool labOn = false;
   /// "Start" (and what recognizers often hear instead) begins a hands-free
   /// message; "send" sends it.
   static const defaultWakeWords = ['start', 'tart', 'starts'];
@@ -158,6 +161,7 @@ class Settings extends ChangeNotifier {
     startCommand = _s(m['startCommand'], startCommand);
     if (startCommand == legacyStartCommand) startCommand = defaultStartCommand;
     autoStartBridge = _b(m['autoStartBridge'], autoStartBridge);
+    labOn = _b(m['labOn'], labOn);
     final words = _s(m['wakeWords'], '');
     if (words.trim().isNotEmpty && words != WakeWord.defaults.join(',')) {
       wakeWords = words.split(',').map((w) => w.trim()).where((w) => w.isNotEmpty).toList();
@@ -279,6 +283,8 @@ class Settings extends ChangeNotifier {
         startCommand = value as String;
       case 'autoStartBridge':
         autoStartBridge = value as bool;
+      case 'labOn':
+        labOn = value as bool;
       case 'wakeWords':
         wakeWords = (value as List<String>);
         value = wakeWords.join(',');

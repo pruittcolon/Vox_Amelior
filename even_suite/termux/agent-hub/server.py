@@ -500,6 +500,18 @@ AGY_MODELS = {
     "flash": "gemini-3.8-flash",
     "gemini-3.8-flash": "gemini-3.8-flash",
 }
+
+
+def agy_model_id(opts):
+    """The model as agy names it: the family with the effort level on the end
+    ("gemini-4-argon-medium"). `agy models` lists only those; the bare family
+    name is not one."""
+    base = AGY_MODELS.get(opts.get("agy_model") or opts.get("model") or "")
+    if not base:
+        return ""
+    return f"{base}-{AGY_EFFORTS.get(opts.get('effort') or '', 'medium')}"
+
+
 WORK_FILE = os.path.join(DATA_DIR, "work.json")
 # Claude jobs that finished while Agent Hub was not running (claude_done_hook.py).
 WORK_PENDING = os.path.join(DATA_DIR, "work-pending.jsonl")
@@ -835,7 +847,7 @@ class LiveAgy:
     @staticmethod
     def args(opts, convo):
         a = [AGY_BIN, "--input-format", "stream-json", "--output-format", "stream-json", "--print="]
-        model = AGY_MODELS.get(opts.get("agy_model") or opts.get("model") or "")
+        model = agy_model_id(opts)
         if model:
             a += ["--model", model]
         effort = AGY_EFFORTS.get(opts.get("effort") or "")
@@ -856,7 +868,7 @@ class LiveAgy:
     def ensure(self, opts):
         """The Antigravity process for these options, started (or restarted) if needed."""
         with self.spawn_lock:
-            model = AGY_MODELS.get(opts.get("agy_model") or opts.get("model") or "")
+            model = agy_model_id(opts)
             effort = AGY_EFFORTS.get(opts.get("effort") or "")
             key = json.dumps([model, effort, opts.get("access") in ("edit", "auto"),
                               bool(opts.get("agy_commands"))])
@@ -1551,24 +1563,24 @@ class Bridge:
                             self.work_version += 1
                             self.cond.notify_all()
 
-        if prime or not has("tmux"):
+        if prime or not shutil.which("tmux"):
             return
         try:
             sessions = [s for s in list_sessions() if s.get("kind") == "agy"]
         except Exception:  # noqa: BLE001
             sessions = []
         for s in sessions:
-            sid = s["id"]
+            sid = s["name"]
             if s.get("state") == "asking":
                 sig = s.get("topic") or "asking"
                 if self._agy_pane_asking.get(sid) != sig:
                     self._agy_pane_asking[sid] = sig
-                    pane_tail = "\n".join(ln.strip() for ln in capture(sid, 12).splitlines() if ln.strip())[-600:]
+                    pane_tail = "\n".join(ln.strip() for ln in capture_session(sid, 12).splitlines() if ln.strip())[-600:]
                     self.add_work({
                         "agent": "agy",
                         "kind": "message",
                         "project": "Antigravity",
-                        "where": s.get("title") or sid,
+                        "where": sid,
                         "session": sid,
                         "summary": f"Needs input: {sig}"[:240],
                         "text": pane_tail or f"Antigravity is waiting for your input in {sid}: {sig}",
@@ -1610,6 +1622,78 @@ class Bridge:
 
 
 bridge = Bridge()
+
+
+class Lab:
+    """Claude lab: commands for the glasses from a terminal (`glasses-lab`),
+    carried out by the Even Suite app while its "Claude lab" switch is on. The
+    app long-polls /api/lab/next and answers /api/lab/result; whoever asked
+    (POST /api/lab/run) waits for that answer."""
+
+    LISTEN_SECS = 40  # the app counts as listening this long after it last asked
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.jobs = []
+        self.results = {}
+        self.last_poll = 0.0
+
+    def listening(self):
+        return time.time() - self.last_poll < self.LISTEN_SECS
+
+    def status(self):
+        with self.cond:
+            return {"listening": self.listening(), "waiting": len(self.jobs),
+                    "lastPoll": round(self.last_poll, 1)}
+
+    def run(self, cmd, args, wait):
+        if not self.listening():
+            return {"ok": False, "error": "The app is not listening: turn on Claude lab in Even Suite "
+                                          "(Settings > Claude lab), with the app open or its glasses link up."}
+        job = {"id": uuid.uuid4().hex[:10], "cmd": cmd, "args": args}
+        deadline = time.time() + wait
+        with self.cond:
+            self.jobs.append(job)
+            self.cond.notify_all()
+            while job["id"] not in self.results:
+                left = deadline - time.time()
+                if left <= 0:
+                    if job in self.jobs:
+                        self.jobs.remove(job)
+                    return {"ok": False, "id": job["id"], "error": f"No answer from the app within {wait:.0f} s"}
+                self.cond.wait(left)
+            return self.results.pop(job["id"])
+
+    def next(self, wait):
+        """The next command for the app (None when there was none for [wait] s)."""
+        deadline = time.time() + wait
+        with self.cond:
+            self.last_poll = time.time()
+            while not self.jobs:
+                left = deadline - time.time()
+                if left <= 0:
+                    return None
+                self.cond.wait(min(left, 5))
+                self.last_poll = time.time()  # still there, mid long poll
+            return self.jobs.pop(0)
+
+    def result(self, d):
+        rid = str(d.get("id") or "")[:20]
+        if not rid:
+            return False
+        with self.cond:
+            self.last_poll = time.time()
+            self.results[rid] = {"ok": d.get("ok") is True, "id": rid, "result": d.get("result"),
+                                 "error": d.get("error"), "ms": d.get("ms")}
+            # Answers nobody waits for any more (the asker gave up) are not kept.
+            for old in list(self.results)[:-50]:
+                del self.results[old]
+            self.cond.notify_all()
+        return True
+
+
+lab = Lab()
+LAB_CMD_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 # ------------------------------------------------------------------ http
@@ -1655,7 +1739,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/ping":
             return self.send_json({"ok": True, "name": "agent-hub", "api": 5, "hook": hook_installed(),
                                    "features": ["live", "warm", "work", "sessions", "submit", "conversations",
-                                                "agy-live", "modkeys", "agy-session"],
+                                                "agy-live", "modkeys", "agy-session", "lab"],
                                    "sessions": sorted(SESSIONS)})
         if url.path == "/api/sessions":
             sessions = list_sessions()
@@ -1666,6 +1750,11 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/work":
             return self.send_json(bridge.work_snapshot(int(q.get("v", -1)), float(q.get("wait", 0)),
                                                        int(q.get("tail", 30))))
+        if url.path == "/api/lab/next":
+            job = lab.next(max(0.0, min(float(q.get("wait", 25)), 30)))
+            return self.send_json(job or {})
+        if url.path == "/api/lab/status":
+            return self.send_json(lab.status())
         if url.path == "/api/status":
             return self.send_json({a: tmux("has-session", "-t", f"={s['session']}").returncode == 0
                                    for a, s in SESSIONS.items()})
@@ -1773,6 +1862,15 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(e, dict):
                         f.write(json.dumps({**e, **meta}, separators=(",", ":")) + "\n")
             return self.send_json({"ok": True, "n": len(events)})
+        if parts == ["api", "lab", "run"]:
+            d = self.json_body()
+            cmd, args = str(d.get("cmd") or ""), d.get("args") or {}
+            if not LAB_CMD_RE.match(cmd) or not isinstance(args, dict):
+                return self.send_json({"ok": False, "error": "bad command"}, 400)
+            wait = max(1.0, min(float(d.get("wait") or 30), 180))
+            return self.send_json(lab.run(cmd, args, wait))
+        if parts == ["api", "lab", "result"]:
+            return self.send_json({"ok": lab.result(self.json_body())})
         if parts == ["api", "quit"]:
             # `all stop` in Termux. Claude's tmux session keeps running.
             self.send_json({"ok": True})
